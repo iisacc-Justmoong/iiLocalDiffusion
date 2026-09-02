@@ -1,0 +1,5 @@
+{
+  "architectures": ["CLIPTextModel"],
+  "hidden_size": 768,
+  "max_position_embeddings": 77
+}

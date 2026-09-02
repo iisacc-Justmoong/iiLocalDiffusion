@@ -1,0 +1,6 @@
+{
+  "architectures": ["CLIPTextModelWithProjection"],
+  "hidden_size": 1280,
+  "max_position_embeddings": 77,
+  "projection_dim": 1280
+}

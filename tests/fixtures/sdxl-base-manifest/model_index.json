@@ -1,0 +1,11 @@
+{
+  "_class_name": "StableDiffusionXLPipeline",
+  "force_zeros_for_empty_prompt": true,
+  "tokenizer": ["transformers", "CLIPTokenizer"],
+  "tokenizer_2": ["transformers", "CLIPTokenizer"],
+  "text_encoder": ["transformers", "CLIPTextModel"],
+  "text_encoder_2": ["transformers", "CLIPTextModelWithProjection"],
+  "unet": ["diffusers", "UNet2DConditionModel"],
+  "vae": ["diffusers", "AutoencoderKL"],
+  "scheduler": ["diffusers", "EulerDiscreteScheduler"]
+}

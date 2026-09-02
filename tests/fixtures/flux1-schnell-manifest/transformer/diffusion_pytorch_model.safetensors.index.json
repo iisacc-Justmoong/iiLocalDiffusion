@@ -1,0 +1,10 @@
+{
+  "metadata": {
+    "total_size": 3
+  },
+  "weight_map": {
+    "context_embedder.bias": "diffusion_pytorch_model-00001-of-00003.safetensors",
+    "transformer_blocks.0.attn.to_k.bias": "diffusion_pytorch_model-00002-of-00003.safetensors",
+    "single_transformer_blocks.37.proj_out.weight": "diffusion_pytorch_model-00003-of-00003.safetensors"
+  }
+}

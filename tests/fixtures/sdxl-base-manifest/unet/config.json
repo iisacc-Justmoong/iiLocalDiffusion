@@ -1,0 +1,11 @@
+{
+  "_class_name": "UNet2DConditionModel",
+  "addition_embed_type": "text_time",
+  "addition_time_embed_dim": 256,
+  "in_channels": 4,
+  "out_channels": 4,
+  "sample_size": 128,
+  "cross_attention_dim": 2048,
+  "projection_class_embeddings_input_dim": 2816,
+  "use_linear_projection": true
+}

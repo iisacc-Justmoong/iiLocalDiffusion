@@ -1,0 +1,10 @@
+{
+  "architectures": ["CLIPTextModel"],
+  "hidden_size": 768,
+  "intermediate_size": 3072,
+  "max_position_embeddings": 77,
+  "num_attention_heads": 12,
+  "num_hidden_layers": 12,
+  "projection_dim": 768,
+  "vocab_size": 49408
+}

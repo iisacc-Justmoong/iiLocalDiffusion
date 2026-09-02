@@ -1,0 +1,6 @@
+/build/
+/cmake-build-*/
+/.idea/
+/reference/diffusers/.venv/
+/reference/diffusers/__pycache__/
+*.pyc

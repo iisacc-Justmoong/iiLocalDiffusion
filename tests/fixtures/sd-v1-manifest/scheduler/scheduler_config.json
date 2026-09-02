@@ -1,0 +1,6 @@
+{
+  "_class_name": "PNDMScheduler",
+  "num_train_timesteps": 1000,
+  "beta_schedule": "scaled_linear",
+  "skip_prk_steps": true
+}

@@ -1,0 +1,9 @@
+{
+  "metadata": {
+    "total_size": 2
+  },
+  "weight_map": {
+    "encoder.block.0.layer.0": "model-00001-of-00002.safetensors",
+    "encoder.block.23.layer.1": "model-00002-of-00002.safetensors"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "architectures": ["T5EncoderModel"],
+  "d_ff": 10240,
+  "d_kv": 64,
+  "d_model": 4096,
+  "feed_forward_proj": "gated-gelu",
+  "num_heads": 64,
+  "num_layers": 24,
+  "vocab_size": 32128
+}
