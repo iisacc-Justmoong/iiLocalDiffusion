@@ -1,0 +1,5 @@
+# Isolated conversion environment (Python 3.13); never installed into the Diffusers oracle.
+coremltools==9.0
+numpy==2.3.5
+safetensors==0.6.2
+ml_dtypes==0.5.3

@@ -68,6 +68,9 @@ class ReferenceScriptsTests(unittest.TestCase):
 
     def test_reference_dependencies_are_pinned(self) -> None:
         requirements = (REFERENCE / "requirements.txt").read_text(encoding="utf-8").splitlines()
+        self.assertIn("-r requirements-common.txt", requirements)
+        self.assertIn("torch==2.13.0", requirements)
+        requirements += (REFERENCE / "requirements-common.txt").read_text(encoding="utf-8").splitlines()
         self.assertIn("hf-xet==1.6.0", requirements)
         self.assertIn("peft==0.20.0", requirements)
 
@@ -625,7 +628,7 @@ class ReferenceScriptsTests(unittest.TestCase):
             events.append("lora")
             return activation
 
-        def prepare(candidate, preset, device, attention_slicing):
+        def prepare(candidate, preset, device, attention_slicing, *, offload="auto"):
             self.assertIs(candidate, pipeline)
             self.assertEqual(device, "mps")
             self.assertFalse(attention_slicing)
@@ -641,7 +644,7 @@ class ReferenceScriptsTests(unittest.TestCase):
                 side_effect=prepare,
             ),
         ):
-            returned, optimization, returned_activation = (
+            returned, optimization, returned_activation, conditioning = (
                 self.generate.prepare_pipeline_with_adapters(
                     pipeline,
                     presets.SD15_PRESET,
@@ -655,6 +658,7 @@ class ReferenceScriptsTests(unittest.TestCase):
         self.assertEqual(events, ["validate", "lora", "offload"])
         self.assertEqual(optimization["offload_policy"], "sequential-cpu")
         self.assertIs(returned_activation, activation)
+        self.assertIsNone(conditioning)
 
     def test_lora_must_be_registered_and_active(self) -> None:
         _, arguments = self.generate.resolve_arguments(
@@ -871,6 +875,7 @@ class ReferenceScriptsTests(unittest.TestCase):
                 sample_size=1024,
                 scaling_factor=0.13025,
                 force_upcast=True,
+                block_out_channels=[128, 256, 512, 512],
             ),
             "scheduler": component(
                 "EulerDiscreteScheduler",

@@ -124,9 +124,20 @@ complete pipeline to the accelerator as one resident allocation.
 artifact paths match. It does not mean safetensors bodies were parsed, the
 authenticated official weights were downloaded, or inference ran. GGUF,
 single-file checkpoints, quantized derivatives, ControlNet, FLUX.1-dev, and
-arbitrary third-party FLUX layouts are outside this profile. LoRA remains
-outside the C++ package profile; the Python generation oracle can apply one
-explicit adapter only after this base pipeline contract passes.
+arbitrary third-party FLUX layouts are outside this C++ package profile.
+LoRA likewise remains outside the C++ package profile.
+
+The independent Python generation oracle accepts a compatible Schnell
+transformer file through `--model`, a separate `AutoencoderKL` file through
+`--vae`, and one optional `--lora`. Its `--model-config` source supplies the
+CLIP/T5 encoders, tokenizers, scheduler, component configs, and default VAE if
+not replaced. A single transformer file is not a self-contained FLUX pipeline.
+Native Diffusers and supported original-format transformer weights use the
+pinned Diffusers single-file loader; `.safetensors` and local `.safetensor`
+filenames are accepted. All assembled components must still satisfy the
+Schnell contract before LoRA activation and generation. This does not admit
+Dev guidance embeddings, quantized weights, or alternate latent contracts.
+See [model-inputs.md](model-inputs.md) for source selection and provenance.
 
 The Python oracle performs the stronger check by loading actual weights,
 verifying effective component classes and critical configuration, and

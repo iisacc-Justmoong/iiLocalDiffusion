@@ -1,0 +1,4 @@
+# Install AMD's GPU/OS-compatible HIP PyTorch build first (see docs/radeon-rocm.md).
+# Keep that vendor build: do not force the standard environment's Torch version.
+# hardware.py --device rocm rejects a CPU-only or NVIDIA build before model loading.
+-r requirements-common.txt

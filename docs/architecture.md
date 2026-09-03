@@ -32,7 +32,7 @@ appear in iiLocalDiffusion's public request or result types.
 
 ## Current dependency direction
 
-The manifest milestone has one executable path with pipeline-specific leaves:
+Metadata inspection and native component computation are independent paths:
 
 ```text
 iild-run -> loadModelManifest
@@ -41,12 +41,33 @@ loadModelManifest -> FluxModelManifest
 StableDiffusionModelManifest -> private ModelManifestParser
 FluxModelManifest -> private ModelManifestParser
 ModelManifestParser -> filesystem and json-c
+iild-run compute -> LinearLayer -> private MLX runtime -> Metal/CUDA
+iild-run compute -> LinearLayer -> private LibTorch runtime -> AMD HIP/ROCm
+LibTorch weight loading -> private safetensors-cpp reader -> owned LibTorch storage
+LinearLayer -> ComputeRuntime (explicit device policy)
+iild-run neural-compute -> CoreMLModel -> private system Core ML -> CPU/ANE/(optional GPU)
 ```
 
 Python Diffusers is an independent reference oracle. The C++ library neither
 embeds Python nor invokes the reference scripts. The Python generation oracle
-may apply one explicitly selected LoRA after validating the base pipeline; the
-C++ manifest and runtime do not yet inspect or execute adapters.
+can assemble explicitly selected model/checkpoint and VAE files, then apply
+one selected LoRA after validating the pipeline. `presets.py` owns family and
+configuration contracts, `model_loading.py` owns Diffusers assembly, and
+`weight_files.py` owns local file identity and canonical safe-loader paths.
+The [model-input contract](model-inputs.md) separates embedded checkpoint
+weights from the configuration source's auxiliary components. The C++
+manifest does not load weight tensors or inspect/execute adapters. The
+separate native `LinearLayer` can select named tensors from a safetensors file
+but does not assemble a complete checkpoint or apply adapters.
+`hardware.py` owns the oracle's GPU-required selection, hardware preflight,
+and actual execution-device checks, including NVIDIA Tensor Core eligibility
+and TF32 precision policy. It distinguishes HIP's shared CUDA namespace from
+NVIDIA execution, records AMD properties, and does not apply NVIDIA TF32
+controls on ROCm. It does not delegate generation to MLX or Core ML.
+`cpu_conditioning.py` owns explicit CPU prompt encoding and conditioning
+transfers. CPU encoding follows LoRA activation and precedes placement;
+Diffusers/Accelerate owns model/sequential RAM offload hooks. This CPU stage
+feeds GPU denoising and is separate from native concurrent linear partitioning.
 
 Headers and implementations live together under `src/`, as required by this
 workspace's library convention. A separate source `include/` tree is not used.
@@ -87,22 +108,63 @@ feature, product safety policy must remain separate from package compatibility.
 
 ## Backend decision
 
-No neural inference backend is linked in the manifest milestone.
+MLX C++ 0.32.2 is now a private production dependency, enabled by default.
+It owns tensor storage, device transfers, matrix multiplication, bias
+addition, and synchronization. `LinearLayer` is the first implemented neural
+component, numerically compared with real SD 1.5 CLIP weights and the PyTorch
+oracle. Metal is selected on Apple Silicon; CUDA is the Linux/NVIDIA backend.
+Automatic runtime selection requires a GPU. Explicit CPU operation and
+opt-in CPU/GPU cooperation are available; unavailable or failing GPU work is not retried on
+CPU. See [hardware-compute.md](hardware-compute.md) for the exact scope.
 
-The first implementation candidate is MLX C++, pinned to a reviewed release,
-because its C++ API and Apple unified-memory execution fit the intended
-division of responsibilities. MLX model examples are not treated as the
-iiLocalDiffusion architecture. If verified cross-platform demand appears,
-ONNX Runtime is the leading second backend, with exported ONNX artifacts
-tracked separately from their Diffusers source revision.
+The implemented AMD requirement adds an optional LibTorch HIP backend behind
+the same `LinearLayer` API. A small private `LinearBackend` component boundary
+separates the two concrete runtimes; it is not installed or generalized into
+a tensor/graph registry. LibTorch owns AMD tensors, dtype conversion,
+matrix arithmetic, CPU/GPU transfers and scheduling. The pinned safetensors-cpp
+reader supplies file metadata/bytes; project code bounds its shape/offset
+contract before copying selected weights into owned runtime storage.
+`rocmCapabilities()` and an additive selection overload leave existing
+capability layouts and enum values unchanged. MLX remains preferred for
+explicit CPU calls when available; otherwise enabled LibTorch supplies CPU.
+Radeon availability never implies NVIDIA Tensor Cores or AMD NPU support.
+See [radeon-rocm.md](radeon-rocm.md) for deployment and verification boundaries.
+
+The public component accepts shapes and ordinary host values or a file path
+plus exact weight keys. MLX arrays and streams stay inside its PIMPL. It
+retains weights between calls and uses instance-owned streams without
+changing MLX's global default device. `LinearResourceOptions` can divide
+output features between CPU and GPU workers, retain weights in RAM, and bound
+the GPU weight block staged per forward iteration. MLX still owns tensor
+storage, scheduling, copies, and math; resource counts are logical rather
+than RSS/VRAM measurements. File I/O and result readback are explicit host
+boundaries. No custom tensor type or kernel is introduced.
+`LinearMathOptions` additionally selects GPU FP32/FP16/BF16 while retaining
+FP32 CPU-shard arithmetic and ordinary float32 host outputs. CUDA kernel
+selection remains MLX/cuBLAS's responsibility, not a custom Tensor Core kernel.
+
+`CoreMLModel` is an independent native component runtime, enabled by default
+on Apple platforms. Its C++ PIMPL owns an Objective-C Core ML model; callers
+provide a compiled `.mlmodelc` path and named host feature vectors. Core ML
+owns storage, casts, convolution, and CPU/GPU/ANE scheduling. Plan introspection
+is diagnostic, not a new graph executor or a hardware counter. By default,
+at least one operation must prefer ANE and only CPU/ANE are permitted.
+An offline coremltools converter emits a named linear component and NumPy
+oracle; it is never invoked by the library. This adds no runtime LoRA merging,
+automatic checkpoint conversion, or full C++ diffusion pipeline. See
+[neural-accelerators.md](neural-accelerators.md).
+
+Full C++ diffusion generation remains unimplemented.
 
 `stable-diffusion.cpp` is useful as a comparison implementation but already
 owns most tokenizer, scheduler, pipeline, and model semantics. Making it the
 primary dependency would turn iiLocalDiffusion into a wrapper and requires a
 separate architecture decision.
 
-No backend interface is added before the first component implementation needs
-one. This avoids freezing a speculative abstraction.
+The implemented components need only small compute options/capability types
+and a private linear-component backend boundary, not a speculative general
+tensor, plugin registry, or graph abstraction. Additional runtimes and model
+implementations remain separate architecture decisions.
 
 ## Explicit non-goals for the manifest milestone
 
@@ -113,7 +175,9 @@ one. This avoids freezing a speculative abstraction.
 - LoRA package inspection or execution in C++
 - training, img2img, inpainting, ControlNet, SDXL Refiner, FLUX.1-dev, or
   arbitrary FLUX derivatives
-- `.ckpt`, pickle-based `.bin`, GGUF, or arbitrary checkpoint compatibility
+- `.ckpt`, pickle-based `.bin`, GGUF, or arbitrary checkpoint compatibility;
+  whole-checkpoint pipeline assembly is limited to the independent Python
+  generation oracle; native safetensors loading selects one linear component
 - `.iicharacter` support
 
 These are scope exclusions, not permanent product decisions.

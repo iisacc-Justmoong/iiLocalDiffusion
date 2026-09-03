@@ -119,10 +119,13 @@ embeddings only when the prompt is absent.
 required artifact paths match. It does not mean that safetensors bodies were
 parsed, a coherent fp16/fp32 variant was selected, or inference ran. The
 single-file checkpoint, ONNX, OpenVINO, Flax, auxiliary VAE, SDXL Refiner,
-img2img, and arbitrary derivative contracts are outside this profile.
+img2img, and arbitrary derivative contracts are outside this C++ metadata
+profile.
 
 The Python oracle performs the stronger next check: Diffusers loads actual
 weights, verifies component classes and critical tensor configuration, and
 can generate the fixed 1,024 by 1,024 MPS fixture. It records that SDXL Base
 has no safety checker and whether any watermarker was present rather than
-claiming an unperformed safety step.
+claiming an unperformed safety step. Its independent single-file model, VAE,
+and LoRA composition boundary is documented in
+[model-inputs.md](model-inputs.md).

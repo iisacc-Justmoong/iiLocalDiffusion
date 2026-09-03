@@ -78,8 +78,16 @@ string(CONCAT flux_success_output
     "Weight files: present; contents not inspected\n"
     "Result: valid-metadata\n")
 assert_process("valid FLUX inspect" 0 "${flux_success_output}" "" inspect "${FLUX_FIXTURE}")
-assert_process("help" 0 "Usage: iild-run inspect <model-root>\n" "" --help)
-assert_process("missing arguments" 2 "" "Usage: iild-run inspect <model-root>\n")
+string(CONCAT usage_output
+    "Usage: iild-run inspect <model-root>\n"
+    "       iild-run devices\n"
+    "       iild-run compute [--device auto|metal|cuda|rocm|cpu] [--device-index N]\n"
+    "                        [--cpu-share FRACTION] [--weight-storage device|ram]\n"
+    "                        [--gpu-weight-mib N] [--precision fp32|fp16|bf16]\n"
+    "       iild-run neural-compute --model PATH.mlmodelc [--compute-units cpu-ne|all|cpu]\n"
+    "                               [--allow-cpu-plan] [--iterations N]\n")
+assert_process("help" 0 "${usage_output}" "" --help)
+assert_process("missing arguments" 2 "" "${usage_output}")
 
 file(REMOVE_RECURSE "${WORK_DIRECTORY}")
 file(MAKE_DIRECTORY "${WORK_DIRECTORY}/invalid")

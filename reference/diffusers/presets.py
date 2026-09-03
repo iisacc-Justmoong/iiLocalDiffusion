@@ -8,6 +8,8 @@ import re
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from weight_files import LocalWeightFile, SAFETENSORS_SUFFIXES, resolve_weight_file
+
 
 @dataclass(frozen=True)
 class RuntimePolicy:
@@ -44,6 +46,7 @@ class ModelSelection:
     source: str
     requested_revision: str | None
     is_local: bool
+    single_file: LocalWeightFile | None = None
 
 
 SD15_PRESET = PipelinePreset(
@@ -160,20 +163,39 @@ def resolve_model_selection(
     preset: PipelinePreset,
     model_override: str | None,
     revision_override: str | None,
+    *,
+    allow_single_file: bool = False,
+    model_argument: str = "--model",
+    revision_argument: str = "--revision",
 ) -> ModelSelection:
-    model = model_override or preset.model_id
+    model = preset.model_id if model_override is None else model_override
+    if not model:
+        raise ValueError(f"{model_argument} must not be empty.")
     local_model = Path(model).expanduser()
     if local_model.exists():
+        if revision_override is not None:
+            raise ValueError(f"A local model does not accept a commit {revision_argument}.")
+        if local_model.is_file() and allow_single_file:
+            weight = resolve_weight_file(model, model_argument)
+            return ModelSelection(weight.path, None, True, weight)
         if not local_model.is_dir():
             raise ValueError(f"Local model path is not a directory: {local_model}")
         return ModelSelection(str(local_model.resolve()), None, True)
+
+    if (
+        local_model.is_absolute()
+        or model.startswith((".", "~"))
+        or local_model.suffix.lower() in (*SAFETENSORS_SUFFIXES, ".ckpt", ".bin", ".pt")
+    ):
+        raise ValueError(f"Local model path does not exist: {local_model}")
 
     revision = revision_override
     if revision is None and model == preset.model_id:
         revision = preset.revision
     if revision is None:
         raise ValueError(
-            "A 40-character commit --revision is required for a remote model override."
+            f"A 40-character commit {revision_argument} is required for a remote "
+            f"{model_argument} override."
         )
     if re.fullmatch(r"[0-9a-f]{40}", revision) is None:
         raise ValueError("Remote model revision must be a 40-character lowercase commit SHA.")
@@ -215,6 +237,8 @@ def validate_pipeline_contract(pipeline: Any, preset: PipelinePreset) -> None:
             raise RuntimeError(
                 f"Unexpected {name} class: expected {expected_class}, found {actual_class}"
             )
+
+    validate_vae_contract(pipeline.vae, preset)
 
     if preset.name == "flux1-schnell":
         _validate_flux1_schnell_contract(pipeline)
@@ -268,6 +292,29 @@ def validate_pipeline_contract(pipeline: Any, preset: PipelinePreset) -> None:
         ("timestep_spacing", "leading"),
     ):
         _require_configuration_value(pipeline.scheduler, member, expected, "scheduler")
+
+
+def validate_vae_contract(vae: Any, preset: PipelinePreset) -> None:
+    latent_channels, scaling_factor = {
+        "sd15": (4, 0.18215),
+        "sdxl-base": (4, 0.13025),
+        "flux1-schnell": (16, 0.3611),
+    }[preset.name]
+    for member, expected in (
+        ("in_channels", 3),
+        ("out_channels", 3),
+        ("latent_channels", latent_channels),
+        ("scaling_factor", scaling_factor),
+    ):
+        _require_configuration_value(vae, member, expected, "VAE")
+    channels = getattr(vae.config, "block_out_channels", ())
+    if len(channels) != 4:
+        raise RuntimeError("VAE must use four blocks for 8x spatial downsampling.")
+    shift = getattr(vae.config, "shift_factor", None)
+    if preset.name == "flux1-schnell":
+        _require_configuration_value(vae, "shift_factor", 0.1159, "VAE")
+    elif shift not in (None, 0.0):
+        raise RuntimeError(f"Unexpected VAE shift_factor for {preset.name}: {shift}")
 
 
 def _validate_flux1_schnell_contract(pipeline: Any) -> None:

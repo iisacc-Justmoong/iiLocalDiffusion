@@ -16,7 +16,12 @@ import re
 import sys
 from typing import Any
 
-from pipeline_loading import _is_gated_repository_error, load_pipeline
+from cpu_conditioning import CpuConditioning, encode_cpu_prompt
+from hardware import (
+    accelerator_preflight, configure_tensor_cores, select_device, validate_execution_device,
+)
+from model_loading import load_generation_pipeline, selection_metadata
+from pipeline_loading import _is_gated_repository_error
 from presets import (
     DEFAULT_PRESET_NAME,
     PRESETS,
@@ -24,6 +29,14 @@ from presets import (
     PipelinePreset,
     resolve_model_selection,
     validate_pipeline_contract,
+)
+from weight_files import (
+    LocalWeightFile,
+    SAFETENSORS_SUFFIXES,
+    checked_safetensors_path,
+    file_sha256,
+    resolve_weight_file,
+    verify_weight_file,
 )
 
 
@@ -53,6 +66,7 @@ class LoraSelection:
     scale: float
     sha256: str | None
     size_bytes: int | None
+    local_file: LocalWeightFile | None = None
 
 
 @dataclass(frozen=True)
@@ -66,8 +80,25 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate a pinned Diffusers reference fixture."
     )
     parser.add_argument("--preset", choices=tuple(PRESETS), default=DEFAULT_PRESET_NAME)
-    parser.add_argument("--model", default=None, help="Hub model ID or local Diffusers directory")
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Hub model ID, local Diffusers directory, or local safetensors model file",
+    )
     parser.add_argument("--revision", default=None, help="Immutable Hub commit revision")
+    parser.add_argument(
+        "--model-config",
+        default=None,
+        help="Diffusers directory/Hub ID supplying a single-file model's configuration and extras",
+    )
+    parser.add_argument(
+        "--model-config-revision",
+        default=None,
+        help="Immutable commit for --model-config; defaults to the selected preset revision",
+    )
+    parser.add_argument(
+        "--vae", default=None, help="Replacement local VAE .safetensors or .safetensor file"
+    )
     parser.add_argument(
         "--lora",
         default=None,
@@ -92,7 +123,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIRECTORY)
     parser.add_argument("--xet-cache-dir", type=Path, default=DEFAULT_XET_CACHE_DIRECTORY)
     parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument("--device", choices=("auto", "mps", "cuda", "cpu"), default="auto")
+    parser.add_argument(
+        "--device", choices=("auto", "metal", "mps", "cuda", "rocm", "cpu"), default="auto",
+        help="GPU required by default; rocm requires AMD HIP PyTorch, metal aliases MPS; CPU is explicit",
+    )
+    parser.add_argument(
+        "--cpu-text-encoding", action="store_true",
+        help="Compute prompt embeddings on CPU before GPU denoising and decoding",
+    )
+    parser.add_argument(
+        "--cuda-tf32", action=argparse.BooleanOptionalAction, default=None,
+        help="Allow TF32 Tensor Core math on CUDA (auto enables it on eligible GPUs); "
+             "disabling TF32 does not disable FP16/BF16 Tensor Core kernels",
+    )
+    parser.add_argument(
+        "--cpu-threads", type=int, default=None,
+        help="Positive PyTorch CPU intra-op thread count; otherwise retain the runtime default",
+    )
+    parser.add_argument(
+        "--offload", choices=("auto", "none", "model", "sequential"), default="auto",
+        help="RAM weight offload: auto uses the preset, or model offload for CPU text encoding",
+    )
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--negative-prompt", default=DEFAULT_NEGATIVE_PROMPT)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
@@ -114,12 +165,28 @@ def build_parser() -> argparse.ArgumentParser:
 def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argparse.Namespace]:
     preset = PRESETS[args.preset]
     try:
-        selection = resolve_model_selection(preset, args.model, args.revision)
+        selection = resolve_model_selection(
+            preset, args.model, args.revision, allow_single_file=True
+        )
+        config_selection = None
+        if selection.single_file is not None:
+            config_selection = resolve_model_selection(
+                preset,
+                args.model_config,
+                args.model_config_revision,
+                model_argument="--model-config",
+                revision_argument="--model-config-revision",
+            )
+        elif args.model_config is not None or args.model_config_revision is not None:
+            raise ValueError("--model-config options require --model to be a single file.")
+        vae_file = None if args.vae is None else resolve_weight_file(args.vae, "--vae")
     except ValueError as error:
         raise SystemExit(str(error)) from error
 
     resolved = argparse.Namespace(**vars(args))
     resolved.model_selection = selection
+    resolved.config_selection = config_selection
+    resolved.vae_file = vae_file
     resolved.lora_selection = resolve_lora_selection(resolved)
     resolved.width = preset.width if args.width is None else args.width
     resolved.height = preset.height if args.height is None else args.height
@@ -127,28 +194,27 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
     resolved.guidance_scale = (
         preset.guidance_scale if args.guidance_scale is None else args.guidance_scale
     )
-    generation_filename = preset.generation_filename
+    filename = Path(preset.generation_filename)
+    modifiers = []
+    if args.model is not None or args.revision is not None:
+        modifiers.append("custom")
+    if vae_file is not None:
+        modifiers.append("vae")
     if resolved.lora_selection is not None:
-        filename = Path(generation_filename)
-        generation_filename = f"{filename.stem}-lora{filename.suffix}"
+        modifiers.append("lora")
+    suffix = "" if not modifiers else "-" + "-".join(modifiers)
+    generation_filename = f"{filename.stem}{suffix}{filename.suffix}"
     resolved.output = args.output or REPOSITORY_ROOT / "build" / "reference" / generation_filename
     return preset, resolved
 
 
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for block in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def _validate_lora_weight_name(weight_name: str) -> None:
+def _validate_lora_weight_name(weight_name: str, *, local: bool = False) -> None:
+    suffixes = SAFETENSORS_SUFFIXES if local else (".safetensors",)
     if (
         not weight_name
         or "/" in weight_name
         or "\\" in weight_name
-        or Path(weight_name).suffix != ".safetensors"
+        or Path(weight_name).suffix not in suffixes
     ):
         raise SystemExit(
             "--lora-weight-name must be one .safetensors filename without directories."
@@ -177,7 +243,7 @@ def resolve_lora_selection(args: argparse.Namespace) -> LoraSelection | None:
         candidate.exists()
         or candidate.is_absolute()
         or source.startswith((".", "~"))
-        or source.lower().endswith(".safetensors")
+        or source.lower().endswith(SAFETENSORS_SUFFIXES)
     )
     if looks_local and not candidate.exists():
         raise SystemExit(f"Local LoRA path does not exist: {candidate}")
@@ -190,28 +256,33 @@ def resolve_lora_selection(args: argparse.Namespace) -> LoraSelection | None:
                 raise SystemExit(
                     "A direct LoRA file does not accept --lora-weight-name."
                 )
-            resolved_file = candidate.resolve()
+            resolved_file = candidate.absolute()
         elif candidate.is_dir():
             if args.lora_weight_name is None:
                 raise SystemExit(
                     "A LoRA directory requires --lora-weight-name."
                 )
-            _validate_lora_weight_name(args.lora_weight_name)
-            resolved_file = (candidate / args.lora_weight_name).resolve()
+            _validate_lora_weight_name(args.lora_weight_name, local=True)
+            resolved_file = (candidate / args.lora_weight_name).absolute()
         else:
             raise SystemExit(f"Local LoRA path is not a regular file or directory: {candidate}")
 
-        _validate_lora_weight_name(resolved_file.name)
+        _validate_lora_weight_name(resolved_file.name, local=True)
         if not resolved_file.is_file() or resolved_file.stat().st_size == 0:
             raise SystemExit(f"LoRA safetensors file is missing or empty: {resolved_file}")
+        try:
+            local_file = resolve_weight_file(str(resolved_file), "--lora")
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
         return LoraSelection(
             source=str(resolved_file.parent),
             weight_name=resolved_file.name,
             requested_revision=None,
             is_local=True,
             scale=scale,
-            sha256=_file_sha256(resolved_file),
-            size_bytes=resolved_file.stat().st_size,
+            sha256=local_file.sha256,
+            size_bytes=local_file.size_bytes,
+            local_file=local_file,
         )
 
     if args.lora_revision is None:
@@ -235,31 +306,31 @@ def resolve_lora_selection(args: argparse.Namespace) -> LoraSelection | None:
 def load_dependencies() -> tuple[Any, dict[str, Any]]:
     try:
         import torch
-        from diffusers import FluxPipeline, StableDiffusionPipeline, StableDiffusionXLPipeline
+        from diffusers import (
+            AutoencoderKL,
+            FluxPipeline,
+            FluxTransformer2DModel,
+            StableDiffusionPipeline,
+            StableDiffusionXLPipeline,
+            UNet2DConditionModel,
+        )
+        from diffusers.pipelines.stable_diffusion.safety_checker import (
+            StableDiffusionSafetyChecker,
+        )
     except ImportError as error:
         raise SystemExit(
             "Reference dependencies are missing. Install reference/diffusers/requirements.txt "
             "into reference/diffusers/.venv first."
         ) from error
     return torch, {
+        "AutoencoderKL": AutoencoderKL,
         "FluxPipeline": FluxPipeline,
+        "FluxTransformer2DModel": FluxTransformer2DModel,
         "StableDiffusionPipeline": StableDiffusionPipeline,
+        "StableDiffusionSafetyChecker": StableDiffusionSafetyChecker,
         "StableDiffusionXLPipeline": StableDiffusionXLPipeline,
+        "UNet2DConditionModel": UNet2DConditionModel,
     }
-
-
-def select_device(torch: Any, requested: str) -> str:
-    if requested == "auto":
-        if torch.backends.mps.is_available():
-            return "mps"
-        if torch.cuda.is_available():
-            return "cuda"
-        return "cpu"
-    if requested == "mps" and not torch.backends.mps.is_available():
-        raise SystemExit("MPS was requested but is not available in this PyTorch environment.")
-    if requested == "cuda" and not torch.cuda.is_available():
-        raise SystemExit("CUDA was requested but is not available in this PyTorch environment.")
-    return requested
 
 
 def package_versions(require_lora: bool) -> dict[str, str]:
@@ -297,11 +368,14 @@ def package_versions(require_lora: bool) -> dict[str, str]:
 def _verify_local_lora_identity(selection: LoraSelection) -> None:
     if not selection.is_local:
         return
+    if selection.local_file is not None:
+        verify_weight_file(selection.local_file, "LoRA")
+        return
     path = Path(selection.source) / selection.weight_name
     if (
         not path.is_file()
         or path.stat().st_size != selection.size_bytes
-        or _file_sha256(path) != selection.sha256
+        or file_sha256(path) != selection.sha256
     ):
         raise RuntimeError(
             f"Local LoRA changed after argument resolution: {path}"
@@ -317,8 +391,6 @@ def apply_lora(
     if selection is None:
         return None
 
-    _verify_local_lora_identity(selection)
-
     load_arguments: dict[str, Any] = {
         "adapter_name": LORA_ADAPTER_NAME,
         "cache_dir": cache_directory,
@@ -331,8 +403,16 @@ def apply_lora(
         load_arguments["revision"] = selection.requested_revision
 
     try:
-        pipeline.load_lora_weights(selection.source, **load_arguments)
-        _verify_local_lora_identity(selection)
+        if selection.local_file is not None:
+            with checked_safetensors_path(
+                selection.local_file, cache_directory / "single-file-aliases", "LoRA"
+            ) as path:
+                load_arguments["weight_name"] = path.name
+                pipeline.load_lora_weights(str(path.parent), **load_arguments)
+        else:
+            _verify_local_lora_identity(selection)
+            pipeline.load_lora_weights(selection.source, **load_arguments)
+            _verify_local_lora_identity(selection)
         pipeline.set_adapters(LORA_ADAPTER_NAME, adapter_weights=selection.scale)
         adapters_by_component = pipeline.get_list_adapters()
     except Exception as error:
@@ -383,7 +463,8 @@ def prepare_pipeline_with_adapters(
     args: argparse.Namespace,
     device: str,
     attention_slicing: bool,
-) -> tuple[Any, dict[str, Any], LoraActivation | None]:
+    torch: Any = None,
+) -> tuple[Any, dict[str, Any], LoraActivation | None, CpuConditioning | None]:
     validate_pipeline_contract(pipeline, preset)
     activation = apply_lora(
         pipeline,
@@ -391,13 +472,25 @@ def prepare_pipeline_with_adapters(
         args.cache_dir,
         args.local_files_only,
     )
+    conditioning = None
+    requested_offload = getattr(args, "offload", "auto")
+    offload = requested_offload
+    if getattr(args, "cpu_text_encoding", False):
+        if torch is None:
+            raise ValueError("CPU text encoding requires the PyTorch runtime.")
+        conditioning = encode_cpu_prompt(pipeline, preset, args, torch)
+        if (offload == "auto" and device != "cpu"
+                and preset.runtime.accelerator_execution == "resident"):
+            offload = "model"
     pipeline, optimization = prepare_pipeline_for_execution(
         pipeline,
         preset,
         device,
         attention_slicing,
+        offload=offload,
     )
-    return pipeline, optimization, activation
+    optimization["requested_offload"] = requested_offload
+    return pipeline, optimization, activation, conditioning
 
 
 def lora_metadata(
@@ -417,7 +510,11 @@ def lora_metadata(
         "registered_components": list(activation.registered_components),
         "requested_revision": selection.requested_revision,
         "resolved_file": (
-            str(Path(selection.source) / selection.weight_name)
+            (
+                selection.local_file.resolved_file
+                if selection.local_file is not None
+                else str(Path(selection.source) / selection.weight_name)
+            )
             if selection.is_local
             else None
         ),
@@ -482,8 +579,14 @@ def build_load_arguments(
     }
     if args.model_selection.requested_revision is not None:
         arguments["revision"] = args.model_selection.requested_revision
-    if use_weight_variant and preset.runtime.weight_variant is not None:
-        arguments["variant"] = preset.runtime.weight_variant
+    variant = preset.runtime.weight_variant
+    source = args.config_selection or args.model_selection
+    if use_weight_variant and variant is not None:
+        has_variant = source.source == preset.model_id
+        if source.is_local:
+            has_variant = any(Path(source.source).glob(f"*/*.{variant}*.safetensors"))
+        if has_variant:
+            arguments["variant"] = variant
     if preset.name == "sdxl-base":
         arguments["add_watermarker"] = False
     return arguments
@@ -493,6 +596,9 @@ def build_pipeline_call_arguments(
     preset: PipelinePreset,
     args: argparse.Namespace,
     generator: Any,
+    conditioning: CpuConditioning | None = None,
+    device: str | None = None,
+    dtype: Any = None,
 ) -> dict[str, Any]:
     arguments: dict[str, Any] = {
         "prompt": args.prompt,
@@ -507,6 +613,12 @@ def build_pipeline_call_arguments(
     if preset.runtime.max_sequence_length is not None:
         arguments["max_sequence_length"] = preset.runtime.max_sequence_length
         arguments["output_type"] = "pil"
+    if conditioning is not None:
+        if device is None or dtype is None:
+            raise ValueError("CPU conditioning requires the target device and dtype.")
+        arguments.pop("prompt")
+        arguments.pop("negative_prompt", None)
+        arguments.update(conditioning.for_device(device, dtype))
     return arguments
 
 
@@ -527,26 +639,42 @@ def prepare_pipeline_for_execution(
     preset: PipelinePreset,
     device: str,
     attention_slicing: bool,
+    *,
+    offload: str = "auto",
 ) -> tuple[Any, dict[str, Any]]:
+    if offload not in ("auto", "none", "model", "sequential"):
+        raise ValueError(f"Unknown RAM offload policy: {offload}")
+    if offload in ("model", "sequential") and device not in ("mps", "cuda"):
+        raise ValueError("RAM weight offload requires a GPU execution device.")
     optimization = {
         "attention_slicing": False,
         "offload_policy": "none",
         "vae_slicing_enabled": False,
         "vae_tiling_enabled": False,
+        "weight_storage": "ram" if device == "cpu" else "device",
     }
 
     execution = preset.runtime.accelerator_execution
     if execution not in ("resident", "sequential-cpu-offload"):
         raise RuntimeError(f"Unknown accelerator execution policy: {execution}")
-    if device in ("mps", "cuda") and execution == "sequential-cpu-offload":
+    if offload == "auto":
+        offload = ("sequential" if device in ("mps", "cuda")
+                   and execution == "sequential-cpu-offload" else "none")
+    if device in ("mps", "cuda"):
         if preset.runtime.accelerator_vae_slicing:
             pipeline.vae.enable_slicing()
             optimization["vae_slicing_enabled"] = True
         if preset.runtime.accelerator_vae_tiling:
             pipeline.vae.enable_tiling()
             optimization["vae_tiling_enabled"] = True
+    if offload == "sequential":
         pipeline.enable_sequential_cpu_offload(device=device)
         optimization["offload_policy"] = "sequential-cpu"
+        optimization["weight_storage"] = "ram"
+    elif offload == "model":
+        pipeline.enable_model_cpu_offload(device=device)
+        optimization["offload_policy"] = "model-cpu"
+        optimization["weight_storage"] = "ram"
     else:
         pipeline = pipeline.to(device)
 
@@ -557,6 +685,10 @@ def prepare_pipeline_for_execution(
 
 
 def validate_generation_arguments(preset: PipelinePreset, args: argparse.Namespace) -> None:
+    if args.cpu_threads is not None and args.cpu_threads <= 0:
+        raise SystemExit("CPU threads must be positive.")
+    if args.device == "cpu" and args.offload in ("model", "sequential"):
+        raise SystemExit("RAM weight offload requires a GPU execution device.")
     dimension_multiple = preset.runtime.dimension_multiple
     if (
         args.width <= 0
@@ -599,11 +731,18 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     torch, pipeline_classes = load_dependencies()
+    if args.cpu_threads is not None:
+        torch.set_num_threads(args.cpu_threads)
     device = select_device(torch, args.device)
     dtype_name = (
         preset.runtime.cpu_dtype if device == "cpu" else preset.runtime.accelerator_dtype
     )
     dtype = getattr(torch, dtype_name)
+    tensor_cores = configure_tensor_cores(torch, device, args.cuda_tf32)
+    hardware = accelerator_preflight(torch, device, dtype)
+    hardware["requested_device"] = args.device
+    hardware["tensor_cores"] = tensor_cores
+    print(f"Compute: {hardware['runtime']} / {hardware['backend']} ({dtype_name})", flush=True)
     attention_slicing = resolve_attention_slicing(
         preset, device, args.attention_slicing
     )
@@ -612,22 +751,43 @@ def main() -> int:
     )
 
     pipeline_class = pipeline_classes[preset.pipeline_class]
-    pipeline = load_pipeline(
+    print(f"Model: {args.model_selection.source}", flush=True)
+    if args.config_selection is not None:
+        print(f"Configuration / auxiliary models: {args.config_selection.source}", flush=True)
+    if args.vae_file is not None:
+        print(f"VAE override: {args.vae_file.path}", flush=True)
+    if args.lora_selection is not None:
+        print(f"LoRA: {args.lora_selection.source}/{args.lora_selection.weight_name}", flush=True)
+
+    pipeline, loading_metadata = load_generation_pipeline(
         pipeline_class,
-        args.model_selection.source,
+        preset,
+        args.model_selection,
+        args.config_selection,
+        args.vae_file,
         load_arguments,
+        pipeline_classes,
     )
-    pipeline, optimization, lora_activation = prepare_pipeline_with_adapters(
+    pipeline, optimization, lora_activation, conditioning = prepare_pipeline_with_adapters(
         pipeline,
         preset,
         args,
         device,
         attention_slicing,
+        torch,
     )
+    validate_execution_device(pipeline, device)
+    hardware["participating_devices"] = (
+        ["cpu", device] if conditioning is not None and device != "cpu" else [device]
+    )
+    print(f"Resources: {', '.join(hardware['participating_devices'])}; "
+          f"weight storage={optimization['weight_storage']}; "
+          f"offload={optimization['offload_policy']}", flush=True)
 
     generator = torch.Generator(device="cpu").manual_seed(args.seed)
     with torch.inference_mode():
-        result = pipeline(**build_pipeline_call_arguments(preset, args, generator))
+        result = pipeline(**build_pipeline_call_arguments(
+            preset, args, generator, conditioning, device, dtype))
 
     image = result.images[0]
     if image.mode != "RGB":
@@ -658,11 +818,20 @@ def main() -> int:
             "width": args.width,
         },
         "model": {
-            "id_or_path": args.model_selection.source,
+            **selection_metadata(args.model_selection),
             "preset": preset.name,
-            "requested_revision": args.model_selection.requested_revision,
             "pipeline_class": type(pipeline).__name__,
             "scheduler_class": type(pipeline.scheduler).__name__,
+            "loading": loading_metadata,
+        },
+        "vae": {
+            "overridden": args.vae_file is not None,
+            "source": loading_metadata["component_sources"]["vae"],
+            "file": loading_metadata["vae_override"],
+            "latent_channels": pipeline.vae.config.latent_channels,
+            "scaling_factor": pipeline.vae.config.scaling_factor,
+            "shift_factor": getattr(pipeline.vae.config, "shift_factor", None),
+            "spatial_downsample_factor": 2 ** (len(pipeline.vae.config.block_out_channels) - 1),
         },
         "output": {
             "mode": image.mode,
@@ -673,10 +842,11 @@ def main() -> int:
         },
         "runtime": {
             "device": device,
-            "execution_device": (
-                f"{device}:0"
-                if optimization["offload_policy"] != "none"
-                else device
+            "execution_device": str(pipeline._execution_device),
+            "hardware": hardware,
+            "cpu_threads": torch.get_num_threads(),
+            "cpu_conditioning": (
+                {"enabled": False} if conditioning is None else conditioning.metadata
             ),
             "component_dtypes": component_dtypes(pipeline, preset),
             "dtype": str(dtype),

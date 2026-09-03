@@ -11,6 +11,7 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 include(CheckCXXSourceCompiles)
 include(CMakePushCheckState)
+find_package(Threads REQUIRED)
 
 find_package(json-c CONFIG QUIET)
 if(TARGET json-c::json-c)
@@ -40,8 +41,18 @@ if(PROJECT_IS_TOP_LEVEL)
 endif()
 
 option(IILD_BUILD_TOOLS "Build iiLocalDiffusion command-line tools" ${PROJECT_IS_TOP_LEVEL})
+option(IILD_ENABLE_COREML "Build the Apple Core ML component runtime" ${APPLE})
+if(IILD_ENABLE_COREML AND NOT APPLE)
+    message(FATAL_ERROR "Core ML requires an Apple platform; set IILD_ENABLE_COREML=OFF")
+endif()
+include(cmake/IildMlx.cmake)
+include(cmake/IildTorch.cmake)
 
 add_library(iiLocalDiffusion SHARED
+    src/Compute/ComputeRuntime.cpp
+    src/Compute/CoreMLModel.cpp
+    src/Compute/LinearLayer.cpp
+    src/Compute/TorchLinearBackend.cpp
     src/Flux/FluxModelManifest.cpp
     src/ModelManifest/DiffusionModelManifest.cpp
     src/ModelManifest/ModelManifest.cpp
@@ -67,7 +78,47 @@ target_include_directories(iiLocalDiffusion
 target_link_libraries(iiLocalDiffusion
     PRIVATE
         ${IILD_JSON_C_TARGET}
+        Threads::Threads
 )
+
+if(IILD_ENABLE_MLX)
+    target_link_libraries(iiLocalDiffusion PRIVATE mlx)
+    target_compile_definitions(iiLocalDiffusion PRIVATE IILD_HAS_MLX=1)
+else()
+    target_compile_definitions(iiLocalDiffusion PRIVATE IILD_HAS_MLX=0)
+endif()
+if(IILD_ENABLE_LIBTORCH)
+    target_link_libraries(iiLocalDiffusion PRIVATE ${TORCH_LIBRARIES})
+    target_include_directories(iiLocalDiffusion SYSTEM PRIVATE
+        ${TORCH_INCLUDE_DIRS} "${iild_safetensors_cpp_SOURCE_DIR}")
+    target_compile_options(iiLocalDiffusion PRIVATE ${iild_torch_compile_options})
+    target_sources(iiLocalDiffusion PRIVATE src/Compute/TorchSafetensors.cpp)
+    target_compile_definitions(iiLocalDiffusion PRIVATE IILD_HAS_LIBTORCH=1)
+else()
+    target_compile_definitions(iiLocalDiffusion PRIVATE IILD_HAS_LIBTORCH=0)
+endif()
+if(IILD_ENABLE_COREML)
+    enable_language(OBJCXX)
+    find_library(IILD_COREML_FRAMEWORK CoreML REQUIRED)
+    find_library(IILD_FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    target_sources(iiLocalDiffusion PRIVATE src/Compute/CoreMLModel.mm)
+    set_source_files_properties(src/Compute/CoreMLModel.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    set_target_properties(iiLocalDiffusion PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES
+        OBJCXX_EXTENSIONS OFF OBJCXX_VISIBILITY_PRESET hidden)
+    target_link_libraries(iiLocalDiffusion PRIVATE ${IILD_COREML_FRAMEWORK} ${IILD_FOUNDATION_FRAMEWORK})
+    target_compile_definitions(iiLocalDiffusion PRIVATE IILD_HAS_COREML=1)
+else()
+    target_compile_definitions(iiLocalDiffusion PRIVATE IILD_HAS_COREML=0)
+endif()
+if(APPLE)
+    set_property(TARGET iiLocalDiffusion PROPERTY INSTALL_RPATH "@loader_path")
+else()
+    set_property(TARGET iiLocalDiffusion PROPERTY INSTALL_RPATH "$ORIGIN")
+endif()
+if(IILD_ENABLE_LIBTORCH)
+    # LibTorch/ROCm remains an externally installed SDK, not a bundled copy.
+    set_property(TARGET iiLocalDiffusion APPEND PROPERTY INSTALL_RPATH "${TORCH_INSTALL_PREFIX}/lib")
+endif()
 
 if(MSVC)
     set(IILD_WARNING_OPTIONS /W4 /permissive-)
@@ -85,6 +136,8 @@ target_compile_options(iiLocalDiffusion PRIVATE ${IILD_WARNING_OPTIONS})
 
 if(IILD_BUILD_TOOLS)
     add_executable(iild-run
+        tools/iild-run/ComputeCommands.cpp
+        tools/iild-run/NeuralCommands.cpp
         tools/iild-run/main.cpp
     )
 
@@ -108,7 +161,46 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
     target_link_libraries(ModelManifestTests PRIVATE iiLocalDiffusion::iiLocalDiffusion)
 
     add_test(NAME ModelManifestTests COMMAND ModelManifestTests)
+    add_executable(ComputeTests tests/ComputeTests.cpp)
+    target_compile_features(ComputeTests PRIVATE cxx_std_20)
+    target_compile_options(ComputeTests PRIVATE ${IILD_WARNING_OPTIONS})
+    target_compile_definitions(ComputeTests PRIVATE
+        IILD_TEST_MLX_ENABLED=$<BOOL:${IILD_ENABLE_MLX}>
+        IILD_COMPUTE_TEST_DIRECTORY="${CMAKE_CURRENT_BINARY_DIR}/compute-test-work")
+    target_link_libraries(ComputeTests PRIVATE iiLocalDiffusion::iiLocalDiffusion Threads::Threads)
+    if(IILD_ENABLE_MLX)
+        target_link_libraries(ComputeTests PRIVATE mlx)
+    endif()
+    add_test(NAME ComputeTests COMMAND ComputeTests)
+    add_executable(RocmTests tests/RocmTests.cpp)
+    target_compile_features(RocmTests PRIVATE cxx_std_20)
+    target_compile_options(RocmTests PRIVATE ${IILD_WARNING_OPTIONS})
+    target_compile_definitions(RocmTests PRIVATE
+        IILD_TEST_LIBTORCH_ENABLED=$<BOOL:${IILD_ENABLE_LIBTORCH}>
+        IILD_ROCM_TEST_DIRECTORY="${CMAKE_CURRENT_BINARY_DIR}/rocm-test-work")
+    target_link_libraries(RocmTests PRIVATE iiLocalDiffusion::iiLocalDiffusion Threads::Threads)
+    if(IILD_ENABLE_LIBTORCH)
+        target_link_libraries(RocmTests PRIVATE ${TORCH_LIBRARIES})
+        target_include_directories(RocmTests SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
+        target_compile_options(RocmTests PRIVATE ${iild_torch_compile_options})
+    endif()
+    add_test(NAME RocmTests COMMAND RocmTests)
+    add_executable(CoreMLTests tests/CoreMLTests.cpp)
+    target_compile_features(CoreMLTests PRIVATE cxx_std_20)
+    target_compile_options(CoreMLTests PRIVATE ${IILD_WARNING_OPTIONS})
+    target_compile_definitions(CoreMLTests PRIVATE IILD_TEST_COREML_ENABLED=$<BOOL:${IILD_ENABLE_COREML}>)
+    target_link_libraries(CoreMLTests PRIVATE iiLocalDiffusion::iiLocalDiffusion ${IILD_JSON_C_TARGET} Threads::Threads)
+    add_test(NAME CoreMLTests COMMAND CoreMLTests)
+    set(IILD_COREML_TEST_FIXTURE "" CACHE PATH "Optional converted Core ML model/oracle fixture directory")
+    if(IILD_ENABLE_COREML AND IILD_COREML_TEST_FIXTURE)
+        add_test(NAME CoreMLFixtureTests COMMAND CoreMLTests --fixture "${IILD_COREML_TEST_FIXTURE}")
+    endif()
     if(IILD_BUILD_TOOLS)
+        add_test(
+            NAME ComputeCliTests
+            COMMAND "${CMAKE_COMMAND}" "-DCLI=$<TARGET_FILE:iild-run>"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/ComputeCliTests.cmake"
+        )
         add_test(
             NAME CliContractTests
             COMMAND
@@ -134,6 +226,9 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             "-DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/sd-v1-manifest"
             "-DSDXL_FIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/sdxl-base-manifest"
             "-DFLUX_FIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flux1-schnell-manifest"
+            "-DMLX_BACKEND=${iild_gpu_backend}"
+            "-DLIBTORCH_ENABLED=${IILD_ENABLE_LIBTORCH}"
+            "-DCOREML_FIXTURE=${IILD_COREML_TEST_FIXTURE}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallConsumerTests.cmake"
     )
 
@@ -145,6 +240,57 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         set_tests_properties(ReferenceScriptsTests PROPERTIES
             ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
         )
+
+        add_test(
+            NAME ModelLoadingTests
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/ModelLoadingTests.py"
+        )
+        set_tests_properties(ModelLoadingTests PROPERTIES
+            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
+        )
+
+        add_test(
+            NAME HardwarePolicyTests
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/HardwarePolicyTests.py"
+        )
+        set_tests_properties(HardwarePolicyTests PROPERTIES
+            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
+        )
+
+        add_test(
+            NAME TensorCorePolicyTests
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/TensorCorePolicyTests.py"
+        )
+        set_tests_properties(TensorCorePolicyTests PROPERTIES
+            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
+        )
+        add_test(NAME RocmPolicyTests
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/RocmPolicyTests.py")
+        set_tests_properties(RocmPolicyTests PROPERTIES
+            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
+        add_test(NAME ReferenceHardwareHelp
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/reference/diffusers/hardware.py" --help)
+
+        add_test(
+            NAME ResourcePolicyTests
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/ResourcePolicyTests.py"
+        )
+        set_tests_properties(ResourcePolicyTests PROPERTIES
+            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
+        )
+
+        add_test(
+            NAME MlxValidationTests
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/MlxValidationTests.py"
+        )
+        set_tests_properties(MlxValidationTests PROPERTIES
+            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
+        )
+
+        add_test(NAME CoreMLConversionTests
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/CoreMLConversionTests.py")
+        set_tests_properties(CoreMLConversionTests PROPERTIES
+            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
 
         add_test(
             NAME ReferenceGenerateHelp
@@ -163,6 +309,20 @@ install(
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(
+    FILES
+        src/Export.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(
+    FILES
+        src/Compute/ComputeRuntime.hpp
+        src/Compute/CoreMLModel.hpp
+        src/Compute/LinearLayer.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Compute
 )
 
 install(

@@ -1,4 +1,6 @@
 #include "ModelManifest/DiffusionModelManifest.hpp"
+#include "ComputeCommands.hpp"
+#include "NeuralCommands.hpp"
 
 #include <exception>
 #include <iomanip>
@@ -21,7 +23,13 @@ std::string displayPath(const std::filesystem::path &path);
 
 void printUsage(std::ostream &output)
 {
-    output << "Usage: iild-run inspect <model-root>\n";
+    output << "Usage: iild-run inspect <model-root>\n"
+           << "       iild-run devices\n"
+           << "       iild-run compute [--device auto|metal|cuda|rocm|cpu] [--device-index N]\n"
+           << "                        [--cpu-share FRACTION] [--weight-storage device|ram]\n"
+           << "                        [--gpu-weight-mib N] [--precision fp32|fp16|bf16]\n"
+           << "       iild-run neural-compute --model PATH.mlmodelc [--compute-units cpu-ne|all|cpu]\n"
+           << "                               [--allow-cpu-plan] [--iterations N]\n";
 }
 
 void printManifest(const iild::StableDiffusionModelManifest &manifest)
@@ -90,10 +98,18 @@ std::string displayPath(const std::filesystem::path &path)
 
 int main(const int argc, const char *const argv[])
 {
+    if (argc >= 2 && std::string_view{argv[1]} == "neural-compute")
+        return runNeuralComputeCommand(argc, argv);
     if (argc == 2 && (std::string_view{argv[1]} == "--help" || std::string_view{argv[1]} == "-h"))
     {
         printUsage(std::cout);
         return 0;
+    }
+
+    if (argc >= 2 && (std::string_view{argv[1]} == "devices" ||
+                      std::string_view{argv[1]} == "compute"))
+    {
+        return runComputeCommand(argc, argv);
     }
 
     if (argc != 3 || std::string_view{argv[1]} != "inspect")

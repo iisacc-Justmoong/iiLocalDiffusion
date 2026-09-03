@@ -5,11 +5,16 @@ components and orchestrating inference. It does not implement tensor storage,
 matrix multiplication, convolution, attention kernels, or device command
 execution.
 
-The current `0.3.0` milestone is intentionally smaller than C++ image
-generation. It recognizes three pinned Diffusers reference contracts: Stable
-Diffusion v1, Stable Diffusion XL Base 1.0, and FLUX.1-schnell. The executable
-validates package metadata and required artifact paths without loading tensor
-contents.
+The current `0.3.0` milestone recognizes three pinned Diffusers reference
+contracts: Stable Diffusion v1, Stable Diffusion XL Base 1.0, and
+FLUX.1-schnell. Its inspector validates metadata and artifact paths without
+loading tensors. Native component computation uses MLX 0.32.2 with Metal
+or CUDA, or optional LibTorch with AMD ROCm: `LinearLayer` executes batched neural operations from caller-provided
+or named safetensors weights. `CoreMLModel` executes explicitly supplied
+compiled Core ML components with Neural Engine plan checks. CUDA Tensor Core
+eligibility and FP16/BF16/TF32 policies are exposed separately from measured
+hardware utilization. Complete image generation remains in the
+independent Python oracle, not the C++ library.
 
 ## Build and test
 
@@ -19,8 +24,15 @@ Requirements:
 - a C++20 compiler
 - pkg-config
 - json-c 0.18 or newer
+- for the default native runtime: Apple Silicon with the Xcode Metal compiler,
+  or Linux with a CUDA toolkit, cuDNN, and BLAS/LAPACK development libraries
+- for Apple Core ML support: a macOS SDK exposing Core ML's macOS 14.4 APIs
+- for optional Radeon execution: a compatible HIP-enabled LibTorch SDK (2.x, >=2.9), AMD driver and supported GPU/OS
 
-The build prefers json-c's CMake package and falls back to pkg-config.
+The build prefers json-c's CMake package and falls back to pkg-config. MLX and
+its source dependencies are fetched at pinned versions and archive hashes.
+On Apple Silicon, `xcrun metal --version` must succeed; merely installing the
+command-line shim is insufficient. See [hardware setup](docs/hardware-compute.md).
 
 Use only the repository's `build/` directory:
 
@@ -30,8 +42,53 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-The test suite also installs the library into `build/`, configures a clean
-consumer with `find_package(iiLocalDiffusion)`, links it, and runs it.
+The test suite also installs the library under `build/`, relocates the prefix,
+configures a clean consumer with `find_package(iiLocalDiffusion)`, and runs
+both metadata inspection and native computation. For a metadata-only build,
+configure with `-DIILD_ENABLE_MLX=OFF -DIILD_ENABLE_COREML=OFF -DIILD_ENABLE_LIBTORCH=OFF`.
+
+Discover hardware and execute a verified native batched linear operation:
+
+```bash
+./build/iild-run devices
+./build/iild-run compute
+```
+
+Native computation and Python generation default to GPU-required automatic
+selection: an available CUDA/ROCm GPU, otherwise Metal. CPU is used only when
+explicitly selected, either alone or as an opt-in cooperating device. An
+unavailable accelerator or failed operation is not
+silently retried on CPU. Metal/CUDA/ROCm are backends; MLX and LibTorch are runtimes,
+not device-name aliases. See [hardware compute](docs/hardware-compute.md)
+for the C++ API, platform options, verification, and remaining limitations.
+
+Radeon uses `--device rocm`. The Python path requires an AMD HIP PyTorch
+distribution; native C++ additionally enables `IILD_ENABLE_LIBTORCH=ON` with
+that SDK's CMake package. Model/VAE/LoRA arguments, CPU prompt encoding, and
+RAM offload remain available. See [Radeon setup and hardware checks](docs/radeon-rocm.md).
+
+Use CPU and GPU together, with weights retained in RAM and bounded GPU staging:
+
+```bash
+./build/iild-run compute --cpu-share 0.25 --weight-storage ram --gpu-weight-mib 64
+```
+
+The CPU computes a share of the linear layer's output features, concurrently
+with the GPU's remaining share. RAM stores weights; it is not an arithmetic
+device. The budget limits a staged weight/bias block, not total process memory.
+
+Use eligible matrix precision or an explicitly compiled Neural Engine component:
+
+```bash
+./build/iild-run compute --precision fp16
+./build/iild-run neural-compute --model /absolute/path/component.mlmodelc
+```
+
+Core ML defaults to CPU + Neural Engine, with at least one ANE-preferred
+operation required in its anticipated plan. This is independent of MLX and
+does not move the Python diffusion pipeline onto ANE. See
+[Neural Engine / Tensor Cores](docs/neural-accelerators.md) and
+[named-weight conversion](reference/coreml/README.md).
 
 Inspect a local Diffusers model package:
 
@@ -82,7 +139,55 @@ reference/diffusers/.venv/bin/python \
   reference/diffusers/generate.py --preset flux1-schnell
 ```
 
-Apply one explicit local LoRA during generation:
+The generation default is `--device auto`; explicit choices include
+`--device metal` (alias `mps`), `--device cuda`, `--device rocm`, and diagnostic `--device cpu`.
+GPU preflight and the actual pipeline execution device are recorded in the
+image sidecar. The Python oracle still uses PyTorch, independently of MLX.
+CUDA defaults also permit TF32 on eligible Ampere-or-newer NVIDIA GPUs;
+`--no-cuda-tf32` selects IEEE FP32 math without disabling FP16/BF16 Tensor
+Core kernels. Eligibility and applied policy are recorded, not inferred
+instruction utilization.
+HIP uses Torch's `cuda` namespace internally but records the actual backend
+as `rocm`, never NVIDIA. TF32 switches are rejected on AMD; use
+`requirements-rocm.txt` after installing the correct vendor Torch wheel.
+
+To compute text embeddings on CPU and store inactive weights in RAM while
+keeping image denoising/decoding on the selected GPU:
+
+```bash
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+  --preset sdxl-base --cpu-text-encoding --cpu-threads 4 --offload model \
+  --output build/reference/sdxl-cpu-ram.png
+```
+
+`--offload auto|none|model|sequential` controls weight residency separately from
+CPU arithmetic. Existing model/VAE/LoRA inputs compose with these options.
+Full CPU-only generation remains available through `--device cpu`.
+
+Replace model, VAE, and LoRA weights independently during generation:
+
+```bash
+reference/diffusers/.venv/bin/python \
+  reference/diffusers/generate.py \
+  --preset sdxl-base \
+  --model /absolute/path/to/sdxl-checkpoint.safetensors \
+  --vae /absolute/path/to/sdxl-vae.safetensors \
+  --lora /absolute/path/to/sdxl-style.safetensors \
+  --lora-scale 0.75
+```
+
+The generation oracle accepts local single-file weights as well as the
+existing Diffusers-directory and pinned Hub-model inputs. `--model-config`
+selects the configuration and auxiliary-component source for a single-file
+model; it defaults to the selected preset's pinned repository. SD 1.5 and
+SDXL accept original-format checkpoints or denoiser-only files, while FLUX
+accepts a transformer-only file. Each file must match the selected model
+family. Both `.safetensors` and the local `.safetensor` spelling are accepted;
+pickle checkpoints are not. This does not add single-file loading or image
+generation to the C++ inspector. See
+[`docs/model-inputs.md`](docs/model-inputs.md) for the full contract.
+
+Apply only a local LoRA while retaining the preset's base weights:
 
 ```bash
 reference/diffusers/.venv/bin/python \
@@ -111,7 +216,10 @@ non-goals are recorded in:
 - [`docs/stable-diffusion-v1.md`](docs/stable-diffusion-v1.md)
 - [`docs/stable-diffusion-xl.md`](docs/stable-diffusion-xl.md)
 - [`docs/flux1-schnell.md`](docs/flux1-schnell.md)
+- [`docs/model-inputs.md`](docs/model-inputs.md)
 - [`docs/lora.md`](docs/lora.md)
+- [`docs/hardware-compute.md`](docs/hardware-compute.md)
+- [`docs/neural-accelerators.md`](docs/neural-accelerators.md)
 - [`docs/dependencies.md`](docs/dependencies.md)
 
 The project does not yet declare a distribution license. The SD 1.5 reference

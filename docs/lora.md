@@ -11,6 +11,16 @@ LoRA loading is not part of the current C++ manifest inspector or a C++
 inference backend. The base model must first pass its pinned pipeline contract;
 the adapter is then loaded and activated before device placement or sequential
 CPU offload hooks are installed.
+When `--cpu-text-encoding` is enabled, CPU prompt encoding runs after verified
+LoRA activation and before those hooks. Thus text-encoder adapters are active
+on CPU too; only the resulting embeddings move to the GPU for generation.
+Model and sequential RAM offload remain independent of adapter selection.
+The CPU stage restores original encoder storage precision afterward, including
+mixed-precision adapter tensors/buffers, even if encoding fails. It does not
+fuse, deactivate, or change the selected adapter scale.
+The base weights and VAE can also be selected explicitly through `--model`
+and `--vae`; see [the model-input contract](model-inputs.md). An adapter must
+match the resulting pipeline, not merely share its file extension.
 
 ## Local adapter
 
@@ -36,10 +46,17 @@ reference/diffusers/.venv/bin/python \
   --lora-scale 0.8
 ```
 
-The selected local file must exist, be non-empty, and end in `.safetensors`.
-Its SHA-256 and byte size are recorded in the result sidecar. When `--output`
-is omitted, a LoRA run uses the preset's separate `*-lora.png` filename so it
-cannot silently replace the canonical base fixture.
+The selected local file must exist, be non-empty, and end in `.safetensors`
+or `.safetensor`. The singular spelling is exposed through a temporary
+canonical `.safetensors` symlink under the cache so Diffusers never selects
+its pickle loader for that spelling. The original path and resolved target,
+SHA-256, and byte size are recorded; identity is checked before and after
+loading. The alias does not rewrite or copy the original weights and is
+removed after loading.
+
+When `--output` is omitted, `-lora` is appended to the default output stem,
+after any `-custom` model and `-vae` suffixes. Thus combined model/VAE/LoRA
+inputs cannot silently use the canonical base fixture's filename.
 
 ## Remote adapter
 
@@ -57,8 +74,9 @@ reference/diffusers/.venv/bin/python \
 ```
 
 Branch names, tags, implicit repository file selection, pickle `.bin`, `.pt`,
-and `.ckpt` files are rejected. `--local-files-only` applies to both the base
-model and the adapter.
+and `.ckpt` files are rejected. Remote filenames use the standard plural
+`.safetensors` extension. `--local-files-only` applies to the model,
+configuration/auxiliary source, and adapter.
 
 ## Runtime semantics
 
