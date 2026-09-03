@@ -117,6 +117,11 @@ limit. The oracle uses BF16 for both CPU and accelerator loading and does not
 request a nonexistent `fp16` repository variant. On MPS and CUDA it applies
 sequential CPU offload plus VAE slicing and tiling; it does not move the
 complete pipeline to the accelerator as one resident allocation.
+These are defaults, not hidden constants: dtype, token limit, memory policy,
+seed/batch and scheduler values can be supplied through CLI/JSON. Optional
+`--true-cfg-scale > 1` enables a separate negative-prompt CFG pass without
+changing the Schnell `guidance_scale=0` contract. See
+[generation parameters](generation-parameters.md) for values and fallback rules.
 
 ## Compatibility boundary
 

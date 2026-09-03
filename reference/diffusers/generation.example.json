@@ -1,0 +1,18 @@
+{
+  "preset": "sd15",
+  "model": null,
+  "vae": null,
+  "lora": null,
+  "prompt": "a red cube on a white table",
+  "negative_prompt": "",
+  "seed": 42,
+  "num_images": 1,
+  "width": null,
+  "height": null,
+  "steps": null,
+  "guidance_scale": null,
+  "dtype": "auto",
+  "device": "auto",
+  "offload": "auto",
+  "output": null
+}

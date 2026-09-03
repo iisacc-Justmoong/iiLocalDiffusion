@@ -160,7 +160,10 @@ activation remain in the separate `adapters` array. An
 explicit `--model` or `--revision` adds `-custom` to the default output stem,
 `--vae` adds `-vae`, and `--lora` adds `-lora`, in that order. The combined SDXL
 default is `sdxl-base-red-cube-custom-vae-lora.png`. This separates custom runs
-from the canonical fixture; existing files still require `--overwrite`.
+from the canonical fixture; replacing existing files still requires `--overwrite`.
+Omitting the output path now selects an unused numbered run name on collision.
+All generation values, including optional initial latent/embedding files,
+are described in [generation parameters](generation-parameters.md).
 
 ## Boundaries
 

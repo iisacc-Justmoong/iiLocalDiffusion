@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Any
 
+from encoder_compatibility import clip_skip_compatibility
 from presets import PipelinePreset
 
 
@@ -52,7 +53,8 @@ def encode_cpu_prompt(
             for name, tensor in encoder.named_buffers() if tensor.dtype != dtype
         }
         original_storage.append((encoder, dtype, mixed_parameters, mixed_buffers))
-    cpu_dtype = getattr(torch, preset.runtime.cpu_dtype)
+    dtype_name = getattr(args, "cpu_text_dtype", "auto")
+    cpu_dtype = getattr(torch, preset.runtime.cpu_dtype if dtype_name == "auto" else dtype_name)
     try:
         for name, encoder in encoders:
             encoder.to(device="cpu", dtype=cpu_dtype)
@@ -63,15 +65,31 @@ def encode_cpu_prompt(
         arguments: dict[str, Any] = {
             "prompt": args.prompt,
             "device": "cpu",
-            "num_images_per_prompt": 1,
+            # SD/SDXL repeat externally supplied embeddings in __call__.
+            # FLUX does not: expand here and set its call-time multiplier to 1.
+            "num_images_per_prompt": (
+                getattr(args, "num_images", 1) if preset.name == "flux1-schnell" else 1
+            ),
         }
+        if preset.name in ("sdxl-base", "flux1-schnell"):
+            arguments["prompt_2"] = getattr(args, "prompt_2", None)
         if preset.runtime.passes_negative_prompt:
             arguments["negative_prompt"] = args.negative_prompt
             arguments["do_classifier_free_guidance"] = args.guidance_scale > 1.0
+            arguments["clip_skip"] = getattr(args, "clip_skip", None)
+            if preset.name == "sdxl-base":
+                arguments["negative_prompt_2"] = getattr(args, "negative_prompt_2", None)
         if preset.runtime.max_sequence_length is not None:
-            arguments["max_sequence_length"] = preset.runtime.max_sequence_length
+            arguments["max_sequence_length"] = getattr(
+                args, "max_sequence_length", preset.runtime.max_sequence_length)
+        attention_name = "joint_attention_kwargs" if preset.name == "flux1-schnell" else "cross_attention_kwargs"
+        attention_options = getattr(args, attention_name, {})
+        if "scale" in attention_options:
+            arguments["lora_scale"] = attention_options["scale"]
 
-        with torch.inference_mode():
+        with torch.inference_mode(), clip_skip_compatibility(
+            pipeline, preset, getattr(args, "clip_skip", None)
+        ) as clip_compatibility_used:
             encoded = pipeline.encode_prompt(**arguments)
         if preset.name == "sd15":
             names = ("prompt_embeds", "negative_prompt_embeds")
@@ -89,6 +107,16 @@ def encode_cpu_prompt(
         if len(encoded) != expected_count:
             raise RuntimeError(f"Unexpected CPU conditioning result for {preset.name}.")
         tensors = dict(zip(names, encoded))
+        if preset.name == "flux1-schnell" and getattr(args, "true_cfg_scale", 1.0) > 1.0:
+            negative_arguments = {
+                **arguments, "prompt": args.negative_prompt,
+                "prompt_2": getattr(args, "negative_prompt_2", None),
+            }
+            with torch.inference_mode():
+                negative_encoded = pipeline.encode_prompt(**negative_arguments)
+            if len(negative_encoded) != 3:
+                raise RuntimeError("Unexpected FLUX negative CPU conditioning result.")
+            tensors.update(zip(("negative_prompt_embeds", "negative_pooled_prompt_embeds"), negative_encoded))
         if tensors["prompt_embeds"] is None:
             raise RuntimeError("CPU conditioning returned no prompt embeddings.")
         for name, tensor in tensors.items():
@@ -100,6 +128,8 @@ def encode_cpu_prompt(
             "enabled": True,
             "execution_device": "cpu",
             "dtype": str(cpu_dtype),
+            "num_images_per_prompt": arguments["num_images_per_prompt"],
+            "clip_skip_layout_compatibility": clip_compatibility_used,
             "components": [name for name, _ in encoders],
             "shapes": {name: None if tensor is None else list(tensor.shape)
                        for name, tensor in tensors.items()},

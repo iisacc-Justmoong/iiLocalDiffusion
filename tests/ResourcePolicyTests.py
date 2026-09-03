@@ -262,6 +262,46 @@ class ResourcePolicyTests(unittest.TestCase):
                     object(), presets.SD15_PRESET, args, device, False, fake_torch())
             self.assertEqual(place.call_args.kwargs["offload"], requested)
 
+    def test_cpu_encoding_receives_secondary_prompts_clip_skip_and_dtype(self):
+        preset, args = generate.resolve_arguments(generate.build_parser().parse_args([
+            "--preset", "sdxl-base", "--prompt-2", "second", "--negative-prompt-2", "bad second",
+            "--clip-skip", "2", "--num-images", "3", "--cpu-text-dtype", "bfloat16"
+        ]))
+        pipeline = SimpleNamespace(text_encoder=FakeEncoder(), text_encoder_2=FakeEncoder(),
+            encode_prompt=Mock(return_value=tuple(FakeTensor() for _ in range(4))))
+        result = cpu_conditioning.encode_cpu_prompt(pipeline, preset, args, fake_torch())
+        values = pipeline.encode_prompt.call_args.kwargs
+        self.assertEqual(values["prompt_2"], "second")
+        self.assertEqual(values["negative_prompt_2"], "bad second")
+        self.assertEqual(values["clip_skip"], 2)
+        self.assertEqual(values["num_images_per_prompt"], 1)
+        self.assertEqual(result.metadata["dtype"], "bfloat16")
+        self.assertIn(("cpu", "bfloat16"), pipeline.text_encoder.moves)
+        # SDXL expands each supplied embedding once during the pipeline call.
+        call = generate.build_pipeline_call_arguments(preset, args, "generator", result, "mps", "float16")
+        self.assertEqual(call["num_images_per_prompt"], 3)
+        self.assertNotIn("prompt_2", call)
+        self.assertNotIn("negative_prompt_2", call)
+
+    def test_flux_cpu_encoding_preexpands_batch_and_encodes_true_cfg_negatives(self):
+        preset, args = generate.resolve_arguments(generate.build_parser().parse_args([
+            "--preset", "flux1-schnell", "--num-images", "3", "--max-sequence-length", "128",
+            "--true-cfg-scale", "2", "--prompt-2", "second", "--negative-prompt", "bad",
+            "--negative-prompt-2", "bad second",
+        ]))
+        pipeline = SimpleNamespace(text_encoder=FakeEncoder(), text_encoder_2=FakeEncoder(),
+            encode_prompt=Mock(return_value=tuple(FakeTensor() for _ in range(3))))
+        result = cpu_conditioning.encode_cpu_prompt(pipeline, preset, args, fake_torch())
+        self.assertEqual(pipeline.encode_prompt.call_count, 2)
+        positive, negative = [call.kwargs for call in pipeline.encode_prompt.call_args_list]
+        self.assertEqual((positive["num_images_per_prompt"], positive["max_sequence_length"]), (3, 128))
+        self.assertEqual((negative["prompt"], negative["prompt_2"]), ("bad", "bad second"))
+        self.assertIn("negative_prompt_embeds", result.tensors)
+        self.assertIn("negative_pooled_prompt_embeds", result.tensors)
+        call = generate.build_pipeline_call_arguments(preset, args, "generator", result, "mps", "bfloat16")
+        self.assertEqual(call["num_images_per_prompt"], 1)
+        self.assertNotIn("negative_prompt", call)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -162,7 +162,7 @@ def load_single_component(
             dtype=load_arguments["dtype"],
             cache_dir=cache_directory,
             local_files_only=True,
-            low_cpu_mem_usage=True,
+            low_cpu_mem_usage=load_arguments.get("low_cpu_mem_usage", True),
         )
         require_materialized_component(component, component_name)
     return component
@@ -211,13 +211,13 @@ def _load_checkpoint_pipeline(
         "cache_dir": load_arguments["cache_dir"],
         "dtype": load_arguments["dtype"],
         "local_files_only": True,
-        "low_cpu_mem_usage": True,
+        "low_cpu_mem_usage": load_arguments.get("low_cpu_mem_usage", True),
         "use_safetensors": True,
         "trust_remote_code": False,
         **overrides,
     }
     if preset.name == "sdxl-base":
-        arguments["add_watermarker"] = False
+        arguments["add_watermarker"] = load_arguments.get("add_watermarker", False)
     with checked_safetensors_path(
         selection.single_file,
         Path(load_arguments["cache_dir"]) / "single-file-aliases",

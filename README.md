@@ -114,6 +114,13 @@ The Python tools under `reference/diffusers/` are a validation oracle, not a
 runtime dependency of the C++ library. They pin both the package versions and
 the Hugging Face model revision used by the project's fixed red-cube fixture.
 
+All supported generation values are exposed as CLI options, a typed JSON
+`--config`, and Python `resolve_request()`, with shared/preset defaults
+when omitted. `generate.py --print-config` shows the complete resolved values
+without model downloads or a Torch installation. Sampling, scheduler settings,
+secondary prompts, batching/seeds, dtypes, memory policies and optional
+latent/embedding files are covered in [generation parameters](docs/generation-parameters.md).
+
 ```bash
 uv venv reference/diffusers/.venv --python 3.14
 uv pip install \

@@ -279,6 +279,23 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
         )
 
+        foreach(generation_test IN ITEMS
+                GenerationOptionsTests GenerationOutputTests
+                GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests)
+            add_test(NAME ${generation_test}
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${generation_test}.py")
+            set_tests_properties(${generation_test} PROPERTIES
+                ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
+        endforeach()
+        foreach(generation_preset IN ITEMS sd15 sdxl-base flux1-schnell)
+            add_test(NAME ReferenceGenerateConfig-${generation_preset}
+                COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/reference/diffusers/generate.py"
+                    --preset ${generation_preset} --print-config)
+            set_tests_properties(ReferenceGenerateConfig-${generation_preset} PROPERTIES
+                ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
+        endforeach()
+
         add_test(
             NAME MlxValidationTests
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/MlxValidationTests.py"

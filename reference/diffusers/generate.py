@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 from dataclasses import dataclass
 import hashlib
 import importlib.metadata
@@ -14,9 +15,20 @@ from pathlib import Path
 import platform
 import re
 import sys
+import tempfile
 from typing import Any
 
 from cpu_conditioning import CpuConditioning, encode_cpu_prompt
+from encoder_compatibility import clip_skip_compatibility
+from generation_config import ConfigurationArgumentParser, configuration_values
+from generation_options import (
+    add_generation_options, build_generators, pipeline_generation_values,
+    resolve_generation_options, resolved_dtype, select_device_index,
+    uses_negative_prompt, validate_generation_options, with_generation_defaults,
+)
+from generation_output import publish_file, resolve_output_paths, write_png
+from generation_scheduler import configure_scheduler, validate_clip_skip, validate_scheduler_values
+from generation_tensor_inputs import load_tensor_inputs
 from hardware import (
     accelerator_preflight, configure_tensor_cores, select_device, validate_execution_device,
 )
@@ -76,9 +88,14 @@ class LoraActivation:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Generate a pinned Diffusers reference fixture."
+    parser = ConfigurationArgumentParser(
+        description="Generate a configurable, reproducible Diffusers reference image.",
+        allow_abbrev=False,
     )
+    parser.add_argument("--config", type=Path, default=None,
+                        help="JSON argument values; explicit CLI values override this file")
+    parser.add_argument("--print-config", action="store_true",
+                        help="Print resolved JSON values and exit without importing Torch or generating")
     parser.add_argument("--preset", choices=tuple(PRESETS), default=DEFAULT_PRESET_NAME)
     parser.add_argument(
         "--model",
@@ -128,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="GPU required by default; rocm requires AMD HIP PyTorch, metal aliases MPS; CPU is explicit",
     )
     parser.add_argument(
-        "--cpu-text-encoding", action="store_true",
+        "--cpu-text-encoding", action=argparse.BooleanOptionalAction, default=False,
         help="Compute prompt embeddings on CPU before GPU denoising and decoding",
     )
     parser.add_argument(
@@ -157,8 +174,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the preset and device-specific attention-slicing policy.",
     )
-    parser.add_argument("--local-files-only", action="store_true")
-    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--local-files-only", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=False)
+    add_generation_options(parser)
     return parser
 
 
@@ -180,6 +198,8 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
         elif args.model_config is not None or args.model_config_revision is not None:
             raise ValueError("--model-config options require --model to be a single file.")
         vae_file = None if args.vae is None else resolve_weight_file(args.vae, "--vae")
+        latents_file = None if args.latents is None else resolve_weight_file(args.latents, "--latents")
+        embeddings_file = None if args.embeddings is None else resolve_weight_file(args.embeddings, "--embeddings")
     except ValueError as error:
         raise SystemExit(str(error)) from error
 
@@ -187,13 +207,20 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
     resolved.model_selection = selection
     resolved.config_selection = config_selection
     resolved.vae_file = vae_file
+    resolved.latents_file = latents_file
+    resolved.embeddings_file = embeddings_file
     resolved.lora_selection = resolve_lora_selection(resolved)
+    if resolved.lora_selection is not None:
+        resolved.lora_scale = resolved.lora_selection.scale
     resolved.width = preset.width if args.width is None else args.width
     resolved.height = preset.height if args.height is None else args.height
     resolved.steps = preset.steps if args.steps is None else args.steps
     resolved.guidance_scale = (
         preset.guidance_scale if args.guidance_scale is None else args.guidance_scale
     )
+    if args.steps is None and args.timesteps is not None:
+        resolved.steps = len(args.timesteps)
+    resolve_generation_options(preset, resolved)
     filename = Path(preset.generation_filename)
     modifiers = []
     if args.model is not None or args.revision is not None:
@@ -205,7 +232,17 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
     suffix = "" if not modifiers else "-" + "-".join(modifiers)
     generation_filename = f"{filename.stem}{suffix}{filename.suffix}"
     resolved.output = args.output or REPOSITORY_ROOT / "build" / "reference" / generation_filename
+    resolved.output_was_default = args.output is None
+    for name in ("output", "cache_dir", "xet_cache_dir"):
+        setattr(resolved, name, getattr(resolved, name).expanduser())
     return preset, resolved
+
+
+def resolve_request(values: dict[str, Any] | None = None) -> tuple[PipelinePreset, argparse.Namespace]:
+    """Resolve and validate all external values for a Python caller without loading models."""
+    preset, args = resolve_arguments(build_parser().parse_values(values))
+    validate_generation_arguments(preset, args)
+    return preset, args
 
 
 def _validate_lora_weight_name(weight_name: str, *, local: bool = False) -> None:
@@ -387,6 +424,8 @@ def apply_lora(
     selection: LoraSelection | None,
     cache_directory: Path,
     local_files_only: bool,
+    *,
+    low_cpu_mem_usage: bool = True,
 ) -> LoraActivation | None:
     if selection is None:
         return None
@@ -395,7 +434,7 @@ def apply_lora(
         "adapter_name": LORA_ADAPTER_NAME,
         "cache_dir": cache_directory,
         "local_files_only": local_files_only,
-        "low_cpu_mem_usage": True,
+        "low_cpu_mem_usage": low_cpu_mem_usage,
         "use_safetensors": True,
         "weight_name": selection.weight_name,
     }
@@ -466,13 +505,26 @@ def prepare_pipeline_with_adapters(
     torch: Any = None,
 ) -> tuple[Any, dict[str, Any], LoraActivation | None, CpuConditioning | None]:
     validate_pipeline_contract(pipeline, preset)
+    if getattr(args, "scheduler", "auto") != "auto" or getattr(args, "scheduler_config", {}):
+        args.scheduler_metadata = configure_scheduler(pipeline, args)
+    validate_clip_skip(pipeline, preset, args)
+    if (getattr(args, "timesteps", None) is not None or getattr(args, "sigmas", None) is not None
+            or getattr(args, "eta", 0) != 0):
+        validate_scheduler_values(pipeline, args)
     activation = apply_lora(
         pipeline,
         args.lora_selection,
         args.cache_dir,
         args.local_files_only,
+        **({"low_cpu_mem_usage": False} if not getattr(args, "low_cpu_mem_usage", True) else {}),
     )
     conditioning = None
+    if getattr(args, "latents_file", None) is not None or getattr(args, "embeddings_file", None) is not None:
+        if torch is None:
+            raise ValueError("External generation tensors require the PyTorch runtime.")
+        args.tensor_inputs = load_tensor_inputs(
+            pipeline, preset, args, torch, getattr(torch, resolved_dtype(preset, args, device)))
+        conditioning = args.tensor_inputs.conditioning
     requested_offload = getattr(args, "offload", "auto")
     offload = requested_offload
     if getattr(args, "cpu_text_encoding", False):
@@ -482,12 +534,21 @@ def prepare_pipeline_with_adapters(
         if (offload == "auto" and device != "cpu"
                 and preset.runtime.accelerator_execution == "resident"):
             offload = "model"
+    memory_options = {}
+    for name in ("vae_slicing", "vae_tiling"):
+        if getattr(args, name, None) is not None:
+            memory_options[name] = getattr(args, name)
+    if getattr(args, "attention_slice_size", "auto") != "auto":
+        memory_options["attention_slice_size"] = args.attention_slice_size
+    if getattr(args, "device_index", 0) != 0:
+        memory_options["device_index"] = args.device_index
     pipeline, optimization = prepare_pipeline_for_execution(
         pipeline,
         preset,
         device,
         attention_slicing,
         offload=offload,
+        **memory_options,
     )
     optimization["requested_offload"] = requested_offload
     return pipeline, optimization, activation, conditioning
@@ -527,10 +588,15 @@ def lora_metadata(
     }
 
 
-def write_json_atomically(path: Path, value: dict[str, Any]) -> None:
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+def write_json_atomically(path: Path, value: dict[str, Any], *, overwrite: bool = True) -> None:
+    text = json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False) as stream:
+        temporary = Path(stream.name)
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        publish_file(temporary, path, overwrite=overwrite)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def safety_metadata(pipeline: Any, result: Any) -> dict[str, Any]:
@@ -573,22 +639,25 @@ def build_load_arguments(
         "cache_dir": args.cache_dir,
         "dtype": dtype,
         "local_files_only": args.local_files_only,
-        "low_cpu_mem_usage": True,
+        "low_cpu_mem_usage": getattr(args, "low_cpu_mem_usage", True),
         "trust_remote_code": False,
         "use_safetensors": True,
     }
     if args.model_selection.requested_revision is not None:
         arguments["revision"] = args.model_selection.requested_revision
-    variant = preset.runtime.weight_variant
+    requested_variant = getattr(args, "weight_variant", "auto")
+    variant = preset.runtime.weight_variant if requested_variant == "auto" else requested_variant
     source = args.config_selection or args.model_selection
-    if use_weight_variant and variant is not None:
+    if requested_variant not in ("auto", "none"):
+        arguments["variant"] = requested_variant
+    elif use_weight_variant and variant not in (None, "none"):
         has_variant = source.source == preset.model_id
         if source.is_local:
             has_variant = any(Path(source.source).glob(f"*/*.{variant}*.safetensors"))
         if has_variant:
             arguments["variant"] = variant
     if preset.name == "sdxl-base":
-        arguments["add_watermarker"] = False
+        arguments["add_watermarker"] = bool(getattr(args, "watermark", False))
     return arguments
 
 
@@ -600,6 +669,10 @@ def build_pipeline_call_arguments(
     device: str | None = None,
     dtype: Any = None,
 ) -> dict[str, Any]:
+    args = with_generation_defaults(preset, args)
+    tensor_inputs = getattr(args, "tensor_inputs", None)
+    if conditioning is None and tensor_inputs is not None:
+        conditioning = tensor_inputs.conditioning
     arguments: dict[str, Any] = {
         "prompt": args.prompt,
         "width": args.width,
@@ -607,18 +680,22 @@ def build_pipeline_call_arguments(
         "num_inference_steps": args.steps,
         "guidance_scale": args.guidance_scale,
         "generator": generator,
+        **pipeline_generation_values(preset, args),
     }
-    if preset.runtime.passes_negative_prompt:
-        arguments["negative_prompt"] = args.negative_prompt
-    if preset.runtime.max_sequence_length is not None:
-        arguments["max_sequence_length"] = preset.runtime.max_sequence_length
-        arguments["output_type"] = "pil"
     if conditioning is not None:
         if device is None or dtype is None:
             raise ValueError("CPU conditioning requires the target device and dtype.")
         arguments.pop("prompt")
+        arguments.pop("prompt_2", None)
         arguments.pop("negative_prompt", None)
+        arguments.pop("negative_prompt_2", None)
         arguments.update(conditioning.for_device(device, dtype))
+        if preset.name == "flux1-schnell" or conditioning.metadata.get("batch_expanded", False):
+            arguments["num_images_per_prompt"] = 1
+    if tensor_inputs is not None and tensor_inputs.latents is not None:
+        if device is None or dtype is None:
+            raise ValueError("External latents require the target device and dtype.")
+        arguments["latents"] = tensor_inputs.latents.to(device=device, dtype=dtype)
     return arguments
 
 
@@ -641,6 +718,10 @@ def prepare_pipeline_for_execution(
     attention_slicing: bool,
     *,
     offload: str = "auto",
+    vae_slicing: bool | None = None,
+    vae_tiling: bool | None = None,
+    attention_slice_size: str | int = "auto",
+    device_index: int = 0,
 ) -> tuple[Any, dict[str, Any]]:
     if offload not in ("auto", "none", "model", "sequential"):
         raise ValueError(f"Unknown RAM offload policy: {offload}")
@@ -648,6 +729,7 @@ def prepare_pipeline_for_execution(
         raise ValueError("RAM weight offload requires a GPU execution device.")
     optimization = {
         "attention_slicing": False,
+        "attention_slice_size": None,
         "offload_policy": "none",
         "vae_slicing_enabled": False,
         "vae_tiling_enabled": False,
@@ -660,31 +742,42 @@ def prepare_pipeline_for_execution(
     if offload == "auto":
         offload = ("sequential" if device in ("mps", "cuda")
                    and execution == "sequential-cpu-offload" else "none")
-    if device in ("mps", "cuda"):
-        if preset.runtime.accelerator_vae_slicing:
-            pipeline.vae.enable_slicing()
-            optimization["vae_slicing_enabled"] = True
-        if preset.runtime.accelerator_vae_tiling:
-            pipeline.vae.enable_tiling()
-            optimization["vae_tiling_enabled"] = True
+    for name, requested, default in (
+        ("slicing", vae_slicing, preset.runtime.accelerator_vae_slicing),
+        ("tiling", vae_tiling, preset.runtime.accelerator_vae_tiling),
+    ):
+        enabled = default and device in ("mps", "cuda") if requested is None else requested
+        if enabled:
+            getattr(pipeline.vae, "enable_" + name)()
+            optimization["vae_" + name + "_enabled"] = True
+        elif requested is False:
+            getattr(pipeline.vae, "disable_" + name)()
+    offload_arguments = {"device": device}
+    if device == "cuda" and device_index != 0:
+        offload_arguments["gpu_id"] = device_index
     if offload == "sequential":
-        pipeline.enable_sequential_cpu_offload(device=device)
+        pipeline.enable_sequential_cpu_offload(**offload_arguments)
         optimization["offload_policy"] = "sequential-cpu"
         optimization["weight_storage"] = "ram"
     elif offload == "model":
-        pipeline.enable_model_cpu_offload(device=device)
+        pipeline.enable_model_cpu_offload(**offload_arguments)
         optimization["offload_policy"] = "model-cpu"
         optimization["weight_storage"] = "ram"
     else:
-        pipeline = pipeline.to(device)
+        pipeline = pipeline.to(f"cuda:{device_index}" if device == "cuda" and device_index else device)
 
     if attention_slicing:
-        pipeline.enable_attention_slicing()
+        if attention_slice_size == "auto":
+            pipeline.enable_attention_slicing()
+        else:
+            pipeline.enable_attention_slicing(attention_slice_size)
         optimization["attention_slicing"] = True
+        optimization["attention_slice_size"] = attention_slice_size
     return pipeline, optimization
 
 
 def validate_generation_arguments(preset: PipelinePreset, args: argparse.Namespace) -> None:
+    validate_generation_options(preset, args)
     if args.cpu_threads is not None and args.cpu_threads <= 0:
         raise SystemExit("CPU threads must be positive.")
     if args.device == "cpu" and args.offload in ("model", "sequential"):
@@ -705,7 +798,7 @@ def validate_generation_arguments(preset: PipelinePreset, args: argparse.Namespa
     if preset.name == "flux1-schnell" and args.guidance_scale != 0.0:
         raise SystemExit("FLUX.1-schnell guidance scale must be 0.0.")
     if (
-        not preset.runtime.passes_negative_prompt
+        not uses_negative_prompt(preset, args)
         and args.negative_prompt != DEFAULT_NEGATIVE_PROMPT
     ):
         raise SystemExit(f"Preset {preset.name} does not use --negative-prompt.")
@@ -716,12 +809,11 @@ def validate_generation_arguments(preset: PipelinePreset, args: argparse.Namespa
 def main() -> int:
     preset, args = resolve_arguments(build_parser().parse_args())
     validate_generation_arguments(preset, args)
+    if args.print_config:
+        print(json.dumps(configuration_values(args), indent=2, sort_keys=True, allow_nan=False))
+        return 0
 
-    metadata_path = args.output.with_suffix(".json")
-    existing = [path for path in (args.output, metadata_path) if path.exists()]
-    if existing and not args.overwrite:
-        paths = ", ".join(str(path) for path in existing)
-        raise SystemExit(f"Refusing to overwrite existing reference output: {paths}")
+    output_paths = resolve_output_paths(args)
 
     installed_package_versions = package_versions(args.lora_selection is not None)
 
@@ -734,13 +826,14 @@ def main() -> int:
     if args.cpu_threads is not None:
         torch.set_num_threads(args.cpu_threads)
     device = select_device(torch, args.device)
-    dtype_name = (
-        preset.runtime.cpu_dtype if device == "cpu" else preset.runtime.accelerator_dtype
-    )
+    select_device_index(torch, device, args.device_index)
+    generator, seeds, generator_device = build_generators(torch, args, device)
+    dtype_name = resolved_dtype(preset, args, device)
     dtype = getattr(torch, dtype_name)
     tensor_cores = configure_tensor_cores(torch, device, args.cuda_tf32)
     hardware = accelerator_preflight(torch, device, dtype)
     hardware["requested_device"] = args.device
+    hardware["device_index"] = args.device_index
     hardware["tensor_cores"] = tensor_cores
     print(f"Compute: {hardware['runtime']} / {hardware['backend']} ({dtype_name})", flush=True)
     attention_slicing = resolve_attention_slicing(
@@ -777,27 +870,43 @@ def main() -> int:
         torch,
     )
     validate_execution_device(pipeline, device)
+    if device == "cuda" and pipeline._execution_device.index != args.device_index:
+        raise RuntimeError("Pipeline did not retain the requested CUDA/ROCm device index.")
+    scheduler_metadata = getattr(args, "scheduler_metadata", None)
+    if scheduler_metadata is None:
+        scheduler_metadata = configure_scheduler(pipeline, args)
     hardware["participating_devices"] = (
-        ["cpu", device] if conditioning is not None and device != "cpu" else [device]
+        ["cpu", device] if conditioning is not None and conditioning.metadata.get("enabled", False)
+        and device != "cpu" else [device]
     )
     print(f"Resources: {', '.join(hardware['participating_devices'])}; "
           f"weight storage={optimization['weight_storage']}; "
           f"offload={optimization['offload_policy']}", flush=True)
 
-    generator = torch.Generator(device="cpu").manual_seed(args.seed)
-    with torch.inference_mode():
+    pipeline.set_progress_bar_config(disable=not args.progress)
+    clip_context = (
+        clip_skip_compatibility(pipeline, preset, args.clip_skip)
+        if conditioning is None else nullcontext(False)
+    )
+    with torch.inference_mode(), clip_context as clip_compatibility_used:
         result = pipeline(**build_pipeline_call_arguments(
             preset, args, generator, conditioning, device, dtype))
 
-    image = result.images[0]
-    if image.mode != "RGB":
-        image = image.convert("RGB")
-    channel_extrema = validate_rendered_image(image, args.width, args.height)
-
-    temporary_image = args.output.with_name(args.output.name + ".tmp")
-    image.save(temporary_image, format="PNG")
-    os.replace(temporary_image, args.output)
-    image_sha256 = hashlib.sha256(args.output.read_bytes()).hexdigest()
+    if len(result.images) != args.num_images:
+        raise RuntimeError(f"Expected {args.num_images} generated images, received {len(result.images)}.")
+    validated = []
+    for image in result.images:
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        validated.append((image, validate_rendered_image(image, args.width, args.height)))
+    outputs = []
+    for path, (image, extrema) in zip(output_paths, validated):
+        write_png(image, path, compress_level=args.png_compress_level,
+                  optimize=args.png_optimize, overwrite=args.overwrite)
+        outputs.append({
+            "mode": image.mode, "path": str(path.resolve()), "sha256": file_sha256(path),
+            "size": [image.width, image.height], "channel_extrema": extrema,
+        })
 
     metadata: dict[str, Any] = {
         "adapters": (
@@ -808,21 +917,30 @@ def main() -> int:
         "fixture": {
             "guidance_scale": args.guidance_scale,
             "height": args.height,
-            "max_sequence_length": preset.runtime.max_sequence_length,
+            "max_sequence_length": args.max_sequence_length,
             "negative_prompt": (
-                args.negative_prompt if preset.runtime.passes_negative_prompt else None
+                args.negative_prompt if uses_negative_prompt(preset, args) else None
             ),
             "prompt": args.prompt,
             "seed": args.seed,
             "steps": args.steps,
             "width": args.width,
         },
+        "parameters": configuration_values(args),
+        "inputs": getattr(getattr(args, "tensor_inputs", None), "metadata", {}),
         "model": {
             **selection_metadata(args.model_selection),
             "preset": preset.name,
             "pipeline_class": type(pipeline).__name__,
             "scheduler_class": type(pipeline.scheduler).__name__,
+            "scheduler": scheduler_metadata,
             "loading": loading_metadata,
+        },
+        "schedule": {
+            "requested_inference_steps": args.steps,
+            "reported_num_timesteps": int(pipeline.num_timesteps),
+            "scheduler_timesteps": pipeline.scheduler.timesteps.detach().cpu().tolist(),
+            "note": "Custom schedules override the step-count request; early stopping may use only part of this schedule.",
         },
         "vae": {
             "overridden": args.vae_file is not None,
@@ -833,14 +951,9 @@ def main() -> int:
             "shift_factor": getattr(pipeline.vae.config, "shift_factor", None),
             "spatial_downsample_factor": 2 ** (len(pipeline.vae.config.block_out_channels) - 1),
         },
-        "output": {
-            "mode": image.mode,
-            "path": str(args.output.resolve()),
-            "sha256": image_sha256,
-            "size": [image.width, image.height],
-            "channel_extrema": channel_extrema,
-        },
+        "output": outputs[0],
         "runtime": {
+            "clip_skip_layout_compatibility": clip_compatibility_used,
             "device": device,
             "execution_device": str(pipeline._execution_device),
             "hardware": hardware,
@@ -858,18 +971,26 @@ def main() -> int:
         },
         "safety": safety_metadata(pipeline, result),
         "reproducibility": {
-            "generator_device": "cpu",
+            "generator_device": generator_device,
+            "seeds": seeds,
             "note": (
                 "A seed does not guarantee pixel identity across hardware "
                 "or runtime releases."
             ),
         },
     }
-    write_json_atomically(metadata_path, metadata)
-
-    print(f"Image: {args.output.resolve()}")
-    print(f"Metadata: {metadata_path.resolve()}")
-    print(f"SHA-256: {image_sha256}")
+    for index, (path, output) in enumerate(zip(output_paths, outputs)):
+        metadata_path = path.with_suffix(".json")
+        per_image = {
+            **metadata,
+            "fixture": {**metadata["fixture"], "seed": seeds[index]},
+            "output": output,
+            "batch": {"index": index, "count": args.num_images, "outputs": outputs},
+        }
+        write_json_atomically(metadata_path, per_image, overwrite=args.overwrite)
+        print(f"Image: {path.resolve()}")
+        print(f"Metadata: {metadata_path.resolve()}")
+        print(f"SHA-256: {output['sha256']}")
     return 0
 
 

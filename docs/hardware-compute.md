@@ -235,7 +235,10 @@ and before installing any device/offload hooks. The denoiser and VAE still
 execute on the selected GPU. CPU encoding precedes GPU denoising because the
 embeddings are its input; this path is not simultaneous partitioning of a
 single denoising operation. SD 1.5/SDXL CPU encoding uses float32, FLUX uses
-bfloat16. Encoders return to their original storage dtype before placement.
+bfloat16 by default. `--dtype` and `--cpu-text-dtype` expose separate
+model and CPU-encoder overrides. Encoders return to their original storage dtype before placement.
+Python CUDA/ROCm device indices, generator placement and memory/precision
+policies are included in the [generation value schema](generation-parameters.md).
 Mixed-precision adapter tensors/buffers retain their original values and dtype
 instead of being downcast to the base encoder's precision during restoration.
 All resulting conditioning tensors, including SDXL pooled negatives, are

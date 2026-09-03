@@ -144,8 +144,9 @@ FLUX retains sequential offload. Explicit `none` moves the entire pipeline
 to the GPU, including already-used text encoders. `--device cpu` still runs
 the whole pipeline on CPU/RAM and rejects model/sequential GPU offload.
 
-CPU encoding uses float32 for SD/SDXL and bfloat16 for FLUX, restores the
+CPU encoding defaults to float32 for SD/SDXL and bfloat16 for FLUX, restores the
 encoder storage dtype, and transfers all embeddings to the chosen GPU/dtype.
+An explicit `--cpu-text-dtype` overrides that encoder policy.
 The sidecar records CPU conditioning devices/shapes, CPU thread count,
 participating devices, requested/effective offload, and weight storage.
 CPU text encoding is a stage before GPU denoising, not concurrent denoiser
@@ -259,6 +260,23 @@ Without `--output`, an explicit `--model` or `--revision` adds `-custom`,
 SDXL run with all three inputs defaults to
 `build/reference/sdxl-base-red-cube-custom-vae-lora.png`. Existing output and
 sidecar files still require `--overwrite` before replacement.
+When output was omitted, a collision instead chooses an unused
+`-run-0002` (or later) filename without replacing the original.
+
+## All generation values and defaults
+
+The CLI, JSON `--config` and Python `resolve_request()` share one argument
+schema. Omitted values and top-level JSON null use neutral/preset defaults;
+explicit zero and false are retained. `--print-config` prints replayable
+JSON and exits before loading dependencies or touching a GPU.
+
+See [generation-parameters.md](../../docs/generation-parameters.md) for every
+value and its fallback, including scheduler/configuration, custom schedules,
+secondary prompts, SDXL micro-conditioning, FLUX true CFG, image counts,
+seed stride, dtype/variant, memory policies, PNG storage options and optional
+latent/embedding safetensors. `generation.example.json` is a partial starter.
+Every batch image is saved with its own seed, hash and complete parameter
+sidecar. Image-to-image/refiner/ControlNet/IP-Adapter pipelines are not added.
 
 ## Interpretation
 
@@ -275,7 +293,7 @@ Its `--model` remains a Diffusers directory or pinned repository; the new
 single-file and VAE inputs belong to `generate.py` only. C++ `iild-run inspect`
 continues to inspect package metadata without loading weights.
 
-`generate.py` writes an RGB PNG and a JSON sidecar containing the model preset
+`generate.py` writes each RGB PNG and a JSON sidecar containing the model preset
 and revision, all fixture parameters, direct package versions, device, dtype,
 attention-slicing state, safety-checker and watermarker presence, and output
 SHA-256. Custom runs also identify the model's weight role, configuration
@@ -291,8 +309,10 @@ casts it back to the latent dtype and can produce NaNs. The oracle also rejects
 uniform RGB output so that this failure cannot pass merely because a PNG was
 written.
 
-FLUX.1-schnell uses BF16 without an `fp16` weight variant, passes no negative
-prompt, and caps `max_sequence_length` at 256. The fixed fixture uses four
+FLUX.1-schnell defaults to BF16 without an `fp16` weight variant, no negative
+prompt, and `max_sequence_length=256`. Explicit dtype/token-limit overrides
+are available; `--true-cfg-scale` greater than 1 separately enables negative
+prompts and a second denoiser pass. The fixed fixture uses four
 steps, while positive step overrides remain available for diagnostic runs.
 Guidance is fixed at 0.0, and width and height must be multiples of 16. On MPS
 and CUDA the default `--offload auto` keeps the full pipeline off the
@@ -322,5 +342,6 @@ The SD 1.5 repository's CreativeML OpenRAIL-M terms, the SDXL Base repository's
 CreativeML Open RAIL++-M terms, and FLUX.1-schnell's Apache-2.0 terms apply
 independently of the Python package licenses. SDXL Base and FLUX.1-schnell
 contain no safety checker. The fixed SDXL oracle explicitly disables its
-optional invisible watermarker; FLUX.1-schnell has no watermarker component.
+optional invisible watermarker by default; `--watermark` can enable it when
+its optional dependency is installed. FLUX.1-schnell has no watermarker component.
 Those facts are not a product safety policy.
