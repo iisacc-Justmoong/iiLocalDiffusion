@@ -41,6 +41,10 @@ Diffusers, Transformers, Accelerate, huggingface_hub, Hugging Face Xet, PEFT,
 safetensors, NumPy, and Pillow. Those tools are development oracles and are not
 part of the C++ runtime dependency graph. See each upstream distribution for
 its full notices. Hugging Face Xet 1.6.0 and PEFT 0.20.0 declare Apache-2.0.
+Optional ControlNet uses the existing Diffusers 0.40.0 (Apache-2.0)
+model/pipeline implementations and Pillow image handling. It introduces no
+new third-party package or condition detector. User-selected ControlNet
+weights retain their own license terms and are not bundled.
 
 Apple builds link privately against the system Foundation and Core ML
 frameworks, subject to Apple's platform/SDK terms. These frameworks are not

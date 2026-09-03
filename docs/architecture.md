@@ -50,10 +50,33 @@ iild-run neural-compute -> CoreMLModel -> private system Core ML -> CPU/ANE/(opt
 
 Python Diffusers is an independent reference oracle. The C++ library neither
 embeds Python nor invokes the reference scripts. The Python generation oracle
-can assemble explicitly selected model/checkpoint and VAE files, then apply
-one selected LoRA after validating the pipeline. `presets.py` owns family and
+can assemble explicitly selected model/checkpoint and VAE files, attach one
+compatible ControlNet, then apply one selected LoRA after validating the
+pipeline. `presets.py` owns family and
 configuration contracts, `model_loading.py` owns Diffusers assembly, and
 `weight_files.py` owns local file identity and canonical safe-loader paths.
+`controlnet.py` owns optional ControlNet selection, prepared-image loading,
+component compatibility, Diffusers pipeline attachment, and provenance.
+It delegates neural execution, single-file conversion, and image resizing
+to the existing runtime dependencies; it does not implement a condition
+detector. The [ControlNet contract](controlnet.md) applies only to generation.
+Optional [Hires Fix](hires-fix.md) orchestrates a base pass, Pillow RGB
+resizing and an img2img refinement pass across all three families and their
+ControlNet variants. It reuses the selected neural components and retains
+the existing inference backend and offload policy. Project code owns stage
+parameters, scheduler lifecycle, output reservation and provenance; the
+existing dependencies own image resampling, VAE encoding, noise and neural
+execution. Stage-specific schedules and output validation make the second
+pass observable without asserting universal visual quality.
+`hires_options.py` owns second-stage argument resolution;
+`hires.py` owns image resizing, refinement assembly and stage validation.
+`generation_output.py` reserves the final and optional base output paths.
+`hires_flux_controlnet.py` combines Diffusers' public FLUX img2img
+latent/schedule preparation with the existing FLUX ControlNet denoising
+loop. This preserves negative conditioning and true CFG that are absent
+from the pinned upstream ControlNet img2img call, without copying the
+transformer or ControlNet computation. Its scheduler adjustment is scoped
+to one sequential call and restored afterward.
 The [model-input contract](model-inputs.md) separates embedded checkpoint
 weights from the configuration source's auxiliary components. The C++
 manifest does not load weight tensors or inspect/execute adapters. The
@@ -68,6 +91,20 @@ controls on ROCm. It does not delegate generation to MLX or Core ML.
 transfers. CPU encoding follows LoRA activation and precedes placement;
 Diffusers/Accelerate owns model/sequential RAM offload hooks. This CPU stage
 feeds GPU denoising and is separate from native concurrent linear partitioning.
+
+Optional [Textual Inversion](text-embeddings.md) adds learned tokenizer
+entries and matching encoder input vectors before prompt encoding and
+offload placement. It composes with the existing model, LoRA, ControlNet
+and Hires Fix paths. Existing tokenizer/embedding-table APIs own storage
+and execution; project code owns safe input selection, dimensions, token
+collision checks, multi-vector prompt handling and provenance. Completed
+prompt tensors from `--embeddings` remain a separate, mutually exclusive
+input path that bypasses encoding.
+`text_embedding_options.py` owns ordered file/token/encoder selections;
+`text_embeddings.py` validates vectors, invokes the existing Diffusers
+Textual Inversion loader and verifies registered IDs and vector values.
+Its scoped prompt handling expands each encoder's multi-vector tokens once
+and restores normal pipeline prompt conversion after the call.
 
 Headers and implementations live together under `src/`, as required by this
 workspace's library convention. A separate source `include/` tree is not used.
@@ -172,8 +209,8 @@ implementations remain separate architecture decisions.
 - image generation in C++
 - model downloading UI or remote inference
 - custom tensors, kernels, or graph executor
-- LoRA package inspection or execution in C++
-- training, img2img, inpainting, ControlNet, SDXL Refiner, FLUX.1-dev, or
+- LoRA or ControlNet package inspection or execution in C++
+- training, external img2img inputs, inpainting, Multi-ControlNet, SDXL Refiner, FLUX.1-dev, or
   arbitrary FLUX derivatives
 - `.ckpt`, pickle-based `.bin`, GGUF, or arbitrary checkpoint compatibility;
   whole-checkpoint pipeline assembly is limited to the independent Python

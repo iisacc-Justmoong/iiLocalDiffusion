@@ -160,13 +160,52 @@ dependency is introduced. Diffusers owns checkpoint-layout conversion and
 neural component construction, while project code owns argument resolution,
 composition, file identity, and provenance.
 
+Optional ControlNet generation reuses Diffusers 0.40.0 (Apache-2.0) and the
+existing PyTorch, Accelerate, safetensors, huggingface_hub, and Pillow pins.
+The maintained upstream ControlNet model/pipeline implementations own neural
+execution and image resizing; Pillow handles static-image decoding, EXIF
+orientation, and RGB conversion. Project code owns explicit selection,
+family compatibility, composition, hashes, and provenance. Native single
+files are staged as a temporary Diffusers component package, while supported
+original SD/SDXL files use its single-file converter. This adds no runtime
+dependency, C++ binding, or independently maintained neural implementation.
+No automatic condition detector, OpenCV, or depth/pose model is introduced;
+the caller supplies the prepared image. See [ControlNet inputs](controlnet.md).
+
+Optional Hires Fix uses those same maintained Diffusers, PyTorch,
+Accelerate and Pillow dependencies. Pillow supplies nearest, bilinear,
+bicubic and Lanczos RGB resizing; Diffusers provides image-to-image VAE
+preparation, scheduling and denoising with the selected base-model, VAE,
+LoRA and optional ControlNet components. Project code coordinates the two
+stages and records their provenance. No learned upscaler package, additional
+model download, tensor kernel, or C++ binding is introduced. The existing
+dependency licenses and weight-specific terms continue to apply. See
+[Hires Fix](hires-fix.md).
+
+The pinned FLUX ControlNet img2img call lacks the negative-conditioning
+arguments supported by the existing generation interface. A scoped
+compatibility adapter uses the upstream FLUX img2img latent/schedule
+helpers with the upstream ControlNet denoising loop, preserving true CFG
+and negative embeddings. It does not maintain a duplicate neural loop;
+this API compatibility point requires regression checks when upgrading
+Diffusers.
+
+Textual Inversion reuses the pinned Diffusers, Transformers, PyTorch and
+safetensors dependencies. Their tokenizer and embedding-table APIs handle
+learned-token registration and tensor storage, while project code checks
+local file identity, encoder compatibility and token collisions and records
+provenance. The feature adds no training runtime, new package, bundled
+embedding weights or automatic download. Its learned vectors have their
+own terms, independent of the runtime licenses. See
+[learned text embeddings](text-embeddings.md).
+
 CPU prompt encoding and RAM offload reuse the already-pinned PyTorch,
 Diffusers, and Accelerate packages. Accelerate owns the offload hook lifecycle;
 no custom hooks, disk-swapping layer, external scheduler, or extra dependency
 is introduced. Upstream memory guidance is linked in
 [hardware-compute.md](hardware-compute.md#cpugpu-cooperation-and-ram-storage).
 
-Local model, VAE, and LoRA inputs accept `.safetensors` and `.safetensor`.
+Local model, VAE, LoRA, and ControlNet inputs accept `.safetensors` and `.safetensor`.
 The singular spelling uses a temporary canonical `.safetensors` symlink,
 keeping Diffusers on its safetensors branch; pickle-weight formats are
 rejected. Remote adapter filenames still require `.safetensors`. Configuration

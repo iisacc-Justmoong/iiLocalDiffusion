@@ -281,7 +281,9 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
 
         foreach(generation_test IN ITEMS
                 GenerationOptionsTests GenerationOutputTests
-                GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests)
+                GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests
+                ControlNetTests HiresOptionsTests HiresRuntimeTests HiresFluxControlNetTests
+                TextEmbeddingOptionsTests TextEmbeddingRuntimeTests)
             add_test(NAME ${generation_test}
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${generation_test}.py")
             set_tests_properties(${generation_test} PROPERTIES

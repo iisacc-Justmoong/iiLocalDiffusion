@@ -21,18 +21,25 @@ def _existing(paths: list[Path]) -> list[Path]:
     ]
 
 
+def hires_base_paths(paths: list[Path]) -> list[Path]:
+    return [path.with_stem(path.stem + "-base") for path in paths]
+
+
 def resolve_output_paths(args: Any) -> list[Path]:
     base = args.output.expanduser()
     paths = _paths(base, args.num_images)
+    save_base = getattr(args, "hires_fix", False) and getattr(args, "hires_save_base", False)
+    def artifacts(final_paths):
+        return final_paths + hires_base_paths(final_paths) if save_base else final_paths
     if args.output_was_default and not args.overwrite:
         run = 2
-        while _existing(paths):
+        while _existing(artifacts(paths)):
             candidate = base.with_stem(f"{base.stem}-run-{run:04d}")
             paths = _paths(candidate, args.num_images)
             run += 1
         args.output = base if run == 2 else candidate
     else:
-        existing = _existing(paths)
+        existing = _existing(artifacts(paths))
         if existing and not args.overwrite:
             raise SystemExit("Refusing to overwrite existing reference output: " + ", ".join(map(str, existing)))
         if any(path.is_dir() for path in existing):

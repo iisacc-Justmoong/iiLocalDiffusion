@@ -21,6 +21,10 @@ fuse, deactivate, or change the selected adapter scale.
 The base weights and VAE can also be selected explicitly through `--model`
 and `--vae`; see [the model-input contract](model-inputs.md). An adapter must
 match the resulting pipeline, not merely share its file extension.
+LoRA can also compose with one selected [ControlNet](controlnet.md). The
+ControlNet component is attached before LoRA activation; `--lora` continues
+to target the family's existing denoiser/text-encoder adapter interface and
+does not select or train a ControlNet weight adapter.
 
 ## Local adapter
 

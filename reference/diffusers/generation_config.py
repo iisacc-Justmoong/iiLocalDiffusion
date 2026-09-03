@@ -142,7 +142,8 @@ class ConfigurationArgumentParser(argparse.ArgumentParser):
                 raise ValueError(f"{action.dest} path must not be empty.")
             path = Path(text).expanduser()
             return str(path if path.is_absolute() else (root / path).resolve())
-        if action.dest in ("model", "model_config", "vae", "lora", "latents", "embeddings"):
+        if action.dest in ("model", "model_config", "vae", "lora", "latents", "embeddings",
+                           "controlnet", "controlnet_config"):
             path = Path(text).expanduser()
             local = (
                 path.is_absolute() or text.startswith((".", "~"))
@@ -173,6 +174,12 @@ def configuration_values(args: argparse.Namespace) -> dict[str, Any]:
             args.lora_selection.source if args.lora_weight_name is not None
             else str(Path(args.lora_selection.source) / args.lora_selection.weight_name)
         )
+    if args.controlnet_selection is not None:
+        values["controlnet"] = args.controlnet_selection.source
+        values["controlnet_revision"] = args.controlnet_selection.requested_revision
+    if args.controlnet_config_selection is not None:
+        values["controlnet_config"] = args.controlnet_config_selection.source
+        values["controlnet_config_revision"] = args.controlnet_config_selection.requested_revision
     # Paths and coordinate tuples are CLI values, never executable Python objects.
     return json.loads(json.dumps(values, default=lambda value: str(value.expanduser().resolve()) if isinstance(value, Path)
                                 else _unsupported_value(value), allow_nan=False))

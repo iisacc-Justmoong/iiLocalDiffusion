@@ -26,6 +26,9 @@ Omitting `--model` retains the selected preset's pinned repository and
 revision. Omitting `--vae` retains the package's or checkpoint's VAE. Omitting
 `--lora` does not load an adapter. Adapter-specific filename, revision, and
 scale arguments are described in [the LoRA contract](lora.md).
+One independently selected `--controlnet` can also condition generation;
+its prepared image, component configuration, revisions, and weight formats
+are described in [the ControlNet contract](controlnet.md).
 
 Local paths must exist. Local weight files must be non-empty regular files,
 possibly reached through a regular-file symlink, with exactly the lowercase

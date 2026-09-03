@@ -1,7 +1,7 @@
 # Generation values and neutral defaults
 
 The independent Python generator exposes the supported SD 1.5, SDXL Base and
-FLUX.1-schnell text-to-image values through CLI arguments, a data-only JSON
+FLUX.1-schnell text-to-image and optional Hires Fix values through CLI arguments, a data-only JSON
 file, and the same Python request resolver. No extra dependency is introduced:
 argument parsing and JSON use the standard library; loading, scheduling,
 encoding and tensor operations stay in the existing Diffusers/PyTorch APIs.
@@ -99,8 +99,8 @@ resolved_values = configuration_values(request)
 These are existing compatible reference defaults, not universal optimum
 settings. The simple fallback prompt is `a red cube on a white table`,
 without a style/persona/artist modifier. Negative text is empty, LoRA is
-absent, one image is produced, and additional rescaling/early stopping is
-disabled. A fixed seed of 42 provides a reproducible starting point rather
+absent, ControlNet and Hires Fix are disabled, one image is produced, and additional
+rescaling/early stopping is disabled. A fixed seed of 42 provides a reproducible starting point rather
 than imposing a visual style.
 
 ## Prompt, sampling and batch values
@@ -113,7 +113,7 @@ than imposing a visual style.
 | `--num-images` / `--num-images-per-prompt` | 1; positive images for this prompt, all saved |
 | `--seed-stride` | 1; image i receives seed + i × stride; 0 intentionally repeats |
 | `--generator-device` | `cpu`; `execution` requires CUDA/ROCm |
-| `--guidance-rescale` | 0; SD/SDXL range [0,1] |
+| `--guidance-rescale` | 0; SD/SDXL range [0,1]; nonzero is unsupported with ControlNet |
 | `--eta` | 0; nonzero requires a scheduler with an eta parameter, such as DDIM |
 | `--clip-skip` | None; native CLIP selection, checked against loaded encoder depths |
 | `--true-cfg-scale` | 1; FLUX values >1 enable explicit two-pass CFG and negative prompts |
@@ -176,13 +176,25 @@ input forms. Omitted model/config selections use the preset's pinned source;
 VAE comes from that source, and no LoRA is loaded. A selected LoRA defaults
 to scale 1.0. See [model inputs](model-inputs.md) for file layouts and identity.
 
+Optional `--controlnet` and `--control-image` enable one compatible ControlNet
+for any of the three presets. The image must already contain the condition
+expected by that model; no edge/depth/pose detector is run. When selected,
+`--controlnet-scale` (alias `--controlnet-conditioning-scale`) defaults to
+1.0, `--control-guidance-start`/`--control-guidance-end` to 0.0/1.0, and
+`--guess-mode` to false. These options require `--controlnet`; omitting all
+of them disables the feature. Nonzero `--guidance-rescale` is rejected.
+SD/SDXL support guess mode; FLUX Union models require their model-specific
+`--control-mode`. Weight/configuration sources, independent variants and
+revisions, single files, JSON keys, and provenance are described in the
+[ControlNet contract](controlnet.md).
+
 | Argument | Default / behavior |
 |---|---|
 | `--device` | `auto`: compatible CUDA/ROCm first, then Metal; no silent CPU fallback |
 | `--device-index` | 0; bounds-checked CUDA/ROCm index, CPU/Metal require 0 |
 | `--dtype` | `auto`, or explicit float32/float16/bfloat16 |
 | `--weight-variant` | `auto`, `none`, or an explicit filename variant; independent of conversion dtype |
-| `--low-cpu-mem-usage` | True for model, VAE and LoRA loaders |
+| `--low-cpu-mem-usage` | True for model, VAE, LoRA and ControlNet loaders |
 | `--cpu-text-encoding` | False |
 | `--cpu-text-dtype` | `auto`; an explicit dtype requires CPU text encoding |
 | `--cpu-threads` | Retain the installed runtime default; explicit count must be positive |
@@ -195,7 +207,7 @@ to scale 1.0. See [model inputs](model-inputs.md) for file layouts and identity.
 | `--progress` | True; false hides generation progress |
 | `--cache-dir`, `--xet-cache-dir` | Repository build/reference/huggingface and huggingface-xet |
 | `--local-files-only` | False |
-| `--output` | Preset filename under build/reference; custom/vae/lora suffixes compose |
+| `--output` | Preset filename under build/reference; custom/vae/lora/embedding/controlnet/hires suffixes compose |
 | `--overwrite` | False |
 | `--png-compress-level` | 6, range 0–9; lossless |
 | `--png-optimize` | False; lossless storage optimization |
@@ -218,7 +230,44 @@ Atomic non-overwrite publication uses same-directory hard links; an
 unsupported filesystem or an I/O failure is an explicit error, not permission
 to overwrite. A multi-file batch is not a filesystem transaction.
 
+## Optional Hires Fix
+
+`--hires-fix` enables base generation, RGB upscaling and a second img2img
+diffusion pass for SD 1.5, SDXL Base and FLUX Schnell, including their
+ControlNet variants. Omission keeps the existing single-stage behavior.
+Dependent values are inactive/null when disabled and explicit dependent
+settings require Hires Fix.
+
+| Argument | Default when enabled / behavior |
+|---|---|
+| `--hires-fix` | False; boolean enable/disable |
+| `--hires-scale` | 2; finite value greater than 1, mutually exclusive with explicit final dimensions |
+| `--hires-width`, `--hires-height` | Infer missing values from scale or base aspect ratio; family dimension multiples apply |
+| `--hires-upscaler` | `lanczos`; nearest/bilinear/bicubic/lanczos RGB resizing |
+| `--hires-denoising-strength` / `--hires-strength` | 0.35; `0 < value <= 1` |
+| `--hires-steps` | Inherit `--steps`; full schedule length before strength selects its active part; SD/SDXL require `int(steps * strength) >= 1`, FLUX uses its native schedule-tail rule |
+| `--hires-seed` | Inherit `--seed`; fresh per-image generators and the same `--seed-stride` |
+| `--hires-guidance-scale` | Inherit base guidance, retaining family restrictions |
+| `--hires-true-cfg-scale` | Inherit base true CFG; values above the neutral value 1 require FLUX |
+| `--hires-scheduler` | `auto`, inheriting the first stage's actual scheduler class/configuration with fresh state |
+| `--hires-scheduler-config` | `{}`; validated second-stage scheduler constructor overrides |
+| `--hires-save-base` | False; also save each base PNG and its JSON sidecar |
+
+The final size cannot shrink either base axis and must enlarge at least one.
+An explicit width and height select the exact shape; one missing axis is
+inferred and rounded to the preset dimension multiple. Model, VAE, LoRA,
+ControlNet, prompts and embeddings compose across both stages. The second
+stage uses final-resolution SDXL size conditioning and its own fresh schedule;
+base `--latents`, `--timesteps`, `--sigmas`, `--denoising-end`, and
+`--guidance-rescale` apply only to stage one. The complete contract,
+examples, output reservation rules and
+quality limits are in [Hires Fix](hires-fix.md).
+
 ## Optional initial latents and precomputed text
+
+Learned Textual Inversion tokens use `--text-embedding`, described below.
+`--embeddings` in this section supplies completed prompt tensors and
+bypasses text encoding; it cannot be combined with learned-token files.
 
 `--latents FILE` accepts a local safetensors file. `--latents-key`
 defaults to `latents`. Omission samples fresh noise from the configured
@@ -253,6 +302,28 @@ tensors are copied before the mapped file is released. Both
 `.safetensors` and `.safetensor` are accepted. Malformed files never
 fall back to fabricated zero embeddings or random noise.
 
+## Optional learned text tokens
+
+`--text-embedding` adds Textual Inversion vectors to the selected text
+encoder/tokenizer and retains normal text prompt encoding. It is available
+for SD 1.5 CLIP, both SDXL CLIP encoders and FLUX CLIP/T5, including
+ControlNet, CPU text encoding and Hires Fix. The complete file-layout and
+multi-vector contract is in [learned text embeddings](text-embeddings.md).
+
+| Argument | Default / behavior |
+|---|---|
+| `--text-embedding FILE [FILE ...]` / `--textual-inversion` | None; one or more local `.safetensors` / `.safetensor` learned-token files |
+| `--text-embedding-token TOKEN [TOKEN ...]` | Infer from the source; an explicit list contains one non-empty, whitespace-free token per file |
+| `--text-embedding-encoder auto\|text_encoder\|text_encoder_2 [...]` | `auto` per file; infer from supported keys/dimensions or select a matching encoder explicitly |
+
+Token and encoder controls require files, and supplied lists must match
+the file count. The completed-prompt `--embeddings` input is mutually
+exclusive. Loaded vectors must match the encoder width, contain finite
+floating-point values, and introduce no token collisions. Loading a token
+does not insert it into prompts; unused loaded tokens are valid. The
+default output name adds `-embedding`, and metadata records file hashes,
+tokens, components, token IDs and vector counts.
+
 ## Deliberately preserved boundaries
 
 Defaults prevent **missing-parameter** errors, not missing hardware, model
@@ -265,7 +336,8 @@ Safetensors-only loading, disabled remote code, trained architecture checks,
 RGB PNG output and inference-only execution remain contracts, not unsafe
 JSON switches. Model structural constants come from the validated model
 configuration. Callbacks/code objects, arbitrary attention processors,
-IP-Adapter, ControlNet, image-to-image and SDXL refiner assembly are not added.
+IP-Adapter, Multi-ControlNet, external image-to-image inputs and separate SDXL
+refiner assembly are not added. Img2img is used internally for Hires Fix.
 
 The API routing was checked against the installed Diffusers 0.40.0 source
 and its official [SD pipeline documentation](https://huggingface.co/docs/diffusers/api/pipelines/stable_diffusion/text2img),

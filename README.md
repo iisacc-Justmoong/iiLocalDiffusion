@@ -64,7 +64,7 @@ for the C++ API, platform options, verification, and remaining limitations.
 
 Radeon uses `--device rocm`. The Python path requires an AMD HIP PyTorch
 distribution; native C++ additionally enables `IILD_ENABLE_LIBTORCH=ON` with
-that SDK's CMake package. Model/VAE/LoRA arguments, CPU prompt encoding, and
+that SDK's CMake package. Model/VAE/LoRA/ControlNet arguments, CPU prompt encoding, and
 RAM offload remain available. See [Radeon setup and hardware checks](docs/radeon-rocm.md).
 
 Use CPU and GPU together, with weights retained in RAM and bounded GPU staging:
@@ -168,7 +168,7 @@ reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
 ```
 
 `--offload auto|none|model|sequential` controls weight residency separately from
-CPU arithmetic. Existing model/VAE/LoRA inputs compose with these options.
+CPU arithmetic. Existing model/VAE/LoRA/ControlNet inputs compose with these options.
 Full CPU-only generation remains available through `--device cpu`.
 
 Replace model, VAE, and LoRA weights independently during generation:
@@ -209,6 +209,65 @@ No adapter is bundled or selected automatically. Remote adapters require an
 immutable commit SHA and exact safetensors filename. See
 [`docs/lora.md`](docs/lora.md) for the complete input and provenance contract.
 
+Load learned Textual Inversion tokens and reference them in prompt text:
+
+```bash
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+  --preset sd15 \
+  --text-embedding /absolute/path/to/style.safetensors \
+  --text-embedding-token '<style>' \
+  --prompt 'a ceramic cup in <style> style'
+```
+
+`--text-embedding` accepts one or more local learned-token files and works
+with SD 1.5, SDXL and FLUX, including ControlNet, CPU prompt encoding and
+Hires Fix. Token names and target encoders can be selected explicitly.
+The existing `--embeddings` option instead supplies completed prompt
+tensors; the two input modes cannot be combined. See
+[learned text embeddings](docs/text-embeddings.md) for file formats,
+multi-vector tokens and encoder selection.
+
+Add one ControlNet with a prepared conditioning image:
+
+```bash
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+  --preset sd15 \
+  --controlnet /absolute/path/to/sd15-controlnet-package \
+  --control-image /absolute/path/to/prepared-canny.png \
+  --controlnet-scale 0.8
+```
+
+All three presets support a compatible single ControlNet from a local
+Diffusers component package, pinned Hub repository, or local safetensors
+file with its component configuration. Omitting `--controlnet` disables it;
+when selected, strength defaults to 1.0 for the full denoising interval.
+Inputs must already be the model's expected edges, depth, pose, or other
+condition; no detector runs automatically. The default filename adds
+`-controlnet`, and sidecars record weight/configuration/image hashes and
+control settings. Model, VAE, LoRA, CPU prompt encoding, and RAM offload
+remain composable. See [ControlNet inputs and limits](docs/controlnet.md).
+
+Add Hires Fix for two-stage generation with every preset, including runs
+with ControlNet, LoRA, or a replacement VAE:
+
+```bash
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+  --preset sd15 --width 512 --height 512 \
+  --hires-fix --hires-scale 2 --hires-upscaler lanczos \
+  --hires-denoising-strength 0.35 --hires-steps 30 \
+  --hires-save-base
+```
+
+This generates at 512 × 512, resizes in RGB, then performs img2img diffusion
+at 1024 × 1024 with the selected components. Final dimensions, resize
+method, denoising strength, steps, seed, guidance, and scheduler are exposed
+as parameters. Hires Fix is disabled by default; enabling it adds `-hires`
+to default filenames, and `--hires-save-base` also preserves the first-stage
+image. Strength selects the active portion of the second-stage schedule,
+so `--hires-steps` is not the number of active refinement steps. See the
+[Hires Fix contract](docs/hires-fix.md) for defaults, composition, metadata,
+and quality-validation limits.
+
 Downloads and generated outputs default to `build/reference/`, keeping the
 source tree and the system disk free of multi-gigabyte model caches. See
 [`reference/diffusers/README.md`](reference/diffusers/README.md) for the exact
@@ -225,6 +284,9 @@ non-goals are recorded in:
 - [`docs/flux1-schnell.md`](docs/flux1-schnell.md)
 - [`docs/model-inputs.md`](docs/model-inputs.md)
 - [`docs/lora.md`](docs/lora.md)
+- [`docs/text-embeddings.md`](docs/text-embeddings.md)
+- [`docs/controlnet.md`](docs/controlnet.md)
+- [`docs/hires-fix.md`](docs/hires-fix.md)
 - [`docs/hardware-compute.md`](docs/hardware-compute.md)
 - [`docs/neural-accelerators.md`](docs/neural-accelerators.md)
 - [`docs/dependencies.md`](docs/dependencies.md)

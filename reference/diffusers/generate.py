@@ -19,6 +19,10 @@ import tempfile
 from typing import Any
 
 from cpu_conditioning import CpuConditioning, encode_cpu_prompt
+from controlnet import (
+    add_controlnet_options, attach_controlnet, controlnet_call_arguments,
+    controlnet_preset, load_control_image, resolve_controlnet_options,
+)
 from encoder_compatibility import clip_skip_compatibility
 from generation_config import ConfigurationArgumentParser, configuration_values
 from generation_options import (
@@ -26,12 +30,16 @@ from generation_options import (
     resolve_generation_options, resolved_dtype, select_device_index,
     uses_negative_prompt, validate_generation_options, with_generation_defaults,
 )
-from generation_output import publish_file, resolve_output_paths, write_png
+from generation_output import hires_base_paths, publish_file, resolve_output_paths, write_png
 from generation_scheduler import configure_scheduler, validate_clip_skip, validate_scheduler_values
 from generation_tensor_inputs import load_tensor_inputs
 from hardware import (
     accelerator_preflight, configure_tensor_cores, select_device, validate_execution_device,
 )
+from hires import DenoisingAudit, image_metadata, run_hires_fix, validate_stage_images
+from hires_options import add_hires_options, resolve_hires_options
+from text_embedding_options import add_text_embedding_options, resolve_text_embedding_options
+from text_embeddings import apply_text_embeddings, text_embedding_prompt_context, validate_text_embeddings
 from model_loading import load_generation_pipeline, selection_metadata
 from pipeline_loading import _is_gated_repository_error
 from presets import (
@@ -177,6 +185,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--local-files-only", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=False)
     add_generation_options(parser)
+    add_controlnet_options(parser)
+    add_hires_options(parser)
+    add_text_embedding_options(parser)
     return parser
 
 
@@ -221,6 +232,12 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
     if args.steps is None and args.timesteps is not None:
         resolved.steps = len(args.timesteps)
     resolve_generation_options(preset, resolved)
+    try:
+        resolve_controlnet_options(preset, resolved)
+        resolve_hires_options(preset, resolved)
+        resolve_text_embedding_options(preset, resolved)
+    except (ValueError, OSError) as error:
+        raise SystemExit(str(error)) from error
     filename = Path(preset.generation_filename)
     modifiers = []
     if args.model is not None or args.revision is not None:
@@ -229,6 +246,12 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
         modifiers.append("vae")
     if resolved.lora_selection is not None:
         modifiers.append("lora")
+    if resolved.text_embedding_selections:
+        modifiers.append("embedding")
+    if resolved.controlnet_selection is not None:
+        modifiers.append("controlnet")
+    if resolved.hires_fix:
+        modifiers.append("hires")
     suffix = "" if not modifiers else "-" + "-".join(modifiers)
     generation_filename = f"{filename.stem}{suffix}{filename.suffix}"
     resolved.output = args.output or REPOSITORY_ROOT / "build" / "reference" / generation_filename
@@ -345,9 +368,14 @@ def load_dependencies() -> tuple[Any, dict[str, Any]]:
         import torch
         from diffusers import (
             AutoencoderKL,
+            ControlNetModel,
+            FluxControlNetModel,
+            FluxControlNetPipeline,
             FluxPipeline,
             FluxTransformer2DModel,
             StableDiffusionPipeline,
+            StableDiffusionControlNetPipeline,
+            StableDiffusionXLControlNetPipeline,
             StableDiffusionXLPipeline,
             UNet2DConditionModel,
         )
@@ -361,9 +389,14 @@ def load_dependencies() -> tuple[Any, dict[str, Any]]:
         ) from error
     return torch, {
         "AutoencoderKL": AutoencoderKL,
+        "ControlNetModel": ControlNetModel,
+        "FluxControlNetModel": FluxControlNetModel,
+        "FluxControlNetPipeline": FluxControlNetPipeline,
         "FluxPipeline": FluxPipeline,
         "FluxTransformer2DModel": FluxTransformer2DModel,
         "StableDiffusionPipeline": StableDiffusionPipeline,
+        "StableDiffusionControlNetPipeline": StableDiffusionControlNetPipeline,
+        "StableDiffusionXLControlNetPipeline": StableDiffusionXLControlNetPipeline,
         "StableDiffusionSafetyChecker": StableDiffusionSafetyChecker,
         "StableDiffusionXLPipeline": StableDiffusionXLPipeline,
         "UNet2DConditionModel": UNet2DConditionModel,
@@ -504,13 +537,15 @@ def prepare_pipeline_with_adapters(
     attention_slicing: bool,
     torch: Any = None,
 ) -> tuple[Any, dict[str, Any], LoraActivation | None, CpuConditioning | None]:
-    validate_pipeline_contract(pipeline, preset)
+    contract = controlnet_preset(preset) if getattr(args, "controlnet_selection", None) is not None else preset
+    validate_pipeline_contract(pipeline, contract)
     if getattr(args, "scheduler", "auto") != "auto" or getattr(args, "scheduler_config", {}):
         args.scheduler_metadata = configure_scheduler(pipeline, args)
     validate_clip_skip(pipeline, preset, args)
     if (getattr(args, "timesteps", None) is not None or getattr(args, "sigmas", None) is not None
             or getattr(args, "eta", 0) != 0):
         validate_scheduler_values(pipeline, args)
+    args.text_embedding_activation = apply_text_embeddings(pipeline, preset, args, torch)
     activation = apply_lora(
         pipeline,
         args.lora_selection,
@@ -518,6 +553,7 @@ def prepare_pipeline_with_adapters(
         args.local_files_only,
         **({"low_cpu_mem_usage": False} if not getattr(args, "low_cpu_mem_usage", True) else {}),
     )
+    validate_text_embeddings(pipeline, args.text_embedding_activation, torch)
     conditioning = None
     if getattr(args, "latents_file", None) is not None or getattr(args, "embeddings_file", None) is not None:
         if torch is None:
@@ -530,7 +566,8 @@ def prepare_pipeline_with_adapters(
     if getattr(args, "cpu_text_encoding", False):
         if torch is None:
             raise ValueError("CPU text encoding requires the PyTorch runtime.")
-        conditioning = encode_cpu_prompt(pipeline, preset, args, torch)
+        with text_embedding_prompt_context(pipeline, preset, args) as prompt_args:
+            conditioning = encode_cpu_prompt(pipeline, preset, prompt_args, torch)
         if (offload == "auto" and device != "cpu"
                 and preset.runtime.accelerator_execution == "resident"):
             offload = "model"
@@ -696,6 +733,9 @@ def build_pipeline_call_arguments(
         if device is None or dtype is None:
             raise ValueError("External latents require the target device and dtype.")
         arguments["latents"] = tensor_inputs.latents.to(device=device, dtype=dtype)
+    if getattr(args, "controlnet_selection", None) is not None:
+        arguments.pop("guidance_rescale", None)
+        arguments.update(controlnet_call_arguments(preset, args))
     return arguments
 
 
@@ -777,7 +817,16 @@ def prepare_pipeline_for_execution(
 
 
 def validate_generation_arguments(preset: PipelinePreset, args: argparse.Namespace) -> None:
-    validate_generation_options(preset, args)
+    base_validation_args = args
+    if (preset.name == "flux1-schnell" and args.true_cfg_scale == 1
+            and getattr(args, "hires_fix", False)
+            and getattr(args, "hires_true_cfg_scale", 1) > 1):
+        # Shared negative prompts may be used only by refinement. Validate the
+        # first pass without them while retaining the original replayable request.
+        base_validation_args = argparse.Namespace(**vars(args))
+        base_validation_args.negative_prompt = DEFAULT_NEGATIVE_PROMPT
+        base_validation_args.negative_prompt_2 = None
+    validate_generation_options(preset, base_validation_args)
     if args.cpu_threads is not None and args.cpu_threads <= 0:
         raise SystemExit("CPU threads must be positive.")
     if args.device == "cpu" and args.offload in ("model", "sequential"):
@@ -798,8 +847,8 @@ def validate_generation_arguments(preset: PipelinePreset, args: argparse.Namespa
     if preset.name == "flux1-schnell" and args.guidance_scale != 0.0:
         raise SystemExit("FLUX.1-schnell guidance scale must be 0.0.")
     if (
-        not uses_negative_prompt(preset, args)
-        and args.negative_prompt != DEFAULT_NEGATIVE_PROMPT
+        not uses_negative_prompt(preset, base_validation_args)
+        and base_validation_args.negative_prompt != DEFAULT_NEGATIVE_PROMPT
     ):
         raise SystemExit(f"Preset {preset.name} does not use --negative-prompt.")
     if args.output.suffix.lower() != ".png":
@@ -814,6 +863,7 @@ def main() -> int:
         return 0
 
     output_paths = resolve_output_paths(args)
+    load_control_image(args)
 
     installed_package_versions = package_versions(args.lora_selection is not None)
 
@@ -851,6 +901,8 @@ def main() -> int:
         print(f"VAE override: {args.vae_file.path}", flush=True)
     if args.lora_selection is not None:
         print(f"LoRA: {args.lora_selection.source}/{args.lora_selection.weight_name}", flush=True)
+    if args.controlnet_selection is not None:
+        print(f"ControlNet: {args.controlnet_selection.source}; image: {args.control_image}", flush=True)
 
     pipeline, loading_metadata = load_generation_pipeline(
         pipeline_class,
@@ -861,6 +913,9 @@ def main() -> int:
         load_arguments,
         pipeline_classes,
     )
+    pipeline, controlnet_metadata = attach_controlnet(pipeline, preset, args, pipeline_classes, dtype)
+    if controlnet_metadata is not None:
+        loading_metadata["component_sources"]["controlnet"] = "controlnet_override"
     pipeline, optimization, lora_activation, conditioning = prepare_pipeline_with_adapters(
         pipeline,
         preset,
@@ -869,6 +924,10 @@ def main() -> int:
         attention_slicing,
         torch,
     )
+    for source in getattr(getattr(args, "text_embedding_activation", None), "metadata", []):
+        for registration in source["registrations"]:
+            print(f"Text embedding: {registration['token']}; encoder={registration['component']}; "
+                  f"vectors={registration['vector_count']}", flush=True)
     validate_execution_device(pipeline, device)
     if device == "cuda" and pipeline._execution_device.index != args.device_index:
         raise RuntimeError("Pipeline did not retain the requested CUDA/ROCm device index.")
@@ -888,9 +947,50 @@ def main() -> int:
         clip_skip_compatibility(pipeline, preset, args.clip_skip)
         if conditioning is None else nullcontext(False)
     )
-    with torch.inference_mode(), clip_context as clip_compatibility_used:
-        result = pipeline(**build_pipeline_call_arguments(
-            preset, args, generator, conditioning, device, dtype))
+    with (torch.inference_mode(), clip_context as clip_compatibility_used,
+          text_embedding_prompt_context(pipeline, preset, args) as prompt_args):
+        call_arguments = build_pipeline_call_arguments(preset, prompt_args, generator, conditioning, device, dtype)
+        base_audit = DenoisingAudit(torch) if args.hires_fix else None
+        if base_audit is not None:
+            call_arguments["callback_on_step_end"] = base_audit
+        result = pipeline(**call_arguments)
+
+    render_args = args
+    hires_metadata = None
+    base_images = []
+    base_safety = safety_metadata(pipeline, result)
+    base_pipeline_class = type(pipeline).__name__
+    base_controlnet_metadata = controlnet_metadata
+    base_scheduler_metadata = scheduler_metadata
+    if args.hires_fix:
+        base_images = validate_stage_images(result, args.num_images, args.width, args.height)
+        base_stage = {
+            "pipeline_class": base_pipeline_class, "requested_steps": args.steps,
+            "size": [args.width, args.height], "seeds": seeds,
+            "guidance_scale": args.guidance_scale, "true_cfg_scale": args.true_cfg_scale,
+            "scheduler": scheduler_metadata,
+            "schedule": pipeline.scheduler.timesteps.detach().cpu().tolist(),
+            "optimization": optimization,
+            "component_dtypes": component_dtypes(
+                pipeline, controlnet_preset(preset) if args.controlnet_selection is not None else preset),
+            "cpu_conditioning": {"enabled": False} if conditioning is None else conditioning.metadata,
+            "safety": base_safety, "images": [image_metadata(image) for image in base_images],
+            **base_audit.metadata(),
+        }
+        print(f"HiRes: {args.width}x{args.height} -> {args.hires_target_width}x{args.hires_target_height}; "
+              f"upscaler={args.hires_upscaler}; strength={args.hires_denoising_strength}", flush=True)
+        refined = run_hires_fix(
+            pipeline, preset, args, base_images, torch, device, dtype, attention_slicing, lora_activation,
+            build_call=build_pipeline_call_arguments, prepare_execution=prepare_pipeline_for_execution)
+        pipeline, result, render_args = refined.pipeline, refined.result, refined.request
+        optimization, scheduler_metadata, conditioning = (
+            refined.optimization, refined.scheduler_metadata, refined.conditioning)
+        seeds = refined.seeds
+        hires_metadata = {**refined.metadata, "base": base_stage}
+        clip_compatibility_used = refined.metadata["refinement"]["clip_skip_layout_compatibility"]
+        if controlnet_metadata is not None:
+            controlnet_metadata = {**controlnet_metadata, "image": {
+                **controlnet_metadata["image"], "generation_size": [render_args.width, render_args.height]}}
 
     if len(result.images) != args.num_images:
         raise RuntimeError(f"Expected {args.num_images} generated images, received {len(result.images)}.")
@@ -898,7 +998,7 @@ def main() -> int:
     for image in result.images:
         if image.mode != "RGB":
             image = image.convert("RGB")
-        validated.append((image, validate_rendered_image(image, args.width, args.height)))
+        validated.append((image, validate_rendered_image(image, render_args.width, render_args.height)))
     outputs = []
     for path, (image, extrema) in zip(output_paths, validated):
         write_png(image, path, compress_level=args.png_compress_level,
@@ -908,6 +1008,16 @@ def main() -> int:
             "size": [image.width, image.height], "channel_extrema": extrema,
         })
 
+    base_outputs = []
+    if args.hires_fix and args.hires_save_base:
+        for path, image in zip(hires_base_paths(output_paths), base_images):
+            write_png(image, path, compress_level=args.png_compress_level,
+                      optimize=args.png_optimize, overwrite=args.overwrite)
+            base_outputs.append({"mode": image.mode, "path": str(path.resolve()),
+                                 "sha256": file_sha256(path), "size": list(image.size),
+                                 "channel_extrema": image.getextrema()})
+        hires_metadata["base"]["outputs"] = base_outputs
+
     metadata: dict[str, Any] = {
         "adapters": (
             []
@@ -915,19 +1025,22 @@ def main() -> int:
             else [lora_metadata(args.lora_selection, lora_activation)]
         ),
         "fixture": {
-            "guidance_scale": args.guidance_scale,
-            "height": args.height,
+            "guidance_scale": render_args.guidance_scale,
+            "height": render_args.height,
             "max_sequence_length": args.max_sequence_length,
             "negative_prompt": (
-                args.negative_prompt if uses_negative_prompt(preset, args) else None
+                render_args.negative_prompt if uses_negative_prompt(preset, render_args) else None
             ),
             "prompt": args.prompt,
-            "seed": args.seed,
-            "steps": args.steps,
-            "width": args.width,
+            "seed": render_args.seed,
+            "steps": render_args.steps,
+            "width": render_args.width,
         },
         "parameters": configuration_values(args),
         "inputs": getattr(getattr(args, "tensor_inputs", None), "metadata", {}),
+        "text_embeddings": getattr(getattr(args, "text_embedding_activation", None), "metadata", []),
+        "controlnet": controlnet_metadata,
+        "hires_fix": hires_metadata,
         "model": {
             **selection_metadata(args.model_selection),
             "preset": preset.name,
@@ -937,7 +1050,7 @@ def main() -> int:
             "loading": loading_metadata,
         },
         "schedule": {
-            "requested_inference_steps": args.steps,
+            "requested_inference_steps": render_args.steps,
             "reported_num_timesteps": int(pipeline.num_timesteps),
             "scheduler_timesteps": pipeline.scheduler.timesteps.detach().cpu().tolist(),
             "note": "Custom schedules override the step-count request; early stopping may use only part of this schedule.",
@@ -961,7 +1074,8 @@ def main() -> int:
             "cpu_conditioning": (
                 {"enabled": False} if conditioning is None else conditioning.metadata
             ),
-            "component_dtypes": component_dtypes(pipeline, preset),
+            "component_dtypes": component_dtypes(
+                pipeline, controlnet_preset(preset) if args.controlnet_selection is not None else preset),
             "dtype": str(dtype),
             "optimization": optimization,
             "xet_cache": os.environ.get("HF_XET_CACHE"),
@@ -988,6 +1102,31 @@ def main() -> int:
             "batch": {"index": index, "count": args.num_images, "outputs": outputs},
         }
         write_json_atomically(metadata_path, per_image, overwrite=args.overwrite)
+        if base_outputs:
+            base_output = base_outputs[index]
+            base_metadata = {
+                **per_image, "artifact_role": "hires_base",
+                "fixture": {**per_image["fixture"], "width": args.width, "height": args.height,
+                            "steps": args.steps, "seed": base_stage["seeds"][index],
+                            "guidance_scale": args.guidance_scale,
+                            "negative_prompt": (args.negative_prompt
+                                                if uses_negative_prompt(preset, args) else None)},
+                "output": base_output, "final_output": output,
+                "model": {**metadata["model"], "pipeline_class": base_pipeline_class,
+                          "scheduler_class": base_scheduler_metadata["class"],
+                          "scheduler": base_scheduler_metadata},
+                "schedule": {"requested_inference_steps": args.steps,
+                             "reported_num_timesteps": base_stage["executed_steps"],
+                             "scheduler_timesteps": base_stage["schedule"]},
+                "controlnet": base_controlnet_metadata, "safety": base_safety,
+                "batch": {"index": index, "count": args.num_images, "outputs": base_outputs},
+                "reproducibility": {**metadata["reproducibility"], "seeds": base_stage["seeds"]},
+                "runtime": {**metadata["runtime"], "optimization": base_stage["optimization"],
+                            "component_dtypes": base_stage["component_dtypes"],
+                            "cpu_conditioning": base_stage["cpu_conditioning"]},
+            }
+            write_json_atomically(Path(base_output["path"]).with_suffix(".json"),
+                                  base_metadata, overwrite=args.overwrite)
         print(f"Image: {path.resolve()}")
         print(f"Metadata: {metadata_path.resolve()}")
         print(f"SHA-256: {output['sha256']}")

@@ -95,7 +95,7 @@ runs. Out-of-memory or unsupported-kernel errors are not retried on CPU.
 the Torch `cuda` device namespace, including for offload and CPU conditioning
 transfers, but the sidecar records `backend: rocm` with AMD GPU/HIP properties.
 Both TF32 CLI switches are NVIDIA-only and fail on ROCm; auto does not touch
-NVIDIA precision setters on AMD. All existing model/VAE/LoRA, CPU text and
+NVIDIA precision setters on AMD. All existing model/VAE/LoRA/ControlNet, CPU text and
 RAM offload options remain applicable.
 
 This path uses PyTorch, not MLX. The separate C++ MLX component API and its
@@ -256,12 +256,110 @@ select Diffusers' pickle branch. The target's identity is checked before and
 after loading, and no weight bytes are copied or rewritten for this alias.
 
 Without `--output`, an explicit `--model` or `--revision` adds `-custom`,
-`--vae` adds `-vae`, and `--lora` adds `-lora`, in that order. For example, an
+`--vae` adds `-vae`, `--lora` adds `-lora`, `--text-embedding` adds
+`-embedding`, and `--controlnet` adds
+`-controlnet`, followed by `-hires` when `--hires-fix` is enabled. For example, an
 SDXL run with all three inputs defaults to
 `build/reference/sdxl-base-red-cube-custom-vae-lora.png`. Existing output and
 sidecar files still require `--overwrite` before replacement.
 When output was omitted, a collision instead chooses an unused
 `-run-0002` (or later) filename without replacing the original.
+
+## Optional learned text embeddings
+
+`--text-embedding` (alias `--textual-inversion`) loads local Textual
+Inversion weights into the tokenizer and text encoder so they can be used
+as learned tokens in a prompt:
+
+```bash
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+  --preset sd15 --text-embedding /absolute/path/to/style.safetensors \
+  --text-embedding-token '<style>' --text-embedding-encoder text_encoder \
+  --prompt 'a ceramic cup in <style> style' --hires-fix
+```
+
+Multiple `.safetensors` / `.safetensor` files are supported, with optional
+token and encoder lists matched to the file count. SD 1.5 uses CLIP;
+SDXL supports both CLIP encoders; FLUX supports CLIP and T5. Multi-vector
+tokens retain their expansion through CPU encoding, ControlNet and both
+Hires Fix stages. Omission disables the feature. The existing `--embeddings`
+option supplies completed prompt tensors, bypassing encoding, and cannot
+be combined with learned-token inputs. See
+[text-embeddings.md](../../docs/text-embeddings.md) for layouts, selection,
+validation and provenance.
+
+## Optional ControlNet
+
+Pass a compatible ControlNet and a local image already prepared for its
+conditioning task. One ControlNet is supported with each existing preset:
+
+```bash
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+  --preset sdxl-base \
+  --controlnet /absolute/path/to/sdxl-controlnet-package \
+  --control-image /absolute/path/to/prepared-depth.png \
+  --controlnet-scale 0.8 \
+  --control-guidance-start 0.0 --control-guidance-end 1.0 \
+  --cpu-text-encoding --offload model
+```
+
+Omitting `--controlnet` leaves it disabled. A selected model defaults to
+scale 1.0, start 0.0, end 1.0, and guess mode false. Scale is non-negative,
+and the interval requires `0 <= start < end <= 1`. The scale alias is
+`--controlnet-conditioning-scale`. `--guess-mode` is available for SD/SDXL;
+FLUX Union models use a required model-specific `--control-mode` instead.
+Nonzero `--guidance-rescale` is unsupported by these ControlNet pipelines.
+
+`--controlnet` accepts a local Diffusers component directory, a remote
+repository with `--controlnet-revision`, or a local `.safetensors` /
+`.safetensor` file. A single file uses a sibling `config.json` when present;
+otherwise provide `--controlnet-config` as a component configuration directory
+or pinned repository, using `--controlnet-config-revision` for the latter.
+Native Diffusers tensor names work in all three families; supported
+original-format SD/SDXL ControlNet files use Diffusers' conversion loader.
+`--controlnet-variant` independently chooses package filenames such as
+`fp16`, without inheriting the base model's `--weight-variant`.
+
+The image is oriented from EXIF, converted to RGB, and resized by Diffusers
+to the requested generation size. No Canny, depth, or pose detector is
+included. The same image conditions every requested batch image. ControlNet
+composition precedes LoRA activation, optional CPU text encoding, and
+device/offload setup. Image and weight/configuration identities and control
+settings accompany each PNG in its sidecar. The default filename uses
+`*-controlnet.png`; the base fixture is preserved. See the
+[complete ControlNet contract](../../docs/controlnet.md) for compatibility,
+JSON/Python usage, hashing, and family-specific limitations.
+
+## Optional Hires Fix
+
+All three presets support a second diffusion stage, with or without
+ControlNet and with the existing model/VAE/LoRA choices:
+
+```bash
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+  --preset sdxl-base --width 1024 --height 1024 \
+  --hires-fix --hires-scale 1.5 --hires-upscaler lanczos \
+  --hires-denoising-strength 0.35 --hires-steps 30 \
+  --hires-save-base --cpu-text-encoding --offload model
+```
+
+The first pass generates the base image. Pillow resizes its RGB pixels to
+the final size, and img2img diffusion refines it with the same selected
+components. `--hires-width` / `--hires-height` can replace `--hires-scale`;
+one missing axis is inferred from the base aspect ratio. Additional options
+select the second-stage seed, guidance, scheduler and scheduler constructor
+configuration. The default is disabled; when enabled, the resize factor is
+2, the method is Lanczos, and strength is 0.35. Steps and seed inherit the
+first-stage settings. Strength selects a portion of the requested second
+schedule, so the actual refinement step count is normally smaller.
+
+`--output` refers to the final image. The optional first-stage PNG adds
+`-base` to that stem, with separate metadata; default final names add
+`-hires` after other modifiers. Final and base output paths are checked
+together for collisions. Sidecars record stage-specific execution data,
+including actual schedules and output identity. See
+[hires-fix.md](../../docs/hires-fix.md) for every option, batch seeds,
+ControlNet composition and validation limits.
 
 ## All generation values and defaults
 
@@ -274,9 +372,12 @@ See [generation-parameters.md](../../docs/generation-parameters.md) for every
 value and its fallback, including scheduler/configuration, custom schedules,
 secondary prompts, SDXL micro-conditioning, FLUX true CFG, image counts,
 seed stride, dtype/variant, memory policies, PNG storage options and optional
-latent/embedding safetensors. `generation.example.json` is a partial starter.
+latent/embedding safetensors, learned Textual Inversion tokens, optional
+ControlNet conditioning and Hires Fix.
+`generation.example.json` is a partial starter with ControlNet and Hires Fix disabled.
 Every batch image is saved with its own seed, hash and complete parameter
-sidecar. Image-to-image/refiner/ControlNet/IP-Adapter pipelines are not added.
+sidecar. External img2img inputs, separate refiner checkpoints,
+Multi-ControlNet and IP-Adapter pipelines are outside this interface.
 
 ## Interpretation
 
@@ -299,7 +400,9 @@ attention-slicing state, safety-checker and watermarker presence, and output
 SHA-256. Custom runs also identify the model's weight role, configuration
 source, VAE override, and each component's source. Its `adapters` array is empty
 for a base run or records the exact LoRA
-source, identity, scale, registered components, and active state. For presets
+source, identity, scale, registered components, and active state. A separate
+ControlNet record preserves its model/configuration files, conditioning
+image hashes, and applied controls. For presets
 that support it, attention slicing is enabled
 automatically on MPS to reduce peak memory use and can be changed explicitly.
 For SDXL on fp16 accelerators, the pinned Diffusers pipeline's verified
