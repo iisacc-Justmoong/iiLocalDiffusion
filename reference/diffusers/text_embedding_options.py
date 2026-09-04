@@ -64,7 +64,7 @@ def resolve_text_embedding_options(preset: PipelinePreset, args: Any) -> None:
     for encoder in encoders:
         if encoder not in TEXT_EMBEDDING_ENCODERS:
             raise ValueError(f"--text-embedding-encoder must be one of {', '.join(TEXT_EMBEDDING_ENCODERS)}.")
-        if preset.name == "sd15" and encoder == "text_encoder_2":
+        if preset.family == "sd15" and encoder == "text_encoder_2":
             raise ValueError("SD 1.5 has no text_encoder_2; select auto or text_encoder.")
 
     selections = [

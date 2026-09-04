@@ -23,10 +23,22 @@ def resolved(*arguments):
 
 
 class GenerationOptionsTests(unittest.TestCase):
+    def setUp(self):
+        (ROOT / "build").mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(prefix="generation-options-", dir=ROOT / "build")
+        self.addCleanup(temporary.cleanup)
+        self.model_directory = Path(temporary.name)
+
+    def preset_arguments(self, preset):
+        arguments = ["--preset", preset.name]
+        if preset.requires_model_override:
+            arguments.extend(["--model", str(self.model_directory)])
+        return arguments
+
     def test_omitted_values_are_valid_for_every_family(self):
         for preset in presets.PRESETS.values():
             with self.subTest(preset=preset.name):
-                _, args = resolved("--preset", preset.name)
+                _, args = resolved(*self.preset_arguments(preset))
                 generate.validate_generation_arguments(preset, args)
                 self.assertEqual(args.num_images, 1)
                 self.assertEqual(args.seed_stride, 1)
@@ -40,6 +52,11 @@ class GenerationOptionsTests(unittest.TestCase):
                 self.assertEqual(args.device_index, 0)
                 self.assertIsNone(args.lora_selection)
                 self.assertEqual(args.prompt, generate.DEFAULT_PROMPT)
+                self.assertEqual(args.guidance_scale, preset.guidance_scale)
+                self.assertEqual(args.steps, preset.steps)
+                if preset.requires_model_override:
+                    self.assertTrue(args.model_selection.is_local)
+                    self.assertEqual(args.model_selection.source, str(self.model_directory))
 
     def test_zero_values_are_not_replaced_by_defaults(self):
         preset, args = resolved("--seed", "0", "--seed-stride", "0", "--guidance-scale", "0",
@@ -233,7 +250,7 @@ class GenerationOptionsTests(unittest.TestCase):
 
     def test_printed_configuration_round_trips_for_each_family(self):
         for preset in presets.PRESETS.values():
-            _, original = resolved("--preset", preset.name)
+            _, original = resolved(*self.preset_arguments(preset))
             values = generate.configuration_values(original)
             _, replayed = generate.resolve_request(values)
             self.assertEqual(generate.configuration_values(replayed), values)

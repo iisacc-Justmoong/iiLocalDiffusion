@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Run the installed image generator with the selected local Python environment."""
+
+import os
+from pathlib import Path
+import shutil
+import sys
+
+
+def main():
+    reference = (Path(__file__).resolve().parent / "@IILD_REFERENCE_FROM_BINDIR@").resolve()
+    entry = reference / "generate.py"
+    if not entry.is_file():
+        sys.exit(f"Installed generation entry point is missing: {entry}")
+    requested = os.environ.get("IILD_PYTHON_EXECUTABLE")
+    if requested:
+        selected = shutil.which(str(Path(requested).expanduser()))
+        if selected is None:
+            sys.exit(f"IILD_PYTHON_EXECUTABLE is not an executable: {requested}")
+        interpreter = Path(selected).absolute()
+    else:
+        environment = reference / "diffusers/.venv"
+        candidate = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        interpreter = candidate if candidate.is_file() else Path(sys.executable)
+    # Keep virtual-environment paths intact; resolving their symlinks loses the environment.
+    os.execv(str(interpreter), [str(interpreter), str(entry), *sys.argv[1:]])
+
+
+if __name__ == "__main__":
+    main()

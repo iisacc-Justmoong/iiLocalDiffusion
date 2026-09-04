@@ -124,7 +124,9 @@ class TextEmbeddingOptionsTests(unittest.TestCase):
         path = self.weight()
         with self.assertRaisesRegex(ValueError, "text_encoder_2"):
             resolved("--text-embedding", str(path), "--text-embedding-encoder", "text_encoder_2")
-        for preset in (presets.SDXL_BASE_PRESET, presets.FLUX1_SCHNELL_PRESET):
+        for preset in presets.PRESETS.values():
+            if preset.family == "sd15":
+                continue
             with self.subTest(preset=preset.name):
                 args = resolved("--text-embedding", str(path), "--text-embedding-encoder", "text_encoder_2",
                                 preset=preset)

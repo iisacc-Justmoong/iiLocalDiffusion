@@ -16,6 +16,22 @@ eligibility and FP16/BF16/TF32 policies are exposed separately from measured
 hardware utilization. Complete image generation remains in the
 independent Python oracle, not the C++ library.
 
+## Install for local use
+
+From this repository, install into `~/.local/SDK/iiLocalDiffusion`:
+
+```bash
+./install.sh
+"$HOME/.local/SDK/iiLocalDiffusion/bin/iild-run" devices
+"$HOME/.local/SDK/iiLocalDiffusion/bin/iild-generate" --list-base-models
+```
+
+The installer builds Release, runs CTest, installs the C++ package and Python
+entry point, and reuses the existing local Python environment and model/runtime
+cache. It preserves configured native backend options. See
+[local installation](docs/installation.md) for the prefix layout, CMake consumer
+setup, interpreter selection, and the source/runtime paths to retain.
+
 ## Build and test
 
 Requirements:
@@ -109,6 +125,42 @@ successful `inspect` result means that metadata and required artifact paths are
 consistent; it does not mean the weights were parsed or inference succeeded.
 
 ## Python reference oracle
+
+The unified `reference/generate.py` entry point routes Civitai base-model names
+to local generation backends. Its pinned catalog includes all 105 upstream base
+types: 79 local, 24 hosted and 2 unknown. Catalog coverage is distinct from
+successful inference. Illustrious, NoobAI (including a v-prediction preset),
+Pony, FLUX.1 dev and FLUX.1 Krea use the extended image oracle. Other built-in
+Diffusers pipelines and explicit local ComfyUI API workflows provide additional
+image, video, audio and 3D execution paths.
+
+Existing downloaded weight files automatically select the managed local image
+runtime. It detects the architecture, safely converts legacy checkpoints,
+connects explicit VAE/text-encoder companions, builds a matching workflow and
+stops its private local engine after saving the images and provenance.
+Install this optional engine once with `python3 reference/setup_comfyui.py`.
+See [download-to-image usage](docs/local-image-generation.md) and
+[file inspection](docs/downloaded-models.md).
+
+```bash
+python3 reference/generate.py --list-base-models
+python3 reference/generate.py --base-model Illustrious --print-config
+reference/diffusers/.venv/bin/python reference/generate.py \
+  --model /path/illustrious.safetensors --prompt "a red cube" --device mps
+reference/diffusers/.venv/bin/python reference/generate.py \
+  --base-model NoobAI --preset noobai-v-pred --model /path/noobai.safetensors
+reference/diffusers/.venv/bin/python reference/generate.py \
+  --backend diffusers --model /path/local-diffusers-package --prompt "a red cube"
+python3 reference/generate.py --backend comfyui \
+  --workflow /path/workflow-api.json --validate-only
+```
+
+See the [Civitai catalog](docs/civitai-models.md),
+[derived model contracts](docs/model-families.md),
+[generic Diffusers runner](docs/generic-diffusers.md), and
+[local workflow runner](docs/comfyui-generation.md). A workflow needs installed
+nodes and matching weights; a catalog entry alone is not a compatibility
+guarantee. C++ metadata inspection retains its original three contracts.
 
 The Python tools under `reference/diffusers/` are a validation oracle, not a
 runtime dependency of the C++ library. They pin both the package versions and
@@ -237,7 +289,7 @@ reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
   --controlnet-scale 0.8
 ```
 
-All three presets support a compatible single ControlNet from a local
+The SD1/SDXL/FLUX family presets support a compatible single ControlNet from a local
 Diffusers component package, pinned Hub repository, or local safetensors
 file with its component configuration. Omitting `--controlnet` disables it;
 when selected, strength defaults to 1.0 for the full denoising interval.
@@ -247,24 +299,29 @@ condition; no detector runs automatically. The default filename adds
 control settings. Model, VAE, LoRA, CPU prompt encoding, and RAM offload
 remain composable. See [ControlNet inputs and limits](docs/controlnet.md).
 
-Add Hires Fix for two-stage generation with every preset, including runs
+Add Hires Fix for repeated refinement with every preset, including runs
 with ControlNet, LoRA, or a replacement VAE:
 
 ```bash
 reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
   --preset sd15 --width 512 --height 512 \
-  --hires-fix --hires-scale 2 --hires-upscaler lanczos \
+  --hires-fix --hires-passes 2 --hires-scale 2 --hires-upscaler lanczos \
   --hires-denoising-strength 0.35 --hires-steps 30 \
   --hires-save-base
 ```
 
-This generates at 512 × 512, resizes in RGB, then performs img2img diffusion
-at 1024 × 1024 with the selected components. Final dimensions, resize
-method, denoising strength, steps, seed, guidance, and scheduler are exposed
-as parameters. Hires Fix is disabled by default; enabling it adds `-hires`
-to default filenames, and `--hires-save-base` also preserves the first-stage
-image. Strength selects the active portion of the second-stage schedule,
-so `--hires-steps` is not the number of active refinement steps. See the
+This generates at 512 × 512, then resizes and refines at 1024 × 1024 and
+2048 × 2048. Each refinement uses the preceding output and repeats the same
+settings with fresh scheduler and generator state. `--hires-passes` defaults
+to 1 when enabled; `--hires-scale` applies per pass. Explicit HiRes dimensions
+instead select the first refinement size, whose per-axis factors repeat.
+Hires Fix is disabled by default; enabling it adds `-hires` to default
+filenames. Only the final refinement is saved unless `--hires-save-base`
+also preserves the original base image. Sidecars retain ordered stage
+records and requested/completed refinement counts. Strength selects the
+active portion of each schedule, so `--hires-steps` is not the active step
+count. The managed local checkpoint backend also supports repeated HiRes
+with its documented resize/strength/steps options. See the
 [Hires Fix contract](docs/hires-fix.md) for defaults, composition, metadata,
 and quality-validation limits.
 

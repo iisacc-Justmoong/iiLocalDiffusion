@@ -1,5 +1,14 @@
 # Generation values and neutral defaults
 
+`--base-model` selects Civitai families through `reference/generate.py` or the
+preset generator. An explicit `--preset` can select a compatible variant, such
+as `--base-model NoobAI --preset noobai-v-pred`; conflicting families fail.
+`--prediction-type auto|epsilon|v_prediction|sample` exposes checkpoint training
+parameterization. `auto` retains model configuration or the named variant's
+defaults. Conflicts with explicit `--scheduler-config` values fail. FLUX
+dev/Krea guidance is distinct from schnell's zero-guidance requirement. See
+[model families](model-families.md) and [the catalog](civitai-models.md).
+
 The independent Python generator exposes the supported SD 1.5, SDXL Base and
 FLUX.1-schnell text-to-image and optional Hires Fix values through CLI arguments, a data-only JSON
 file, and the same Python request resolver. No extra dependency is introduced:
@@ -177,7 +186,7 @@ VAE comes from that source, and no LoRA is loaded. A selected LoRA defaults
 to scale 1.0. See [model inputs](model-inputs.md) for file layouts and identity.
 
 Optional `--controlnet` and `--control-image` enable one compatible ControlNet
-for any of the three presets. The image must already contain the condition
+for the SD1/SDXL/FLUX family presets. The image must already contain the condition
 expected by that model; no edge/depth/pose detector is run. When selected,
 `--controlnet-scale` (alias `--controlnet-conditioning-scale`) defaults to
 1.0, `--control-guidance-start`/`--control-guidance-end` to 0.0/1.0, and
@@ -232,36 +241,51 @@ to overwrite. A multi-file batch is not a filesystem transaction.
 
 ## Optional Hires Fix
 
-`--hires-fix` enables base generation, RGB upscaling and a second img2img
-diffusion pass for SD 1.5, SDXL Base and FLUX Schnell, including their
-ControlNet variants. Omission keeps the existing single-stage behavior.
+`--hires-fix` enables base generation followed by repeated RGB upscaling and
+img2img refinement for the SD1/SDXL/FLUX family presets, including their
+ControlNet variants. `--hires-passes N` selects N additional refinement
+passes after the base image; its enabled default of 1 preserves the original
+two-stage behavior. Omission keeps the existing single-stage behavior.
 Dependent values are inactive/null when disabled and explicit dependent
 settings require Hires Fix.
 
 | Argument | Default when enabled / behavior |
 |---|---|
 | `--hires-fix` | False; boolean enable/disable |
-| `--hires-scale` | 2; finite value greater than 1, mutually exclusive with explicit final dimensions |
-| `--hires-width`, `--hires-height` | Infer missing values from scale or base aspect ratio; family dimension multiples apply |
+| `--hires-passes` | 1 when enabled; positive integer number of refinements after base generation; null when disabled |
+| `--hires-scale` | 2; finite factor greater than 1 applied at every refinement, mutually exclusive with explicit first-refinement dimensions |
+| `--hires-width`, `--hires-height` | First-refinement target; infer a missing axis from the base aspect ratio, then repeat the first pass's per-axis factors; family dimension multiples apply |
 | `--hires-upscaler` | `lanczos`; nearest/bilinear/bicubic/lanczos RGB resizing |
 | `--hires-denoising-strength` / `--hires-strength` | 0.35; `0 < value <= 1` |
 | `--hires-steps` | Inherit `--steps`; full schedule length before strength selects its active part; SD/SDXL require `int(steps * strength) >= 1`, FLUX uses its native schedule-tail rule |
-| `--hires-seed` | Inherit `--seed`; fresh per-image generators and the same `--seed-stride` |
+| `--hires-seed` | Inherit `--seed`; fresh per-image generators at every refinement, repeating the same seed and `--seed-stride` |
 | `--hires-guidance-scale` | Inherit base guidance, retaining family restrictions |
 | `--hires-true-cfg-scale` | Inherit base true CFG; values above the neutral value 1 require FLUX |
 | `--hires-scheduler` | `auto`, inheriting the first stage's actual scheduler class/configuration with fresh state |
-| `--hires-scheduler-config` | `{}`; validated second-stage scheduler constructor overrides |
+| `--hires-scheduler-config` | `{}`; validated constructor overrides reused with fresh scheduler state at every refinement |
 | `--hires-save-base` | False; also save each base PNG and its JSON sidecar |
 
-The final size cannot shrink either base axis and must enlarge at least one.
-An explicit width and height select the exact shape; one missing axis is
-inferred and rounded to the preset dimension multiple. Model, VAE, LoRA,
-ControlNet, prompts and embeddings compose across both stages. The second
-stage uses final-resolution SDXL size conditioning and its own fresh schedule;
+Each pass takes the preceding output image, retains or enlarges both axes and
+enlarges at least one. With `--hires-passes 2 --hires-scale 2`, a 512 × 512 base
+becomes 1024 × 1024, then 2048 × 2048. Explicit width/height name the first
+refinement target; their per-axis factors are repeated for later passes,
+with rounding to the preset dimension multiple. Model, VAE, LoRA,
+ControlNet, prompts and embeddings compose across all stages. Every
+refinement uses its own resolution for SDXL size conditioning and starts a fresh schedule;
 base `--latents`, `--timesteps`, `--sigmas`, `--denoising-end`, and
-`--guidance-rescale` apply only to stage one. The complete contract,
-examples, output reservation rules and
-quality limits are in [Hires Fix](hires-fix.md).
+`--guidance-rescale` apply only to stage one. Only the final image and optional
+original base image are saved. `hires_fix.stages` contains the ordered
+input/upscale/refinement/output records; `requested_passes` and
+`completed_passes` record the refinement counts. The existing `upscale` and
+`refinement` metadata fields describe the last stage.
+
+The managed local checkpoint backend also accepts `--hires-fix`,
+`--hires-passes`, `--hires-scale`, `--hires-upscaler`, `--hires-steps` and
+`--hires-denoising-strength` / `--hires-strength`. It records its planned
+sizes/settings in `request.hires` and verifies the complete ComfyUI workflow
+and final image. The remaining preset-specific HiRes options in the table
+are not managed-backend options. See [Hires Fix](hires-fix.md) for the
+backend-specific execution evidence, examples, output rules and quality limits.
 
 ## Optional initial latents and precomputed text
 

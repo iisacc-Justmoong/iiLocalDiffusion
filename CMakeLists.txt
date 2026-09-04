@@ -7,6 +7,16 @@ project(
     LANGUAGES CXX
 )
 
+if(PROJECT_IS_TOP_LEVEL AND CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(_sdk_home "$ENV{HOME}")
+    if(_sdk_home STREQUAL "")
+        set(_sdk_home "$ENV{USERPROFILE}")
+    endif()
+    set(CMAKE_INSTALL_PREFIX "${_sdk_home}/.local/SDK/iiLocalDiffusion"
+        CACHE PATH "SDK installation prefix" FORCE)
+    unset(_sdk_home)
+endif()
+
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 include(CheckCXXSourceCompiles)
@@ -41,6 +51,7 @@ if(PROJECT_IS_TOP_LEVEL)
 endif()
 
 option(IILD_BUILD_TOOLS "Build iiLocalDiffusion command-line tools" ${PROJECT_IS_TOP_LEVEL})
+option(IILD_INSTALL_PYTHON_REFERENCE "Install the Python generation entry point and reference sources" ON)
 option(IILD_ENABLE_COREML "Build the Apple Core ML component runtime" ${APPLE})
 if(IILD_ENABLE_COREML AND NOT APPLE)
     message(FATAL_ERROR "Core ML requires an Apple platform; set IILD_ENABLE_COREML=OFF")
@@ -144,9 +155,21 @@ if(IILD_BUILD_TOOLS)
     target_compile_features(iild-run PRIVATE cxx_std_20)
     target_compile_options(iild-run PRIVATE ${IILD_WARNING_OPTIONS})
     target_link_libraries(iild-run PRIVATE iiLocalDiffusion::iiLocalDiffusion)
+    file(RELATIVE_PATH iild_lib_from_bin
+        "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}"
+        "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
+    if(APPLE)
+        set_property(TARGET iild-run PROPERTY INSTALL_RPATH "@loader_path/${iild_lib_from_bin}")
+    elseif(UNIX)
+        set_property(TARGET iild-run PROPERTY INSTALL_RPATH "$ORIGIN/${iild_lib_from_bin}")
+    endif()
 endif()
 
 if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
+    if(UNIX)
+        add_test(NAME iiLocalDiffusion.InstallScript
+            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallScriptTest.sh")
+    endif()
     find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
 
     add_executable(ModelManifestTests
@@ -229,6 +252,12 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             "-DMLX_BACKEND=${iild_gpu_backend}"
             "-DLIBTORCH_ENABLED=${IILD_ENABLE_LIBTORCH}"
             "-DCOREML_FIXTURE=${IILD_COREML_TEST_FIXTURE}"
+            "-DBUILD_TOOLS=${IILD_BUILD_TOOLS}"
+            "-DPYTHON_REFERENCE_ENABLED=${IILD_INSTALL_PYTHON_REFERENCE}"
+            "-DPYTHON_EXECUTABLE=${Python3_EXECUTABLE}"
+            "-DBIN_DIRECTORY=${CMAKE_INSTALL_BINDIR}"
+            "-DDOC_DIRECTORY=${CMAKE_INSTALL_DOCDIR}"
+            "-DREFERENCE_DIRECTORY=${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/reference"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallConsumerTests.cmake"
     )
 
@@ -282,14 +311,25 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         foreach(generation_test IN ITEMS
                 GenerationOptionsTests GenerationOutputTests
                 GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests
-                ControlNetTests HiresOptionsTests HiresRuntimeTests HiresFluxControlNetTests
+                ControlNetTests HiresOptionsTests HiresRuntimeTests HiresRepeatRuntimeTests HiresFluxControlNetTests
                 TextEmbeddingOptionsTests TextEmbeddingRuntimeTests)
             add_test(NAME ${generation_test}
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${generation_test}.py")
             set_tests_properties(${generation_test} PROPERTIES
                 ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
         endforeach()
-        foreach(generation_preset IN ITEMS sd15 sdxl-base flux1-schnell)
+        foreach(model_compatibility_test IN ITEMS
+                CivitaiCatalogTests ModelFamilyTests GenericDiffusersTests
+                ComfyUIRuntimeTests GenerationRouterTests RuntimeCompatibilityTests
+                DownloadedModelTests CheckpointConversionTests ComfyUIImageWorkflowTests
+                LocalImageTests SetupComfyUITests)
+            add_test(NAME ${model_compatibility_test}
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${model_compatibility_test}.py")
+            set_tests_properties(${model_compatibility_test} PROPERTIES
+                ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
+        endforeach()
+        foreach(generation_preset IN ITEMS sd15 sdxl-base flux1-schnell sdxl illustrious
+                noobai noobai-v-pred flux1-dev flux1-krea-dev sd15-compatible flux1-schnell-compatible)
             add_test(NAME ReferenceGenerateConfig-${generation_preset}
                 COMMAND "${Python3_EXECUTABLE}"
                     "${CMAKE_CURRENT_SOURCE_DIR}/reference/diffusers/generate.py"
@@ -329,6 +369,26 @@ install(
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+if(IILD_BUILD_TOOLS)
+    install(TARGETS iild-run RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
+install(FILES README.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
+install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} FILES_MATCHING PATTERN "*.md")
+
+if(IILD_INSTALL_PYTHON_REFERENCE)
+    set(iild_reference_directory "${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/reference")
+    file(RELATIVE_PATH IILD_REFERENCE_FROM_BINDIR
+        "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}"
+        "${CMAKE_INSTALL_PREFIX}/${iild_reference_directory}")
+    configure_file(cmake/iild-generate.py.in "${CMAKE_CURRENT_BINARY_DIR}/iild-generate" @ONLY)
+    install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/iild-generate" DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES reference/generate.py reference/setup_comfyui.py DESTINATION ${iild_reference_directory})
+    install(DIRECTORY reference/diffusers DESTINATION ${iild_reference_directory}
+        FILES_MATCHING PATTERN "*.py" PATTERN "*.json" PATTERN "requirements*.txt" PATTERN "README.md"
+        PATTERN ".venv" EXCLUDE PATTERN "__pycache__" EXCLUDE)
+endif()
 
 install(
     FILES

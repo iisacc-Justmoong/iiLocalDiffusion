@@ -4,6 +4,16 @@ These scripts preserve a known-good implementation against which future C++
 components can be compared. They are not called by the iiLocalDiffusion
 library.
 
+For Civitai models, start with `reference/generate.py --list-base-models` and
+`reference/generate.py --base-model Illustrious --print-config` from the repository
+root. Named variants and compatible architecture presets supplement the original
+reference presets below. `generate_any.py` runs additional built-in Diffusers
+pipelines; `comfyui_runtime.py` executes explicit local API workflows. See
+[Civitai compatibility](../../docs/civitai-models.md),
+[model families](../../docs/model-families.md),
+[generic pipelines](../../docs/generic-diffusers.md), and
+[ComfyUI workflows](../../docs/comfyui-generation.md).
+
 ## Reproducible environment
 
 The verified host uses macOS arm64 and CPython 3.14. Create the environment on
@@ -332,32 +342,44 @@ JSON/Python usage, hashing, and family-specific limitations.
 
 ## Optional Hires Fix
 
-All three presets support a second diffusion stage, with or without
+The SD1/SDXL/FLUX family presets support repeated img2img refinement, with or without
 ControlNet and with the existing model/VAE/LoRA choices:
 
 ```bash
 reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
   --preset sdxl-base --width 1024 --height 1024 \
-  --hires-fix --hires-scale 1.5 --hires-upscaler lanczos \
+  --hires-fix --hires-passes 2 --hires-scale 1.5 --hires-upscaler lanczos \
   --hires-denoising-strength 0.35 --hires-steps 30 \
   --hires-save-base --cpu-text-encoding --offload model
 ```
 
-The first pass generates the base image. Pillow resizes its RGB pixels to
-the final size, and img2img diffusion refines it with the same selected
-components. `--hires-width` / `--hires-height` can replace `--hires-scale`;
-one missing axis is inferred from the base aspect ratio. Additional options
-select the second-stage seed, guidance, scheduler and scheduler constructor
-configuration. The default is disabled; when enabled, the resize factor is
-2, the method is Lanczos, and strength is 0.35. Steps and seed inherit the
-first-stage settings. Strength selects a portion of the requested second
-schedule, so the actual refinement step count is normally smaller.
+The first pass generates the base image. Each of the N `--hires-passes`
+then resizes the preceding output's RGB pixels and refines it with the same
+selected components. The example progresses from 1024 × 1024 to 1536 × 1536
+and finally 2304 × 2304. The scale applies at every pass. `--hires-width` /
+`--hires-height` can instead select the first refinement size; one missing
+axis is inferred from the base aspect ratio, and those first per-axis factors
+repeat at later passes. Additional options select a shared refinement seed,
+guidance, scheduler and scheduler constructor configuration. Every refinement
+starts fresh scheduler and per-image generator state, reusing its configured
+seed rather than incrementing it by pass. The default is disabled; when
+enabled, passes default to 1, the resize factor is 2, the method is Lanczos,
+and strength is 0.35. Steps and seed inherit the base settings. Strength
+selects a portion of each requested schedule, so the active refinement step
+count is normally smaller.
 
 `--output` refers to the final image. The optional first-stage PNG adds
 `-base` to that stem, with separate metadata; default final names add
 `-hires` after other modifiers. Final and base output paths are checked
-together for collisions. Sidecars record stage-specific execution data,
-including actual schedules and output identity. See
+together for collisions. Intermediate refinement images are not saved.
+Sidecars record ordered `hires_fix.stages` entries with input/upscale/
+refinement/output identity and execution data, plus `requested_passes` and
+`completed_passes`. The existing `hires_fix.upscale` and `hires_fix.refinement`
+fields retain the last stage's data; `hires_fix.base` retains base evidence.
+The managed local checkpoint backend supports the subset `--hires-fix`,
+`--hires-passes`, `--hires-scale`, `--hires-upscaler`, `--hires-steps` and
+`--hires-strength`. It records the stage plan under `request.hires` and
+completion through its ComfyUI workflow and final-image checks. See
 [hires-fix.md](../../docs/hires-fix.md) for every option, batch seeds,
 ControlNet composition and validation limits.
 

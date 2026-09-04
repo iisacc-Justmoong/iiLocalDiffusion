@@ -67,7 +67,7 @@ def load_tensor_inputs(
         raw = read_selected_tensors(latent_file, {"latents": args.latents_key}, {"latents"}, staging)
         latents = _owned_tensor(raw["latents"], torch, dtype, "latents")
         factor = pipeline.vae_scale_factor
-        if preset.name == "flux1-schnell":
+        if preset.family == "flux1-schnell":
             expected = (args.num_images, (args.height // (2 * factor)) * (args.width // (2 * factor)),
                         pipeline.transformer.config.in_channels)
         else:
@@ -80,8 +80,8 @@ def load_tensor_inputs(
         }
     conditioning = None
     if embedding_file is not None:
-        has_pool = preset.name != "sd15"
-        has_cfg = args.true_cfg_scale > 1 if preset.name == "flux1-schnell" else args.guidance_scale > 1
+        has_pool = preset.family != "sd15"
+        has_cfg = args.true_cfg_scale > 1 if preset.family == "flux1-schnell" else args.guidance_scale > 1
         supported = EMBEDDING_KEYS if has_pool else EMBEDDING_KEYS[:2]
         keys = {name: args.embedding_keys.get(name, name) for name in supported}
         required = {"prompt_embeds"}
@@ -99,7 +99,7 @@ def load_tensor_inputs(
         if len(prompt.shape) != 3 or prompt.shape[0] not in (1, args.num_images) or prompt.shape[1] <= 0:
             raise ValueError("Prompt embeddings require shape [1 or num_images, tokens, embedding_dimension].")
         batch, tokens, _ = prompt.shape
-        if preset.name == "flux1-schnell":
+        if preset.family == "flux1-schnell":
             dimension = pipeline.transformer.config.joint_attention_dim
             pool_dimension = pipeline.transformer.config.pooled_projection_dim
             if tokens > 512:
@@ -112,7 +112,7 @@ def load_tensor_inputs(
             _check_shape(name, tensor, expected)
         source_shapes = {name: list(tensor.shape) for name, tensor in tensors.items()}
         expanded = batch == args.num_images and args.num_images > 1
-        if preset.name == "flux1-schnell":
+        if preset.family == "flux1-schnell":
             if batch == 1 and args.num_images > 1:
                 tensors = {name: tensor.repeat_interleave(args.num_images, dim=0) for name, tensor in tensors.items()}
             expanded = True

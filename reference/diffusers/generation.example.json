@@ -10,6 +10,7 @@
   "control_image": null,
   "controlnet_scale": null,
   "hires_fix": false,
+  "hires_passes": null,
   "hires_scale": null,
   "hires_width": null,
   "hires_height": null,

@@ -58,7 +58,7 @@ def _valid_token(token: str) -> None:
 
 
 def _components(pipeline: Any, preset: Any) -> dict[str, tuple[Any, Any]]:
-    names = ("text_encoder",) if preset.name == "sd15" else ("text_encoder", "text_encoder_2")
+    names = ("text_encoder",) if preset.family == "sd15" else ("text_encoder", "text_encoder_2")
     result = {}
     for name in names:
         tokenizer_name = "tokenizer" if name == "text_encoder" else "tokenizer_2"
@@ -104,7 +104,7 @@ def _prepare_entries(selection: Any, raw: dict[str, Any], file_metadata: dict[st
             raise ValueError(f"Text embedding {key} requires finite vectors shaped [dimension] or [vectors, dimension].")
         vectors = source.unsqueeze(0) if source.ndim == 1 else source
         component = COMPONENT_KEYS.get(key)
-        if (key == "clip_g" and preset.name != "sdxl-base") or (key == "t5xxl" and preset.name != "flux1-schnell"):
+        if (key == "clip_g" and preset.family != "sdxl-base") or (key == "t5xxl" and preset.family != "flux1-schnell"):
             raise ValueError(f"Text embedding key {key} is incompatible with {preset.name}.")
         if selection.encoder != "auto":
             if component is not None and component != selection.encoder:
@@ -227,7 +227,7 @@ def text_embedding_prompt_context(pipeline: Any, preset: Any, args: Any):
         ("prompt_2", "prompt", "text_encoder_2"),
         ("negative_prompt_2", "negative_prompt", "text_encoder_2"),
     ):
-        if component == "text_encoder_2" and preset.name == "sd15":
+        if component == "text_encoder_2" and preset.family == "sd15":
             continue
         original = getattr(args, name, None)
         # Diffusers treats an empty secondary prompt like an omitted one.

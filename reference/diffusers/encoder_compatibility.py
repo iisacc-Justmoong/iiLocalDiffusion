@@ -9,7 +9,7 @@ from presets import PipelinePreset
 
 @contextmanager
 def clip_skip_compatibility(pipeline: Any, preset: PipelinePreset, skip: int | None) -> Iterator[bool]:
-    if preset.name != "sd15" or skip is None:
+    if preset.family != "sd15" or skip is None:
         yield False
         return
     encoder = pipeline.text_encoder

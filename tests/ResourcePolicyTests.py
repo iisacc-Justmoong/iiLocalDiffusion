@@ -4,6 +4,7 @@
 from contextlib import nullcontext
 from pathlib import Path
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -62,6 +63,13 @@ def fake_torch():
 
 
 class ResourcePolicyTests(unittest.TestCase):
+    def setUp(self):
+        build = REFERENCE.parents[1] / "build"
+        build.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(prefix="resource-policy-model-", dir=build)
+        self.addCleanup(temporary.cleanup)
+        self.model_directory = Path(temporary.name)
+
     def test_cli_exposes_cpu_and_ram_options(self):
         args = generate.build_parser().parse_args([
             "--cpu-text-encoding", "--cpu-threads", "4", "--offload", "model"
@@ -104,12 +112,14 @@ class ResourcePolicyTests(unittest.TestCase):
                                                     offload="disk")
 
     def test_cpu_prompt_shapes_are_preserved_for_each_family(self):
-        for preset, count, expected in (
-            (presets.SD15_PRESET, 2, {"prompt_embeds", "negative_prompt_embeds"}),
-            (presets.SDXL_BASE_PRESET, 4, {"prompt_embeds", "negative_prompt_embeds",
-                                        "pooled_prompt_embeds", "negative_pooled_prompt_embeds"}),
-            (presets.FLUX1_SCHNELL_PRESET, 3, {"prompt_embeds", "pooled_prompt_embeds"}),
-        ):
+        expected_by_family = {
+            "sd15": (2, {"prompt_embeds", "negative_prompt_embeds"}),
+            "sdxl-base": (4, {"prompt_embeds", "negative_prompt_embeds",
+                               "pooled_prompt_embeds", "negative_pooled_prompt_embeds"}),
+            "flux1-schnell": (3, {"prompt_embeds", "pooled_prompt_embeds"}),
+        }
+        for preset in presets.PRESETS.values():
+            count, expected = expected_by_family[preset.family]
             with self.subTest(preset=preset.name):
                 pipeline = SimpleNamespace(text_encoder=FakeEncoder(), text_encoder_2=FakeEncoder())
                 pipeline.encode_prompt = Mock(return_value=tuple(FakeTensor() for _ in range(count)))
@@ -123,9 +133,10 @@ class ResourcePolicyTests(unittest.TestCase):
                 self.assertEqual(pipeline.text_encoder.device.type, "cpu")
                 transferred = result.for_device("mps", "float16")
                 self.assertTrue(all(t.device.type == "mps" for t in transferred.values()))
-                if preset.name == "flux1-schnell":
+                if preset.family == "flux1-schnell":
                     self.assertNotIn("negative_prompt", pipeline.encode_prompt.call_args.kwargs)
-                    self.assertEqual(pipeline.encode_prompt.call_args.kwargs["max_sequence_length"], 256)
+                    self.assertEqual(pipeline.encode_prompt.call_args.kwargs["max_sequence_length"],
+                                     preset.runtime.max_sequence_length)
 
     def test_cpu_conditioning_restores_dtype_when_encoding_fails(self):
         pipeline = SimpleNamespace(text_encoder=FakeEncoder(), encode_prompt=Mock(side_effect=RuntimeError("encoder")))
@@ -190,16 +201,13 @@ class ResourcePolicyTests(unittest.TestCase):
         self.assertIsNone(result.for_device("mps", "float16")["negative_prompt_embeds"])
 
     def test_lora_precedes_cpu_encoding_and_offload_follows_it(self):
-        for preset, expected_offload in (
-            (presets.SD15_PRESET, "model"),
-            (presets.SDXL_BASE_PRESET, "model"),
-            (presets.FLUX1_SCHNELL_PRESET, "auto"),
-        ):
+        for preset in presets.PRESETS.values():
+            expected_offload = "auto" if preset.family == "flux1-schnell" else "model"
             with self.subTest(preset=preset.name):
                 events = []
                 pipeline = object()
                 conditioning = object()
-                args = SimpleNamespace(lora_selection=None, cache_dir=Path("cache"),
+                args = SimpleNamespace(preset=preset.name, lora_selection=None, cache_dir=Path("cache"),
                     local_files_only=True, offload="auto", cpu_text_encoding=True)
                 def cpu(*arguments):
                     events.append("cpu")
@@ -211,6 +219,8 @@ class ResourcePolicyTests(unittest.TestCase):
                 with (
                     patch.object(generate, "validate_pipeline_contract",
                                  side_effect=lambda *a: events.append("validate")),
+                    patch.object(generate, "configure_scheduler",
+                                 side_effect=lambda *a: events.append("scheduler")) as scheduler,
                     patch.object(generate, "apply_lora",
                                  side_effect=lambda *a: events.append("lora")),
                     patch.object(generate, "encode_cpu_prompt", side_effect=cpu),
@@ -218,16 +228,23 @@ class ResourcePolicyTests(unittest.TestCase):
                 ):
                     result = generate.prepare_pipeline_with_adapters(
                         pipeline, preset, args, "mps", False, fake_torch())
-                self.assertEqual(events, ["validate", "lora", "cpu", "offload"])
+                expected_events = ["validate", "lora", "cpu", "offload"]
+                if preset.default_scheduler or preset.scheduler_defaults:
+                    expected_events.insert(1, "scheduler")
+                    scheduler.assert_called_once_with(pipeline, args)
+                else:
+                    scheduler.assert_not_called()
+                self.assertEqual(events, expected_events)
                 self.assertIs(result[3], conditioning)
                 self.assertEqual(result[1]["requested_offload"], "auto")
 
     def test_generation_transfers_embeddings_without_reencoding_prompt(self):
         for preset in presets.PRESETS.values():
             with self.subTest(preset=preset.name):
-                _, args = generate.resolve_arguments(generate.build_parser().parse_args([
-                    "--preset", preset.name
-                ]))
+                arguments = ["--preset", preset.name]
+                if preset.requires_model_override:
+                    arguments.extend(["--model", str(self.model_directory)])
+                _, args = generate.resolve_arguments(generate.build_parser().parse_args(arguments))
                 conditioning = cpu_conditioning.CpuConditioning({"prompt_embeds": FakeTensor()}, {})
                 arguments = generate.build_pipeline_call_arguments(
                     preset, args, "generator", conditioning, "cuda", "bfloat16")

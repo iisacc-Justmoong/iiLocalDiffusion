@@ -17,6 +17,8 @@ SDXL_CROPS = ("crops_coords_top_left", "negative_crops_coords_top_left")
 
 
 def add_generation_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--prediction-type", choices=("auto", "epsilon", "v_prediction", "sample"),
+                        default="auto", help="Checkpoint training prediction type; auto retains model/preset configuration")
     parser.add_argument("--num-images", "--num-images-per-prompt", type=int, default=1,
                         help="Images for this prompt; every image is saved (default: 1)")
     parser.add_argument("--seed-stride", type=int, default=1,
@@ -90,14 +92,14 @@ def add_generation_options(parser: argparse.ArgumentParser) -> None:
 
 
 def resolve_generation_options(preset: PipelinePreset, args: argparse.Namespace) -> None:
-    if preset.name in ("sdxl-base", "flux1-schnell"):
+    if preset.family in ("sdxl-base", "flux1-schnell"):
         if args.prompt_2 is None:
             args.prompt_2 = args.prompt
         if args.negative_prompt_2 is None:
             args.negative_prompt_2 = args.negative_prompt
     if args.max_sequence_length is None:
         args.max_sequence_length = preset.runtime.max_sequence_length
-    if preset.name == "sdxl-base":
+    if preset.family == "sdxl-base":
         for name in SDXL_SIZES:
             value = getattr(args, name)
             setattr(args, name, (args.height, args.width) if value is None else tuple(value))
@@ -124,7 +126,7 @@ def with_generation_defaults(preset: PipelinePreset, args: Any) -> argparse.Name
 
 def uses_negative_prompt(preset: PipelinePreset, args: Any) -> bool:
     return preset.runtime.passes_negative_prompt or (
-        preset.name == "flux1-schnell" and getattr(args, "true_cfg_scale", 1.0) > 1.0
+        preset.family == "flux1-schnell" and getattr(args, "true_cfg_scale", 1.0) > 1.0
     )
 
 
@@ -160,7 +162,7 @@ def validate_generation_options(preset: PipelinePreset, args: argparse.Namespace
     if not args.latents_key or (args.latents is None and args.latents_key != "latents"):
         raise SystemExit("--latents-key must be non-empty and requires --latents.")
     allowed_embeddings = {"prompt_embeds", "negative_prompt_embeds"}
-    if preset.name != "sd15":
+    if preset.family != "sd15":
         allowed_embeddings.update(("pooled_prompt_embeds", "negative_pooled_prompt_embeds"))
     if any(name not in allowed_embeddings or not isinstance(value, str) or not value
            for name, value in args.embedding_keys.items()):
@@ -173,7 +175,7 @@ def validate_generation_options(preset: PipelinePreset, args: argparse.Namespace
         raise SystemExit("--clip-skip applies to text encoding, not supplied --embeddings.")
     for name in ("cross_attention_kwargs", "joint_attention_kwargs"):
         options = getattr(args, name)
-        is_flux = preset.name == "flux1-schnell"
+        is_flux = preset.family == "flux1-schnell"
         if options and (name == "joint_attention_kwargs") != is_flux:
             raise SystemExit(f"--{name.replace('_', '-')} does not apply to this preset.")
         if options.keys() - {"scale"}:
@@ -195,10 +197,10 @@ def validate_generation_options(preset: PipelinePreset, args: argparse.Namespace
             raise SystemExit(f"--{name} must be a non-empty, finite, non-negative, strictly descending list.")
     if args.sigmas is not None and args.sigmas[0] == 0:
         raise SystemExit("--sigmas must start above zero.")
-    if preset.name == "sd15":
+    if preset.family == "sd15":
         if args.prompt_2 is not None or args.negative_prompt_2 is not None:
             raise SystemExit("--prompt-2 and --negative-prompt-2 require SDXL or FLUX.")
-    if preset.name != "sdxl-base":
+    if preset.family != "sdxl-base":
         if any(getattr(args, name) is not None for name in (*SDXL_SIZES, *SDXL_CROPS, "denoising_end")):
             raise SystemExit("Size/crop conditioning and --denoising-end require SDXL.")
         if args.watermark is not None:
@@ -214,7 +216,7 @@ def validate_generation_options(preset: PipelinePreset, args: argparse.Namespace
             not math.isfinite(args.denoising_end) or not 0 < args.denoising_end < 1
         ):
             raise SystemExit("--denoising-end must be finite and in (0,1).")
-    if preset.name != "flux1-schnell":
+    if preset.family != "flux1-schnell":
         if args.max_sequence_length is not None or args.true_cfg_scale != 1.0:
             raise SystemExit("--max-sequence-length and --true-cfg-scale require FLUX.")
     else:
@@ -233,19 +235,19 @@ def pipeline_generation_values(preset: PipelinePreset, args: Any) -> dict[str, A
     for name in ("timesteps", "sigmas"):
         if getattr(args, name) is not None:
             values[name] = getattr(args, name)
-    if preset.name in ("sdxl-base", "flux1-schnell"):
+    if preset.family in ("sdxl-base", "flux1-schnell"):
         values["prompt_2"] = args.prompt_2
     if uses_negative_prompt(preset, args):
         values["negative_prompt"] = args.negative_prompt
-        if preset.name in ("sdxl-base", "flux1-schnell"):
+        if preset.family in ("sdxl-base", "flux1-schnell"):
             values["negative_prompt_2"] = args.negative_prompt_2
-    if preset.name == "flux1-schnell":
+    if preset.family == "flux1-schnell":
         values.update(max_sequence_length=args.max_sequence_length, true_cfg_scale=args.true_cfg_scale)
     else:
         values.update(eta=args.eta, guidance_rescale=args.guidance_rescale, clip_skip=args.clip_skip)
-    if preset.name == "sdxl-base":
+    if preset.family == "sdxl-base":
         values.update({name: getattr(args, name) for name in (*SDXL_SIZES, *SDXL_CROPS, "denoising_end")})
-    attention_name = "joint_attention_kwargs" if preset.name == "flux1-schnell" else "cross_attention_kwargs"
+    attention_name = "joint_attention_kwargs" if preset.family == "flux1-schnell" else "cross_attention_kwargs"
     if getattr(args, attention_name):
         values[attention_name] = dict(getattr(args, attention_name))
     return values

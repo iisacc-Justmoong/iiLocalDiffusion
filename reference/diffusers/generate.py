@@ -105,6 +105,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--print-config", action="store_true",
                         help="Print resolved JSON values and exit without importing Torch or generating")
     parser.add_argument("--preset", choices=tuple(PRESETS), default=DEFAULT_PRESET_NAME)
+    parser.add_argument("--base-model", default=None,
+                        help="Civitai base-model identity; chooses a compatible preset")
     parser.add_argument(
         "--model",
         default=None,
@@ -192,7 +194,31 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argparse.Namespace]:
+    if getattr(args, "base_model", None):
+        from civitai_catalog import lookup_base_model
+        try:
+            base = lookup_base_model(args.base_model)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
+        if base["preset"] is None:
+            raise SystemExit("This base model requires reference/generate.py with the diffusers or comfyui backend.")
+        if "preset" in getattr(args, "_provided", ()):
+            allowed_presets = {base["preset"]}
+            if base["preset"] == "noobai":
+                allowed_presets.add("noobai-v-pred")
+            allowed_presets.update({
+                "sd15-compatible": {"sd15"}, "sdxl": {"sdxl-base"},
+                "flux1-schnell-compatible": {"flux1-schnell"},
+            }.get(base["preset"], set()))
+            if args.preset not in allowed_presets:
+                raise SystemExit("--preset and --base-model describe incompatible model identities; "
+                                 "choose " + ", ".join(sorted(allowed_presets)) + ".")
+        else:
+            args.preset = base["preset"]
+        args.base_model = base["name"]
     preset = PRESETS[args.preset]
+    if getattr(preset, "requires_model_override", False) and args.model is None:
+        raise SystemExit(f"Preset {preset.name} requires an explicit --model checkpoint or directory.")
     try:
         selection = resolve_model_selection(
             preset, args.model, args.revision, allow_single_file=True
@@ -539,7 +565,9 @@ def prepare_pipeline_with_adapters(
 ) -> tuple[Any, dict[str, Any], LoraActivation | None, CpuConditioning | None]:
     contract = controlnet_preset(preset) if getattr(args, "controlnet_selection", None) is not None else preset
     validate_pipeline_contract(pipeline, contract)
-    if getattr(args, "scheduler", "auto") != "auto" or getattr(args, "scheduler_config", {}):
+    if (getattr(args, "scheduler", "auto") != "auto" or getattr(args, "scheduler_config", {})
+            or getattr(args, "prediction_type", "auto") != "auto"
+            or getattr(preset, "scheduler_defaults", ()) or getattr(preset, "default_scheduler", None)):
         args.scheduler_metadata = configure_scheduler(pipeline, args)
     validate_clip_skip(pipeline, preset, args)
     if (getattr(args, "timesteps", None) is not None or getattr(args, "sigmas", None) is not None
@@ -693,7 +721,7 @@ def build_load_arguments(
             has_variant = any(Path(source.source).glob(f"*/*.{variant}*.safetensors"))
         if has_variant:
             arguments["variant"] = variant
-    if preset.name == "sdxl-base":
+    if preset.family == "sdxl-base":
         arguments["add_watermarker"] = bool(getattr(args, "watermark", False))
     return arguments
 
@@ -727,7 +755,7 @@ def build_pipeline_call_arguments(
         arguments.pop("negative_prompt", None)
         arguments.pop("negative_prompt_2", None)
         arguments.update(conditioning.for_device(device, dtype))
-        if preset.name == "flux1-schnell" or conditioning.metadata.get("batch_expanded", False):
+        if preset.family == "flux1-schnell" or conditioning.metadata.get("batch_expanded", False):
             arguments["num_images_per_prompt"] = 1
     if tensor_inputs is not None and tensor_inputs.latents is not None:
         if device is None or dtype is None:
@@ -818,7 +846,7 @@ def prepare_pipeline_for_execution(
 
 def validate_generation_arguments(preset: PipelinePreset, args: argparse.Namespace) -> None:
     base_validation_args = args
-    if (preset.name == "flux1-schnell" and args.true_cfg_scale == 1
+    if (preset.family == "flux1-schnell" and args.true_cfg_scale == 1
             and getattr(args, "hires_fix", False)
             and getattr(args, "hires_true_cfg_scale", 1) > 1):
         # Shared negative prompts may be used only by refinement. Validate the
@@ -844,7 +872,7 @@ def validate_generation_arguments(preset: PipelinePreset, args: argparse.Namespa
         )
     if args.steps <= 0:
         raise SystemExit("Inference steps must be positive.")
-    if preset.name == "flux1-schnell" and args.guidance_scale != 0.0:
+    if preset.family == "flux1-schnell" and not preset.requires_guidance_embeds and args.guidance_scale != 0.0:
         raise SystemExit("FLUX.1-schnell guidance scale must be 0.0.")
     if (
         not uses_negative_prompt(preset, base_validation_args)
@@ -978,7 +1006,8 @@ def main() -> int:
             **base_audit.metadata(),
         }
         print(f"HiRes: {args.width}x{args.height} -> {args.hires_target_width}x{args.hires_target_height}; "
-              f"upscaler={args.hires_upscaler}; strength={args.hires_denoising_strength}", flush=True)
+              f"passes={args.hires_passes}; upscaler={args.hires_upscaler}; "
+              f"strength={args.hires_denoising_strength}", flush=True)
         refined = run_hires_fix(
             pipeline, preset, args, base_images, torch, device, dtype, attention_slicing, lora_activation,
             build_call=build_pipeline_call_arguments, prepare_execution=prepare_pipeline_for_execution)

@@ -1,4 +1,4 @@
-"""Validated, replayable options for an optional image-to-image HiRes Fix pass."""
+"""Validated, replayable options for repeated image-to-image HiRes Fix passes."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from presets import PipelinePreset
 
 HIRES_UPSCALERS = ("nearest", "bilinear", "bicubic", "lanczos")
 HIRES_OPTION_NAMES = (
-    "hires_scale", "hires_width", "hires_height", "hires_upscaler",
+    "hires_passes", "hires_scale", "hires_width", "hires_height", "hires_upscaler",
     "hires_denoising_strength", "hires_steps", "hires_seed", "hires_guidance_scale",
     "hires_true_cfg_scale", "hires_scheduler", "hires_scheduler_config", "hires_save_base",
 )
@@ -23,29 +23,31 @@ HIRES_OPTION_NAMES = (
 
 def add_hires_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--hires-fix", action=argparse.BooleanOptionalAction, default=False,
-                        help="Upscale generated images and refine them with a second diffusion pass")
+                        help="Upscale generated images and refine them with repeated diffusion passes")
+    parser.add_argument("--hires-passes", type=int, default=None,
+                        help="Number of additional HiRes refinements (default when enabled: 1)")
     parser.add_argument("--hires-scale", type=float, default=None,
-                        help="HiRes size multiplier above 1; defaults to 2 when no target size is given")
+                        help="Per-pass HiRes multiplier above 1; defaults to 2 when no first target size is given")
     parser.add_argument("--hires-width", type=int, default=None,
-                        help="Final width; a single target dimension retains the original aspect ratio")
+                        help="First refinement width; subsequent passes repeat the resulting width ratio")
     parser.add_argument("--hires-height", type=int, default=None,
-                        help="Final height; explicit dimensions must satisfy the model's size multiple")
+                        help="First refinement height; subsequent passes repeat the resulting height ratio")
     parser.add_argument("--hires-upscaler", choices=HIRES_UPSCALERS, default=None,
                         help="Image interpolation before refinement (default with HiRes Fix: lanczos)")
     parser.add_argument("--hires-denoising-strength", "--hires-strength", type=float, default=None,
-                        help="Second-pass denoising strength in (0,1] (default with HiRes Fix: 0.35)")
+                        help="Each refinement's denoising strength in (0,1] (default with HiRes Fix: 0.35)")
     parser.add_argument("--hires-steps", type=int, default=None,
-                        help="Second-pass schedule length; defaults to --steps, reduced by strength")
+                        help="Each refinement's schedule length; defaults to --steps, reduced by strength")
     parser.add_argument("--hires-seed", type=int, default=None,
-                        help="Second-pass first image seed; defaults to --seed and reuses --seed-stride")
+                        help="Each refinement's first image seed; defaults to --seed and reuses --seed-stride")
     parser.add_argument("--hires-guidance-scale", type=float, default=None,
-                        help="Second-pass guidance; defaults to --guidance-scale (FLUX schnell requires 0)")
+                        help="Each refinement's guidance; defaults to --guidance-scale (FLUX schnell requires 0)")
     parser.add_argument("--hires-true-cfg-scale", type=float, default=None,
-                        help="FLUX second-pass true CFG, at least 1; defaults to --true-cfg-scale")
+                        help="FLUX refinement true CFG, at least 1; defaults to --true-cfg-scale")
     parser.add_argument("--hires-scheduler", default=None,
-                        help="Second-pass compatible Diffusers scheduler; auto inherits the first pass")
+                        help="Each refinement's compatible Diffusers scheduler; auto inherits the first pass")
     parser.add_argument("--hires-scheduler-config", type=json_object, default=None,
-                        help="Second-pass scheduler constructor overrides as JSON (default: {})")
+                        help="Each refinement's scheduler constructor overrides as JSON (default: {})")
     parser.add_argument("--hires-save-base", action=argparse.BooleanOptionalAction, default=None,
                         help="Also save the first-pass images (default with HiRes Fix: disabled)")
 
@@ -90,6 +92,65 @@ def _proportional_dimension(target: int, original_axis: int, other_axis: int, mu
     return ((2 * numerator + denominator) // (2 * denominator)) * multiple
 
 
+def resolve_hires_stage_sizes(width: int, height: int, passes: int, *, scale: float | None = None,
+                              target_width: int | None = None, target_height: int | None = None,
+                              dimension_multiple: int = 8) -> list[list[int]]:
+    """Scale each preceding rounded size, using explicit first targets as ratios.
+
+    The only size bound is Pillow's signed C-int dimension representation. There
+    is no arbitrary pass-count cap; every stage must make a representable enlargement.
+    """
+    maximum = 2**31 - 1
+    try:
+        for name, value in (("width", width), ("height", height), ("hires_passes", passes),
+                            ("dimension_multiple", dimension_multiple)):
+            _integer(value, name, positive=True)
+        if max(width, height) > maximum:
+            raise SystemExit("The requested HiRes dimensions are too large to represent as signed 32-bit image sizes.")
+        explicit = target_width is not None or target_height is not None
+        if explicit and scale is not None:
+            raise SystemExit("--hires-scale cannot be combined with --hires-width or --hires-height.")
+        for name, value in (("hires_width", target_width), ("hires_height", target_height)):
+            if value is not None:
+                _integer(value, name, positive=True)
+                if value % dimension_multiple:
+                    raise SystemExit(f"{_option(name)} must be a positive multiple of {dimension_multiple}.")
+        if explicit:
+            first_width = target_width if target_width is not None else _proportional_dimension(target_height, height, width, dimension_multiple)
+            first_height = target_height if target_height is not None else _proportional_dimension(target_width, width, height, dimension_multiple)
+        else:
+            scale = 2.0 if scale is None else scale
+            _finite_number(scale, "hires_scale", lower=1, inclusive=False)
+            first_width = _scaled_dimension(width, scale, dimension_multiple)
+            first_height = _scaled_dimension(height, scale, dimension_multiple)
+        stages = []
+        previous_width, previous_height = width, height
+        for index in range(passes):
+            if index == 0:
+                next_width, next_height = first_width, first_height
+            elif explicit:
+                next_width = _proportional_dimension(previous_width, width, first_width, dimension_multiple)
+                next_height = _proportional_dimension(previous_height, height, first_height, dimension_multiple)
+            else:
+                next_width = _scaled_dimension(previous_width, scale, dimension_multiple)
+                next_height = _scaled_dimension(previous_height, scale, dimension_multiple)
+            if max(next_width, next_height) > maximum:
+                raise SystemExit("The requested HiRes dimensions are too large to represent as signed 32-bit image sizes.")
+            if (next_width < previous_width or next_height < previous_height
+                    or (next_width == previous_width and next_height == previous_height)):
+                raise SystemExit("HiRes dimensions must retain or enlarge both axes and enlarge at least one axis.")
+            # Growth never shrinks under a fixed positive multiplier. This lower
+            # bound rejects absurd counts before constructing a huge stage list.
+            if index == 0 and (width + (next_width - width) * passes > maximum
+                               or height + (next_height - height) * passes > maximum):
+                raise SystemExit("Repeated HiRes dimensions are too large to represent as signed 32-bit image sizes.")
+            stages.append([next_width, next_height])
+            previous_width, previous_height = next_width, next_height
+        return stages
+    except (SystemExit, OverflowError) as error:
+        raise ValueError(str(error)) from error
+
+
 def resolve_hires_options(preset: PipelinePreset, args: argparse.Namespace) -> None:
     """Validate options and record target dimensions without changing their replayable inputs."""
     args.hires_fix = getattr(args, "hires_fix", False)
@@ -98,42 +159,26 @@ def resolve_hires_options(preset: PipelinePreset, args: argparse.Namespace) -> N
             setattr(args, name, None)
     args.hires_target_width = None
     args.hires_target_height = None
+    args.hires_stage_sizes = None
     if not args.hires_fix:
         provided = [name for name in HIRES_OPTION_NAMES if getattr(args, name) is not None]
         if provided:
             raise SystemExit(f"{', '.join(_option(name) for name in provided)} require --hires-fix.")
         return
 
-    # Validate before aspect-ratio arithmetic; the complete first-pass validation runs later.
-    _integer(args.width, "width", positive=True)
-    _integer(args.height, "height", positive=True)
+    if args.hires_passes is None:
+        args.hires_passes = 1
     explicit_size = args.hires_width is not None or args.hires_height is not None
-    if explicit_size and args.hires_scale is not None:
-        raise SystemExit("--hires-scale cannot be combined with --hires-width or --hires-height.")
-    multiple = preset.runtime.dimension_multiple
-    for name in ("hires_width", "hires_height"):
-        value = getattr(args, name)
-        if value is not None:
-            _integer(value, name, positive=True)
-            if value % multiple != 0:
-                raise SystemExit(f"{_option(name)} must be a positive multiple of {multiple}.")
-    if not explicit_size:
-        if args.hires_scale is None:
-            args.hires_scale = 2.0
-        _finite_number(args.hires_scale, "hires_scale", lower=1, inclusive=False)
-        target_width = _scaled_dimension(args.width, args.hires_scale, multiple)
-        target_height = _scaled_dimension(args.height, args.hires_scale, multiple)
-    else:
-        target_width = args.hires_width
-        target_height = args.hires_height
-        if target_width is None:
-            target_width = _proportional_dimension(target_height, args.height, args.width, multiple)
-        if target_height is None:
-            target_height = _proportional_dimension(target_width, args.width, args.height, multiple)
-    if (target_width < args.width or target_height < args.height
-            or (target_width == args.width and target_height == args.height)):
-        raise SystemExit("HiRes dimensions must retain or enlarge both axes and enlarge at least one axis.")
-    args.hires_target_width, args.hires_target_height = target_width, target_height
+    if not explicit_size and args.hires_scale is None:
+        args.hires_scale = 2.0
+    try:
+        args.hires_stage_sizes = resolve_hires_stage_sizes(
+            args.width, args.height, args.hires_passes, scale=args.hires_scale,
+            target_width=args.hires_width, target_height=args.hires_height,
+            dimension_multiple=preset.runtime.dimension_multiple)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    args.hires_target_width, args.hires_target_height = args.hires_stage_sizes[-1]
 
     defaults = {
         "hires_upscaler": "lanczos", "hires_denoising_strength": 0.35,
@@ -150,7 +195,7 @@ def resolve_hires_options(preset: PipelinePreset, args: argparse.Namespace) -> N
     _integer(args.hires_steps, "hires_steps", positive=True)
     try:
         initial_steps = min(args.hires_steps * args.hires_denoising_strength, args.hires_steps)
-        if preset.name == "flux1-schnell":
+        if preset.family == "flux1-schnell":
             # Match FluxImg2ImgPipeline.get_timesteps: FLUX rounds its starting
             # offset, while SD/SDXL round the number of retained steps instead.
             effective_steps = args.hires_steps - int(max(args.hires_steps - initial_steps, 0))
@@ -166,9 +211,9 @@ def resolve_hires_options(preset: PipelinePreset, args: argparse.Namespace) -> N
         raise SystemExit("Every HiRes image seed must be in [-2^63, 2^64-1]; check --hires-seed and --seed-stride.")
     _finite_number(args.hires_guidance_scale, "hires_guidance_scale", lower=0)
     _finite_number(args.hires_true_cfg_scale, "hires_true_cfg_scale", lower=1)
-    if preset.name == "flux1-schnell" and args.hires_guidance_scale != 0:
+    if preset.family == "flux1-schnell" and not preset.requires_guidance_embeds and args.hires_guidance_scale != 0:
         raise SystemExit("FLUX schnell requires --hires-guidance-scale 0.")
-    if preset.name != "flux1-schnell" and args.hires_true_cfg_scale != 1:
+    if preset.family != "flux1-schnell" and args.hires_true_cfg_scale != 1:
         raise SystemExit("--hires-true-cfg-scale values other than 1 require FLUX.")
     if (not isinstance(args.hires_scheduler, str) or not args.hires_scheduler
             or args.hires_scheduler.startswith("_")):
@@ -183,14 +228,19 @@ def resolve_hires_options(preset: PipelinePreset, args: argparse.Namespace) -> N
         raise SystemExit("--hires-save-base must be a boolean.")
 
 
-def hires_request(preset: PipelinePreset, args: argparse.Namespace) -> argparse.Namespace:
-    """Copy the first request for refinement while retaining shared model and prompt selections."""
+def hires_request(preset: PipelinePreset, args: argparse.Namespace, pass_index: int = 0) -> argparse.Namespace:
+    """Copy shared settings for the indexed refinement, keeping the base request unchanged."""
     if not getattr(args, "hires_fix", False):
         raise ValueError("A second-pass request requires --hires-fix.")
     if getattr(args, "hires_target_width", None) is None or getattr(args, "hires_target_height", None) is None:
         raise ValueError("Resolve --hires-fix options before constructing the second-pass request.")
+    sizes = getattr(args, "hires_stage_sizes", None)
+    if (not isinstance(sizes, list) or isinstance(pass_index, bool) or not isinstance(pass_index, int)
+            or not 0 <= pass_index < len(sizes)):
+        raise ValueError("pass_index must identify a resolved HiRes stage.")
     request = argparse.Namespace(**vars(args))
-    request.width, request.height = args.hires_target_width, args.hires_target_height
+    request.hires_stage_sizes = deepcopy(sizes)
+    request.width, request.height = sizes[pass_index]
     request.steps, request.seed = args.hires_steps, args.hires_seed
     request.guidance_scale, request.true_cfg_scale = args.hires_guidance_scale, args.hires_true_cfg_scale
     request.scheduler = args.hires_scheduler
@@ -201,7 +251,7 @@ def hires_request(preset: PipelinePreset, args: argparse.Namespace) -> argparse.
     request.latents_file = None
     request.tensor_inputs = None
     request.guidance_rescale = 0.0
-    if preset.name == "sdxl-base":
+    if preset.family == "sdxl-base":
         for name in SDXL_SIZES:
             setattr(request, name, (request.height, request.width))
     return request

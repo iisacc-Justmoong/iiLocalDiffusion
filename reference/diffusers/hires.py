@@ -1,10 +1,11 @@
-"""Pixel upscaling followed by a verified Diffusers image-to-image refinement."""
+"""Repeat pixel upscaling and verified Diffusers image-to-image refinement."""
 
 from __future__ import annotations
 
 from contextlib import nullcontext
 from dataclasses import dataclass
 import hashlib
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from cpu_conditioning import encode_cpu_prompt
@@ -89,12 +90,12 @@ def refinement_call_arguments(preset: Any, request: Any, arguments: dict[str, An
     for name in ("latents", "timesteps", "sigmas", "denoising_end", "guidance_rescale"):
         arguments.pop(name, None)
     has_controlnet = request.controlnet_selection is not None
-    if has_controlnet and preset.name != "flux1-schnell":
+    if has_controlnet and preset.family != "flux1-schnell":
         arguments["control_image"] = arguments.pop("image")
-    if not has_controlnet and preset.name in ("sd15", "sdxl-base"):
+    if not has_controlnet and preset.family in ("sd15", "sdxl-base"):
         arguments.pop("width", None)
         arguments.pop("height", None)
-    if not (has_controlnet and preset.name == "flux1-schnell"):
+    if not (has_controlnet and preset.family == "flux1-schnell"):
         arguments["image"] = images
         arguments["strength"] = request.hires_denoising_strength
     return arguments
@@ -121,15 +122,16 @@ class HiresResult:
     seeds: list[int]
 
 
-def run_hires_fix(
+def _run_hires_pass(
     pipeline: Any, preset: Any, args: Any, images: list[Any], torch: Any,
     device: str, dtype: Any, attention_slicing: bool, activation: Any,
     *, build_call: Callable, prepare_execution: Callable,
-    pipeline_classes: dict[str, Any] | None = None,
+    pipeline_classes: dict[str, Any] | None = None, pass_index: int = 0,
 ) -> HiresResult:
-    request = hires_request(preset, args)
+    request = hires_request(preset, args, pass_index=pass_index)
+    source_width, source_height = images[0].size
     upscaled = upscale_images(images, request.width, request.height, args.hires_upscaler)
-    class_name = PIPELINES[(preset.name, args.controlnet_selection is not None)]
+    class_name = PIPELINES[(preset.family, args.controlnet_selection is not None)]
     if pipeline_classes is None:
         import diffusers
         selected_class = getattr(diffusers, class_name)
@@ -142,18 +144,18 @@ def run_hires_fix(
     pipeline.to("cpu")
     scheduler = type(pipeline.scheduler).from_config(pipeline.scheduler.config)
     overrides = {"scheduler": scheduler, "dtype": dtype}
-    if preset.name == "sdxl-base":
+    if preset.family == "sdxl-base":
         overrides["add_watermarker"] = bool(args.watermark)
     refined = selected_class.from_pipe(pipeline, **overrides)
     _validate_preserved_adapters(refined, activation)
     validate_text_embeddings(refined, getattr(args, "text_embedding_activation", None), torch)
-    scheduler_metadata = configure_scheduler(refined, request)
+    scheduler_metadata = configure_scheduler(refined, request, inherit_current=True)
     validate_scheduler_values(refined, request)
 
     conditioning = None
     if request.embeddings_file is not None:
-        # Stage-two CFG can require negative embeddings even when stage one
-        # did not. Reload the same verified file against the second request.
+        # Refinement CFG can require negative embeddings even when the base
+        # did not. Reload the same verified file against every stage request.
         request.tensor_inputs = load_tensor_inputs(refined, preset, request, torch, dtype)
         conditioning = request.tensor_inputs.conditioning
     if request.cpu_text_encoding:
@@ -182,7 +184,7 @@ def run_hires_fix(
         call = refinement_call_arguments(
             preset, request, build_call(preset, prompt_args, generator, conditioning, device, dtype), upscaled)
         call["callback_on_step_end"] = audit
-        if preset.name == "flux1-schnell" and request.controlnet_selection is not None:
+        if preset.family == "flux1-schnell" and request.controlnet_selection is not None:
             from hires_flux_controlnet import refine_flux_controlnet
             result, compatibility = refine_flux_controlnet(
                 refined, request, upscaled, call, torch, generator, device, dtype)
@@ -193,9 +195,9 @@ def run_hires_fix(
     metadata = {
         "enabled": True,
         "upscale": {"method": args.hires_upscaler, "requested_scale": args.hires_scale,
-                    "source_size": [args.width, args.height],
+                    "source_size": [source_width, source_height],
                     "target_size": [request.width, request.height],
-                    "actual_scale": [request.width / args.width, request.height / args.height],
+                    "actual_scale": [request.width / source_width, request.height / source_height],
                     "images": [image_metadata(image) for image in upscaled]},
         "refinement": {
             "pipeline_class": type(refined).__name__,
@@ -212,3 +214,40 @@ def run_hires_fix(
     }
     return HiresResult(refined, result, request, metadata, optimization,
                        scheduler_metadata, conditioning, seeds)
+
+
+def run_hires_fix(
+    pipeline: Any, preset: Any, args: Any, images: list[Any], torch: Any,
+    device: str, dtype: Any, attention_slicing: bool, activation: Any,
+    *, build_call: Callable, prepare_execution: Callable,
+    pipeline_classes: dict[str, Any] | None = None,
+) -> HiresResult:
+    """Apply the same refinement settings to the previous result for every pass.
+
+    Only image pixels and their target dimensions advance. Each pass restores
+    offloaded weights, checks adapters/embeddings, builds a fresh scheduler and
+    generators, then validates actual denoising and decoded output. A failure
+    propagates before the caller can publish a partial chain as a final image.
+    """
+    passes = getattr(args, "hires_passes", 1)
+    if isinstance(passes, bool) or not isinstance(passes, int) or passes <= 0:
+        raise ValueError("Resolve a positive --hires-passes count before refinement.")
+    stages = []
+    images = validate_stage_images(SimpleNamespace(images=images),
+                                   args.num_images, args.width, args.height)
+    for index in range(passes):
+        input_metadata = [image_metadata(image) for image in images]
+        print(f"HiRes pass {index + 1}/{passes}", flush=True)
+        refined = _run_hires_pass(
+            pipeline, preset, args, images, torch, device, dtype, attention_slicing, activation,
+            build_call=build_call, prepare_execution=prepare_execution,
+            pipeline_classes=pipeline_classes, pass_index=index)
+        stages.append({"pass_index": index + 1, "input": input_metadata,
+                       "upscale": refined.metadata["upscale"], "refinement": refined.metadata["refinement"],
+                       "output": [image_metadata(image) for image in refined.result.images]})
+        pipeline, images = refined.pipeline, refined.result.images
+    # Preserve existing single-pass consumers: these fields describe the final
+    # refinement, while the ordered list contains every preceding pass as well.
+    refined.metadata = {**refined.metadata, "requested_passes": passes,
+                        "completed_passes": len(stages), "stages": stages}
+    return refined

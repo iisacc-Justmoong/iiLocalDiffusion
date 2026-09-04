@@ -38,6 +38,12 @@ class ReferenceScriptsTests(unittest.TestCase):
         cls.generate = load_module("iild_reference_generate", REFERENCE / "generate.py")
         cls.inspect = load_module("iild_reference_inspect", REFERENCE / "inspect_pipeline.py")
 
+    def setUp(self):
+        (ROOT / "build").mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(prefix="reference-local-model-", dir=ROOT / "build")
+        self.addCleanup(temporary.cleanup)
+        self.model_directory = Path(temporary.name)
+
     def test_model_revision_is_shared_and_immutable(self) -> None:
         self.assertEqual(self.generate.MODEL_ID, self.inspect.MODEL_ID)
         self.assertEqual(self.generate.MODEL_REVISION, self.inspect.MODEL_REVISION)
@@ -73,6 +79,7 @@ class ReferenceScriptsTests(unittest.TestCase):
         requirements += (REFERENCE / "requirements-common.txt").read_text(encoding="utf-8").splitlines()
         self.assertIn("hf-xet==1.6.0", requirements)
         self.assertIn("peft==0.20.0", requirements)
+        self.assertIn("sentencepiece==0.2.2", requirements)
 
     def test_peft_is_preflighted_only_when_lora_is_requested(self) -> None:
         def package_version(name: str) -> str:
@@ -100,11 +107,14 @@ class ReferenceScriptsTests(unittest.TestCase):
         self.assertTrue(self.inspect.DEFAULT_XET_CACHE_DIRECTORY.is_relative_to(build_directory))
 
         for preset in presets.PRESETS.values():
+            arguments = ["--preset", preset.name]
+            if preset.requires_model_override:
+                arguments.extend(["--model", str(self.model_directory)])
             _, generated = self.generate.resolve_arguments(
-                self.generate.build_parser().parse_args(["--preset", preset.name])
+                self.generate.build_parser().parse_args(arguments)
             )
             _, inspected = self.inspect.resolve_arguments(
-                self.inspect.build_parser().parse_args(["--preset", preset.name])
+                self.inspect.build_parser().parse_args(arguments)
             )
             self.assertTrue(generated.output.is_relative_to(build_directory))
             self.assertTrue(inspected.output.is_relative_to(build_directory))

@@ -14,8 +14,9 @@ import presets
 
 
 class FakeScheduler:
-    def __init__(self, num_train_timesteps=1000, prediction_type="epsilon"):
-        self.config = dict(num_train_timesteps=num_train_timesteps, prediction_type=prediction_type)
+    def __init__(self, num_train_timesteps=1000, prediction_type="epsilon", rescale_betas_zero_snr=False):
+        self.config = dict(num_train_timesteps=num_train_timesteps, prediction_type=prediction_type,
+                           rescale_betas_zero_snr=rescale_betas_zero_snr)
 
     @property
     def compatibles(self):
@@ -73,6 +74,49 @@ class GenerationSchedulerTests(unittest.TestCase):
         self.assertIsNot(pipeline.scheduler, original)
         self.assertIsInstance(pipeline.scheduler, FakeScheduler)
         self.assertEqual(pipeline.scheduler.config["num_train_timesteps"], 100)
+
+    def test_refinement_inherits_actual_class_and_config_without_reapplying_preset_hints(self):
+        original = AlternativeScheduler(prediction_type="v_prediction", rescale_betas_zero_snr=False)
+        pipeline = SimpleNamespace(scheduler=original)
+        args = self.args("--preset", "noobai-v-pred", "--eta", "0.2")
+        metadata = generation_scheduler.configure_scheduler(pipeline, args, inherit_current=True)
+        self.assertIs(pipeline.scheduler, original)
+        self.assertEqual(metadata["class"], "AlternativeScheduler")
+        self.assertFalse(metadata["config"]["rescale_betas_zero_snr"])
+        self.assertEqual(metadata["preset_defaults"], {})
+        self.assertEqual(metadata["overrides"], {})
+        self.assertTrue(metadata["inherit_current"])
+        generation_scheduler.validate_scheduler_values(pipeline, args)
+
+    def test_refinement_overrides_take_priority_over_already_applied_base_prediction(self):
+        pipeline = SimpleNamespace(scheduler=AlternativeScheduler(prediction_type="v_prediction"))
+        args = self.args("--preset", "noobai-v-pred", "--prediction-type", "v_prediction")
+        args.scheduler_config = {"prediction_type": "epsilon", "num_train_timesteps": 200}
+        metadata = generation_scheduler.configure_scheduler(pipeline, args, inherit_current=True)
+        self.assertEqual(pipeline.scheduler.config["prediction_type"], "epsilon")
+        self.assertEqual(metadata["overrides"], args.scheduler_config)
+        self.assertEqual(pipeline.scheduler.config["num_train_timesteps"], 200)
+        self.assertEqual(args.prediction_type, "v_prediction")
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            generation_scheduler.configure_scheduler(pipeline, args)
+
+    def test_refinement_allows_explicit_compatible_class_but_retains_override_validation(self):
+        pipeline = SimpleNamespace(scheduler=FakeScheduler(prediction_type="v_prediction"))
+        args = self.args("--preset", "noobai-v-pred", "--scheduler", "AlternativeScheduler")
+        generation_scheduler.configure_scheduler(pipeline, args, inherit_current=True)
+        self.assertIs(type(pipeline.scheduler), AlternativeScheduler)
+        self.assertEqual(pipeline.scheduler.config["prediction_type"], "v_prediction")
+        for tokens in (("--scheduler", "UnknownScheduler"),
+                       ("--scheduler-config", '{"_class_name":"FakeScheduler"}'),
+                       ("--scheduler-config", '{"num_train_timesteps":"200"}')):
+            with self.subTest(tokens=tokens), self.assertRaises(ValueError):
+                generation_scheduler.configure_scheduler(pipeline, self.args(*tokens), inherit_current=True)
+
+    def test_refinement_metadata_is_a_snapshot_of_the_inherited_configuration(self):
+        pipeline = SimpleNamespace(scheduler=AlternativeScheduler())
+        metadata = generation_scheduler.configure_scheduler(pipeline, self.args(), inherit_current=True)
+        pipeline.scheduler.config["num_train_timesteps"] = 200
+        self.assertEqual(metadata["config"]["num_train_timesteps"], 1000)
 
     def test_unknown_class_and_unknown_or_private_keys_are_rejected(self):
         for tokens in (

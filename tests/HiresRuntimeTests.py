@@ -192,7 +192,7 @@ class RuntimeFixture:
             self.refined.scheduler = options["scheduler"]
             return self.refined
 
-        self.classes = {hires.PIPELINES[(preset.name, controlnet)]: SimpleNamespace(from_pipe=from_pipe)}
+        self.classes = {hires.PIPELINES[(preset.family, controlnet)]: SimpleNamespace(from_pipe=from_pipe)}
 
     def build_call(self, preset, args, generator, conditioning, device, dtype):
         self.events.append("build-call")
@@ -206,7 +206,7 @@ class RuntimeFixture:
         }
         if args.controlnet_selection is not None:
             result["controlnet_conditioning_scale"] = 0.7
-            result["control_image" if preset.name == "flux1-schnell" else "image"] = "control-guide"
+            result["control_image" if preset.family == "flux1-schnell" else "image"] = "control-guide"
         return result
 
     def prepare(self, pipeline, preset, device, attention, **values):
@@ -225,6 +225,12 @@ class RuntimeFixture:
 
 
 class HiresRuntimeTests(unittest.TestCase):
+    def setUp(self):
+        (ROOT / "build").mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(prefix="hires-runtime-model-", dir=ROOT / "build")
+        self.addCleanup(temporary.cleanup)
+        self.model_directory = Path(temporary.name)
+
     def test_upscaling_retains_batch_order_and_exposes_every_filter(self):
         for method in ("nearest", "bilinear", "bicubic", "lanczos"):
             originals = [Image(label="first"), Image(label="second")]
@@ -236,11 +242,12 @@ class HiresRuntimeTests(unittest.TestCase):
         with patch.dict(sys.modules, {"PIL": PIL}), self.assertRaises(ValueError):
             hires.upscale_images([Image()], 64, 64, "unsupported")
 
-    def test_all_six_call_types_keep_generated_and_control_images_distinct(self):
+    def test_every_variant_keeps_generated_and_control_images_distinct(self):
         for preset in presets.PRESETS.values():
             for controlnet in (False, True):
                 with self.subTest(preset=preset.name, controlnet=controlnet):
-                    fixture = RuntimeFixture(preset, controlnet=controlnet)
+                    model = {"model": str(self.model_directory)} if preset.requires_model_override else {}
+                    fixture = RuntimeFixture(preset, controlnet=controlnet, **model)
                     args = hires_request(preset, fixture.args)
                     original = fixture.build_call(preset, args, "new-seed", None, "cpu", "dtype")
                     images = [Image((64, 64), label="generated")]
@@ -248,7 +255,7 @@ class HiresRuntimeTests(unittest.TestCase):
                     for name in ("latents", "timesteps", "sigmas", "denoising_end", "guidance_rescale"):
                         self.assertNotIn(name, result)
                         self.assertIn(name, original)
-                    if controlnet and preset.name == "flux1-schnell":
+                    if controlnet and preset.family == "flux1-schnell":
                         self.assertEqual(result["control_image"], "control-guide")
                         self.assertNotIn("image", result)
                         self.assertNotIn("strength", result)
@@ -257,7 +264,7 @@ class HiresRuntimeTests(unittest.TestCase):
                         self.assertEqual(result["strength"], args.hires_denoising_strength)
                         if controlnet:
                             self.assertEqual(result["control_image"], "control-guide")
-                    keeps_dimensions = controlnet or preset.name == "flux1-schnell"
+                    keeps_dimensions = controlnet or preset.family == "flux1-schnell"
                     self.assertEqual("width" in result, keeps_dimensions)
                     self.assertEqual("height" in result, keeps_dimensions)
 

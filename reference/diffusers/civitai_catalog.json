@@ -1,0 +1,1604 @@
+{
+  "schema_version": 1,
+  "source": {
+    "url": "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts",
+    "commit": "ec49115e55d7c85722ec6223ec342c36df59c9d4",
+    "committed_at": "2026-09-04T02:33:02Z",
+    "retrieved_at": "2026-09-04",
+    "file_sha256": "032c3f038b5c4abf1e4a47a4622e9eeb8db084080e38c9f2830dcb8fa9f5fea3",
+    "base_model_count": 105
+  },
+  "upstream_sources": {
+    "diffusers": {
+      "commit": "7643c4826609c47755e3da0e5b768e8070468f49",
+      "url": "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+    },
+    "comfyui": {
+      "commit": "e80c1570b6b44a2557d5d8e341e05782d18c9bbb",
+      "url": "https://github.com/Comfy-Org/ComfyUI/blob/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/comfy/supported_models.py"
+    }
+  },
+  "base_models": [
+    {
+      "name": "Anima",
+      "family": "anima",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image",
+      "notes": "Use a validated local ComfyUI workflow. Diffusers support is ModularPipeline-only, not a conventional DiffusionPipeline.",
+      "sources": [
+        "https://huggingface.co/circlestone-labs/Anima"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "AuraFlow",
+      "family": "auraflow",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "AuraFlowPipeline",
+      "task": "text-to-image",
+      "notes": "Pony V7 uses AuraFlow, unlike the SDXL-based Pony category. LoRA identity is still specific to the checkpoint.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Chroma",
+      "family": "chroma",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "ChromaPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "CogVideoX",
+      "family": "cogvideox",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "CogVideoXPipeline",
+      "task": "text-to-video,image-to-video,video-to-video",
+      "notes": "Select CogVideoXPipeline, CogVideoXImageToVideoPipeline or CogVideoXVideoToVideoPipeline to match the supplied bundle and task.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Ernie",
+      "family": "ernie-image",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "ErnieImagePipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Flux.1 S",
+      "family": "flux1",
+      "local_status": "local",
+      "preferred_backend": "preset",
+      "preset": "flux1-schnell-compatible",
+      "pipeline_class": "FluxPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Flux.1 D",
+      "family": "flux1",
+      "local_status": "local",
+      "preferred_backend": "preset",
+      "preset": "flux1-dev",
+      "pipeline_class": "FluxPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Flux.1 Krea",
+      "family": "flux1",
+      "local_status": "local",
+      "preferred_backend": "preset",
+      "preset": "flux1-krea-dev",
+      "pipeline_class": "FluxPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py",
+        "https://huggingface.co/black-forest-labs/FLUX.1-Krea-dev"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Flux.1 Kontext",
+      "family": "flux1-kontext",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "FluxKontextPipeline",
+      "task": "image-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Flux.2 D",
+      "family": "flux2",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "Flux2Pipeline",
+      "task": "text-to-image,image-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Flux.2 Klein 9B",
+      "family": "flux2-klein",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "Flux2KleinPipeline",
+      "task": "text-to-image,image-to-image",
+      "notes": "Distilled and base Klein weights have different guidance/step contracts; retain the exact model config and variant settings.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Flux.2 Klein 9B-base",
+      "family": "flux2-klein",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "Flux2KleinPipeline",
+      "task": "text-to-image,image-to-image",
+      "notes": "Distilled and base Klein weights have different guidance/step contracts; retain the exact model config and variant settings.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Flux.2 Klein 4B",
+      "family": "flux2-klein",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "Flux2KleinPipeline",
+      "task": "text-to-image,image-to-image",
+      "notes": "Distilled and base Klein weights have different guidance/step contracts; retain the exact model config and variant settings.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Flux.2 Klein 4B-base",
+      "family": "flux2-klein",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "Flux2KleinPipeline",
+      "task": "text-to-image,image-to-image",
+      "notes": "Distilled and base Klein weights have different guidance/step contracts; retain the exact model config and variant settings.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Flux 3 Video",
+      "family": "Flux3Video",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Grok",
+      "family": "Grok",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image,text-to-video,image-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "HappyHorse",
+      "family": "HappyHorse",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "HiDream",
+      "family": "hidream-i1",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "HiDreamImagePipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "HiDream-O1",
+      "family": "hidream-o1",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image,image-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://huggingface.co/HiDream-ai/HiDream-O1-Image"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Hunyuan 1",
+      "family": "hunyuan-dit",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "HunyuanDiTPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Hunyuan Video",
+      "family": "hunyuan-video",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "HunyuanVideoPipeline",
+      "task": "text-to-video,image-to-video",
+      "notes": "Use the original, I2V or 1.5 pipeline appropriate to the local model; the category does not identify the exact architecture version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Ideogram 4.0",
+      "family": "ideogram4",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "Ideogram4Pipeline",
+      "task": "text-to-image",
+      "notes": "Requires conditional and unconditional transformers plus matching encoder/VAE. Structured captions are model inputs; local availability does not grant commercial-use rights.",
+      "sources": [
+        "https://huggingface.co/docs/diffusers/main/en/api/pipelines/ideogram4"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Boogu",
+      "family": "boogu",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image,image-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/Comfy-Org/ComfyUI/blob/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/comfy/supported_models.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Illustrious",
+      "family": "sdxl",
+      "local_status": "local",
+      "preferred_backend": "preset",
+      "preset": "illustrious",
+      "pipeline_class": "StableDiffusionXLPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py",
+        "https://huggingface.co/OnomaAIResearch/Illustrious-XL-v1.0"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Imagen4",
+      "family": "Imagen4",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Kolors",
+      "family": "kolors",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "KolorsPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Krea 2",
+      "family": "krea2",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "Krea2Pipeline",
+      "task": "text-to-image",
+      "notes": "Independent architecture from Flux.1 Krea. Raw and Turbo have different guidance and step settings. Requires recent Diffusers.",
+      "sources": [
+        "https://huggingface.co/docs/diffusers/main/en/api/pipelines/krea2"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "LTXV",
+      "family": "ltx-video",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "LTXPipeline",
+      "task": "text-to-video,image-to-video",
+      "notes": "Select LTXPipeline or LTXImageToVideoPipeline for the checkpoint and requested task.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "LTXV2",
+      "family": "ltx2",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video,image-to-video",
+      "notes": "Audio/video workflow with version-specific weights. LTX-2 and LTX-2.3 weights/adapters are not automatically interchangeable.",
+      "sources": [
+        "https://huggingface.co/Lightricks/LTX-2.3"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "LTXV 2.3",
+      "family": "ltx2",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video,image-to-video",
+      "notes": "Audio/video workflow with version-specific weights. LTX-2 and LTX-2.3 weights/adapters are not automatically interchangeable.",
+      "sources": [
+        "https://huggingface.co/Lightricks/LTX-2.3"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "LTXV 2.5",
+      "family": "ltx25",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video,image-to-video",
+      "notes": "Requires LTX-2.5 components/workflow; different 22B weights and license from earlier LTX-2 releases.",
+      "sources": [
+        "https://huggingface.co/docs/diffusers/main/en/api/pipelines/ltx2"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Lens",
+      "family": "lens",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image",
+      "notes": "Microsoft Lens requires its GPT-OSS encoder and FLUX.2 VAE. The stock Diffusers namespace does not supply its custom pipeline; use a validated local workflow.",
+      "sources": [
+        "https://huggingface.co/microsoft/Lens"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Lumina",
+      "family": "lumina",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "Lumina2Pipeline",
+      "task": "text-to-image",
+      "notes": "Civitai uses a broad Lumina category. Lumina v1 and v2 have different pipelines; explicit pipeline selection is required for non-v2 bundles.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "MageFlow",
+      "family": "mageflow",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image,image-to-image",
+      "notes": "Text-to-image and editing are separate checkpoints; use a matching local workflow. A diffusers-style folder alone does not mean a stock Diffusers pipeline exists.",
+      "sources": [
+        "https://github.com/microsoft/Mage/tree/main/mage_flow"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "MAI",
+      "family": "MAI",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image,image-to-image",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Mochi",
+      "family": "mochi",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "MochiPipeline",
+      "task": "text-to-video",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Nano Banana",
+      "family": "NanoBanana",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image,image-to-image",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "NoobAI",
+      "family": "sdxl",
+      "local_status": "local",
+      "preferred_backend": "preset",
+      "preset": "noobai",
+      "pipeline_class": "StableDiffusionXLPipeline",
+      "task": "text-to-image",
+      "notes": "Both epsilon and v_prediction variants exist. V-pred weights require the explicit noobai-v-pred preset / v_prediction configuration and zero-SNR rescaling. Do not infer this from the NoobAI category.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py",
+        "https://huggingface.co/Laxhar/noobai-XL-1.1",
+        "https://huggingface.co/Laxhar/noobai-XL-Vpred-1.0/blob/main/README.md"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "ODOR",
+      "family": "ODOR",
+      "local_status": "unknown",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "unknown",
+      "notes": "Local weights or a compatible runtime are not established by the Civitai category alone.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "OpenAI",
+      "family": "OpenAI",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Upscaler",
+      "family": "upscaler",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "image-upscale",
+      "notes": "Broad category for model-based enlargement. Requires a workflow/loader matching the actual upscaler architecture, not diffusion denoising.",
+      "sources": [
+        "https://github.com/Comfy-Org/ComfyUI/blob/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/comfy_extras/nodes_upscale_model.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Other",
+      "family": "Other",
+      "local_status": "unknown",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "unknown",
+      "notes": "Local weights or a compatible runtime are not established by the Civitai category alone.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "PixArt a",
+      "family": "pixart-alpha",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "PixArtAlphaPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "PixArt E",
+      "family": "pixart-sigma",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "PixArtSigmaPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Playground v2",
+      "family": "sdxl",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionXLPipeline",
+      "task": "text-to-image",
+      "notes": "Do not infer distilled UNet shapes, prediction_type, guidance or scheduler from the SDXL label; preserve the complete local pipeline configuration.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Pony",
+      "family": "sdxl",
+      "local_status": "local",
+      "preferred_backend": "preset",
+      "preset": "pony",
+      "pipeline_class": "StableDiffusionXLPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Pony V7",
+      "family": "auraflow",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "AuraFlowPipeline",
+      "task": "text-to-image",
+      "notes": "Pony V7 uses AuraFlow, unlike the SDXL-based Pony category. LoRA identity is still specific to the checkpoint.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Qwen",
+      "family": "qwen-image",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "QwenImagePipeline",
+      "task": "text-to-image",
+      "notes": "Qwen-Image, Edit, Edit-Plus and Layered use distinct pipelines; select the pipeline matching the local model_index.json.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Qwen 2",
+      "family": "Qwen2",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image,image-to-image",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Qwen 3",
+      "family": "Qwen3",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image,image-to-image",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Stable Cascade",
+      "family": "stable-cascade",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableCascadeCombinedPipeline",
+      "task": "text-to-image",
+      "notes": "A combined prior/decoder bundle is required. An isolated stage-C checkpoint is not a complete generation pipeline.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SD 1.4",
+      "family": "sd1",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SD 1.5",
+      "family": "sd1",
+      "local_status": "local",
+      "preferred_backend": "preset",
+      "preset": "sd15-compatible",
+      "pipeline_class": "StableDiffusionPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SD 1.5 LCM",
+      "family": "sd1",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "LatentConsistencyModelPipeline",
+      "task": "text-to-image",
+      "notes": "Use the LCM scheduler and the actual checkpoint guidance/step settings; ordinary SD 1.5 defaults are not equivalent.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SD 1.5 Hyper",
+      "family": "sd1",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionPipeline",
+      "task": "text-to-image",
+      "notes": "Hyper variants require their checkpoint-specific distillation step and scheduler settings.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SD 2.0",
+      "family": "sd2",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionPipeline",
+      "task": "text-to-image",
+      "notes": "Use model-provided prediction_type and resolution; epsilon and v_prediction SD2 checkpoints are not interchangeable.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SD 2.0 768",
+      "family": "sd2",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionPipeline",
+      "task": "text-to-image",
+      "notes": "Use model-provided prediction_type and resolution; epsilon and v_prediction SD2 checkpoints are not interchangeable.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SD 2.1",
+      "family": "sd2",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionPipeline",
+      "task": "text-to-image",
+      "notes": "Use model-provided prediction_type and resolution; epsilon and v_prediction SD2 checkpoints are not interchangeable.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SD 2.1 768",
+      "family": "sd2",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionPipeline",
+      "task": "text-to-image",
+      "notes": "Use model-provided prediction_type and resolution; epsilon and v_prediction SD2 checkpoints are not interchangeable.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SD 2.1 Unclip",
+      "family": "sd2-unclip",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableUnCLIPImg2ImgPipeline",
+      "task": "image-to-image",
+      "notes": "Requires vision encoder/noising components; choose StableUnCLIPPipeline explicitly for a compatible text-to-image prior bundle.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SD 3",
+      "family": "sd3",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusion3Pipeline",
+      "task": "text-to-image",
+      "notes": "Civitai hides/disables this category, but upstream local weights exist. SD3/3.5 size, text encoders and distillation remain checkpoint-specific.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": true
+    },
+    {
+      "name": "SD 3.5",
+      "family": "sd3",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusion3Pipeline",
+      "task": "text-to-image",
+      "notes": "Civitai hides/disables this category, but upstream local weights exist. SD3/3.5 size, text encoders and distillation remain checkpoint-specific.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": true
+    },
+    {
+      "name": "SD 3.5 Large",
+      "family": "sd3",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusion3Pipeline",
+      "task": "text-to-image",
+      "notes": "Civitai hides/disables this category, but upstream local weights exist. SD3/3.5 size, text encoders and distillation remain checkpoint-specific.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": true
+    },
+    {
+      "name": "SD 3.5 Large Turbo",
+      "family": "sd3",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusion3Pipeline",
+      "task": "text-to-image",
+      "notes": "Civitai hides/disables this category, but upstream local weights exist. SD3/3.5 size, text encoders and distillation remain checkpoint-specific.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": true
+    },
+    {
+      "name": "SD 3.5 Medium",
+      "family": "sd3",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusion3Pipeline",
+      "task": "text-to-image",
+      "notes": "Civitai hides/disables this category, but upstream local weights exist. SD3/3.5 size, text encoders and distillation remain checkpoint-specific.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": true
+    },
+    {
+      "name": "SDXL 0.9",
+      "family": "sdxl",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionXLPipeline",
+      "task": "text-to-image",
+      "notes": "Do not infer distilled UNet shapes, prediction_type, guidance or scheduler from the SDXL label; preserve the complete local pipeline configuration.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SDXL 1.0",
+      "family": "sdxl",
+      "local_status": "local",
+      "preferred_backend": "preset",
+      "preset": "sdxl",
+      "pipeline_class": "StableDiffusionXLPipeline",
+      "task": "text-to-image",
+      "notes": "Runtime-dependent: requires matching local weights, components, scheduler and an installed pipeline version.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SDXL 1.0 LCM",
+      "family": "sdxl",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionXLPipeline",
+      "task": "text-to-image",
+      "notes": "Do not infer distilled UNet shapes, prediction_type, guidance or scheduler from the SDXL label; preserve the complete local pipeline configuration.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SDXL Lightning",
+      "family": "sdxl",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionXLPipeline",
+      "task": "text-to-image",
+      "notes": "Do not infer distilled UNet shapes, prediction_type, guidance or scheduler from the SDXL label; preserve the complete local pipeline configuration.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SDXL Hyper",
+      "family": "sdxl",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionXLPipeline",
+      "task": "text-to-image",
+      "notes": "Do not infer distilled UNet shapes, prediction_type, guidance or scheduler from the SDXL label; preserve the complete local pipeline configuration.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SDXL Turbo",
+      "family": "sdxl",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionXLPipeline",
+      "task": "text-to-image",
+      "notes": "Do not infer distilled UNet shapes, prediction_type, guidance or scheduler from the SDXL label; preserve the complete local pipeline configuration.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": true
+    },
+    {
+      "name": "SDXL Distilled",
+      "family": "sdxl",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableDiffusionXLPipeline",
+      "task": "text-to-image",
+      "notes": "Do not infer distilled UNet shapes, prediction_type, guidance or scheduler from the SDXL label; preserve the complete local pipeline configuration.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Reve",
+      "family": "Reve",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image,image-to-image",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Muse Image",
+      "family": "MuseImage",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image,image-to-image",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Seedream",
+      "family": "Seedream",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "SVD",
+      "family": "svd",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableVideoDiffusionPipeline",
+      "task": "image-to-video",
+      "notes": "Actual task is image-to-video, despite the legacy Civitai type=image field. Requires an input image; XT frame count is model-specific.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": true
+    },
+    {
+      "name": "SVD XT",
+      "family": "svd",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "StableVideoDiffusionPipeline",
+      "task": "image-to-video",
+      "notes": "Actual task is image-to-video, despite the legacy Civitai type=image field. Requires an input image; XT frame count is model-specific.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": true
+    },
+    {
+      "name": "Sora 2",
+      "family": "Sora2",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Veo 3",
+      "family": "Veo3",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video",
+      "family": "wan",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "WanPipeline",
+      "task": "text-to-video",
+      "notes": "Wan 2.2 A14B requires both high-noise and low-noise transformer components; do not treat an individual split weight as a complete pipeline.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video 1.3B t2v",
+      "family": "wan",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "WanPipeline",
+      "task": "text-to-video",
+      "notes": "Wan 2.2 A14B requires both high-noise and low-noise transformer components; do not treat an individual split weight as a complete pipeline.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video 14B t2v",
+      "family": "wan",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "WanPipeline",
+      "task": "text-to-video",
+      "notes": "Wan 2.2 A14B requires both high-noise and low-noise transformer components; do not treat an individual split weight as a complete pipeline.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video 14B i2v 480p",
+      "family": "wan",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "WanImageToVideoPipeline",
+      "task": "image-to-video",
+      "notes": "Requires image conditioning and the exact resolution/version components. Wan 2.2 A14B additionally requires both expert transformers.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video 14B i2v 720p",
+      "family": "wan",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "WanImageToVideoPipeline",
+      "task": "image-to-video",
+      "notes": "Requires image conditioning and the exact resolution/version components. Wan 2.2 A14B additionally requires both expert transformers.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video 2.2 TI2V-5B",
+      "family": "wan22-ti2v",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "WanPipeline",
+      "task": "text-to-video,image-to-video",
+      "notes": "Select WanPipeline for text or WanImageToVideoPipeline for image conditioning; use the TI2V-5B VAE and transformer configuration.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video 2.2 I2V-A14B",
+      "family": "wan",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "WanImageToVideoPipeline",
+      "task": "image-to-video",
+      "notes": "Requires image conditioning and the exact resolution/version components. Wan 2.2 A14B additionally requires both expert transformers.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video 2.2 T2V-A14B",
+      "family": "wan",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "WanPipeline",
+      "task": "text-to-video",
+      "notes": "Wan 2.2 A14B requires both high-noise and low-noise transformer components; do not treat an individual split weight as a complete pipeline.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video 2.5 T2V",
+      "family": "WanVideo25_T2V",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video 2.5 I2V",
+      "family": "WanVideo25_I2V",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "image-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Image 2.7",
+      "family": "WanImage27",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-image",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video 2.7",
+      "family": "WanVideo27",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Wan Video 3.0",
+      "family": "WanVideo30",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "ZImageTurbo",
+      "family": "z-image",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "ZImagePipeline",
+      "task": "text-to-image",
+      "notes": "Base and Turbo have different guidance and step settings; preserve the exact pipeline/checkpoint configuration.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "ZImageBase",
+      "family": "z-image",
+      "local_status": "local",
+      "preferred_backend": "diffusers",
+      "preset": null,
+      "pipeline_class": "ZImagePipeline",
+      "task": "text-to-image",
+      "notes": "Base and Turbo have different guidance and step settings; preserve the exact pipeline/checkpoint configuration.",
+      "sources": [
+        "https://github.com/huggingface/diffusers/blob/7643c4826609c47755e3da0e5b768e8070468f49/src/diffusers/pipelines/__init__.py"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Vidu Q1",
+      "family": "Vidu",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "MiniMax H3",
+      "family": "minimax-h3",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video,image-to-video,video-to-video",
+      "notes": "Joint video/audio generation with workflow-specific transformer partitions. Diffusers support is ModularPipeline-only; use a validated local workflow.",
+      "sources": [
+        "https://huggingface.co/docs/diffusers/main/en/api/pipelines/minimax_h3"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Kling",
+      "family": "Kling",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Seedance",
+      "family": "Seedance",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-video",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "ACE Audio",
+      "family": "ace-step",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-audio",
+      "notes": "Audio model, not image generation. ACE-Step versions require matching local audio workflows and output nodes.",
+      "sources": [
+        "https://github.com/ace-step/ACE-Step"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "MiniMax Music 3",
+      "family": "minimax-music3",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-audio",
+      "notes": "Lyrics/caption-driven stereo music generation; requires a local audio workflow and all LM/flow/VAE components.",
+      "sources": [
+        "https://huggingface.co/MiniMaxAI/MiniMax-Music3"
+      ],
+      "civitai_hidden": false,
+      "civitai_disabled": false
+    },
+    {
+      "name": "PolyGen",
+      "family": "PolyGen",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "text-to-3d,image-to-3d",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Tripo",
+      "family": "Tripo",
+      "local_status": "hosted",
+      "preferred_backend": "unavailable",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "image-to-3d",
+      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
+      "sources": [
+        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Hunyuan3D",
+      "family": "hunyuan3d",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "image-to-3d",
+      "notes": "3D geometry/texture workflow, not a PIL-image pipeline; use matching version-specific local mesh output nodes.",
+      "sources": [
+        "https://github.com/Tencent-Hunyuan/Hunyuan3D-2"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Pixal3D",
+      "family": "trellis2",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "image-to-3d",
+      "notes": "ComfyUI native TRELLIS.2/Pixal3D workflow with image encoders, shape/texture decoders and mesh export; not a text-to-image checkpoint.",
+      "sources": [
+        "https://github.com/Comfy-Org/ComfyUI/blob/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/comfy/supported_models.py",
+        "https://huggingface.co/TencentARC/Pixal3D"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    },
+    {
+      "name": "Trellis.2",
+      "family": "trellis2",
+      "local_status": "local",
+      "preferred_backend": "comfyui",
+      "preset": null,
+      "pipeline_class": null,
+      "task": "image-to-3d",
+      "notes": "ComfyUI native TRELLIS.2/Pixal3D workflow with image encoders, shape/texture decoders and mesh export; not a text-to-image checkpoint.",
+      "sources": [
+        "https://github.com/Comfy-Org/ComfyUI/blob/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/comfy/supported_models.py",
+        "https://github.com/microsoft/TRELLIS.2"
+      ],
+      "civitai_hidden": true,
+      "civitai_disabled": false
+    }
+  ]
+}

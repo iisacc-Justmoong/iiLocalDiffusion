@@ -1,5 +1,49 @@
 # Dependency decisions
 
+## Broad local model generation
+
+The Civitai compatibility work reuses pinned Diffusers 0.40.0 (Apache-2.0)
+instead of implementing additional sampling algorithms. The generic runner
+loads only built-in pipelines and disables custom remote code. Optional
+architecture dependencies remain explicit errors. Model licenses are separate.
+
+SentencePiece 0.2.2 (Apache-2.0) is pinned for Kolors/ChatGLM tokenization and
+other SentencePiece-based encoders. The official PyPI release provides a CPython
+3.14 Apple Silicon wheel (about 1.35 MB) and adds no mandatory Python package
+dependencies. This reuses Google's maintained tokenizer implementation instead
+of implementing model-specific tokenization. The local audit detected that
+Diffusers otherwise exposes a dummy Kolors class. Sources:
+[official package](https://pypi.org/project/sentencepiece/0.2.2/),
+[upstream](https://github.com/google/sentencepiece), and the installed Diffusers
+`is_sentencepiece_available()` dependency gate.
+
+ComfyUI is an optional, separately installed local process accessed through its
+documented HTTP API. Its maintained native/custom node ecosystem provides model
+architectures and weight layouts absent from pinned Diffusers. ComfyUI is
+GPL-3.0; custom nodes and weights have separate licenses. No ComfyUI code, nodes
+or weights are vendored by this change. The standard-library HTTP client adds
+no Python package dependency. This process boundary keeps the substantial
+Torch/node environment out of C++ and the pinned Diffusers environment. See
+[workflow setup and verification](comfyui-generation.md).
+
+The optional `reference/setup_comfyui.py` installer now pins the ComfyUI source
+and ComfyUI-GGUF extension in a separate `build/reference/comfyui-venv`, retaining
+an installed-package lock. The managed local-image backend starts and stops this
+engine per invocation. ComfyUI-GGUF is Apache-2.0 and reuses the maintained GGUF
+reader/quantized loaders instead of adding a tensor decoder to iiLocalDiffusion.
+See [installation and exact revisions](local-image-generation.md).
+
+Kolors raw-checkpoint alternatives were also reviewed. The GPL-3.0
+[ComfyUI-Kolors-MZ source](https://github.com/MinusZoneAI/ComfyUI-Kolors-MZ/tree/43ec2701a1390259a17ef3bea6244a3134aa5153)
+contains checkpoint/UNet loaders and a ChatGLM conditioning path, but its model
+hooks date from 2024, its latest reviewed change is a March 2025 registry update,
+and it has no dependency manifest. The four-bit encoder code also contains an
+implicit package installation path. It was not installed or advertised as
+compatible with this 2026 engine. The Apache-2.0
+[KwaiKolorsWrapper](https://github.com/kijai/ComfyUI-KwaiKolorsWrapper/tree/6fc1cd9d20bb7537facf180e5494b486b9710e24)
+uses Diffusers directories and does not close the raw-checkpoint gap. Complete
+Kolors Diffusers packages retain the existing generic local execution path.
+
 ## Current production dependencies
 
 ### json-c

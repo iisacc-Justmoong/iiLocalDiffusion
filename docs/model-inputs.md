@@ -3,9 +3,11 @@
 ## Scope
 
 The Python generation oracle accepts independently selected model, VAE, and
-LoRA weights. Its presets remain `sd15`, `sdxl-base`, and `flux1-schnell`.
-Selecting different weights does not change the pipeline family or imply
-compatibility between SD 1.5, SDXL, and FLUX.
+LoRA weights. Original strict presets `sd15`, `sdxl-base`, and `flux1-schnell`
+remain available alongside compatible SD1/SDXL/FLUX presets and named
+Illustrious, NoobAI, Pony, FLUX dev and Krea variants. See
+[model families](model-families.md). Selecting different weights does not
+change the architecture or imply cross-family compatibility.
 
 This interface belongs to `reference/diffusers/generate.py`. The Python
 inspection command still accepts Diffusers packages, and the C++ inspector
@@ -23,7 +25,9 @@ still validates package metadata without parsing or executing tensor weights.
 | `--lora` | Local file/directory or pinned adapter repository | Apply one optional adapter after pipeline validation |
 
 Omitting `--model` retains the selected preset's pinned repository and
-revision. Omitting `--vae` retains the package's or checkpoint's VAE. Omitting
+revision; Pony requires an explicit model because its upstream release is a
+checkpoint rather than a complete Diffusers package. Omitting `--vae` retains
+the package's or checkpoint's VAE. Omitting
 `--lora` does not load an adapter. Adapter-specific filename, revision, and
 scale arguments are described in [the LoRA contract](lora.md).
 One independently selected `--controlnet` can also condition generation;
@@ -47,7 +51,7 @@ The loader inspects safetensors keys before assembling the pipeline:
 |---|---|---|
 | SD 1.5 / SDXL original-format checkpoint | UNet, text encoder(s), and embedded VAE unless overridden | Component configs, tokenizers, scheduler, and selected auxiliary components |
 | SD 1.5 / SDXL standalone UNet | UNet only | Configs, tokenizers, text encoder(s), scheduler, and VAE unless overridden |
-| FLUX.1-schnell standalone transformer | Transformer only | Configs, tokenizers, CLIP, T5, scheduler, and VAE unless overridden |
+| FLUX.1 schnell/dev/Krea standalone transformer | Transformer only; guidance weights must match the selected family variant | Configs, tokenizers, CLIP, T5, scheduler, and VAE unless overridden |
 
 SD/SDXL full-checkpoint classification requires original denoiser keys and
 the exact CLIP sentinel keys that Diffusers uses to recognize every required

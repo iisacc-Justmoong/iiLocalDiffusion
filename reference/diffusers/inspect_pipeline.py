@@ -158,7 +158,7 @@ def main() -> int:
         load_arguments["revision"] = args.model_selection.requested_revision
     if preset.runtime.weight_variant is not None:
         load_arguments["variant"] = preset.runtime.weight_variant
-    if preset.name == "sdxl-base":
+    if preset.family == "sdxl-base":
         load_arguments["add_watermarker"] = False
 
     pipeline_class = pipeline_classes[preset.pipeline_class]

@@ -43,6 +43,8 @@ class ControlNetTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="controlnet-tests-", dir=build)
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
+        self.model_directory = self.directory / "local-checkpoint"
+        self.model_directory.mkdir()
         self.controlnet = self.directory / "controlnet"
         self.controlnet.mkdir()
         (self.controlnet / "config.json").write_text(
@@ -54,6 +56,9 @@ class ControlNetTests(unittest.TestCase):
     def request(self, **overrides):
         values = {"controlnet": str(self.controlnet), "control_image": str(self.image)}
         values.update(overrides)
+        preset = presets.PRESETS[values.get("preset", "sd15")]
+        if preset.requires_model_override:
+            values.setdefault("model", str(self.model_directory))
         return generate.resolve_request(values)
 
     def weight(self, name="controlnet.safetensors", contents=b"controlnet weight fixture"):
@@ -62,7 +67,7 @@ class ControlNetTests(unittest.TestCase):
         return path
 
     def component(self, preset=presets.SD15_PRESET, *, meta=False):
-        if preset.name == "flux1-schnell":
+        if preset.family == "flux1-schnell":
             config = dict(in_channels=64, patch_size=1, attention_head_dim=128,
                           num_attention_heads=24, joint_attention_dim=4096,
                           pooled_projection_dim=768, axes_dims_rope=(16, 56, 56))
@@ -74,12 +79,12 @@ class ControlNetTests(unittest.TestCase):
                           layers_per_block=2, addition_embed_type=None,
                           addition_time_embed_dim=None, projection_class_embeddings_input_dim=None,
                           conditioning_channels=3)
-            if preset.name == "sdxl-base":
+            if preset.family == "sdxl-base":
                 config.update(cross_attention_dim=2048, block_out_channels=(320, 640, 1280),
                               down_block_types=("DownBlock2D", "CrossAttnDownBlock2D", "CrossAttnDownBlock2D"),
                               addition_embed_type="text_time", addition_time_embed_dim=256,
                               projection_class_embeddings_input_dim=2816)
-        component = type(controlnet.PIPELINES[preset.name][1], (), {})()
+        component = type(controlnet.PIPELINES[preset.family][1], (), {})()
         component.config = SimpleNamespace(**config)
         component.named_parameters = lambda: iter((("weight", SimpleNamespace(is_meta=meta)),))
         component.named_buffers = lambda: iter(())
@@ -97,14 +102,17 @@ class ControlNetTests(unittest.TestCase):
         loader = SimpleNamespace(from_pretrained=Mock(return_value=(component, {})),
                                  from_single_file=Mock(return_value=component))
         wrapper = SimpleNamespace(from_pipe=Mock(return_value=replacement))
-        classes = {controlnet.PIPELINES[preset.name][0]: wrapper,
-                   controlnet.PIPELINES[preset.name][1]: loader}
+        classes = {controlnet.PIPELINES[preset.family][0]: wrapper,
+                   controlnet.PIPELINES[preset.family][1]: loader}
         return args, pipeline, component, loader, wrapper, classes
 
     def test_omitting_controlnet_preserves_every_base_pipeline(self):
         for preset in presets.PRESETS.values():
             with self.subTest(preset=preset.name):
-                _, args = generate.resolve_request({"preset": preset.name})
+                request = {"preset": preset.name}
+                if preset.requires_model_override:
+                    request["model"] = str(self.model_directory)
+                _, args = generate.resolve_request(request)
                 self.assertIsNone(args.controlnet_selection)
                 values = generate.build_pipeline_call_arguments(preset, args, "generator")
                 for name in ("image", "control_image", "controlnet_conditioning_scale",
@@ -296,7 +304,9 @@ class ControlNetTests(unittest.TestCase):
         for preset in presets.PRESETS.values():
             with self.subTest(preset=preset.name):
                 _, args = self.request(preset=preset.name)
-                self.assertEqual(args.output.name, Path(preset.generation_filename).stem + "-controlnet.png")
+                custom_suffix = "-custom" if preset.requires_model_override else ""
+                self.assertEqual(args.output.name,
+                                 Path(preset.generation_filename).stem + custom_suffix + "-controlnet.png")
                 explicit = self.directory / "chosen.png"
                 _, explicit_args = self.request(preset=preset.name, output=str(explicit))
                 self.assertEqual(explicit_args.output, explicit)
@@ -313,13 +323,13 @@ class ControlNetTests(unittest.TestCase):
                 decoded_image = object()
                 args.controlnet_image = decoded_image
                 values = generate.build_pipeline_call_arguments(preset, args, "generator")
-                image_name = "control_image" if preset.name == "flux1-schnell" else "image"
+                image_name = "control_image" if preset.family == "flux1-schnell" else "image"
                 self.assertIs(values[image_name], decoded_image)
                 self.assertEqual(values["controlnet_conditioning_scale"], 0.75)
                 self.assertEqual(values["control_guidance_start"], 0.1)
                 self.assertEqual(values["control_guidance_end"], 0.9)
                 self.assertNotIn("guidance_rescale", values)
-                if preset.name == "flux1-schnell":
+                if preset.family == "flux1-schnell":
                     self.assertNotIn("guess_mode", values)
                     self.assertNotIn("image", values)
                 else:
@@ -593,7 +603,7 @@ class ControlNetTests(unittest.TestCase):
 
     def test_family_contract_rejects_incompatible_latent_and_attention_dimensions(self):
         for preset in presets.PRESETS.values():
-            for field in ("in_channels", "joint_attention_dim" if preset.name == "flux1-schnell" else "cross_attention_dim"):
+            for field in ("in_channels", "joint_attention_dim" if preset.family == "flux1-schnell" else "cross_attention_dim"):
                 args, base, component, _, _, _ = self.loader_fixture(preset)
                 controlnet.validate_controlnet_contract(component, base, preset, args)
                 setattr(component.config, field, getattr(component.config, field) + 1)

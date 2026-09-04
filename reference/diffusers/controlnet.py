@@ -93,9 +93,9 @@ def resolve_controlnet_options(preset: PipelinePreset, args: Any) -> None:
         raise ValueError("Control guidance requires 0 <= --control-guidance-start < --control-guidance-end <= 1.")
     if args.guidance_rescale != 0:
         raise ValueError("--guidance-rescale is not supported by ControlNet pipelines.")
-    if preset.name == "flux1-schnell" and args.guess_mode:
+    if preset.family == "flux1-schnell" and args.guess_mode:
         raise ValueError("--guess-mode requires SD/SDXL ControlNet.")
-    if args.control_mode is not None and (preset.name != "flux1-schnell" or args.control_mode < 0):
+    if args.control_mode is not None and (preset.family != "flux1-schnell" or args.control_mode < 0):
         raise ValueError("--control-mode requires FLUX ControlNet and a non-negative mode index.")
     if args.controlnet_variant is not None and (
         not args.controlnet_variant or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in args.controlnet_variant)
@@ -122,7 +122,7 @@ def resolve_controlnet_options(preset: PipelinePreset, args: Any) -> None:
 
 
 def controlnet_preset(preset: PipelinePreset) -> PipelinePreset:
-    pipeline_class, model_class = PIPELINES[preset.name]
+    pipeline_class, model_class = PIPELINES[preset.family]
     return replace(preset, pipeline_class=pipeline_class,
                    expected_components=(*preset.expected_components, ("controlnet", model_class)))
 
@@ -218,14 +218,14 @@ def _file_metadata(identity: LocalWeightFile) -> dict[str, Any]:
 
 
 def validate_controlnet_contract(controlnet: Any, pipeline: Any, preset: PipelinePreset, args: Any) -> None:
-    expected = PIPELINES[preset.name][1]
+    expected = PIPELINES[preset.family][1]
     if type(controlnet).__name__ != expected:
         raise RuntimeError(f"ControlNet must be {expected} for {preset.name}.")
-    base = pipeline.transformer if preset.name == "flux1-schnell" else pipeline.unet
+    base = pipeline.transformer if preset.family == "flux1-schnell" else pipeline.unet
     fields = (
         ("in_channels", "patch_size", "attention_head_dim", "num_attention_heads",
          "joint_attention_dim", "pooled_projection_dim", "axes_dims_rope")
-        if preset.name == "flux1-schnell" else
+        if preset.family == "flux1-schnell" else
         ("in_channels", "cross_attention_dim", "block_out_channels", "down_block_types",
          "layers_per_block", "addition_embed_type", "addition_time_embed_dim",
          "projection_class_embeddings_input_dim")
@@ -236,7 +236,7 @@ def validate_controlnet_contract(controlnet: Any, pipeline: Any, preset: Pipelin
             actual, target = tuple(actual), tuple(target)
         if actual != target:
             raise RuntimeError(f"ControlNet {field} is incompatible with {preset.name}: {actual} != {target}")
-    if preset.name != "flux1-schnell":
+    if preset.family != "flux1-schnell":
         if getattr(controlnet.config, "conditioning_channels", 3) != 3:
             raise RuntimeError("ControlNet must accept a three-channel RGB conditioning image.")
     else:
@@ -255,15 +255,15 @@ def attach_controlnet(pipeline: Any, preset: PipelinePreset, args: Any,
         return pipeline, None
     # Preserve the strict base-model contract before changing the pipeline type.
     validate_pipeline_contract(pipeline, preset)
-    model_class = classes[PIPELINES[preset.name][1]]
+    model_class = classes[PIPELINES[preset.family][1]]
     try:
         config_selection = args.controlnet_config_selection
         root = _snapshot(config_selection or selection, args, config_only=selection.single_file is not None)
         config_path = root / "config.json"
         identities = _identities([config_path])
         config = json.loads(config_path.read_text(encoding="utf-8"))
-        if config.get("_class_name") != PIPELINES[preset.name][1]:
-            raise ValueError(f"ControlNet config.json must describe {PIPELINES[preset.name][1]}.")
+        if config.get("_class_name") != PIPELINES[preset.family][1]:
+            raise ValueError(f"ControlNet config.json must describe {PIPELINES[preset.family][1]}.")
         load_args = dict(dtype=dtype, local_files_only=True, use_safetensors=True,
                          low_cpu_mem_usage=args.low_cpu_mem_usage)
         if selection.single_file is not None:
@@ -271,7 +271,7 @@ def attach_controlnet(pipeline: Any, preset: PipelinePreset, args: Any,
             with checked_safetensors_path(weight, args.cache_dir / "single-file-aliases", "ControlNet") as path:
                 keys = read_weight_keys(path)
                 if any(key.startswith(("control_model.", "input_blocks.")) for key in keys):
-                    if preset.name == "flux1-schnell":
+                    if preset.family == "flux1-schnell":
                         raise ValueError("FLUX ControlNet files require native Diffusers tensor names.")
                     controlnet = _load_original_controlnet(model_class, path, config, root, load_args)
                 else:
@@ -293,9 +293,9 @@ def attach_controlnet(pipeline: Any, preset: PipelinePreset, args: Any,
         for identity in identities:
             verify_weight_file(identity, "ControlNet")
         extras = {"controlnet": controlnet}
-        if preset.name == "sdxl-base":
+        if preset.family == "sdxl-base":
             extras["add_watermarker"] = bool(args.watermark)
-        pipeline = classes[PIPELINES[preset.name][0]].from_pipe(pipeline, dtype=dtype, **extras)
+        pipeline = classes[PIPELINES[preset.family][0]].from_pipe(pipeline, dtype=dtype, **extras)
         validate_pipeline_contract(pipeline, controlnet_preset(preset))
     except Exception as error:
         if _is_gated_repository_error(error):
@@ -346,12 +346,12 @@ def controlnet_call_arguments(preset: PipelinePreset, args: Any) -> dict[str, An
     if getattr(args, "controlnet_image", None) is None:
         raise ValueError("ControlNet generation requires a decoded --control-image; call load_control_image first.")
     values = {
-        "control_image" if preset.name == "flux1-schnell" else "image": args.controlnet_image,
+        "control_image" if preset.family == "flux1-schnell" else "image": args.controlnet_image,
         "controlnet_conditioning_scale": args.controlnet_scale,
         "control_guidance_start": args.control_guidance_start,
         "control_guidance_end": args.control_guidance_end,
     }
-    if preset.name == "flux1-schnell":
+    if preset.family == "flux1-schnell":
         if args.control_mode is not None:
             values["control_mode"] = args.control_mode
     else:

@@ -6,4 +6,5 @@ numpy==2.5.2
 peft==0.20.0
 Pillow==12.3.0
 safetensors==0.8.0
+sentencepiece==0.2.2
 transformers==5.16.1

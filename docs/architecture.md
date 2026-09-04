@@ -32,6 +32,14 @@ appear in iiLocalDiffusion's public request or result types.
 
 ## Current dependency direction
 
+`reference/generate.py` separates catalog identity from actual execution and
+selects the preset oracle, a built-in Diffusers pipeline, or an explicit local
+ComfyUI API workflow. The Civitai snapshot describes upstream model families,
+not verified checkpoint tensors. Preset names share architecture routing through
+`PipelinePreset.family` while retaining encoder, VAE, prediction and guidance
+requirements. Each backend validates its inputs and outputs and records
+provenance. This does not widen C++ manifest contracts or embed Python in C++.
+
 Metadata inspection and native component computation are independent paths:
 
 ```text

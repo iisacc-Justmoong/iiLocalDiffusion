@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from pipeline_loading import _is_gated_repository_error, load_pipeline
-from presets import ModelSelection, PipelinePreset, validate_vae_contract
+from presets import (ModelSelection, PipelinePreset, compatible_scheduler_class,
+                     validate_vae_contract)
 from weight_files import LocalWeightFile, checked_safetensors_path, weight_file_metadata
 
 
@@ -68,6 +69,10 @@ def resolve_configuration_directory(
         allowed[name] = (library, class_name)
         expected = [library, class_name]
         actual = index.get(name)
+        if name == "scheduler" and isinstance(actual, list) and len(actual) == 2:
+            if actual[0] == "diffusers" and compatible_scheduler_class(preset, actual[1]):
+                allowed[name] = tuple(actual)
+                continue
         if class_name == "T5TokenizerFast" and actual == [library, "T5Tokenizer"]:
             continue
         if actual != expected:
@@ -97,8 +102,16 @@ def read_weight_keys(path: Path) -> set[str]:
 
 
 def classify_model_weights(preset: PipelinePreset, keys: set[str]) -> str:
-    if preset.name == "flux1-schnell":
+    if preset.family == "flux1-schnell":
         if any(key.endswith(("img_in.weight", "x_embedder.weight")) for key in keys):
+            guidance_weights = any(
+                key.endswith(("guidance_in.in_layer.weight",
+                              "time_text_embed.guidance_embedder.linear_1.weight"))
+                for key in keys
+            )
+            if guidance_weights != preset.requires_guidance_embeds:
+                expected = "guidance-distilled FLUX dev/Krea" if preset.requires_guidance_embeds else "FLUX schnell"
+                raise ValueError(f"--model guidance embedding weights do not match {expected}; select the matching preset.")
             return "transformer"
     else:
         if "conv_in.weight" in keys and any(key.startswith("down_blocks.") for key in keys):
@@ -120,7 +133,7 @@ def require_checkpoint_components(
 ) -> None:
     text_encoder_keys = (
         ("cond_stage_model.transformer.text_model.embeddings.position_embedding.weight",)
-        if preset.name == "sd15"
+        if preset.family == "sd15"
         else (
             "conditioner.embedders.0.transformer.text_model.embeddings.position_embedding.weight",
             "conditioner.embedders.1.model.positional_embedding",
@@ -188,7 +201,7 @@ def _load_checkpoint_pipeline(
     load_arguments: Mapping[str, Any],
     component_classes: Mapping[str, Any],
 ) -> Any:
-    if preset.name == "sd15":
+    if preset.family == "sd15":
         index = json.loads((config_directory / "model_index.json").read_text(encoding="utf-8"))
         if index.get("safety_checker") not in (None, [None, None]):
             safety_arguments = _arguments_for_source(config_selection, load_arguments)
@@ -216,7 +229,7 @@ def _load_checkpoint_pipeline(
         "trust_remote_code": False,
         **overrides,
     }
-    if preset.name == "sdxl-base":
+    if preset.family == "sdxl-base":
         arguments["add_watermarker"] = load_arguments.get("add_watermarker", False)
     with checked_safetensors_path(
         selection.single_file,

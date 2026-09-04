@@ -54,7 +54,7 @@ def compatible_vae(preset):
         "sd15": (4, 0.18215, None),
         "sdxl-base": (4, 0.13025, 0.0),
         "flux1-schnell": (16, 0.3611, 0.1159),
-    }[preset.name]
+    }[preset.family]
     return component(
         in_channels=3,
         out_channels=3,
