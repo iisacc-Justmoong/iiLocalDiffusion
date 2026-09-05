@@ -281,5 +281,8 @@ non-commercial license. Model identity, revision, license metadata,
 safety-checker status, and watermarker status must be carried into eventual
 generation results.
 
-iiLocalDiffusion itself has no declared distribution license at this milestone.
-A license decision is required before public source or binary distribution.
+The original code and documentation in iiLocalDiffusion are distributed under
+the GNU Affero General Public License version 3.0 only
+(`SPDX-License-Identifier: AGPL-3.0-only`). See [LICENSE](../LICENSE) for the full
+license text. Third-party code, libraries, tools, and model weights retain
+their respective licenses; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).

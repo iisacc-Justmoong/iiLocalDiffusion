@@ -348,6 +348,16 @@ non-goals are recorded in:
 - [`docs/neural-accelerators.md`](docs/neural-accelerators.md)
 - [`docs/dependencies.md`](docs/dependencies.md)
 
-The project does not yet declare a distribution license. The SD 1.5 reference
-uses CreativeML OpenRAIL-M, SDXL Base 1.0 uses CreativeML Open RAIL++-M, and
-FLUX.1-schnell uses Apache-2.0; no model weights are stored in this repository.
+## License
+
+SPDX-License-Identifier: AGPL-3.0-only
+
+The original code and documentation in iiLocalDiffusion are distributed under
+the GNU Affero General Public License version 3.0 only. See [LICENSE](LICENSE)
+for the full license text.
+
+Third-party code, libraries, tools, and model weights retain their respective
+licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency
+notices. The SD 1.5 reference uses CreativeML OpenRAIL-M, SDXL Base 1.0 uses
+CreativeML Open RAIL++-M, and FLUX.1-schnell uses Apache-2.0; no model weights
+are stored in this repository.
