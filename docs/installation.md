@@ -186,3 +186,25 @@ This installs the native package, tools and Python sources, but does not create
 the developer runtime links or install Python dependencies. Set
 `IILD_PYTHON_EXECUTABLE` to an existing environment and configure the selected
 generation backend's runtime paths when using this route.
+
+## Deforum video runtime
+
+The installed `iild-generate --backend deforum` includes the 2D schedule and
+frame-feedback runtime. In the selected Python environment, install the
+optional `reference/diffusers/requirements-deforum.txt`; also provide FFmpeg
+and FFprobe on PATH. No video tools, OpenCV wheels or weights are bundled into
+the native library. `--backend deforum --max-frames 5 --print-config` works
+without those optional dependencies. Relocated-package consumer tests verify
+the installed modules, example, dependency file, documentation and CLI config.
+See [Deforum video generation](deforum-video.md).
+
+## Interpolator video runtime
+
+The installed `iild-generate --backend interpolator` accepts start/end prompts
+and seeds and produces a verified MP4 plus PNG frames and metadata. It uses
+the existing Diffusers environment and the same external FFmpeg/FFprobe tools
+as Deforum; no OpenCV or additional interpolation model is required. The
+shared video modules, endpoint runtime and example JSON are installed with
+the Python reference files. `--backend interpolator --end-prompt forest
+--end-seed 43 --print-config` also works without inference dependencies.
+See [Interpolator video generation](interpolator-video.md).

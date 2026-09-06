@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a pinned iiLocalDiffusion Diffusers reference image."""
+"""Generate a reproducible Diffusers image, Deforum or Interpolator animation."""
 
 from __future__ import annotations
 
@@ -18,11 +18,13 @@ import sys
 import tempfile
 from typing import Any
 
+from animation_options import add_animation_options, resolve_animation_options
 from cpu_conditioning import CpuConditioning, encode_cpu_prompt
 from controlnet import (
     add_controlnet_options, attach_controlnet, controlnet_call_arguments,
     controlnet_preset, load_control_image, resolve_controlnet_options,
 )
+from deforum_options import add_deforum_options, resolve_deforum_options
 from encoder_compatibility import clip_skip_compatibility
 from generation_config import ConfigurationArgumentParser, configuration_values
 from generation_options import (
@@ -38,6 +40,7 @@ from hardware import (
 )
 from hires import DenoisingAudit, image_metadata, run_hires_fix, validate_stage_images
 from hires_options import add_hires_options, resolve_hires_options
+from interpolator_options import add_interpolator_options, resolve_interpolator_options
 from text_embedding_options import add_text_embedding_options, resolve_text_embedding_options
 from text_embeddings import apply_text_embeddings, text_embedding_prompt_context, validate_text_embeddings
 from model_loading import load_generation_pipeline, selection_metadata
@@ -97,7 +100,7 @@ class LoraActivation:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = ConfigurationArgumentParser(
-        description="Generate a configurable, reproducible Diffusers reference image.",
+        description="Generate a configurable Diffusers image, Deforum or Interpolator video.",
         allow_abbrev=False,
     )
     parser.add_argument("--config", type=Path, default=None,
@@ -190,6 +193,9 @@ def build_parser() -> argparse.ArgumentParser:
     add_controlnet_options(parser)
     add_hires_options(parser)
     add_text_embedding_options(parser)
+    add_animation_options(parser)
+    add_deforum_options(parser)
+    add_interpolator_options(parser)
     return parser
 
 
@@ -262,6 +268,9 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
         resolve_controlnet_options(preset, resolved)
         resolve_hires_options(preset, resolved)
         resolve_text_embedding_options(preset, resolved)
+        resolve_animation_options(resolved)
+        resolve_deforum_options(preset, resolved)
+        resolve_interpolator_options(preset, resolved)
     except (ValueError, OSError) as error:
         raise SystemExit(str(error)) from error
     filename = Path(preset.generation_filename)
@@ -280,6 +289,10 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
         modifiers.append("hires")
     suffix = "" if not modifiers else "-" + "-".join(modifiers)
     generation_filename = f"{filename.stem}{suffix}{filename.suffix}"
+    if resolved.animation_mode == "2D":
+        generation_filename = f"{filename.stem}{suffix}-deforum.mp4"
+    elif resolved.animation_mode == "Interpolator":
+        generation_filename = f"{filename.stem}{suffix}-interpolator.mp4"
     resolved.output = args.output or REPOSITORY_ROOT / "build" / "reference" / generation_filename
     resolved.output_was_default = args.output is None
     for name in ("output", "cache_dir", "xet_cache_dir"):
@@ -596,6 +609,9 @@ def prepare_pipeline_with_adapters(
             raise ValueError("CPU text encoding requires the PyTorch runtime.")
         with text_embedding_prompt_context(pipeline, preset, args) as prompt_args:
             conditioning = encode_cpu_prompt(pipeline, preset, prompt_args, torch)
+        if getattr(args, "animation_mode", "none") == "Interpolator":
+            from interpolator_runtime import prepare_endpoints
+            args.interpolator_conditioning = prepare_endpoints(pipeline, preset, args, torch, conditioning)
         if (offload == "auto" and device != "cpu"
                 and preset.runtime.accelerator_execution == "resident"):
             offload = "model"
@@ -879,7 +895,10 @@ def validate_generation_arguments(preset: PipelinePreset, args: argparse.Namespa
         and base_validation_args.negative_prompt != DEFAULT_NEGATIVE_PROMPT
     ):
         raise SystemExit(f"Preset {preset.name} does not use --negative-prompt.")
-    if args.output.suffix.lower() != ".png":
+    if getattr(args, "animation_mode", "none") != "none":
+        if args.output.suffix.lower() != ".mp4":
+            raise SystemExit("Animation output must use the .mp4 extension.")
+    elif args.output.suffix.lower() != ".png":
         raise SystemExit("Reference output must use the .png extension.")
 
 
@@ -890,7 +909,17 @@ def main() -> int:
         print(json.dumps(configuration_values(args), indent=2, sort_keys=True, allow_nan=False))
         return 0
 
-    output_paths = resolve_output_paths(args)
+    animation = args.animation_mode != "none"
+    animation_environment = None
+    if animation:
+        if args.animation_mode == "2D":
+            from deforum_video import preflight_animation
+        else:
+            from animation_video import preflight_animation
+        animation_environment = preflight_animation(args)
+        output_paths = []
+    else:
+        output_paths = resolve_output_paths(args)
     load_control_image(args)
 
     installed_package_versions = package_versions(args.lora_selection is not None)
@@ -969,6 +998,28 @@ def main() -> int:
     print(f"Resources: {', '.join(hardware['participating_devices'])}; "
           f"weight storage={optimization['weight_storage']}; "
           f"offload={optimization['offload_policy']}", flush=True)
+
+    if animation:
+        if args.animation_mode == "2D":
+            from deforum_runtime import run_deforum_animation as run_animation
+        else:
+            from interpolator_runtime import run_interpolator_animation as run_animation
+        return run_animation(
+            pipeline, preset, args, torch, device, dtype, attention_slicing, lora_activation,
+            build_call=build_pipeline_call_arguments, prepare_execution=prepare_pipeline_for_execution,
+            environment=animation_environment,
+            metadata={
+                "parameters": configuration_values(args),
+                "model": {**selection_metadata(args.model_selection), "preset": preset.name,
+                          "loading": loading_metadata, "scheduler": scheduler_metadata},
+                "adapters": ([] if args.lora_selection is None
+                             else [lora_metadata(args.lora_selection, lora_activation)]),
+                "text_embeddings": getattr(getattr(args, "text_embedding_activation", None), "metadata", []),
+                "controlnet": controlnet_metadata,
+                "runtime": {"device": device, "dtype": str(dtype), "hardware": hardware,
+                            "packages": installed_package_versions, "optimization": optimization,
+                            "python": sys.version, "platform": platform.platform()},
+            })
 
     pipeline.set_progress_bar_config(disable=not args.progress)
     clip_context = (

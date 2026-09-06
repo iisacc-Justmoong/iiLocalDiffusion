@@ -1,0 +1,2 @@
+# Optional Deforum camera transforms; install alongside requirements.txt (or requirements-rocm.txt).
+opencv-python-headless==4.13.0.92

@@ -1,5 +1,50 @@
 # Dependency decisions
 
+## Interpolator animation
+
+The Interpolator reuses pinned Diffusers/PyTorch, including the existing text
+encoding, pipeline, adapter and latent-packing APIs. Tensor interpolation uses
+PyTorch operations; PNG and video output reuse Pillow and the shared external
+FFmpeg/FFprobe layer described below. There is no new package, model download
+or native dependency. Existing Diffusers is Apache-2.0 and PyTorch BSD-3-Clause;
+their pinned versions and distributed notices remain in force.
+
+The official [DiffusionBee Interpolator source](https://github.com/divamgupta/diffusionbee-stable-diffusion-ui/blob/master/backends/stable_diffusion/applets/frame_interpolator.py)
+defines prompt/seed interpolation. Its application/plugin/model-container
+coupling would duplicate this SDK's loader and execution policies; no source
+is copied or imported. The small two-endpoint coordinator is domain code.
+Maintained numerical, neural inference and media libraries perform the heavy
+operations. Adding an optical-flow/FILM/RIFE dependency would solve a different
+problem (inserting frames between rendered images) and is unnecessary here.
+
+## Deforum 2D animation
+
+The animation runner reuses pinned Diffusers 0.40.0 (Apache-2.0), PyTorch,
+NumPy and Pillow for inference, numeric operations and PNGs. Its optional
+`requirements-deforum.txt` pins `opencv-python-headless==4.13.0.92` for maintained
+affine camera transforms and explicit edge modes. The reviewed macOS arm64
+wheel is about 46 MB and adds only a NumPy dependency, already present. The
+headless build avoids Qt/X11 GUI dependencies. OpenCV is Apache-2.0; its wheel
+packaging and included third-party components carry their own notices. Sources:
+[package release](https://pypi.org/project/opencv-python-headless/4.13.0.92/),
+[upstream affine API](https://docs.opencv.org/4.13.0/da/d54/group__imgproc__transform.html).
+
+The maintained FFmpeg/FFprobe command-line tools handle H.264 encoding and
+decoded stream verification. They are external executables and are not bundled;
+libx264-enabled FFmpeg builds are GPL. The selected executables/versions are
+recorded in every animation report. See [FFmpeg licensing](https://ffmpeg.org/legal.html)
+and [image sequence input](https://ffmpeg.org/ffmpeg-formats.html#image2-1).
+
+The upstream Deforum notebook (MIT plus component notices) and AUTOMATIC1111
+extension (AGPL-3.0) were reviewed. Their notebook/WebUI execution coupling and
+additional model/runtime stack would duplicate this repository's existing
+loading, hardware and adapter policies. No upstream source is vendored or
+imported. The small schedule/feedback coordinator is application-domain code;
+image transforms, neural inference and encoding use maintained libraries.
+References: [notebook](https://github.com/deforum/deforum-stable-diffusion),
+[extension](https://github.com/deforum/sd-webui-deforum),
+[animation semantics](https://github.com/deforum/sd-webui-deforum/wiki/Animation-Settings).
+
 ## Broad local model generation
 
 The Civitai compatibility work reuses pinned Diffusers 0.40.0 (Apache-2.0)

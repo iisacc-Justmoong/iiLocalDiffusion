@@ -129,6 +129,23 @@ consistent; it does not mean the weights were parsed or inference succeeded.
 
 ## Python reference oracle
 
+[Interpolator video generation](docs/interpolator-video.md) is available through
+`iild-generate --backend interpolator`. It blends start/end prompt embeddings
+and seeded initial noise, then diffuses every frame with the existing
+SD/SDXL/FLUX.1 model runtime. Set `--end-prompt` and/or `--end-seed`; omission
+holds the corresponding starting value. Verified MP4, PNG frames and tensor/
+sampling provenance share the video output layer with Deforum. This mode needs
+the existing Diffusers environment and FFmpeg/FFprobe, with no OpenCV dependency.
+
+[Deforum 2D video generation](docs/deforum-video.md) is available through
+`iild-generate --backend deforum` (or the preset runner's `--animation-mode 2D`).
+It applies scheduled camera transforms and img2img diffusion to each preceding
+frame, reusing SD/SDXL/FLUX.1 model components, LoRA and static ControlNet.
+The output includes a verified H.264 MP4, lossless PNG frames and per-frame
+sampling/provenance records. Install the optional
+`reference/diffusers/requirements-deforum.txt` and provide FFmpeg/FFprobe.
+See the linked guide for keyframes, supported combinations and 2D scope.
+
 [Generation I/O and composition](docs/generation-composition.md) supports explicit
 diffusion, rectified flow, flow matching, autoregressive and mixed stage contracts.
 The native `Generation/GenerationIO.hpp` API validates/routes owned host tensors;

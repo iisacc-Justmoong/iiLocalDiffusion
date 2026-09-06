@@ -51,10 +51,29 @@ def select_backend(args, remaining: list[str]) -> str:
     if base is not None and base["local_status"] == "hosted":
         raise ValueError(f"{base['name']} is hosted-only in the catalog and has no local generation route.")
     if args.backend != "auto":
+        if args.backend in ("deforum", "interpolator") and base is not None and base["preset"] is None:
+            raise ValueError("Animation currently requires an SD, SDXL or FLUX.1 preset family.")
         if args.backend == "preset" and base is not None and base["preset"] is None:
             raise ValueError("This model family requires the diffusers or comfyui backend.")
         return args.backend
     flags = {value.split("=", 1)[0] for value in remaining if value.startswith("--")}
+    animation_mode = option_value(remaining, "--animation-mode")
+    configuration = option_value(remaining, "--config")
+    if animation_mode is None and configuration is not None:
+        # A JSON animation request must retain its route even when --model is
+        # a local file that normally selects the ComfyUI image backend.
+        from generation_config import json_object
+        path = Path(configuration).expanduser()
+        try:
+            if path.stat().st_size > 1024 * 1024:
+                raise ValueError("Configuration exceeds the 1 MiB limit.")
+            animation_mode = json_object(path.read_text(encoding="utf-8")).get("animation_mode")
+        except (OSError, UnicodeError, argparse.ArgumentTypeError) as error:
+            raise ValueError(f"--config {path}: {error}") from error
+    if animation_mode in ("2D", "Interpolator"):
+        if base is not None and base["preset"] is None:
+            raise ValueError("Animation currently requires an SD, SDXL or FLUX.1 preset family.")
+        return "deforum" if animation_mode == "2D" else "interpolator"
     if "--workflow" in flags:
         return "comfyui"
     if "--pipeline-class" in flags or "--pipeline-inputs" in flags:
@@ -89,7 +108,7 @@ def select_backend(args, remaining: list[str]) -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False, add_help=False)
     parser.add_argument("--base-model", default=None)
-    parser.add_argument("--backend", choices=("auto", "local", "preset", "diffusers", "comfyui"), default="auto")
+    parser.add_argument("--backend", choices=("auto", "local", "preset", "diffusers", "comfyui", "deforum", "interpolator"), default="auto")
     parser.add_argument("--list-base-models", action="store_true")
     parser.add_argument("--check-runtime", action="store_true")
     parser.add_argument("--inspect-model", action="store_true")
@@ -126,7 +145,9 @@ def main(argv=None) -> int:
               "--check-runtime                    Audit installed pipelines without downloading weights\n"
               "--inspect-model --model PATH        Inspect a local model and its Civitai metadata\n"
               "--base-model NAME                  Select a Civitai base identity\n"
-              "--backend auto|local|preset|diffusers|comfyui\n\n"
+              "--backend auto|local|preset|diffusers|comfyui|deforum|interpolator\n\n"
+              "--backend deforum                  Generate a Deforum 2D MP4 animation\n"
+              "--backend interpolator             Generate an interpolated prompt/seed MP4\n\n"
               "Auto routes existing local weight files through the local image runtime, and\n"
               "complete model_index.json directories or --model-config through Diffusers.\n"
               "Explicit backend, preset, pipeline and workflow choices win.\n\n"
@@ -146,6 +167,12 @@ def main(argv=None) -> int:
         parser.exit(2, str(error) + "\n")
     if args.base_model:
         remaining = ["--base-model", args.base_model, *remaining]
+    if backend in ("deforum", "interpolator"):
+        mode = "2D" if backend == "deforum" else "Interpolator"
+        if option_value(remaining, "--animation-mode") not in (None, mode):
+            parser.exit(2, f"--backend {backend} requires --animation-mode {mode}.\n")
+        remaining = [*remaining, "--animation-mode", mode]
+        backend = "preset"
     module = importlib.import_module({"preset": "generate", "diffusers": "generate_any",
                                       "comfyui": "comfyui_runtime", "local": "local_image"}[backend])
     if backend == "preset":

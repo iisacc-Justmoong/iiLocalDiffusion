@@ -45,7 +45,7 @@ if(MLX_BACKEND STREQUAL "metal" AND NOT EXISTS "${stage_directory}/lib/mlx.metal
 endif()
 
 foreach(document IN ITEMS README.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md
-        docs/generation-io-native.md docs/generation-composition.md)
+        docs/generation-io-native.md docs/generation-composition.md docs/deforum-video.md docs/interpolator-video.md)
     if(NOT EXISTS "${stage_directory}/${DOC_DIRECTORY}/${document}")
         message(FATAL_ERROR "The installed package is missing documentation: ${document}")
     endif()
@@ -73,12 +73,50 @@ if(PYTHON_REFERENCE_ENABLED)
     endif()
     foreach(resource IN ITEMS generate.py setup_comfyui.py diffusers/generate.py
             diffusers/generation_composition.py diffusers/generation_adapters.py diffusers/generic_io.py
+            diffusers/deforum_options.py diffusers/deforum_schedules.py diffusers/deforum_runtime.py
+            diffusers/deforum_video.py diffusers/deforum.example.json diffusers/requirements-deforum.txt
+            diffusers/animation_options.py diffusers/animation_video.py
+            diffusers/interpolator_options.py diffusers/interpolator_runtime.py diffusers/interpolator.example.json
             diffusers/civitai_catalog.json diffusers/requirements.txt diffusers/requirements-common.txt)
         if(NOT EXISTS "${installed_reference}/${resource}")
             message(FATAL_ERROR "The installed generation runtime is missing ${resource}")
         endif()
     endforeach()
     if(PYTHON_EXECUTABLE)
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
+                "${PYTHON_EXECUTABLE}" "${installed_launcher}"
+                --backend deforum --max-frames 5 --fps 12 --print-config
+            WORKING_DIRECTORY "${source_directory}"
+            RESULT_VARIABLE animation_result OUTPUT_VARIABLE animation_output ERROR_VARIABLE animation_error)
+        if(NOT animation_result EQUAL 0)
+            message(FATAL_ERROR "Relocated Deforum configuration failed: ${animation_error}")
+        endif()
+        string(JSON animation_mode GET "${animation_output}" animation_mode)
+        string(JSON animation_frames GET "${animation_output}" max_frames)
+        string(JSON animation_fps GET "${animation_output}" fps)
+        string(JSON animation_path GET "${animation_output}" output)
+        if(NOT animation_mode STREQUAL "2D" OR NOT animation_frames EQUAL 5
+           OR NOT animation_fps EQUAL 12 OR NOT animation_path MATCHES "\\.mp4$")
+            message(FATAL_ERROR "Relocated Deforum configuration lost its video parameters")
+        endif()
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
+                "${PYTHON_EXECUTABLE}" "${installed_launcher}"
+                --backend interpolator --end-prompt forest --end-seed 43 --max-frames 3 --print-config
+            WORKING_DIRECTORY "${source_directory}"
+            RESULT_VARIABLE interpolation_result OUTPUT_VARIABLE interpolation_output ERROR_VARIABLE interpolation_error)
+        if(NOT interpolation_result EQUAL 0)
+            message(FATAL_ERROR "Relocated Interpolator configuration failed: ${interpolation_error}")
+        endif()
+        string(JSON interpolation_mode GET "${interpolation_output}" animation_mode)
+        string(JSON interpolation_prompt GET "${interpolation_output}" end_prompt)
+        string(JSON interpolation_seed GET "${interpolation_output}" end_seed)
+        string(JSON interpolation_path GET "${interpolation_output}" output)
+        if(NOT interpolation_mode STREQUAL "Interpolator" OR NOT interpolation_prompt STREQUAL "forest"
+           OR NOT interpolation_seed EQUAL 43 OR NOT interpolation_path MATCHES "\\.mp4$")
+            message(FATAL_ERROR "Relocated Interpolator configuration lost its endpoints")
+        endif()
         foreach(expected_passes IN ITEMS 1 3)
             set(hires_arguments --hires-fix)
             if(expected_passes EQUAL 3)

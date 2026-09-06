@@ -316,6 +316,8 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
 
         foreach(generation_test IN ITEMS
                 GenerationOptionsTests GenerationOutputTests
+                DeforumOptionsTests DeforumRuntimeTests DeforumMediaTests
+                InterpolatorOptionsTests InterpolatorRuntimeTests InterpolatorMediaTests
                 GenericIOTests GenerationCompositionTests GenerationAdapterTests
                 GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests
                 ControlNetTests HiresOptionsTests HiresRuntimeTests HiresRepeatRuntimeTests HiresFluxControlNetTests

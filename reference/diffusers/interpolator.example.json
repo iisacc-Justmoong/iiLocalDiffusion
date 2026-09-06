@@ -1,0 +1,14 @@
+{
+  "animation_mode": "Interpolator",
+  "preset": "sd15",
+  "prompt": "a city at sunrise, cinematic lighting",
+  "end_prompt": "a forest at sunrise, cinematic lighting",
+  "negative_prompt": "blur, low quality",
+  "seed": 42,
+  "end_seed": 43,
+  "max_frames": 120,
+  "fps": 24,
+  "steps": 20,
+  "width": 512,
+  "height": 512
+}

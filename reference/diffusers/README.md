@@ -470,3 +470,20 @@ contain no safety checker. The fixed SDXL oracle explicitly disables its
 optional invisible watermarker by default; `--watermark` can enable it when
 its optional dependency is installed. FLUX.1-schnell has no watermarker component.
 Those facts are not a product safety policy.
+
+## Deforum animation
+
+`generate.py --animation-mode 2D` adds scheduled 2D feedback and verified MP4
+output. The unified launcher accepts `--backend deforum`. Install optional
+`requirements-deforum.txt` alongside this environment and provide FFmpeg/FFprobe.
+See [the full guide](../../docs/deforum-video.md) and `deforum.example.json`.
+
+## Interpolator animation
+
+`generate.py --animation-mode Interpolator` blends start/end prompt embeddings
+and seeded noise before a full diffusion pass for each frame. The unified
+launcher accepts `--backend interpolator`, `--end-prompt` and `--end-seed`.
+Both endpoints are CPU-encoded once before GPU/offload setup. MP4 publication
+uses the shared `animation_video.py`; OpenCV is not required. Provide FFmpeg
+and FFprobe alongside the existing environment. See
+[the guide](../../docs/interpolator-video.md) and `interpolator.example.json`.

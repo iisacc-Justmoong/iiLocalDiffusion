@@ -46,6 +46,19 @@ model/pipeline implementations and Pillow image handling. It introduces no
 new third-party package or condition detector. User-selected ControlNet
 weights retain their own license terms and are not bundled.
 
+Optional Deforum 2D animation uses OpenCV through
+`opencv-python-headless==4.13.0.92` (OpenCV Apache-2.0, plus the wheel's packaging
+and third-party notices). It also invokes separately installed FFmpeg/FFprobe;
+the required libx264-enabled FFmpeg build is GPL. These executables are not
+bundled. No Deforum notebook or AUTOMATIC1111 extension source is copied into
+this repository. See `docs/deforum-video.md` and `docs/dependencies.md`.
+
+Interpolator reuses the existing PyTorch, Diffusers, NumPy and Pillow packages
+and the shared external FFmpeg/FFprobe video path. It introduces no additional
+third-party package or bundled model. The DiffusionBee Interpolator's published
+prompt/seed blending behavior was reviewed as a method reference; no
+DiffusionBee source is vendored or imported. See `docs/interpolator-video.md`.
+
 Apple builds link privately against the system Foundation and Core ML
 frameworks, subject to Apple's platform/SDK terms. These frameworks are not
 redistributed by the install. The optional offline `reference/coreml/` tool
