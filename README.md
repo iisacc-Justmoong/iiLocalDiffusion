@@ -358,6 +358,21 @@ source tree and the system disk free of multi-gigabyte model caches. See
 [`reference/diffusers/README.md`](reference/diffusers/README.md) for the exact
 commands and limitations.
 
+## Temporal video generation
+
+Generate video from text or image keyframes with a temporal diffusion model:
+
+```sh
+reference/diffusers/.venv/bin/python reference/generate.py \
+  --backend video --prompt 'A glass bottle glints in warm sunlight.' \
+  --camera dolly-in --duration 5 --output build/reference/bottle.mp4
+```
+
+The LTX video backend supports first/last image conditions, camera-preset mixes
+and JSON shot plans with previous-shot continuity. It records model and input
+provenance and verifies the encoded MP4. See [temporal video generation](docs/temporal-video.md)
+for configuration, licensing, hardware requirements and validation scope.
+
 ## Project boundaries
 
 The ownership boundary, dependency decisions, tensor contracts, and explicit

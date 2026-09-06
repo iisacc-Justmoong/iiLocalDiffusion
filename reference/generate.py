@@ -67,9 +67,18 @@ def select_backend(args, remaining: list[str]) -> str:
         try:
             if path.stat().st_size > 1024 * 1024:
                 raise ValueError("Configuration exceeds the 1 MiB limit.")
-            animation_mode = json_object(path.read_text(encoding="utf-8")).get("animation_mode")
+            config = json_object(path.read_text(encoding="utf-8"))
+            if config.get("backend") == "video":
+                if base is not None:
+                    raise ValueError("The video backend uses an explicit LTX model, not a Civitai base family.")
+                return "video"
+            animation_mode = config.get("animation_mode")
         except (OSError, UnicodeError, argparse.ArgumentTypeError) as error:
             raise ValueError(f"--config {path}: {error}") from error
+    if flags & {"--storyboard", "--camera", "--first-frame", "--last-frame", "--list-camera-motions"}:
+        if base is not None:
+            raise ValueError("The video backend uses an explicit LTX model, not a Civitai base family.")
+        return "video"
     if animation_mode in ("2D", "Interpolator"):
         if base is not None and base["preset"] is None:
             raise ValueError("Animation currently requires an SD, SDXL or FLUX.1 preset family.")
@@ -108,7 +117,7 @@ def select_backend(args, remaining: list[str]) -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False, add_help=False)
     parser.add_argument("--base-model", default=None)
-    parser.add_argument("--backend", choices=("auto", "local", "preset", "diffusers", "comfyui", "deforum", "interpolator"), default="auto")
+    parser.add_argument("--backend", choices=("auto", "local", "preset", "diffusers", "comfyui", "deforum", "interpolator", "video"), default="auto")
     parser.add_argument("--list-base-models", action="store_true")
     parser.add_argument("--check-runtime", action="store_true")
     parser.add_argument("--inspect-model", action="store_true")
@@ -145,7 +154,8 @@ def main(argv=None) -> int:
               "--check-runtime                    Audit installed pipelines without downloading weights\n"
               "--inspect-model --model PATH        Inspect a local model and its Civitai metadata\n"
               "--base-model NAME                  Select a Civitai base identity\n"
-              "--backend auto|local|preset|diffusers|comfyui|deforum|interpolator\n\n"
+              "--backend auto|local|preset|diffusers|comfyui|deforum|interpolator|video\n\n"
+              "--backend video                    Generate temporal video from text/keyframes/camera motion\n"
               "--backend deforum                  Generate a Deforum 2D MP4 animation\n"
               "--backend interpolator             Generate an interpolated prompt/seed MP4\n\n"
               "Auto routes existing local weight files through the local image runtime, and\n"
@@ -173,7 +183,7 @@ def main(argv=None) -> int:
             parser.exit(2, f"--backend {backend} requires --animation-mode {mode}.\n")
         remaining = [*remaining, "--animation-mode", mode]
         backend = "preset"
-    module = importlib.import_module({"preset": "generate", "diffusers": "generate_any",
+    module = importlib.import_module({"preset": "generate", "diffusers": "generate_any", "video": "generate_video",
                                       "comfyui": "comfyui_runtime", "local": "local_image"}[backend])
     if backend == "preset":
         # Preserve the original CLI entry point and Python API.

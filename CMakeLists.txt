@@ -318,6 +318,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
                 GenerationOptionsTests GenerationOutputTests
                 DeforumOptionsTests DeforumRuntimeTests DeforumMediaTests
                 InterpolatorOptionsTests InterpolatorRuntimeTests InterpolatorMediaTests
+                VideoOptionsTests VideoRuntimeTests
                 GenericIOTests GenerationCompositionTests GenerationAdapterTests
                 GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests
                 ControlNetTests HiresOptionsTests HiresRuntimeTests HiresRepeatRuntimeTests HiresFluxControlNetTests

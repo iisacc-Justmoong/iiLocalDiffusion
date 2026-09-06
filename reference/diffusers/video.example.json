@@ -1,0 +1,12 @@
+{
+  "backend": "video",
+  "prompt": "A glass perfume bottle stands on a dark stone table. Warm sunlight passes through the amber liquid and casts moving reflections on the stone.",
+  "camera": ["dolly-in"],
+  "duration": 5,
+  "fps": 24,
+  "width": 704,
+  "height": 480,
+  "steps": 30,
+  "guidance_scale": 3,
+  "seed": 42
+}

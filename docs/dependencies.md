@@ -331,3 +331,19 @@ the GNU Affero General Public License version 3.0 only
 (`SPDX-License-Identifier: AGPL-3.0-only`). See [LICENSE](../LICENSE) for the full
 license text. Third-party code, libraries, tools, and model weights retain
 their respective licenses; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+
+## Temporal video dependency decision
+
+The video backend reuses Diffusers 0.40.0 `LTXConditionPipeline` and its maintained
+LTX transformer, temporal VAE, T5 and flow-matching scheduler. The existing
+PyTorch/Transformers/Accelerate stack owns neural inference and offload; existing
+Pillow/FFmpeg utilities own image preparation and verified MP4 publication.
+`requirements-video.txt` adds `protobuf==7.36.1` for Transformers' conversion of
+the published T5 SentencePiece tokenizer. This maintained BSD-3-Clause package
+provides a small native wheel and avoids a custom tokenizer implementation;
+see [the pinned release](https://pypi.org/project/protobuf/7.36.1/).
+Tokenizer loading is checked before reading multi-GB model weights.
+Default LTX Video 2B 0.9.5 weights
+are pinned separately under their Open RAIL-M terms; newer model versions have
+different terms. See [the video contract](temporal-video.md) for the reference
+workflow, selection rationale and scope.

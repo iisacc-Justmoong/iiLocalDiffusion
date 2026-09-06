@@ -14,7 +14,8 @@ from typing import Any
 from generation_output import publish_file
 from weight_files import file_sha256
 
-SCHEMAS = {"2D": "iild-deforum-2d-v1", "Interpolator": "iild-interpolator-v1"}
+SCHEMAS = {"2D": "iild-deforum-2d-v1", "Interpolator": "iild-interpolator-v1",
+           "Video": "iild-temporal-video-v1"}
 
 
 def output_targets(output: Path) -> tuple[Path, Path, Path]:

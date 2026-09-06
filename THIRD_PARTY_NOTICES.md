@@ -1,5 +1,16 @@
 # Third-party notices
 
+The temporal video backend uses the existing Diffusers (Apache-2.0), PyTorch,
+Transformers and Accelerate distributions, plus optional protobuf 7.36.1
+(BSD-3-Clause) for SentencePiece tokenizer conversion. Protobuf's upstream
+distribution retains its license and notices; see [the package](https://pypi.org/project/protobuf/7.36.1/).
+Its default separately downloaded
+LTX Video 2B 0.9.5 weights are governed by Lightricks' version-specific Open
+RAIL-M license; see the [pinned license](https://huggingface.co/Lightricks/LTX-Video-0.9.5/blob/e58e28c39631af4d1468ee57a853764e11c1d37e/ltx-video-2b-v0.9.5.license.txt).
+This is distinct from the licenses of newer LTX checkpoints. Model weights are
+not bundled with iiLocalDiffusion. Seedance and Higgsfield are workflow references;
+their models, code and trademarks are not included or represented as this backend.
+
 iiLocalDiffusion currently links privately against
 [`json-c`](https://github.com/json-c/json-c), distributed under the MIT
 License. The dependency is discovered from the system using its CMake package

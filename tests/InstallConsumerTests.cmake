@@ -45,7 +45,8 @@ if(MLX_BACKEND STREQUAL "metal" AND NOT EXISTS "${stage_directory}/lib/mlx.metal
 endif()
 
 foreach(document IN ITEMS README.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md
-        docs/generation-io-native.md docs/generation-composition.md docs/deforum-video.md docs/interpolator-video.md)
+        docs/generation-io-native.md docs/generation-composition.md docs/deforum-video.md docs/interpolator-video.md
+        docs/temporal-video.md)
     if(NOT EXISTS "${stage_directory}/${DOC_DIRECTORY}/${document}")
         message(FATAL_ERROR "The installed package is missing documentation: ${document}")
     endif()
@@ -77,12 +78,29 @@ if(PYTHON_REFERENCE_ENABLED)
             diffusers/deforum_video.py diffusers/deforum.example.json diffusers/requirements-deforum.txt
             diffusers/animation_options.py diffusers/animation_video.py
             diffusers/interpolator_options.py diffusers/interpolator_runtime.py diffusers/interpolator.example.json
+            diffusers/generate_video.py diffusers/video_options.py diffusers/video_runtime.py
+            diffusers/video.example.json diffusers/video-storyboard.example.json diffusers/requirements-video.txt
             diffusers/civitai_catalog.json diffusers/requirements.txt diffusers/requirements-common.txt)
         if(NOT EXISTS "${installed_reference}/${resource}")
             message(FATAL_ERROR "The installed generation runtime is missing ${resource}")
         endif()
     endforeach()
     if(PYTHON_EXECUTABLE)
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
+                "${PYTHON_EXECUTABLE}" "${installed_launcher}"
+                --backend video --duration 3 --camera dolly-in pan-left --print-config
+            WORKING_DIRECTORY "${source_directory}"
+            RESULT_VARIABLE video_result OUTPUT_VARIABLE video_output ERROR_VARIABLE video_error)
+        if(NOT video_result EQUAL 0)
+            message(FATAL_ERROR "Relocated temporal video configuration failed: ${video_error}")
+        endif()
+        string(JSON video_backend GET "${video_output}" backend)
+        string(JSON video_duration GET "${video_output}" duration)
+        string(JSON video_camera GET "${video_output}" camera 1)
+        if(NOT video_backend STREQUAL "video" OR NOT video_duration EQUAL 3 OR NOT video_camera STREQUAL "pan-left")
+            message(FATAL_ERROR "Relocated temporal video configuration lost its generation controls")
+        endif()
         execute_process(
             COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
                 "${PYTHON_EXECUTABLE}" "${installed_launcher}"

@@ -487,3 +487,14 @@ Both endpoints are CPU-encoded once before GPU/offload setup. MP4 publication
 uses the shared `animation_video.py`; OpenCV is not required. Provide FFmpeg
 and FFprobe alongside the existing environment. See
 [the guide](../../docs/interpolator-video.md) and `interpolator.example.json`.
+
+## Directed temporal video
+
+The installed front door supports `--backend video` with LTX video diffusion,
+camera motion descriptions, image keyframes and shot plans. Install
+`requirements-video.txt` alongside this environment for the T5 SentencePiece
+tokenizer. Run
+`python ../generate.py --backend video --help` for the dedicated options, or
+use `--config video.example.json --print-config` to inspect a replayable request.
+See [the video contract](../../docs/temporal-video.md) for generation commands,
+output provenance and the distinction from the existing animation backends.

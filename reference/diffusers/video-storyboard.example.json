@@ -1,0 +1,15 @@
+{
+  "shots": [
+    {
+      "prompt": "A glass perfume bottle stands on a dark stone table. Warm sunlight shines through the amber liquid.",
+      "duration": 3,
+      "camera": ["dolly-in"]
+    },
+    {
+      "prompt": "The same glass perfume bottle remains on the dark stone table. Light glints along the edge of the bottle and the amber liquid.",
+      "duration": 3,
+      "camera": ["orbit-left"],
+      "continue_previous": true
+    }
+  ]
+}
