@@ -63,7 +63,8 @@ def select_backend(args, remaining: list[str]) -> str:
         if base is not None and base["preset"] is None:
             raise ValueError("--preset cannot represent this base model; choose a pipeline or workflow.")
         return "preset"
-    if flags & {"--model-config", "--audio-sample-rate", "--video-layout"}:
+    if flags & {"--model-config", "--audio-sample-rate", "--video-layout",
+                "--tensor-outputs", "--generation-architecture"}:
         return "diffusers"
     if (flags & {"--model-info", "--components", "--model-type", "--decoder", "--model-negative",
                  "--embedded-guidance", "--sampling-shift", "--zsnr",

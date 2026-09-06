@@ -32,6 +32,15 @@ appear in iiLocalDiffusion's public request or result types.
 
 ## Current dependency direction
 
+[Generation I/O composition](generation-composition.md) adds an independent,
+installed `Generation/GenerationIO.hpp` host-data contract. It validates typed
+payloads and named stage bindings and invokes a caller-supplied executor. It does
+not introduce a backend tensor or model implementation. Python composition has
+the same explicit representation-space boundary, with adapters to already-loaded
+Diffusers/Transformers and tokenizer calls. Generic file interchange reuses
+safetensors and validates saved metadata; none of these paths silently equates
+diffusion v-prediction with flow velocity or token IDs with logits.
+
 `reference/generate.py` separates catalog identity from actual execution and
 selects the preset oracle, a built-in Diffusers pipeline, or an explicit local
 ComfyUI API workflow. The Civitai snapshot describes upstream model families,

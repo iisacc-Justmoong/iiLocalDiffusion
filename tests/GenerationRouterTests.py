@@ -145,7 +145,7 @@ class GenerationRouterTests(unittest.TestCase):
         self.assertEqual(self.backend(None, "local", "--model", str(path), "--model-config", str(self.directory)), "local")
 
     def test_generic_media_options_select_generic_loader(self):
-        for flag in ("--audio-sample-rate", "--video-layout"):
+        for flag in ("--audio-sample-rate", "--video-layout", "--tensor-outputs", "--generation-architecture"):
             with self.subTest(flag=flag):
                 self.assertEqual(self.backend(None, "auto", flag, "value"), "diffusers")
 

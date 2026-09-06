@@ -94,11 +94,34 @@ class GenericDiffusersTests(unittest.TestCase):
         self.assertEqual(self.args("--pipeline-inputs", "@" + str(path)).inputs,
                          {"prompt_2": "secondary", "strength": 0.2})
 
-    def test_rejects_non_object_duplicates_nonfinite_and_latent_requests(self):
+    def test_rejects_non_object_duplicates_nonfinite_and_untyped_latent_requests(self):
         for value in ('[]', '{"x":NaN}', '{"nested":{"x":1e999}}', '{"return_dict":null}', '{"x":1,"x":2}', '{"return_dict":false}',
                       '{"output_type":"latent"}', '{"generator":1}', '{"_private":true}'):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.args("--pipeline-inputs", value)
+
+    def test_explicit_latent_output_contract_and_architecture_are_preserved(self):
+        spec = {"images": {"semantic": "latents", "layout": "BSC",
+                            "representation_space": "test-packed-vae-v1"}}
+        args = self.args("--pipeline-inputs", '{"output_type":"latent"}',
+                         "--tensor-outputs", json.dumps(spec),
+                         "--generation-architecture", "rectified-flow")
+        self.assertEqual(args.tensor_outputs, spec)
+        self.assertEqual(generic.configuration(args)["generation_architecture"], "rectified-flow")
+        self.assertEqual(generic.configuration(self.args())["generation_architecture"], "unspecified")
+
+    def test_untyped_latent_media_cannot_be_misrepresented_as_pixels(self):
+        args = self.args("--pipeline-inputs", '{"output_type":"latent"}',
+                         "--tensor-outputs", '{"latents":{"semantic":"latents","layout":"BCHW","representation_space":"vae-v1"}}')
+        with self.assertRaisesRegex(ValueError, "Latent output.*images"):
+            generic.save_outputs({"images": [FakeImage()]}, None, args, self.fake_images, None)
+
+    def test_single_text_and_text_batch_are_exported_with_media(self):
+        outputs = generic.save_outputs({"images": [FakeImage()], "text": "한 문장", "texts": ["a", "b"]},
+                                       None, self.args(), self.fake_images, None)
+        self.assertEqual([item["kind"] for item in outputs].count("text"), 3)
+        text_outputs = [item for item in outputs if item["kind"] == "text"]
+        self.assertEqual([Path(item["path"]).read_text() for item in text_outputs], ["한 문장", "a", "b"])
 
     def test_remote_models_require_an_immutable_revision(self):
         for revision in (None, "main", "abcdef", "A" * 40):

@@ -65,6 +65,7 @@ add_library(iiLocalDiffusion SHARED
     src/Compute/LinearLayer.cpp
     src/Compute/TorchLinearBackend.cpp
     src/Flux/FluxModelManifest.cpp
+    src/Generation/GenerationIO.cpp
     src/ModelManifest/DiffusionModelManifest.cpp
     src/ModelManifest/ModelManifest.cpp
     src/StableDiffusion/StableDiffusionModelManifest.cpp
@@ -184,6 +185,11 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
     target_link_libraries(ModelManifestTests PRIVATE iiLocalDiffusion::iiLocalDiffusion)
 
     add_test(NAME ModelManifestTests COMMAND ModelManifestTests)
+    add_executable(GenerationIOTests tests/GenerationIOTests.cpp)
+    target_compile_features(GenerationIOTests PRIVATE cxx_std_20)
+    target_compile_options(GenerationIOTests PRIVATE ${IILD_WARNING_OPTIONS})
+    target_link_libraries(GenerationIOTests PRIVATE iiLocalDiffusion::iiLocalDiffusion)
+    add_test(NAME GenerationIOTests COMMAND GenerationIOTests)
     add_executable(ComputeTests tests/ComputeTests.cpp)
     target_compile_features(ComputeTests PRIVATE cxx_std_20)
     target_compile_options(ComputeTests PRIVATE ${IILD_WARNING_OPTIONS})
@@ -310,6 +316,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
 
         foreach(generation_test IN ITEMS
                 GenerationOptionsTests GenerationOutputTests
+                GenericIOTests GenerationCompositionTests GenerationAdapterTests
                 GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests
                 ControlNetTests HiresOptionsTests HiresRuntimeTests HiresRepeatRuntimeTests HiresFluxControlNetTests
                 TextEmbeddingOptionsTests TextEmbeddingRuntimeTests)
@@ -360,6 +367,14 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/reference/diffusers/inspect_pipeline.py" --help
         )
     endif()
+
+    if(APPLE)
+        # A developer's installed SDK paths must not override the freshly built
+        # library (or a relocated install) and hide or remove symbols under test.
+        get_property(iild_project_tests DIRECTORY PROPERTY TESTS)
+        set_tests_properties(${iild_project_tests} PROPERTIES ENVIRONMENT_MODIFICATION
+            "DYLD_LIBRARY_PATH=unset:;DYLD_FALLBACK_LIBRARY_PATH=unset:;DYLD_FRAMEWORK_PATH=unset:;DYLD_FALLBACK_FRAMEWORK_PATH=unset:;DYLD_VERSIONED_LIBRARY_PATH=unset:;DYLD_VERSIONED_FRAMEWORK_PATH=unset:")
+    endif()
 endif()
 
 install(
@@ -408,6 +423,11 @@ install(
     FILES
         src/Flux/FluxModelManifest.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Flux
+)
+
+install(
+    FILES src/Generation/GenerationIO.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Generation
 )
 
 install(

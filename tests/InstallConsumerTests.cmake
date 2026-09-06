@@ -44,7 +44,8 @@ if(MLX_BACKEND STREQUAL "metal" AND NOT EXISTS "${stage_directory}/lib/mlx.metal
     message(FATAL_ERROR "The installed Metal runtime is missing mlx.metallib")
 endif()
 
-foreach(document IN ITEMS README.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md)
+foreach(document IN ITEMS README.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md
+        docs/generation-io-native.md docs/generation-composition.md)
     if(NOT EXISTS "${stage_directory}/${DOC_DIRECTORY}/${document}")
         message(FATAL_ERROR "The installed package is missing documentation: ${document}")
     endif()
@@ -71,6 +72,7 @@ if(PYTHON_REFERENCE_ENABLED)
         message(FATAL_ERROR "The installed generation launcher is missing")
     endif()
     foreach(resource IN ITEMS generate.py setup_comfyui.py diffusers/generate.py
+            diffusers/generation_composition.py diffusers/generation_adapters.py diffusers/generic_io.py
             diffusers/civitai_catalog.json diffusers/requirements.txt diffusers/requirements-common.txt)
         if(NOT EXISTS "${installed_reference}/${resource}")
             message(FATAL_ERROR "The installed generation runtime is missing ${resource}")
@@ -165,6 +167,7 @@ set_target_properties(consumer PROPERTIES
 
 file(WRITE "${source_directory}/main.cpp" [=[
 #include <Flux/FluxModelManifest.hpp>
+#include <Generation/GenerationIO.hpp>
 #include <Compute/LinearLayer.hpp>
 #include <Compute/CoreMLModel.hpp>
 #include <ModelManifest/DiffusionModelManifest.hpp>
@@ -173,6 +176,7 @@ file(WRITE "${source_directory}/main.cpp" [=[
 #include <iostream>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -181,6 +185,36 @@ int main(const int argc, const char *const argv[])
     if (argc != 2 && argc != 3)
     {
         return 2;
+    }
+    const iild::GenerationTensorSpec state{iild::TensorDType::float32, {1, 2}, "BC",
+        iild::GenerationSemantic::sample, "vae:installed-consumer"};
+    auto prediction = state;
+    prediction.semantic = iild::GenerationSemantic::epsilon;
+    const iild::GenerationPlan generationPlan{{{"seed", state}},
+        {{"denoise", iild::GenerationStageRole::model, iild::GenerationArchitecture::diffusion,
+          {{"input", state}}, {{"output", prediction}}, {{"input", {"", "seed"}}}}},
+        {{"prediction", {"denoise", "output"}, prediction}}};
+    iild::validateGenerationPlan(generationPlan);
+    const auto generated = iild::executeGenerationPlan(generationPlan,
+        {{"seed", {state, std::vector<float>{2, 3}}}},
+        [&](const iild::GenerationStage &, const iild::GenerationValues &inputs) {
+            auto values = std::get<std::vector<float>>(inputs.at("input").data);
+            for (auto &value : values) value *= 2;
+            return iild::GenerationValues{{"output", {prediction, std::move(values)}}};
+        });
+    if (std::get<std::vector<float>>(generated.at("prediction").data) != std::vector<float>{4, 6})
+        return 11;
+    if (iild::generationArchitectureName(iild::GenerationArchitecture::flowMatching) != "flow-matching" ||
+        iild::generationSemanticName(generated.at("prediction").spec.semantic) != "epsilon" ||
+        iild::tensorDTypeName(generated.at("prediction").spec.dtype) != "float32") return 12;
+    try
+    {
+        iild::validateGenerationTensor(state, generated.at("prediction"));
+        return 13;
+    }
+    catch (const iild::GenerationIOError &error)
+    {
+        if (error.code() != iild::GenerationIOErrorCode::invalidTensor) return 14;
     }
     const auto capabilities = iild::computeCapabilities();
     const auto amd = iild::rocmCapabilities();

@@ -62,6 +62,9 @@ The test suite also installs the library under `build/`, relocates the prefix,
 configures a clean consumer with `find_package(iiLocalDiffusion)`, and runs
 both metadata inspection and native computation. For a metadata-only build,
 configure with `-DIILD_ENABLE_MLX=OFF -DIILD_ENABLE_COREML=OFF -DIILD_ENABLE_LIBTORCH=OFF`.
+On macOS, CTest removes inherited `DYLD_*` library/framework overrides within
+test processes so an older installed SDK cannot replace the newly built or
+relocated library. The user's shell configuration is not modified.
 
 Discover hardware and execute a verified native batched linear operation:
 
@@ -125,6 +128,14 @@ successful `inspect` result means that metadata and required artifact paths are
 consistent; it does not mean the weights were parsed or inference succeeded.
 
 ## Python reference oracle
+
+[Generation I/O and composition](docs/generation-composition.md) supports explicit
+diffusion, rectified flow, flow matching, autoregressive and mixed stage contracts.
+The native `Generation/GenerationIO.hpp` API validates/routes owned host tensors;
+Python adapters connect loaded Diffusers and Transformers runtimes, including
+explicit tokenizer/latent bridges. Generic generation can preserve latent,
+token and text outputs with reusable safetensors descriptors. Existing full
+neural generation remains in the selected Python/backend runtime.
 
 The unified `reference/generate.py` entry point routes Civitai base-model names
 to local generation backends. Its pinned catalog includes all 105 upstream base

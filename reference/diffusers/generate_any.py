@@ -17,6 +17,8 @@ import wave
 from typing import Any
 
 from generation_output import publish_file
+from generic_io import (ARCHITECTURES, automatic_token_spec, load_tensor_input,
+                        validate_input_descriptor, validate_output_specs, write_tensor_output)
 from hardware import accelerator_preflight, select_device, validate_execution_device
 from weight_files import file_sha256
 
@@ -42,6 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-model", help="Civitai identity checked against the selected pipeline architecture")
     parser.add_argument("--pipeline-inputs", default="{}",
                         help="JSON object or @JSON-file containing explicit pipeline __call__ arguments")
+    parser.add_argument("--generation-architecture", choices=ARCHITECTURES, default="unspecified",
+                        help="Caller-declared generation architecture; auto/unspecified never infer model semantics")
+    parser.add_argument("--tensor-outputs", default="{}",
+                        help="JSON object or @JSON-file mapping output fields to semantic/layout/representation_space")
     parser.add_argument("--prompt")
     parser.add_argument("--negative-prompt")
     parser.add_argument("--seed", type=int)
@@ -98,11 +104,21 @@ def read_inputs(source: str) -> dict[str, Any]:
             raise ValueError(f"Invalid pipeline argument name: {name!r}")
     if "return_dict" in value and value["return_dict"] is not True:
         raise ValueError("return_dict must be true when supplied; named outputs are required for export.")
-    if value.get("output_type") in ("latent", "latents"):
-        raise ValueError("Latent outputs cannot be exported as generated media.")
     if "generator" in value:
         raise ValueError("Use --seed to construct a torch.Generator; JSON generator objects are unsupported.")
     return value
+
+
+def validate_input_descriptors(value: Any) -> None:
+    if isinstance(value, list):
+        for item in value:
+            validate_input_descriptors(item)
+    elif isinstance(value, dict):
+        if "tensor_path" in value:
+            validate_input_descriptor(value)
+        else:
+            for item in value.values():
+                validate_input_descriptors(item)
 
 
 def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
@@ -148,6 +164,13 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
     if args.device == "cpu" and args.offload != "none":
         raise ValueError("CPU execution requires --offload none.")
     result.inputs = read_inputs(args.pipeline_inputs)
+    tensor_source = args.tensor_outputs
+    tensor_text = Path(tensor_source[1:]).expanduser().read_text() if tensor_source.startswith("@") else tensor_source
+    result.tensor_outputs = validate_output_specs(read_json(tensor_text))
+    if (result.inputs.get("output_type") in ("latent", "latents")
+            and not any(spec["semantic"] == "latents" for spec in result.tensor_outputs.values())):
+        raise ValueError("Latent outputs require --tensor-outputs with explicit latents semantic, layout, and representation_space.")
+    validate_input_descriptors(result.inputs)
     for option, key in (("prompt", "prompt"), ("negative_prompt", "negative_prompt"),
                         ("width", "width"), ("height", "height"),
                         ("steps", "num_inference_steps"), ("guidance_scale", "guidance_scale")):
@@ -168,6 +191,9 @@ def configuration(args: argparse.Namespace) -> dict[str, Any]:
         "local_files_only": args.local_files_only, "cache_dir": str(args.cache_dir),
         "output_dir": str(args.output_dir), "audio_sample_rate": args.audio_sample_rate,
         "video_layout": args.video_layout,
+        "generation_architecture": args.generation_architecture,
+        "generation_architecture_status": "caller-declared" if args.generation_architecture not in ("auto", "unspecified") else "not-inferred",
+        "tensor_outputs": args.tensor_outputs,
         "overwrite": args.overwrite,
     }
 
@@ -361,6 +387,10 @@ def prepare_inputs(inputs: dict[str, Any], image_module: Any) -> tuple[dict[str,
         if isinstance(value, list):
             return [convert(item, root_key) for item in value]
         if isinstance(value, dict):
+            if "tensor_path" in value:
+                tensor, identity = load_tensor_input(value, file_identity)
+                identities.append({**identity, "input": root_key})
+                return tensor
             if "image_path" in value:
                 if set(value) - {"image_path", "mode"} or root_key not in IMAGE_INPUTS:
                     raise ValueError(f"image_path is only accepted for supported image/video inputs, not {root_key!r}.")
@@ -461,6 +491,21 @@ def infer_sample_rate(pipeline: Any, requested: int | None) -> int:
 def save_outputs(result: Any, pipeline: Any, args: argparse.Namespace, image_module: Any,
                  np: Any) -> list[dict[str, Any]]:
     outputs: list[dict[str, Any]] = []
+    tensor_specs = validate_output_specs(getattr(args, "tensor_outputs", {}))
+    if getattr(args, "inputs", {}).get("output_type") in ("latent", "latents"):
+        for name in ("images", "frames", "audios", "audio", "latents"):
+            if output_value(result, name) is not None and tensor_specs.get(name, {}).get("semantic") != "latents":
+                raise ValueError(f"Latent output field {name!r} requires an explicit latents tensor contract.")
+    for name in ("sequences", "token_ids"):
+        value = output_value(result, name)
+        if value is not None and name not in tensor_specs:
+            tensor_specs[name] = automatic_token_spec(value)
+    for name, spec in tensor_specs.items():
+        value = output_value(result, name)
+        if value is None:
+            raise ValueError(f"The pipeline did not return declared tensor output {name!r}.")
+        outputs.append(write_tensor_output(value, name, spec, args.output_dir, args.overwrite,
+                                           atomic_write, file_identity))
 
     def save_image(value: Any, filename: str, kind: str) -> None:
         image = as_image(value, image_module, np)
@@ -468,11 +513,11 @@ def save_outputs(result: Any, pipeline: Any, args: argparse.Namespace, image_mod
         atomic_write(path, lambda temporary: image.save(temporary, format="PNG"), args.overwrite)
         outputs.append({**file_identity(path), "kind": kind, "size": list(image.size), "mode": image.mode})
 
-    images = output_value(result, "images")
-    frames = output_value(result, "frames")
-    audio = output_value(result, "audios")
+    images = None if "images" in tensor_specs else output_value(result, "images")
+    frames = None if "frames" in tensor_specs else output_value(result, "frames")
+    audio = None if "audios" in tensor_specs else output_value(result, "audios")
     if audio is None:
-        audio = output_value(result, "audio")
+        audio = None if "audio" in tensor_specs else output_value(result, "audio")
     if images is not None:
         if isinstance(images, image_module.Image):
             images = [images]
@@ -541,8 +586,21 @@ def save_outputs(result: Any, pipeline: Any, args: argparse.Namespace, image_mod
             atomic_write(path, write_wave, args.overwrite)
             outputs.append({**file_identity(path), "kind": "audio", "sample_rate": rate,
                             "channels": pcm.shape[1], "samples": pcm.shape[0], "encoding": "PCM16"})
+    for name in ("text", "texts"):
+        if name in tensor_specs:
+            continue
+        value = output_value(result, name)
+        if value is None:
+            continue
+        values = [value] if isinstance(value, str) else value
+        if not isinstance(values, (list, tuple)) or not values or any(not isinstance(item, str) for item in values):
+            raise ValueError(f"Text output {name!r} must be a string or a non-empty sequence of strings.")
+        for index, item in enumerate(values):
+            path = args.output_dir / f"{name}-{index + 1:04d}.txt"
+            atomic_write(path, lambda temporary, content=item: temporary.write_text(content, encoding="utf-8"), args.overwrite)
+            outputs.append({**file_identity(path), "kind": "text", "field": name, "encoding": "UTF-8"})
     if not outputs:
-        raise ValueError("The pipeline returned no supported media. Expected images, frames, or audios/audio; use the workflow backend for other output types.")
+        raise ValueError("The pipeline returned no supported media or typed generation outputs. Expected images, frames, audios/audio, text/texts, sequences/token_ids, or declared tensor outputs.")
     return outputs
 
 
