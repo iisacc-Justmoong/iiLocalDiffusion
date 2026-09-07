@@ -9,6 +9,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser, local_request, MODEL
 from unittest.mock import Mock, patch
 
 
@@ -19,7 +20,7 @@ import presets
 
 
 def resolved(*arguments):
-    return generate.resolve_arguments(generate.build_parser().parse_args(list(arguments)))
+    return generate.resolve_arguments(local_parser(generate.build_parser).parse_args(list(arguments)))
 
 
 class GenerationOptionsTests(unittest.TestCase):
@@ -215,30 +216,30 @@ class GenerationOptionsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
             path = Path(temporary) / "options.json"
             path.write_text('{"seed":99}')
-            parser = generate.build_parser()
+            parser = local_parser(generate.build_parser)
             self.assertEqual(parser.parse_args(["--config", str(path)]).seed, 99)
             self.assertEqual(parser.parse_args([]).seed, generate.DEFAULT_SEED)
 
     def test_print_config_needs_no_models_packages_or_hardware(self):
         output = io.StringIO()
-        with patch.object(sys, "argv", ["generate.py", "--print-config"]), redirect_stdout(output), \
+        with patch.object(sys, "argv", ["generate.py", "--model", MODEL, "--print-config"]), redirect_stdout(output), \
                 patch.object(generate, "package_versions", side_effect=AssertionError("packages")), \
                 patch.object(generate, "load_dependencies", side_effect=AssertionError("runtime")):
             self.assertEqual(generate.main(), 0)
         values = json.loads(output.getvalue())
         self.assertEqual(values["width"], 512)
         self.assertEqual(values["num_images"], 1)
-        self.assertEqual(values["model"], presets.SD15_PRESET.model_id)
-        self.assertEqual(values["revision"], presets.SD15_PRESET.revision)
+        self.assertEqual(values["model"], MODEL)
+        self.assertEqual(values["revision"], None)
         self.assertNotIn("model_selection", values)
 
     def test_programmatic_request_uses_the_same_defaults_and_type_checks(self):
-        preset, args = generate.resolve_request()
+        preset, args = local_request()
         self.assertEqual((preset.name, args.num_images, args.seed), ("sd15", 1, 42))
-        _, args = generate.resolve_request({"seed": 0, "height": None, "vae_tiling": False})
+        _, args = local_request({"seed": 0, "height": None, "vae_tiling": False})
         self.assertEqual((args.seed, args.height, args.vae_tiling), (0, 512, False))
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            generate.resolve_request({"num_images": True})
+            local_request({"num_images": True})
 
     def test_old_programmatic_callers_inherit_new_optional_values(self):
         args = SimpleNamespace(prompt="test", negative_prompt="", width=64, height=64,
@@ -252,7 +253,7 @@ class GenerationOptionsTests(unittest.TestCase):
         for preset in presets.PRESETS.values():
             _, original = resolved(*self.preset_arguments(preset))
             values = generate.configuration_values(original)
-            _, replayed = generate.resolve_request(values)
+            _, replayed = local_request(values)
             self.assertEqual(generate.configuration_values(replayed), values)
 
     def test_loader_memory_policy_is_explicit_and_defaults_to_low_memory(self):
@@ -274,8 +275,12 @@ class GenerationOptionsTests(unittest.TestCase):
                 generate.validate_generation_arguments(preset, args)
 
     def test_partial_example_keeps_valid_omission_defaults(self):
-        preset, args = resolved("--config", str(ROOT / "reference/diffusers/generation.example.json"))
+        example = str(ROOT / "reference/diffusers/generation.example.json")
+        with self.assertRaisesRegex(SystemExit, "--model"):
+            resolved("--config", example)
+        preset, args = resolved("--config", example, "--model", MODEL)
         generate.validate_generation_arguments(preset, args)
+        self.assertEqual(args.model_selection.source, MODEL)
         self.assertEqual((args.width, args.height, args.steps, args.num_images), (512, 512, 20, 1))
         self.assertIsNone(args.lora_selection)
 

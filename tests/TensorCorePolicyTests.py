@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "reference" / "diffusers"))
 import generate
@@ -71,9 +72,9 @@ class TensorCorePolicyTests(unittest.TestCase):
             hardware.configure_tensor_cores(torch, "cuda", True)
 
     def test_cli_default_is_auto_and_explicit_disable_is_preserved(self):
-        self.assertIsNone(generate.build_parser().parse_args([]).cuda_tf32)
-        self.assertFalse(generate.build_parser().parse_args(["--no-cuda-tf32"]).cuda_tf32)
-        self.assertTrue(generate.build_parser().parse_args(["--cuda-tf32"]).cuda_tf32)
+        self.assertIsNone(local_parser(generate.build_parser).parse_args([]).cuda_tf32)
+        self.assertFalse(local_parser(generate.build_parser).parse_args(["--no-cuda-tf32"]).cuda_tf32)
+        self.assertTrue(local_parser(generate.build_parser).parse_args(["--cuda-tf32"]).cuda_tf32)
 
 
 if __name__ == "__main__":

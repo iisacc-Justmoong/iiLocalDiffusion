@@ -1,4 +1,4 @@
-"""Transactional PNG-sequence/MP4 publication shared by animation generators."""
+"""Transactional PNG-sequence/MP4/GIF publication shared by animation generators."""
 
 from __future__ import annotations
 
@@ -64,10 +64,17 @@ def preflight_animation(args: Any) -> dict[str, Any]:
         raise ValueError("Animation requires Pillow from the Diffusers runtime dependencies.") from error
     environment = {"Image": Image, "ffmpeg": _executable(args.ffmpeg, "ffmpeg"),
                    "ffprobe": _executable(args.ffprobe, "ffprobe")}
-    encoder = subprocess.run([environment["ffmpeg"], "-hide_banner", "-h", "encoder=libx264"],
+    codec = "gif" if args.output.suffix.lower() == ".gif" else "libx264"
+    encoder = subprocess.run([environment["ffmpeg"], "-hide_banner", "-h", f"encoder={codec}"],
                              capture_output=True, text=True, timeout=30, check=True)
-    if "Encoder libx264" not in encoder.stdout:
-        raise ValueError("The selected FFmpeg does not provide the libx264 H.264 encoder.")
+    if f"Encoder {codec}" not in encoder.stdout:
+        raise ValueError(f"The selected FFmpeg does not provide the {codec} encoder.")
+    if codec == "gif":
+        for name in ("palettegen", "paletteuse"):
+            result = subprocess.run([environment["ffmpeg"], "-hide_banner", "-h", f"filter={name}"],
+                                    capture_output=True, text=True, timeout=30, check=True)
+            if f"Filter {name}" not in result.stdout:
+                raise ValueError(f"GIF generation requires the FFmpeg {name} filter.")
     environment["versions"] = {"pillow": Image.__version__}
     for name in ("ffmpeg", "ffprobe"):
         version = subprocess.run([environment[name], "-version"], capture_output=True,
@@ -78,6 +85,8 @@ def preflight_animation(args: Any) -> dict[str, Any]:
 
 def encode_video(frames: Path, output: Path, args: Any, environment: dict[str, Any]) -> dict[str, Any]:
     rate = Fraction(str(args.fps)).limit_denominator(1_000_000)
+    if output.suffix.lower() == ".gif":
+        return _encode_gif(frames, output, args, environment, rate)
     command = [environment["ffmpeg"], "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
                "-framerate", str(rate), "-start_number", "0", "-i", str(frames / "frame-%06d.png"),
                "-frames:v", str(args.max_frames), "-an", "-c:v", "libx264", "-crf", str(args.video_crf),
@@ -108,6 +117,46 @@ def encode_video(frames: Path, output: Path, args: Any, environment: dict[str, A
             "sha256": file_sha256(output), "size_bytes": output.stat().st_size, "verified_decode": True}
 
 
+def _encode_gif(frames: Path, output: Path, args: Any, environment: dict[str, Any], rate: Fraction) -> dict[str, Any]:
+    # A separate palette pass avoids buffering the entire RGB sequence in a
+    # split/palettegen graph. Reuse the already installed FFmpeg and Pillow.
+    command = [environment["ffmpeg"], "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+               "-framerate", str(rate), "-start_number", "0", "-i", str(frames / "frame-%06d.png")]
+    centiseconds = lambda count: int(count * 100 / rate + Fraction(1, 2))
+    final_delay = centiseconds(args.max_frames) - centiseconds(args.max_frames - 1)
+    with tempfile.TemporaryDirectory(prefix=".iild-gif-", dir=output.parent) as temporary:
+        palette = str(Path(temporary) / "palette.png")
+        for invocation in (
+            [*command, "-vf", f"trim=end_frame={args.max_frames},palettegen", "-frames:v", "1",
+             "-update", "1", palette],
+            [*command, "-i", palette, "-lavfi", "paletteuse=dither=sierra2_4a", "-frames:v", str(args.max_frames),
+             "-an", "-c:v", "gif", "-loop", "0", "-final_delay", str(final_delay), str(output)],
+        ):
+            result = subprocess.run(invocation, capture_output=True, text=True, timeout=args.encoding_timeout)
+            if result.returncode:
+                raise RuntimeError("FFmpeg GIF encoding failed: " + result.stderr[-4000:])
+    duration_ms = 0
+    try:
+        with environment["Image"].open(output) as image:
+            valid = (image.format == "GIF" and image.n_frames == args.max_frames
+                     and image.size == (args.width, args.height) and image.info.get("loop") == 0)
+            for index in range(image.n_frames):
+                image.seek(index)
+                image.load()
+                delay = image.info.get("duration", 0)
+                valid = valid and delay >= 10 and image.size == (args.width, args.height)
+                duration_ms += delay
+    except (OSError, ValueError, EOFError) as error:
+        raise RuntimeError("Could not decode the generated GIF.") from error
+    if not valid or abs(duration_ms / 10 - centiseconds(args.max_frames)) > 1:
+        raise RuntimeError("Encoded GIF does not match the requested frame count, size or duration.")
+    return {"codec": "gif", "pixel_format": "pal8", "frame_count": args.max_frames,
+            "fps": float(rate), "encoded_fps": args.max_frames / (duration_ms / 1000),
+            "size": [args.width, args.height], "duration_seconds": duration_ms / 1000,
+            "timing_resolution_seconds": .01, "loop": 0,
+            "sha256": file_sha256(output), "size_bytes": output.stat().st_size, "verified_decode": True}
+
+
 class AnimationOutput:
     """Keep old output intact on sampling/encoding failure; publish the report last."""
 
@@ -127,7 +176,7 @@ class AnimationOutput:
             self.directory = Path(self.temporary.name)
             self.frames = self.directory / "frames"
             self.frames.mkdir()
-            self.video = self.directory / "video.mp4"
+            self.video = self.directory / ("video" + self.args.output.suffix.lower())
         except BaseException:
             self.lock.unlink()
             raise

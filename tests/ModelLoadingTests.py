@@ -11,6 +11,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser, MODEL
 from unittest.mock import Mock, patch
 
 
@@ -236,36 +237,20 @@ class ModelLoadingTests(unittest.TestCase):
             with self.subTest(revision=revision), self.assertRaises(ValueError):
                 presets.resolve_model_selection(preset, "vendor/model", revision)
 
-    def test_remote_configuration_download_is_pinned_filtered_and_offline(self) -> None:
-        selection = presets.ModelSelection("vendor/config", "b" * 40, False)
-        downloader = Mock(return_value=str(self.directory))
-        with patch.dict(sys.modules, {"huggingface_hub": SimpleNamespace(
-            snapshot_download=downloader
-        )}):
-            actual = model_loading.download_configuration(
-                selection, self.directory / "cache", True
-            )
-        self.assertEqual(actual, str(self.directory))
-        arguments = downloader.call_args.kwargs
-        self.assertEqual(downloader.call_args.args, ("vendor/config",))
-        self.assertEqual(arguments["revision"], "b" * 40)
-        self.assertTrue(arguments["local_files_only"])
-        self.assertEqual(arguments["cache_dir"], self.directory / "cache")
-        self.assertFalse(any("safetensors" in item for item in arguments["allow_patterns"]))
-        self.assertFalse(any("bin" in item for item in arguments["allow_patterns"]))
+    def test_remote_configuration_is_rejected_without_a_download(self):
+        selection = presets.ModelSelection('vendor/config', 'b' * 40, False)
+        download = Mock(side_effect=AssertionError('network access'))
+        with patch.dict(sys.modules, {'huggingface_hub': SimpleNamespace(snapshot_download=download)}):
+            with self.assertRaisesRegex(ValueError, 'local'):
+                model_loading.resolve_configuration_directory(selection, presets.SD15_PRESET, self.directory, True)
+        download.assert_not_called()
 
-    def test_configuration_resolves_remote_source_to_validated_local_directory(self) -> None:
+    def test_configuration_resolves_the_explicit_local_directory(self):
         preset = presets.FLUX1_SCHNELL_PRESET
         directory = self.configuration(preset)
-        selection = presets.ModelSelection("vendor/config", "c" * 40, False)
-        with patch.object(
-            model_loading, "download_configuration", return_value=str(directory)
-        ) as download:
-            result = model_loading.resolve_configuration_directory(
-                selection, preset, self.directory / "cache", True
-            )
-        self.assertEqual(result, directory.resolve())
-        download.assert_called_once_with(selection, self.directory / "cache", True)
+        selection = presets.ModelSelection(str(directory), None, True)
+        actual = model_loading.resolve_configuration_directory(selection, preset, self.directory, True)
+        self.assertEqual(actual, directory.resolve())
 
     def test_configuration_rejects_missing_wrong_family_and_custom_code(self) -> None:
         preset = presets.SD15_PRESET
@@ -287,16 +272,10 @@ class ModelLoadingTests(unittest.TestCase):
                 selection, preset, self.directory, True
             )
 
-    def test_configuration_does_not_retry_offline_download_failure(self) -> None:
-        selection = presets.ModelSelection("vendor/config", "a" * 40, False)
-        with patch.object(
-            model_loading, "download_configuration", side_effect=OSError("not cached")
-        ) as download:
-            with self.assertRaisesRegex(OSError, "not cached"):
-                model_loading.resolve_configuration_directory(
-                    selection, presets.SD15_PRESET, self.directory, True
-                )
-        download.assert_called_once_with(selection, self.directory, True)
+    def test_missing_local_configuration_fails_without_a_fallback(self):
+        selection = presets.ModelSelection(str(self.directory / 'missing'), None, True)
+        with self.assertRaisesRegex(ValueError, 'model_index.json'):
+            model_loading.resolve_configuration_directory(selection, presets.SD15_PRESET, self.directory, True)
 
     def test_configuration_rejects_non_null_image_encoder_but_accepts_null(self) -> None:
         preset = presets.SD15_PRESET
@@ -446,7 +425,7 @@ class ModelLoadingTests(unittest.TestCase):
                                           presets.FLUX1_SCHNELL_PRESET)
 
     def test_diffusers_base_path_does_not_load_single_file_or_configuration(self) -> None:
-        selection = presets.ModelSelection("vendor/model", "b" * 40, False)
+        selection = presets.ModelSelection(str(self.directory), None, True)
         pipeline = SimpleNamespace(components={"unet": component(), "vae": component()})
         with (
             patch.object(model_loading, "load_pipeline", return_value=pipeline) as load,
@@ -457,8 +436,8 @@ class ModelLoadingTests(unittest.TestCase):
                 object(), presets.SD15_PRESET, selection, None, None, self.arguments(), {}
             )
         self.assertIs(result, pipeline)
-        self.assertEqual(load.call_args.args[1], "vendor/model")
-        self.assertEqual(load.call_args.args[2]["revision"], "b" * 40)
+        self.assertEqual(load.call_args.args[1], str(self.directory))
+        self.assertNotIn("revision", load.call_args.args[2])
         single.assert_not_called()
         config.assert_not_called()
         self.assertEqual(metadata["weights_role"], "diffusers")
@@ -522,7 +501,7 @@ class ModelLoadingTests(unittest.TestCase):
         for preset, keys, role, class_name in cases:
             with self.subTest(preset=preset.name):
                 directory = self.configuration(preset)
-                config = presets.ModelSelection("vendor/backbone", "d" * 40, False)
+                config = presets.ModelSelection(str(directory), None, True)
                 weight = self.weight(f"{role}.safetensors")
                 model = component()
                 vae = compatible_vae(preset)
@@ -536,7 +515,7 @@ class ModelLoadingTests(unittest.TestCase):
                 def load_pipeline(cls, source, arguments):
                     events.append("pipeline")
                     self.assertEqual(source, config.source)
-                    self.assertEqual(arguments["revision"], config.requested_revision)
+                    self.assertNotIn("revision", arguments)
                     self.assertIs(arguments[role], model)
                     self.assertIs(arguments["vae"], vae)
                     return SimpleNamespace(components={role: model, "vae": vae,
@@ -560,7 +539,7 @@ class ModelLoadingTests(unittest.TestCase):
                 self.assertEqual(metadata["component_sources"][role], "model")
                 self.assertEqual(metadata["component_sources"]["text_encoder"], "model_config")
                 self.assertEqual(metadata["component_sources"]["vae"], "vae_override")
-                self.assertEqual(metadata["configuration"]["requested_revision"], "d" * 40)
+                self.assertIsNone(metadata["configuration"]["requested_revision"])
 
     def test_sd_checkpoint_uses_single_file_with_local_config_and_preloaded_vae(self) -> None:
         preset = presets.SD15_PRESET
@@ -620,7 +599,7 @@ class ModelLoadingTests(unittest.TestCase):
         directory = self.configuration(
             preset, safety_checker=["stable_diffusion", "StableDiffusionSafetyChecker"]
         )
-        config = presets.ModelSelection("vendor/checked-config", "c" * 40, False)
+        config = presets.ModelSelection(str(directory), None, True)
         weight = self.weight("checkpoint.safetensors")
         checker = component()
         events = []
@@ -628,7 +607,7 @@ class ModelLoadingTests(unittest.TestCase):
         def load_checker(source, **arguments):
             events.append("safety_checker")
             self.assertEqual(source, config.source)
-            self.assertEqual(arguments["revision"], config.requested_revision)
+            self.assertNotIn("revision", arguments)
             self.assertEqual(arguments["subfolder"], "safety_checker")
             self.assertEqual(arguments["cache_dir"], self.directory / "cache")
             self.assertTrue(arguments["local_files_only"])
@@ -680,7 +659,7 @@ class ModelLoadingTests(unittest.TestCase):
         )
         for preset, clip_keys in cases:
             with self.subTest(preset=preset.name):
-                config = presets.ModelSelection(preset.model_id, preset.revision, False)
+                config = presets.ModelSelection(str(self.configuration(preset)), None, True)
                 loader = SimpleNamespace(from_single_file=Mock())
                 keys = clip_keys | {
                     "model.diffusion_model.weight", "first_stage_model.encoder.weight",
@@ -785,7 +764,7 @@ class ModelLoadingTests(unittest.TestCase):
 
     def test_singular_lora_is_loaded_only_through_standard_safetensors_alias(self) -> None:
         weight = self.weight("style.safetensor")
-        _, args = self.generate.resolve_arguments(self.generate.build_parser().parse_args([
+        _, args = self.generate.resolve_arguments(local_parser(self.generate.build_parser).parse_args([
             "--lora", weight.path, "--lora-scale", "0.5",
         ]))
         selected = args.lora_selection
@@ -818,7 +797,7 @@ class ModelLoadingTests(unittest.TestCase):
                 output = self.directory / f"existing-{suffix[1:]}.png"
                 output.with_suffix(suffix).write_bytes(b"keep existing")
                 with (
-                    patch.object(sys, "argv", ["generate.py", "--output", str(output)]),
+                    patch.object(sys, "argv", ["generate.py", "--model", MODEL, "--output", str(output)]),
                     patch.object(self.generate, "load_dependencies") as dependencies,
                     patch.object(self.generate, "package_versions") as packages,
                 ):
@@ -834,7 +813,7 @@ class ModelLoadingTests(unittest.TestCase):
         lora = self.weight("style.safetensors")
         directory = self.configuration(presets.SDXL_BASE_PRESET)
         preset, args = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args([
+            local_parser(self.generate.build_parser).parse_args([
                 "--preset", "sdxl-base", "--model", model.path,
                 "--model-config", str(directory), "--vae", vae.path,
                 "--lora", lora.path, "--lora-scale", "0.75",
@@ -848,25 +827,20 @@ class ModelLoadingTests(unittest.TestCase):
         self.assertNotEqual(args.output.name, preset.generation_filename)
         self.assertTrue(args.output.is_relative_to(ROOT / "build"))
 
-    def test_generation_parser_default_config_is_pinned_and_override_requires_sha(self):
+    def test_single_file_model_requires_explicit_local_configuration(self):
         model = self.weight()
-        parser = self.generate.build_parser()
-        preset, args = self.generate.resolve_arguments(parser.parse_args(["--model", model.path]))
-        self.assertEqual(args.config_selection.source, preset.model_id)
-        self.assertEqual(args.config_selection.requested_revision, preset.revision)
-        with self.assertRaises(SystemExit):
-            self.generate.resolve_arguments(parser.parse_args([
-                "--model", model.path, "--model-config", "vendor/config",
-            ]))
+        parser = local_parser(self.generate.build_parser)
+        for extra in ([], ['--model-config', 'vendor/config', '--model-config-revision', 'e' * 40]):
+            with self.subTest(extra=extra), self.assertRaisesRegex(SystemExit, 'local'):
+                self.generate.resolve_arguments(parser.parse_args(['--model', model.path, *extra]))
+        directory = self.configuration(presets.SD15_PRESET)
         _, args = self.generate.resolve_arguments(parser.parse_args([
-            "--model", model.path, "--model-config", "vendor/config",
-            "--model-config-revision", "e" * 40,
-        ]))
-        self.assertEqual(args.config_selection.source, "vendor/config")
-        self.assertEqual(args.config_selection.requested_revision, "e" * 40)
+            '--model', model.path, '--model-config', str(directory)]))
+        self.assertEqual(args.config_selection.source, str(directory))
+        self.assertIsNone(args.config_selection.requested_revision)
 
     def test_generation_parser_rejects_config_options_without_single_file(self) -> None:
-        parser = self.generate.build_parser()
+        parser = local_parser(self.generate.build_parser)
         directory = self.configuration(presets.SD15_PRESET)
         for arguments in (
             ["--model-config", str(directory)],
@@ -876,15 +850,15 @@ class ModelLoadingTests(unittest.TestCase):
                 self.generate.resolve_arguments(parser.parse_args(arguments))
 
     def test_generation_without_replacements_keeps_default_filename_and_model(self) -> None:
-        preset, args = self.generate.resolve_arguments(self.generate.build_parser().parse_args([]))
+        preset, args = self.generate.resolve_arguments(local_parser(self.generate.build_parser).parse_args([]))
         self.assertIsNone(args.vae_file)
         self.assertIsNone(args.config_selection)
         self.assertIsNone(args.model_selection.single_file)
-        self.assertEqual(args.model_selection.source, preset.model_id)
-        self.assertEqual(args.output.name, preset.generation_filename)
+        self.assertEqual(args.model_selection.source, MODEL)
+        self.assertEqual(args.output.name, Path(preset.generation_filename).stem + "-custom.png")
 
     def test_custom_nonvariant_configuration_does_not_inherit_preset_fp16_variant(self):
-        parser = self.generate.build_parser()
+        parser = local_parser(self.generate.build_parser)
         model = self.weight()
         directory = self.configuration(presets.SDXL_BASE_PRESET)
         weights = directory / "text_encoder" / "model.safetensors"
@@ -892,10 +866,7 @@ class ModelLoadingTests(unittest.TestCase):
         weights.write_bytes(b"nonvariant fixture")
         cases = (
             ["--model", model.path, "--model-config", str(directory)],
-            ["--model", model.path, "--model-config", "vendor/config",
-             "--model-config-revision", "a" * 40],
             ["--model", str(directory)],
-            ["--model", "vendor/model", "--revision", "b" * 40],
         )
         for arguments in cases:
             with self.subTest(arguments=arguments):
@@ -910,7 +881,7 @@ class ModelLoadingTests(unittest.TestCase):
 
     def test_local_backbone_variant_is_used_only_when_matching_weights_exist(self):
         directory = self.configuration(presets.SD15_PRESET)
-        preset, args = self.generate.resolve_arguments(self.generate.build_parser().parse_args([
+        preset, args = self.generate.resolve_arguments(local_parser(self.generate.build_parser).parse_args([
             "--model", str(directory),
         ]))
         load = self.generate.build_load_arguments(preset, args, "test-fp16", True)
@@ -925,14 +896,17 @@ class ModelLoadingTests(unittest.TestCase):
             "variant", self.generate.build_load_arguments(preset, args, "test-fp32", False)
         )
 
-    def test_default_model_and_default_single_file_config_keep_pinned_variant(self):
-        parser = self.generate.build_parser()
+    def test_explicit_local_model_and_configuration_select_existing_fp16_weights(self):
+        parser = local_parser(self.generate.build_parser)
         model = self.weight()
-        for arguments in ([], ["--model", model.path]):
-            with self.subTest(arguments=arguments):
-                preset, args = self.generate.resolve_arguments(parser.parse_args(arguments))
-                load = self.generate.build_load_arguments(preset, args, "test-fp16", True)
-                self.assertEqual(load["variant"], "fp16")
+        directory = self.configuration(presets.SD15_PRESET)
+        (directory / 'unet').mkdir()
+        (directory / 'unet/diffusion_pytorch_model.fp16.safetensors').write_bytes(b'variant fixture')
+        for tokens in (['--model', str(directory)], ['--model', model.path, '--model-config', str(directory)]):
+            preset, args = self.generate.resolve_arguments(parser.parse_args(tokens))
+            load = self.generate.build_load_arguments(preset, args, 'test-fp16', True)
+            self.assertEqual(load['variant'], 'fp16')
+            self.assertNotIn('revision', load)
 
 
 if __name__ == "__main__":

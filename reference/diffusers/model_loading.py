@@ -6,13 +6,10 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from pipeline_loading import _is_gated_repository_error, load_pipeline
+from pipeline_loading import load_pipeline
 from presets import (ModelSelection, PipelinePreset, compatible_scheduler_class,
                      validate_vae_contract)
 from weight_files import LocalWeightFile, checked_safetensors_path, weight_file_metadata
-
-
-CONFIG_PATTERNS = ("*.json", "**/*.json", "*.txt", "**/*.txt", "**/*.model")
 
 
 def selection_metadata(selection: ModelSelection) -> dict[str, Any]:
@@ -27,31 +24,15 @@ def selection_metadata(selection: ModelSelection) -> dict[str, Any]:
     return metadata
 
 
-def download_configuration(
-    selection: ModelSelection, cache_directory: Path, local_files_only: bool
-) -> str:
-    from huggingface_hub import snapshot_download
-
-    return snapshot_download(
-        selection.source,
-        revision=selection.requested_revision,
-        cache_dir=cache_directory,
-        local_files_only=local_files_only,
-        allow_patterns=list(CONFIG_PATTERNS),
-    )
-
-
 def resolve_configuration_directory(
     selection: ModelSelection,
     preset: PipelinePreset,
     cache_directory: Path,
     local_files_only: bool,
 ) -> Path:
-    root = Path(
-        selection.source
-        if selection.is_local
-        else download_configuration(selection, cache_directory, local_files_only)
-    ).resolve()
+    if not selection.is_local:
+        raise ValueError("Model configuration requires an explicit local directory.")
+    root = Path(selection.source).resolve()
     index_path = root / "model_index.json"
     if not index_path.is_file():
         raise ValueError(f"Model configuration requires a local model_index.json: {root}")
@@ -252,6 +233,9 @@ def load_generation_pipeline(
     load_arguments: Mapping[str, Any],
     component_classes: Mapping[str, Any],
 ) -> tuple[Any, dict[str, Any]]:
+    if not selection.is_local or (config_selection is not None and not config_selection.is_local):
+        raise ValueError("Generation requires local model and configuration paths.")
+    load_arguments = {**load_arguments, "local_files_only": True}
     kind = "diffusers"
     configuration = None
     config_directory = None
@@ -316,11 +300,6 @@ def load_generation_pipeline(
                 {**_arguments_for_source(source, load_arguments), **overrides},
             )
     except Exception as error:
-        if _is_gated_repository_error(error):
-            raise SystemExit(
-                "Cannot access a gated model/configuration source. Accept its terms and "
-                "authenticate with `hf auth login`, then retry."
-            ) from None
         raise RuntimeError(f"Could not assemble the selected model/VAE: {error}") from error
 
     origins = {name: "model" for name, value in pipeline.components.items() if value is not None}

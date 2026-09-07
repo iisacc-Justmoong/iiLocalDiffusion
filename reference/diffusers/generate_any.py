@@ -30,15 +30,14 @@ IMAGE_INPUTS = frozenset({
     "last_image", "start_image", "end_image", "image_2", "image_3", "image_4",
 })
 IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
-IMMUTABLE_REVISION = re.compile(r"[0-9a-f]{40}\Z")
 UNSAFE_WEIGHTS = frozenset({".ckpt", ".pt", ".pth", ".pkl", ".pickle", ".bin"})
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("--model", required=True,
-                        help="Local Diffusers directory, .safetensors file, or pinned Hub repository")
-    parser.add_argument("--revision", help="Required immutable 40-character commit for a Hub repository")
+    parser.add_argument("--model", "--model-path", dest="model", required=True,
+                        help="Local Diffusers directory or .safetensors file")
+    parser.add_argument("--revision", help=argparse.SUPPRESS)
     parser.add_argument("--pipeline-class", help="Installed diffusers pipeline class; otherwise use model_index.json")
     parser.add_argument("--model-config", help="Local complete Diffusers configuration/extras for a single file")
     parser.add_argument("--base-model", help="Civitai identity checked against the selected pipeline architecture")
@@ -58,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps", "metal", "rocm"), default="auto")
     parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="float32")
     parser.add_argument("--offload", choices=("none", "model", "sequential"), default="none")
-    parser.add_argument("--local-files-only", action="store_true")
+    parser.add_argument("--local-files-only", action="store_true", default=True)
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "build/reference/generic-output")
     parser.add_argument("--audio-sample-rate", type=int,
@@ -123,6 +122,8 @@ def validate_input_descriptors(value: Any) -> None:
 
 def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
     result = argparse.Namespace(**vars(args))
+    if not args.local_files_only:
+        raise ValueError("Generation requires local-only model loading.")
     if not args.model.strip():
         raise ValueError("--model must not be empty.")
     source = Path(args.model).expanduser()
@@ -135,13 +136,8 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
         if not source.is_dir() and (not source.is_file() or source.suffix != ".safetensors" or not source.stat().st_size):
             raise ValueError("Local model files must be non-empty .safetensors files; use a Diffusers directory for other layouts.")
     else:
-        if (args.model.startswith(("/", "~", ".")) or "\\" in args.model
-                or not re.fullmatch(r"[\w.-]+/[\w.-]+", args.model)
-                or source.suffix in UNSAFE_WEIGHTS | {".safetensors", ".gguf"}):
-            raise ValueError(f"Local model does not exist, or invalid Hub repository: {args.model}")
-        if not args.revision or not IMMUTABLE_REVISION.fullmatch(args.revision):
-            raise ValueError("A remote --model requires --revision with an immutable lowercase 40-character commit SHA.")
-        result.source_kind = "hub"
+        raise ValueError(f"--model must be an existing local file or directory: {args.model}")
+    result.local_files_only = True
     if result.source_kind == "single-file":
         if not args.model_config:
             raise ValueError("A single-file model requires --model-config with a local Diffusers configuration directory and required extras.")
@@ -279,14 +275,10 @@ def validate_components(diffusers: Any, index: dict[str, Any], folder: Path | No
 
 
 def load_model_index(args: argparse.Namespace) -> tuple[dict[str, Any], Path | None]:
-    if args.source_kind == "hub":
-        from huggingface_hub import hf_hub_download
-        path = Path(hf_hub_download(args.model, "model_index.json", revision=args.revision,
-                                   cache_dir=str(args.cache_dir), local_files_only=args.local_files_only))
-        folder = None
-    else:
-        folder = Path(args.model_config if args.source_kind == "single-file" else args.model)
-        path = folder / "model_index.json"
+    if args.source_kind not in ("directory", "single-file"):
+        raise ValueError("Generation requires a local model source.")
+    folder = Path(args.model_config if args.source_kind == "single-file" else args.model)
+    path = folder / "model_index.json"
     return validate_model_index(read_json(path.read_text())), folder
 
 
@@ -330,14 +322,6 @@ def load_pipeline(args: argparse.Namespace, diffusers: Any, dtype: Any) -> tuple
     validate_base_model(args.base_model, pipeline_class, diffusers)
     # Validate user input names before allocating model weights, including **kwargs pipelines.
     validate_call_arguments(pipeline_class.__call__, args.inputs, seed=args.seed)
-    if args.source_kind == "hub":
-        folder = Path(pipeline_class.download(args.model, revision=args.revision,
-                      cache_dir=str(args.cache_dir), local_files_only=args.local_files_only,
-                      use_safetensors=True, trust_remote_code=False))
-        local_index = validate_model_index(read_json((folder / "model_index.json").read_text()))
-        if local_index != index:
-            raise RuntimeError("Downloaded model_index.json differs from the pinned index.")
-        validate_components(diffusers, local_index, folder)
     assert folder is not None
     if args.source_kind == "single-file":
         if not hasattr(pipeline_class, "from_single_file"):
@@ -670,7 +654,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.output_dir.exists() and not args.overwrite and any(args.output_dir.iterdir()):
             raise ValueError(f"Output directory is not empty: {args.output_dir}; choose a fresh directory or pass --overwrite.")
-        os.environ.setdefault("HF_XET_CACHE", str(ROOT / "build/reference/huggingface-xet"))
+        os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1")
         import torch
         import diffusers
         import numpy as np

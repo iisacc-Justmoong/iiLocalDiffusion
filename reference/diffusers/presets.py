@@ -276,9 +276,12 @@ def resolve_model_selection(
     revision_override: str | None,
     *,
     allow_single_file: bool = False,
+    local_only: bool = False,
     model_argument: str = "--model",
     revision_argument: str = "--revision",
 ) -> ModelSelection:
+    if local_only and model_override is None:
+        raise ValueError(f"{model_argument} requires an explicit local model path.")
     model = preset.model_id if model_override is None else model_override
     if not model:
         raise ValueError(f"{model_argument} must not be empty.")
@@ -292,6 +295,9 @@ def resolve_model_selection(
         if not local_model.is_dir():
             raise ValueError(f"Local model path is not a directory: {local_model}")
         return ModelSelection(str(local_model.resolve()), None, True)
+
+    if local_only:
+        raise ValueError(f"{model_argument} must be an existing local path: {model}")
 
     if (
         local_model.is_absolute()

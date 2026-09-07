@@ -10,6 +10,7 @@ import time
 from animation_video import AnimationOutput, encode_video, preflight_animation
 from hardware import accelerator_preflight, select_device
 from video_options import configuration
+from video_interpolator import interpolate_video, preflight_interpolator
 from weight_files import file_sha256
 
 
@@ -49,17 +50,10 @@ def load_tokenizer(directory, index):
 
 
 def load_pipeline(args, torch, dtype):
-    from diffusers import LTXConditionPipeline
-    directory = Path(args.model)
+    directory = Path(args.model).expanduser().resolve()
     if not directory.is_dir():
-        from huggingface_hub import snapshot_download
-        directory = Path(snapshot_download(args.model, revision=args.revision, cache_dir=str(args.cache_dir),
-                                           local_files_only=args.local_files_only,
-                                           allow_patterns=["model_index.json", "scheduler/*.json", "tokenizer/*",
-                                                           "text_encoder/*.json", "text_encoder/*.safetensors",
-                                                           "transformer/*.json", "transformer/*.safetensors",
-                                                           "vae/*.json", "vae/*.safetensors", "*.txt", "README.md"],
-                                           ignore_patterns=["*.py", "*.bin", "*.pt", "*.pkl"]))
+        raise ValueError("Video generation requires an existing local model directory.")
+    from diffusers import LTXConditionPipeline
     index = model_contract(directory)
     # Tokenizer conversion must succeed before hashing/loading multi-GB weights.
     tokenizer = load_tokenizer(directory, index)
@@ -193,14 +187,15 @@ def render_shots(pipeline, args, torch, device, embeddings, keyframes, output, i
     records, frame_records, previous = [], [], None
     for shot in args.shots:
         started = time.monotonic()
-        print(f"Video shot {shot['index'] + 1}/{len(args.shots)}: {shot['frames']} output frames", flush=True)
-        conditions = [LTXVideoCondition(image=keyframes[condition["image"]], frame_index=condition["frame"],
+        print(f"Video shot {shot['index'] + 1}/{len(args.shots)}: "
+              f"{shot['ltx_frames']} LTX source frames for {shot['frames']} output frames", flush=True)
+        conditions = [LTXVideoCondition(image=keyframes[condition["image"]], frame_index=condition["source_frame"],
                                         strength=condition["strength"]) for condition in shot["conditions"]]
         if shot["continue_previous"]:
             conditions.insert(0, LTXVideoCondition(image=previous, frame_index=0, strength=1.0))
         audit = VideoDenoisingAudit(torch, device)
         call = {"conditions": conditions or None, "height": args.height, "width": args.width,
-                "num_frames": shot["sample_frames"], "frame_rate": args.fps, "num_inference_steps": args.steps,
+                "num_frames": shot["sample_frames"], "frame_rate": shot["sampling_fps"], "num_inference_steps": args.steps,
                 "guidance_scale": args.guidance_scale, "max_sequence_length": args.max_sequence_length,
                 "generator": torch.Generator(device="cpu").manual_seed(shot["seed"]),
                 "decode_timestep": args.decode_timestep, "decode_noise_scale": args.decode_noise_scale,
@@ -221,12 +216,17 @@ def render_shots(pipeline, args, torch, device, embeddings, keyframes, output, i
             raise RuntimeError("Decoded video must contain finite RGB values in [0,1].")
         if len(audit.steps) != args.steps:
             raise RuntimeError("Video generation did not complete all requested temporal denoising steps.")
-        for local_index in range(shot["frames"]):
-            index = shot["start_frame"] + local_index
+        folder = output.frames
+        if args.interpolation_enabled:
+            folder = folder / "ltx" / f"shot-{shot['index']:04d}"
+            folder.mkdir(parents=True)
+        for local_index, position in enumerate(shot["source_positions"]):
+            index = shot["start_frame"] + position
             image = image_module.fromarray(np.rint(frames[0, local_index] * 255).astype(np.uint8))
-            path = output.frames / f"frame-{index:06d}.png"
+            path = folder / f"frame-{local_index if args.interpolation_enabled else index:06d}.png"
             image.save(path, format="PNG")
-            frame_records.append({"index": index, "shot": shot["index"], "file": path.name,
+            frame_records.append({"index": index, "shot": shot["index"], "source_index": local_index,
+                                  "file": str(path.relative_to(output.frames)),
                                   "sha256": file_sha256(path)})
             previous = image
         records.append({**shot, "denoising": audit.steps, "elapsed_seconds": time.monotonic() - started,
@@ -237,6 +237,7 @@ def render_shots(pipeline, args, torch, device, embeddings, keyframes, output, i
 
 def generate_video(args):
     environment = preflight_animation(args)
+    preflight_interpolator(args, environment)
     keyframes, keyframe_metadata = load_keyframes(args, environment["Image"])
     import torch
     import diffusers
@@ -251,14 +252,26 @@ def generate_video(args):
         pipeline, model, stamps = load_pipeline(args, torch, dtype)
         validate_captions(pipeline, args)
         embeddings, execution = prepare_execution(pipeline, args, torch, device, dtype)
-        shots, frames = render_shots(pipeline, args, torch, device, embeddings, keyframes,
-                                     output, environment["Image"])
+        shots, source_frames = render_shots(pipeline, args, torch, device, embeddings, keyframes,
+                                            output, environment["Image"])
+        verify_model_files(stamps)
+        del pipeline, embeddings
+        gc.collect()
+        stages = [{"name": "LTX", "method": "joint-spatiotemporal-diffusion",
+                   "output_frames": len(source_frames), "verified_finite_denoising": True}]
+        interpolation = {"enabled": False, "reason": "fps-at-most-12"}
+        frames = source_frames
+        if args.interpolation_enabled:
+            frames, interpolation = interpolate_video(args, shots, source_frames, output, environment)
+            stages.append({"name": "Interpolator", **interpolation})
         verify_model_files(stamps)
         encoded = encode_video(output.frames, output.video, args, environment)
         report = {"schema": "iild-temporal-video-v1", "status": "complete", "model": model,
-                  "method": "joint-spatiotemporal-diffusion", "camera_control": "text-conditioning",
+                  "method": ("joint-spatiotemporal-diffusion+motion-interpolation" if args.interpolation_enabled
+                             else "joint-spatiotemporal-diffusion"), "camera_control": "text-conditioning",
                   "shot_composition": "cut", "hardware": hardware, "execution": execution,
                   "configuration": configuration(args), "shots": shots, "frames": frames,
+                  "stages": stages, "interpolation": interpolation, "source_frames": source_frames,
                   "keyframes": list(keyframe_metadata.values()), "video": encoded,
                   "versions": {**environment["versions"], "torch": torch.__version__,
                                "diffusers": diffusers.__version__}}

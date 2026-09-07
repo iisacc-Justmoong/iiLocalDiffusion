@@ -4,8 +4,14 @@ These scripts preserve a known-good implementation against which future C++
 components can be compared. They are not called by the iiLocalDiffusion
 library.
 
+The unified launcher and image/video runners accept local `--model-path`
+(legacy `--model`), direct `--model-api`, or remote `--model-cloud` with
+`--model-provider`. See [model sources](../../docs/model-sources.md) for the API
+protocol, cloud provider adapter and local postprocessing. Local-model examples
+and tensor-loading contracts below continue to apply only to local sources.
+
 For Civitai models, start with `reference/generate.py --list-base-models` and
-`reference/generate.py --base-model Illustrious --print-config` from the repository
+`reference/generate.py --preset illustrious --model /absolute/path/image-diffusers --print-config` from the repository
 root. Named variants and compatible architecture presets supplement the original
 reference presets below. `generate_any.py` runs additional built-in Diffusers
 pipelines; `comfyui_runtime.py` executes explicit local API workflows. See
@@ -59,7 +65,7 @@ Generate the fixed 512 x 512 reference image:
 
 ```bash
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py
+  reference/diffusers/generate.py --model /absolute/path/image-diffusers
 ```
 
 Inspect SDXL Base and generate its fixed 1,024 x 1,024 reference image:
@@ -69,7 +75,7 @@ reference/diffusers/.venv/bin/python \
   reference/diffusers/inspect_pipeline.py --preset sdxl-base
 
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py --preset sdxl-base
+  reference/diffusers/generate.py --preset sdxl-base --model /absolute/path/image-diffusers
 ```
 
 Inspect FLUX.1-schnell and generate its fixed 1,024 x 1,024 reference image:
@@ -79,7 +85,7 @@ reference/diffusers/.venv/bin/python \
   reference/diffusers/inspect_pipeline.py --preset flux1-schnell
 
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py --preset flux1-schnell
+  reference/diffusers/generate.py --preset flux1-schnell --model /absolute/path/image-diffusers
 ```
 
 The official FLUX.1-schnell repository is gated even though its model license
@@ -140,7 +146,7 @@ activation, before offload hooks. `--cpu-threads N` controls PyTorch CPU
 intra-op parallelism (positive integer; default retains PyTorch's setting).
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \
   --offload model --output build/reference/sdxl-cpu-ram.png
 ```
@@ -167,14 +173,14 @@ oversized models fit automatically. See the
 
 ## Replace model components
 
-`generate.py --model` accepts a Diffusers directory, a pinned Hub repository,
+`generate.py --model` requires a local Diffusers directory,
 or an explicit local `.safetensors`/`.safetensor` file. `--vae` independently
 replaces the VAE with a local single file, and `--lora` adds an optional
 adapter. For example, use an SDXL checkpoint and separately selected VAE:
 
 ```bash
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py \
+  reference/diffusers/generate.py --model-config /absolute/path/model-config \
   --preset sdxl-base \
   --model /absolute/path/to/sdxl-checkpoint.safetensors \
   --vae /absolute/path/to/sdxl-vae.safetensors \
@@ -192,7 +198,7 @@ cross-family conversion.
 
 Single-file models still need configs, tokenizers, scheduler settings, and
 any neural components not embedded in the file. `--model-config` selects that
-Diffusers-format source, defaulting to the preset's pinned repository:
+explicit local Diffusers-format configuration source:
 
 ```bash
 reference/diffusers/.venv/bin/python \
@@ -204,21 +210,10 @@ reference/diffusers/.venv/bin/python \
   --local-files-only
 ```
 
-A remote `--model-config` override requires its immutable
-`--model-config-revision`, independently of `--revision` for a remote
-`--model`. With a directory/Hub model and `--vae`, the VAE config comes from
-that model source instead; `--model-config` is only for a single-file model.
-An original SD checkpoint uses its embedded UNet and text encoders and its
-embedded VAE unless overridden. A denoiser-only file instead uses the config
-source's text encoders and default VAE. Neither case is self-contained merely
-because the denoiser weights are a local file.
-
-VAE injection happens while constructing the pipeline, before compatibility
-validation, LoRA activation, or device/offload setup. Model and VAE file paths,
-resolved targets, SHA-256, byte sizes, configuration source, and component
-origins are recorded in the result metadata. The exact accepted inputs and
-failure boundaries are documented in
-[`model-inputs.md`](../../docs/model-inputs.md).
+`--model-config` must be an explicit local directory for a single-file model.
+It supplies configs, tokenizers and any neural components not embedded in the
+checkpoint. There is no default configuration repository. Model and adapter
+revision arguments are rejected; all model inputs are local paths.
 
 ## Optional LoRA
 
@@ -227,53 +222,17 @@ passed its contract:
 
 ```bash
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py \
+  reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset flux1-schnell \
   --lora /absolute/path/to/style.safetensors \
   --lora-scale 0.75 \
   --output build/reference/flux-style.png
 ```
 
-For a remote LoRA, pin both its commit and exact file:
-
-```bash
-reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py \
-  --preset flux1-schnell \
-  --lora owner/adapter-repository \
-  --lora-revision 0123456789abcdef0123456789abcdef01234567 \
-  --lora-weight-name adapter.safetensors \
-  --lora-scale 1.0
-```
-
-Only an explicitly provided adapter is loaded. The loader forces safetensors,
-uses the fixed internal name `iild_lora`, activates the finite scale with
-`set_adapters()`, verifies registration, and applies device/offload policy
-afterward. Optional CPU text encoding occurs between activation and offload,
-so encoder LoRA weights affect the computed embeddings. Local adapters are
-identified by SHA-256 and byte size; remote
-adapters require an immutable revision. A default LoRA output uses a separate
-`*-lora.png` name; custom-model and VAE suffixes compose with it. See the
-[`LoRA generation contract`](../../docs/lora.md) for compatibility and
-licensing limits.
-
-Use `--local-files-only` after the pinned snapshot is cached. Existing outputs
-are not overwritten unless `--overwrite` is explicit. A remote `--model`
-override must also provide a 40-character commit `--revision`; a local model
-directory or file rejects `--revision`. A local `.safetensor` input is
-temporarily exposed to Diffusers through a `.safetensors` symlink so it cannot
-select Diffusers' pickle branch. The target's identity is checked before and
-after loading, and no weight bytes are copied or rewritten for this alias.
-
-Without `--output`, an explicit `--model` or `--revision` adds `-custom`,
-`--vae` adds `-vae`, `--lora` adds `-lora`, `--text-embedding` adds
-`-embedding`, and `--controlnet` adds
-`-controlnet`, followed by `-hires` when `--hires-fix` is enabled. For example, an
-SDXL run with all three inputs defaults to
-`build/reference/sdxl-base-red-cube-custom-vae-lora.png`. Existing output and
-sidecar files still require `--overwrite` before replacement.
-When output was omitted, a collision instead chooses an unused
-`-run-0002` (or later) filename without replacing the original.
+LoRA adapters must be local files or directories. Directory inputs require an
+exact weight filename. Model, configuration and adapter Hub IDs are rejected;
+all local-source tensor loading is local-only. See [local model arguments](../../docs/local-model-generation.md)
+for image, animation and temporal-video examples.
 
 ## Optional learned text embeddings
 
@@ -282,7 +241,7 @@ Inversion weights into the tokenizer and text encoder so they can be used
 as learned tokens in a prompt:
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sd15 --text-embedding /absolute/path/to/style.safetensors \
   --text-embedding-token '<style>' --text-embedding-encoder text_encoder \
   --prompt 'a ceramic cup in <style> style' --hires-fix
@@ -304,7 +263,7 @@ Pass a compatible ControlNet and a local image already prepared for its
 conditioning task. One ControlNet is supported with each existing preset:
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sdxl-base \
   --controlnet /absolute/path/to/sdxl-controlnet-package \
   --control-image /absolute/path/to/prepared-depth.png \
@@ -320,11 +279,9 @@ and the interval requires `0 <= start < end <= 1`. The scale alias is
 FLUX Union models use a required model-specific `--control-mode` instead.
 Nonzero `--guidance-rescale` is unsupported by these ControlNet pipelines.
 
-`--controlnet` accepts a local Diffusers component directory, a remote
-repository with `--controlnet-revision`, or a local `.safetensors` /
+`--controlnet` accepts a local Diffusers component directory or a local `.safetensors` /
 `.safetensor` file. A single file uses a sibling `config.json` when present;
-otherwise provide `--controlnet-config` as a component configuration directory
-or pinned repository, using `--controlnet-config-revision` for the latter.
+otherwise provide `--controlnet-config` as a local component configuration directory.
 Native Diffusers tensor names work in all three families; supported
 original-format SD/SDXL ControlNet files use Diffusers' conversion loader.
 `--controlnet-variant` independently chooses package filenames such as
@@ -346,7 +303,7 @@ The SD1/SDXL/FLUX family presets support repeated img2img refinement, with or wi
 ControlNet and with the existing model/VAE/LoRA choices:
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sdxl-base --width 1024 --height 1024 \
   --hires-fix --hires-passes 2 --hires-scale 1.5 --hires-upscaler lanczos \
   --hires-denoising-strength 0.35 --hires-steps 30 \
@@ -473,8 +430,9 @@ Those facts are not a product safety policy.
 
 ## Deforum animation
 
-`generate.py --animation-mode 2D` adds scheduled 2D feedback and verified MP4
-output. The unified launcher accepts `--backend deforum`. Install optional
+`generate.py --animation-mode 2D` adds scheduled 2D feedback and verified MP4/GIF
+output. The unified launcher accepts `--backend deforum`. This mode defaults to
+12 FPS and requires FPS <= 12 or GIF output. Install optional
 `requirements-deforum.txt` alongside this environment and provide FFmpeg/FFprobe.
 See [the full guide](../../docs/deforum-video.md) and `deforum.example.json`.
 
@@ -483,14 +441,21 @@ See [the full guide](../../docs/deforum-video.md) and `deforum.example.json`.
 `generate.py --animation-mode Interpolator` blends start/end prompt embeddings
 and seeded noise before a full diffusion pass for each frame. The unified
 launcher accepts `--backend interpolator`, `--end-prompt` and `--end-seed`.
-Both endpoints are CPU-encoded once before GPU/offload setup. MP4 publication
+Both endpoints are CPU-encoded once before GPU/offload setup. This mode defaults
+to 12 FPS and requires FPS <= 12 or GIF output. MP4/GIF publication
 uses the shared `animation_video.py`; OpenCV is not required. Provide FFmpeg
 and FFprobe alongside the existing environment. See
 [the guide](../../docs/interpolator-video.md) and `interpolator.example.json`.
 
 ## Directed temporal video
 
-The installed front door supports `--backend video` with LTX video diffusion,
+The installed front door defaults ordinary video requests to local LTX at
+24 FPS followed by a frame Interpolator. `--fps` is the final rate;
+`--interpolation-factor` defaults to 2 and accepts 2–8. The CPU postprocess
+reuses FFmpeg `minterpolate` and requires no additional model.
+FPS <= 12 or GIF selects image-model animation. Explicit LTX requests
+can also use low FPS. See [video selection](../../docs/local-model-generation.md).
+It supports `--backend video` with LTX video diffusion,
 camera motion descriptions, image keyframes and shot plans. Install
 `requirements-video.txt` alongside this environment for the T5 SentencePiece
 tokenizer. Run

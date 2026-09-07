@@ -7,6 +7,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser
 from unittest.mock import Mock, patch
 
 
@@ -71,7 +72,7 @@ class ResourcePolicyTests(unittest.TestCase):
         self.model_directory = Path(temporary.name)
 
     def test_cli_exposes_cpu_and_ram_options(self):
-        args = generate.build_parser().parse_args([
+        args = local_parser(generate.build_parser).parse_args([
             "--cpu-text-encoding", "--cpu-threads", "4", "--offload", "model"
         ])
         self.assertTrue(args.cpu_text_encoding)
@@ -79,7 +80,7 @@ class ResourcePolicyTests(unittest.TestCase):
         self.assertEqual(args.offload, "model")
 
     def test_cpu_threads_must_be_positive(self):
-        preset, args = generate.resolve_arguments(generate.build_parser().parse_args([
+        preset, args = generate.resolve_arguments(local_parser(generate.build_parser).parse_args([
             "--cpu-threads", "0"
         ]))
         with self.assertRaisesRegex(SystemExit, "CPU threads"):
@@ -244,7 +245,7 @@ class ResourcePolicyTests(unittest.TestCase):
                 arguments = ["--preset", preset.name]
                 if preset.requires_model_override:
                     arguments.extend(["--model", str(self.model_directory)])
-                _, args = generate.resolve_arguments(generate.build_parser().parse_args(arguments))
+                _, args = generate.resolve_arguments(local_parser(generate.build_parser).parse_args(arguments))
                 conditioning = cpu_conditioning.CpuConditioning({"prompt_embeds": FakeTensor()}, {})
                 arguments = generate.build_pipeline_call_arguments(
                     preset, args, "generator", conditioning, "cuda", "bfloat16")
@@ -280,7 +281,7 @@ class ResourcePolicyTests(unittest.TestCase):
             self.assertEqual(place.call_args.kwargs["offload"], requested)
 
     def test_cpu_encoding_receives_secondary_prompts_clip_skip_and_dtype(self):
-        preset, args = generate.resolve_arguments(generate.build_parser().parse_args([
+        preset, args = generate.resolve_arguments(local_parser(generate.build_parser).parse_args([
             "--preset", "sdxl-base", "--prompt-2", "second", "--negative-prompt-2", "bad second",
             "--clip-skip", "2", "--num-images", "3", "--cpu-text-dtype", "bfloat16"
         ]))
@@ -301,7 +302,7 @@ class ResourcePolicyTests(unittest.TestCase):
         self.assertNotIn("negative_prompt_2", call)
 
     def test_flux_cpu_encoding_preexpands_batch_and_encodes_true_cfg_negatives(self):
-        preset, args = generate.resolve_arguments(generate.build_parser().parse_args([
+        preset, args = generate.resolve_arguments(local_parser(generate.build_parser).parse_args([
             "--preset", "flux1-schnell", "--num-images", "3", "--max-sequence-length", "128",
             "--true-cfg-scale", "2", "--prompt-2", "second", "--negative-prompt", "bad",
             "--negative-prompt-2", "bad second",

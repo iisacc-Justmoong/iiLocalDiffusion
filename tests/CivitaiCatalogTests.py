@@ -12,9 +12,9 @@ sys.path.insert(0, str(ROOT / "reference" / "diffusers"))
 import civitai_catalog
 
 
-# Independent name fixture from Civitai ec49115e55d7c85722ec6223ec342c36df59c9d4.
+# Selected-name fixture from Civitai ec49115e55d7c85722ec6223ec342c36df59c9d4.
 # Hidden and disabled entries deliberately remain in the compatibility surface.
-UPSTREAM_NAMES = set("""
+CATALOG_NAMES = set("""
 Anima|AuraFlow|Chroma|CogVideoX|Ernie|Flux.1 S|Flux.1 D|Flux.1 Krea|Flux.1 Kontext
 Flux.2 D|Flux.2 Klein 9B|Flux.2 Klein 9B-base|Flux.2 Klein 4B|Flux.2 Klein 4B-base
 Flux 3 Video|Grok|HappyHorse|HiDream|HiDream-O1|Hunyuan 1|Hunyuan Video|Ideogram 4.0
@@ -28,16 +28,16 @@ Seedream|SVD|SVD XT|Sora 2|Veo 3|Wan Video|Wan Video 1.3B t2v|Wan Video 14B t2v
 Wan Video 14B i2v 480p|Wan Video 14B i2v 720p|Wan Video 2.2 TI2V-5B
 Wan Video 2.2 I2V-A14B|Wan Video 2.2 T2V-A14B|Wan Video 2.5 T2V|Wan Video 2.5 I2V
 Wan Image 2.7|Wan Video 2.7|Wan Video 3.0|ZImageTurbo|ZImageBase|Vidu Q1|MiniMax H3
-Kling|Seedance|ACE Audio|MiniMax Music 3|PolyGen|Tripo|Hunyuan3D|Pixal3D|Trellis.2
+Kling|ACE Audio|MiniMax Music 3|PolyGen|Tripo|Hunyuan3D|Pixal3D|Trellis.2
 """.strip().replace("\n", "|").split("|"))
 
 
 class CivitaiCatalogTests(unittest.TestCase):
-    def test_every_upstream_name_has_one_record(self):
+    def test_every_selected_name_has_one_record(self):
         rows = civitai_catalog.list_base_models()
-        self.assertEqual(len(UPSTREAM_NAMES), 105)
-        self.assertEqual(len(rows), 105)
-        self.assertEqual({row["name"] for row in rows}, UPSTREAM_NAMES)
+        self.assertEqual(len(CATALOG_NAMES), 104)
+        self.assertEqual(len(rows), 104)
+        self.assertEqual({row["name"] for row in rows}, CATALOG_NAMES)
 
     def test_snapshot_is_pinned_and_auditable(self):
         source = civitai_catalog.CATALOG_SOURCE
@@ -45,7 +45,8 @@ class CivitaiCatalogTests(unittest.TestCase):
         self.assertIn(source["commit"], source["url"])
         self.assertEqual(source["retrieved_at"], "2026-09-04")
         self.assertRegex(source["file_sha256"], r"^[0-9a-f]{64}$")
-        self.assertEqual(source["base_model_count"], len(UPSTREAM_NAMES))
+        self.assertEqual(source["base_model_count"], len(CATALOG_NAMES))
+        self.assertEqual(source["upstream_base_model_count"], 105)
         for source in civitai_catalog.UPSTREAM_SOURCES.values():
             self.assertRegex(source["commit"], r"^[0-9a-f]{40}$")
             self.assertIn(source["commit"], source["url"])
@@ -136,7 +137,7 @@ class CivitaiCatalogTests(unittest.TestCase):
         rows = civitai_catalog.list_base_models()
         rows[0]["sources"].clear()
         rows.pop()
-        self.assertEqual(len(civitai_catalog.list_base_models()), 105)
+        self.assertEqual(len(civitai_catalog.list_base_models()), 104)
         self.assertTrue(civitai_catalog.list_base_models()[0]["sources"])
 
 

@@ -1,12 +1,22 @@
 # Interpolator video generation
 
-`iild-generate --backend interpolator` generates an H.264 MP4 by interpolating
+`iild-generate --backend interpolator` generates an H.264 MP4 or animated GIF by interpolating
 the text conditioning and initial noise between two endpoints. The equivalent
 preset-runner/Python configuration is `animation_mode="Interpolator"`.
 Every frame, including both endpoints, receives a full text-to-image diffusion
 pass. This is prompt/seed interpolation, not optical-flow frame insertion or
 an image crossfade. Deforum's camera/previous-frame feedback remains a separate
 [2D mode](deforum-video.md).
+
+Interpolator is restricted to **FPS <= 12 or GIF output**; its default is 12 FPS.
+Other automatic video requests use local LTX at 24 FPS. See the
+[shared video selection and GIF rules](local-model-generation.md#images-and-animations-from-the-same-image-model).
+
+This guide covers standalone **image-model prompt/seed animation**. Ordinary
+LTX video instead uses the [post-LTX frame Interpolator](temporal-video.md#ltx-followed-by-frame-interpolation)
+to insert frames into an already generated temporal sequence. That second stage
+uses FFmpeg motion compensation, needs only the LTX source frames, and runs
+for final FPS above 12. It does not load this guide's image-model pipeline.
 
 The method follows the prompt/seed semantics of the official
 [DiffusionBee Interpolator](https://github.com/divamgupta/diffusionbee-stable-diffusion-ui/blob/master/backends/stable_diffusion/applets/frame_interpolator.py).
@@ -21,7 +31,8 @@ change composition considerably and do not guarantee motion continuity.
 ## Usage
 
 Use the existing pinned Diffusers Python environment with FFmpeg and FFprobe
-on PATH. FFmpeg must expose `libx264`. Interpolator requires no new Python
+on PATH. FFmpeg must expose `libx264` for MP4, or its GIF encoder and palette
+filters for GIF. Interpolator requires no new Python
 dependency, no OpenCV and no interpolation model download.
 
 ```sh
@@ -30,7 +41,7 @@ reference/diffusers/.venv/bin/python reference/generate.py \
   --model /absolute/path/to/diffusers-model --local-files-only \
   --prompt 'a city at sunrise' --end-prompt 'a forest at sunrise' \
   --negative-prompt 'blur, low quality' \
-  --seed 42 --end-seed 43 --max-frames 120 --fps 24 --steps 20 \
+  --seed 42 --end-seed 43 --max-frames 120 --fps 12 --steps 20 \
   --output build/interpolator.mp4
 ```
 
@@ -46,7 +57,8 @@ at `(max_frames - 1) / fps`.
 | `end_prompt`, `end_negative_prompt` | Starting text | Final positive and negative text |
 | `end_prompt_2`, `end_negative_prompt_2` | Final primary text, or explicitly supplied starting secondary text | Final SDXL/FLUX secondary-encoder text |
 | `end_seed` | `seed` | Final initial-noise seed, in `[-2^63, 2^64-1]` |
-| `max_frames`, `fps` | 120, 24 | Frame count and playback rate; FPS at most 240 |
+| `max_frames` / `frames`, `fps` | 120, 12 | MP4: positive FPS at most 12; GIF: `100/65535` to 100 |
+| `duration` | none | Seconds rounded to frames; exclusive with a frame count |
 | `video_crf`, `video_preset` | 18, `medium` | H.264 quality and encoding speed |
 | `ffmpeg`, `ffprobe` | Executable names | Override media tool paths |
 | `encoding_timeout` | 300 | Encoding/decode verification timeout in seconds |
@@ -58,7 +70,7 @@ Python values use the same strict schema as CLI arguments; CLI overrides JSON.
 importing Torch or media packages, loading weights or running FFmpeg.
 
 ```sh
-python3 reference/generate.py --backend interpolator \
+python3 reference/generate.py --backend interpolator --model /absolute/path/image-diffusers \
   --config reference/diffusers/interpolator.example.json --print-config
 ```
 
@@ -94,7 +106,7 @@ to a standalone image generated with the end seed, even though its initial
 latent and conditioning are exact. Hardware/runtime changes can also change
 pixels. Deterministic samplers are preferable for smoother transitions.
 
-The mode requires `num_images=1`, complete denoising and `.mp4` output. HiRes Fix,
+The mode requires `num_images=1`, complete denoising and `.mp4` or `.gif` output. HiRes Fix,
 external latent/embedding files, SDXL early stopping and Deforum-specific
 camera/prompt schedules/seed policies are rejected. Nonzero guidance rescale
 with ControlNet is rejected. All other generation settings stay fixed across
@@ -111,10 +123,12 @@ only endpoint tensors and the current frame remain in memory, while compact
 per-frame provenance accumulates for the JSON report. The report records
 endpoint configuration, model/adapter identity, tensor shapes and canonical
 float32 hashes, interpolation fraction, actual denoising timesteps, finite
-latent status, PNG hashes and decoded MP4 properties.
+latent status, PNG hashes and decoded MP4/GIF properties.
 
 The shared `animation_video.py` verifies H.264/yuv420p, dimensions, frame count,
-FPS and duration by decoding with FFprobe. It publishes the completion report
+FPS and duration by decoding with FFprobe. GIF decoding uses Pillow to check
+frames, dimensions, loop and duration with 10 ms timing resolution.
+It publishes the completion report
 last and restores previous output on ordinary sampling/encoding/publication
 failure. Default output names receive a numbered suffix on collision; explicit
 paths require `--overwrite` for replacement. Unmanaged frame directories and

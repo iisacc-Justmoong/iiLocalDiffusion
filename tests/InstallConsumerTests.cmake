@@ -78,7 +78,8 @@ if(PYTHON_REFERENCE_ENABLED)
             diffusers/deforum_video.py diffusers/deforum.example.json diffusers/requirements-deforum.txt
             diffusers/animation_options.py diffusers/animation_video.py
             diffusers/interpolator_options.py diffusers/interpolator_runtime.py diffusers/interpolator.example.json
-            diffusers/generate_video.py diffusers/video_options.py diffusers/video_runtime.py
+            diffusers/generate_video.py diffusers/video_options.py diffusers/video_runtime.py diffusers/video_interpolator.py
+            diffusers/model_sources.py diffusers/remote_inference.py diffusers/remote_generation.py
             diffusers/video.example.json diffusers/video-storyboard.example.json diffusers/requirements-video.txt
             diffusers/civitai_catalog.json diffusers/requirements.txt diffusers/requirements-common.txt)
         if(NOT EXISTS "${installed_reference}/${resource}")
@@ -89,7 +90,34 @@ if(PYTHON_REFERENCE_ENABLED)
         execute_process(
             COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
                 "${PYTHON_EXECUTABLE}" "${installed_launcher}"
-                --backend video --duration 3 --camera dolly-in pan-left --print-config
+                --model-api https://inference.example/image --print-config
+            WORKING_DIRECTORY "${source_directory}"
+            RESULT_VARIABLE api_result OUTPUT_VARIABLE api_output ERROR_VARIABLE api_error)
+        if(NOT api_result EQUAL 0)
+            message(FATAL_ERROR "Relocated API model configuration failed: ${api_error}")
+        endif()
+        string(JSON api_model GET "${api_output}" model_api)
+        if(NOT api_model STREQUAL "https://inference.example/image")
+            message(FATAL_ERROR "Relocated API model source was not preserved")
+        endif()
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
+                "${PYTHON_EXECUTABLE}" "${installed_launcher}"
+                --model-cloud owner/model --model-provider fal-ai --print-config
+            WORKING_DIRECTORY "${source_directory}"
+            RESULT_VARIABLE cloud_result OUTPUT_VARIABLE cloud_output ERROR_VARIABLE cloud_error)
+        if(NOT cloud_result EQUAL 0)
+            message(FATAL_ERROR "Relocated cloud model configuration failed: ${cloud_error}")
+        endif()
+        string(JSON cloud_model GET "${cloud_output}" model_cloud)
+        string(JSON cloud_provider GET "${cloud_output}" model_provider)
+        if(NOT cloud_model STREQUAL "owner/model" OR NOT cloud_provider STREQUAL "fal-ai")
+            message(FATAL_ERROR "Relocated cloud provider/model source was not preserved")
+        endif()
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
+                "${PYTHON_EXECUTABLE}" "${installed_launcher}"
+                --backend video --model-path "${FIXTURE}" --duration 3 --camera dolly-in pan-left --print-config
             WORKING_DIRECTORY "${source_directory}"
             RESULT_VARIABLE video_result OUTPUT_VARIABLE video_output ERROR_VARIABLE video_error)
         if(NOT video_result EQUAL 0)
@@ -104,7 +132,22 @@ if(PYTHON_REFERENCE_ENABLED)
         execute_process(
             COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
                 "${PYTHON_EXECUTABLE}" "${installed_launcher}"
-                --backend deforum --max-frames 5 --fps 12 --print-config
+                --model "${FIXTURE}" --output "${binary_directory}/default.mp4" --max-frames 9 --print-config
+            WORKING_DIRECTORY "${source_directory}"
+            RESULT_VARIABLE default_video_result OUTPUT_VARIABLE default_video_output ERROR_VARIABLE default_video_error)
+        if(NOT default_video_result EQUAL 0)
+            message(FATAL_ERROR "Relocated default LTX route failed: ${default_video_error}")
+        endif()
+        string(JSON default_video_backend GET "${default_video_output}" backend)
+        string(JSON default_video_fps GET "${default_video_output}" fps)
+        string(JSON default_video_factor GET "${default_video_output}" interpolation_factor)
+        if(NOT default_video_backend STREQUAL "video" OR NOT default_video_fps EQUAL 24 OR NOT default_video_factor EQUAL 2)
+            message(FATAL_ERROR "Ordinary video must default to LTX and 2x frame interpolation at 24 FPS")
+        endif()
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
+                "${PYTHON_EXECUTABLE}" "${installed_launcher}"
+                --model "${FIXTURE}" --max-frames 5 --fps 12 --print-config
             WORKING_DIRECTORY "${source_directory}"
             RESULT_VARIABLE animation_result OUTPUT_VARIABLE animation_output ERROR_VARIABLE animation_error)
         if(NOT animation_result EQUAL 0)
@@ -121,7 +164,7 @@ if(PYTHON_REFERENCE_ENABLED)
         execute_process(
             COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
                 "${PYTHON_EXECUTABLE}" "${installed_launcher}"
-                --backend interpolator --end-prompt forest --end-seed 43 --max-frames 3 --print-config
+                --backend interpolator --model "${FIXTURE}" --end-prompt forest --end-seed 43 --max-frames 3 --print-config
             WORKING_DIRECTORY "${source_directory}"
             RESULT_VARIABLE interpolation_result OUTPUT_VARIABLE interpolation_output ERROR_VARIABLE interpolation_error)
         if(NOT interpolation_result EQUAL 0)
@@ -135,6 +178,32 @@ if(PYTHON_REFERENCE_ENABLED)
            OR NOT interpolation_seed EQUAL 43 OR NOT interpolation_path MATCHES "\\.mp4$")
             message(FATAL_ERROR "Relocated Interpolator configuration lost its endpoints")
         endif()
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
+                "${PYTHON_EXECUTABLE}" "${installed_launcher}"
+                --model "${FIXTURE}" --end-prompt forest --fps 24 --frames 3
+                --output "${binary_directory}/transition.GIF" --print-config
+            WORKING_DIRECTORY "${source_directory}"
+            RESULT_VARIABLE gif_result OUTPUT_VARIABLE gif_output ERROR_VARIABLE gif_error)
+        if(NOT gif_result EQUAL 0)
+            message(FATAL_ERROR "Relocated high-FPS GIF route failed: ${gif_error}")
+        endif()
+        string(JSON gif_mode GET "${gif_output}" animation_mode)
+        string(JSON gif_fps GET "${gif_output}" fps)
+        if(NOT gif_mode STREQUAL "Interpolator" OR NOT gif_fps EQUAL 24)
+            message(FATAL_ERROR "GIF must allow image-model animation above 12 FPS")
+        endif()
+        foreach(animation_backend IN ITEMS deforum interpolator)
+            execute_process(
+                COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
+                    "${PYTHON_EXECUTABLE}" "${installed_launcher}"
+                    --backend "${animation_backend}" --model "${FIXTURE}" --fps 24 --print-config
+                WORKING_DIRECTORY "${source_directory}"
+                RESULT_VARIABLE forbidden_result ERROR_VARIABLE forbidden_error)
+            if(forbidden_result EQUAL 0 OR NOT forbidden_error MATCHES "FPS <= 12 or GIF")
+                message(FATAL_ERROR "Relocated ${animation_backend} bypassed the FPS/GIF policy: ${forbidden_error}")
+            endif()
+        endforeach()
         foreach(expected_passes IN ITEMS 1 3)
             set(hires_arguments --hires-fix)
             if(expected_passes EQUAL 3)
@@ -143,7 +212,7 @@ if(PYTHON_REFERENCE_ENABLED)
             execute_process(
                 COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
                     "${PYTHON_EXECUTABLE}" "${installed_launcher}"
-                    --backend preset ${hires_arguments} --print-config
+                    --backend preset --model "${FIXTURE}" ${hires_arguments} --print-config
                 WORKING_DIRECTORY "${source_directory}"
                 RESULT_VARIABLE generation_result
                 OUTPUT_VARIABLE generation_output

@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference" / "diffusers"))
@@ -43,7 +44,7 @@ class AlternativeScheduler(FakeScheduler):
 
 class GenerationSchedulerTests(unittest.TestCase):
     def args(self, *tokens):
-        _, args = generate.resolve_arguments(generate.build_parser().parse_args(list(tokens)))
+        _, args = generate.resolve_arguments(local_parser(generate.build_parser).parse_args(list(tokens)))
         return args
 
     def test_default_retains_loaded_scheduler_identity(self):

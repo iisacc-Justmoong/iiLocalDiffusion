@@ -6,12 +6,9 @@ import argparse
 import json
 import math
 from pathlib import Path
-import re
 
 from generation_config import ConfigurationArgumentParser, json_object
 
-MODEL_ID = "Lightricks/LTX-Video-0.9.5"
-MODEL_REVISION = "e58e28c39631af4d1468ee57a853764e11c1d37e"
 ROOT = Path(__file__).resolve().parents[2]
 CAMERA_MOTIONS = {
     "none": "",
@@ -41,10 +38,12 @@ def build_parser():
     parser.add_argument("--backend", choices=("video",), default="video")
     parser.add_argument("--print-config", action="store_true")
     parser.add_argument("--list-camera-motions", action="store_true")
-    parser.add_argument("--model", default=MODEL_ID, help="Local LTX Diffusers directory or Hub model ID")
-    parser.add_argument("--revision", help="Immutable Hub commit; pinned automatically for the default model")
+    from model_sources import add_model_arguments
+    add_model_arguments(parser, local_help="Local LTX Diffusers model directory")
+    parser.add_argument("--revision", help=argparse.SUPPRESS)
     parser.add_argument("--cache-dir", type=Path, default=ROOT / "build/reference/huggingface")
-    parser.add_argument("--local-files-only", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--local-files-only", action=argparse.BooleanOptionalAction, default=True,
+                        help="Local model loading is mandatory; disabling it is rejected")
     parser.add_argument("--prompt", default="A red cube rotates slowly on a white table in a bright studio.")
     parser.add_argument("--negative-prompt", default="blurry, distorted, inconsistent motion, flicker")
     parser.add_argument("--camera", nargs="+", choices=tuple(CAMERA_MOTIONS), default=["none"])
@@ -53,9 +52,12 @@ def build_parser():
     parser.add_argument("--storyboard", type=Path, help="JSON shot list; each shot may have image keyframes")
     parser.add_argument("--width", type=int, default=704)
     parser.add_argument("--height", type=int, default=480)
-    parser.add_argument("--frames", type=int, help="Output frames per shot; exclusive with --duration")
+    parser.add_argument("--frames", "--max-frames", type=int, help="Output frames per shot; exclusive with --duration")
     parser.add_argument("--duration", type=float, help="Seconds per shot (default: 5); rounded to output frames")
     parser.add_argument("--fps", type=float, default=24)
+    parser.add_argument("--interpolation-factor", type=int, default=2,
+                        help="LTX source-frame spacing in output frames, 2..8 (default: 2); "
+                             "FPS > 12 uses the frame Interpolator after LTX")
     parser.add_argument("--steps", type=int, default=30)
     parser.add_argument("--guidance-scale", type=float, default=3)
     parser.add_argument("--max-sequence-length", type=int, default=256)
@@ -184,8 +186,17 @@ def plan_shots(args):
         indices = [condition["frame"] for condition in conditions]
         if len(set(indices)) != len(indices) or (continuity and 0 in indices):
             raise ValueError("A frame may have only one image condition, including continue_previous.")
+        # Preserve the exact output timeline, including off-grid image anchors
+        # and the last frame. Only intervening frames belong to the interpolator.
+        spacing = args.interpolation_factor if args.interpolation_enabled else 1
+        positions = sorted({*range(0, frames, spacing), frames - 1, *indices})
+        for condition in conditions:
+            condition["source_frame"] = positions.index(condition["frame"])
+        source_count = len(positions)
         result.append({"index": index, "start_frame": offset, "frames": frames,
-                       "sample_frames": ((frames - 1 + 7) // 8) * 8 + 1,
+                       "source_positions": positions, "ltx_frames": source_count,
+                       "sampling_fps": args.fps * (source_count - 1) / (frames - 1),
+                       "sample_frames": ((source_count - 1 + 7) // 8) * 8 + 1,
                        "seed": seed, "prompt": prompt, "negative_prompt": negative, "camera": list(camera),
                        "effective_prompt": (motion + " " + prompt.strip()).strip(),
                        "conditions": sorted(conditions, key=lambda condition: condition["frame"]),
@@ -200,6 +211,7 @@ def resolve_options(args):
         if value % 32:
             raise ValueError(f"{name} must be divisible by 32 for the LTX Video VAE.")
     _number(args.fps, "fps", 0.01, 240)
+    _integer(args.interpolation_factor, "interpolation_factor", 2, 8)
     _integer(args.steps, "steps", 1, 1000)
     _integer(args.seed, "seed", 0, 2**63 - 1)
     _integer(args.max_sequence_length, "max_sequence_length", 16, 512)
@@ -210,20 +222,19 @@ def resolve_options(args):
         _number(getattr(args, name), name, 0, 1)
     if args.device == "cpu" and args.offload in ("model", "sequential"):
         raise ValueError("RAM offload requires a GPU execution device.")
-    if not args.model:
-        raise ValueError("model must be a local LTX Diffusers directory or a Hub model ID.")
-    model = Path(args.model).expanduser()
-    if model.is_dir():
-        args.model = str(model.resolve())
-        if args.revision is not None:
-            raise ValueError("A local model directory cannot have a Hub revision.")
-    else:
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.model):
-            raise ValueError("model must be an existing local directory or a Hub model ID.")
-        if args.revision is None and args.model == MODEL_ID:
-            args.revision = MODEL_REVISION
-        if not args.revision or not re.fullmatch(r"[0-9a-f]{40}", args.revision):
-            raise ValueError("A Hub video model requires an immutable 40-character revision.")
+    from model_sources import resolve_model_input
+    args.model_input = resolve_model_input(args)
+    if args.model_input.kind == "local":
+        model = Path(args.model_input.location)
+        if not model.is_dir():
+            raise ValueError(f"--model must be an existing local LTX Diffusers directory: {args.model}")
+        args.model = str(model)
+    elif args.model_input.family != "ltx":
+        raise ValueError("Remote video requires --model-family ltx and an endpoint/provider serving LTX weights.")
+    if args.revision is not None:
+        raise ValueError("Generation model inputs do not accept a Hub revision.")
+    if not args.local_files_only:
+        raise ValueError("Video generation requires local model files; --no-local-files-only is unsupported.")
     args.cache_dir = args.cache_dir.expanduser().resolve()
     for name in ("storyboard", "first_frame", "last_frame"):
         if getattr(args, name) is not None:
@@ -232,6 +243,7 @@ def resolve_options(args):
     args.output = (args.output or ROOT / "build/reference/video.mp4").expanduser().absolute()
     if args.output.suffix.lower() != ".mp4":
         raise ValueError("Video output must use the .mp4 extension.")
+    args.interpolation_enabled = args.fps > 12
     args.shots = plan_shots(args)
     from animation_video import output_targets
     targets = [path.resolve() for path in output_targets(args.output)]
@@ -249,7 +261,11 @@ def resolve_options(args):
 def configuration(args):
     # Keep the input vocabulary replayable; the generated shot plan belongs in
     # the output sidecar, not in a config that the parser could not load again.
+    remote = args.model_input.kind != "local"
+    local_controls = {"device", "dtype", "offload", "cpu_text_encoding", "vae_tiling", "max_sequence_length",
+                      "decode_timestep", "decode_noise_scale", "image_cond_noise_scale", "cache_dir", "local_files_only"}
     return {name: str(value) if isinstance(value, Path) else value
             for name in args._argument_names
             if name != "list_camera_motions"
+            if not (remote and name in local_controls)
             for value in (getattr(args, name),)}

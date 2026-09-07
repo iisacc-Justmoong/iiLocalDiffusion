@@ -18,7 +18,7 @@ before refinement. Every pass uses the same configured resize and img2img
 settings with fresh scheduler and generator state. Strength zero is rejected.
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sd15 --width 512 --height 512 \
   --hires-fix --hires-passes 2 --hires-scale 2 --hires-upscaler lanczos \
   --hires-denoising-strength 0.35 --hires-steps 30 \
@@ -83,7 +83,7 @@ only when there is one refinement pass.
 For example, preserve the aspect ratio while choosing the first refinement width:
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sdxl-base --width 1024 --height 768 \
   --hires-fix --hires-passes 2 --hires-width 1536 \
   --hires-strength 0.4 --hires-steps 30 \
@@ -159,7 +159,7 @@ generated image as its img2img input, while the conditioning image remains
 a separate ControlNet input.
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset flux1-schnell \
   --controlnet /absolute/path/to/schnell-controlnet-package \
   --control-image /absolute/path/to/prepared-condition.png \

@@ -6,6 +6,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser, local_request
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,7 +58,7 @@ class GenerationTensorInputsTests(unittest.TestCase):
         self.file.write_bytes(b"simulated tensor data")
 
     def request(self, *arguments):
-        return generate.resolve_arguments(generate.build_parser().parse_args([
+        return generate.resolve_arguments(local_parser(generate.build_parser).parse_args([
             "--width", "64", "--height", "64", *arguments
         ]))
 
@@ -152,7 +153,7 @@ class GenerationTensorInputsTests(unittest.TestCase):
         preset, args = self.request("--embeddings", str(self.file),
                                     "--embedding-keys", '{"prompt_embeds":"positive","negative_prompt_embeds":"negative"}')
         values = generate.configuration_values(args)
-        _, replayed = generate.resolve_request(values)
+        _, replayed = local_request(values)
         self.assertEqual(replayed.embedding_keys, args.embedding_keys)
         self.assertEqual(replayed.embeddings_file.sha256, args.embeddings_file.sha256)
 

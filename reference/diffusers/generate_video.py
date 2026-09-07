@@ -16,12 +16,17 @@ def main(argv=None):
         return 0
     try:
         args = resolve_options(args)
+        if args.model_input.kind != "local":
+            from remote_generation import validate_remote_video
+            validate_remote_video(args)
         if args.print_config:
             print(json.dumps(configuration(args), indent=2, allow_nan=False))
             return 0
-        os.environ.setdefault("HF_XET_CACHE", str(args.cache_dir.parent / "huggingface-xet"))
-        os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
-        from video_runtime import generate_video
+        if args.model_input.kind == "local":
+            os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1")
+            from video_runtime import generate_video
+        else:
+            from remote_generation import generate_video
         generate_video(args)
     except (ValueError, RuntimeError, OSError, ImportError, subprocess.SubprocessError) as error:
         parser.exit(2, f"Video generation failed: {error}\n")

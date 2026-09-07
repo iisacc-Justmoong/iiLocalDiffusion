@@ -40,6 +40,7 @@ def create_fixture(directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", choices=("cpu", "mps"), default="cpu")
+    parser.add_argument("--fps", type=float, default=24, help="Final rate; >12 exercises LTX plus frame interpolation")
     args = parser.parse_args()
     directory = ROOT / "build/video-smoke"
     directory.mkdir(parents=True, exist_ok=True)
@@ -61,25 +62,33 @@ def main():
     results = []
     for mode, extra in [("text", []), ("keyframes", ["--first-frame", str(reference), "--last-frame", str(reference)]),
                         ("storyboard", ["--storyboard", str(storyboard), "--cpu-text-encoding"])]:
-        output = directory / f"{mode}-{args.device}.mp4"
+        output = directory / f"{mode}-{args.device}-{args.fps:g}fps.mp4"
         command = [sys.executable, str(ROOT / "reference/generate.py"), "--backend", "video",
                    "--model", str(model), "--device", args.device, "--dtype", "float32", "--frames", "9",
-                   "--steps", "2", "--width", "32", "--height", "32", "--fps", "8",
+                   "--steps", "2", "--width", "32", "--height", "32", "--fps", str(args.fps),
                    "--max-sequence-length", "64", "--guidance-scale", "3", "--camera", "dolly-in",
                    "--no-vae-tiling", "--output", str(output), "--overwrite", "--local-files-only", *extra]
-        with (directory / f"{mode}-{args.device}.log").open("w") as log:
+        with output.with_suffix(".log").open("w") as log:
             process = subprocess.run(command, cwd=ROOT, env=environment, stdout=log, stderr=subprocess.STDOUT)
         if process.returncode:
-            raise RuntimeError(f"Video smoke failed; inspect {directory / f'{mode}-{args.device}.log'}")
+            raise RuntimeError(f"Video smoke failed; inspect {output.with_suffix('.log')}")
         report = json.loads(output.with_suffix(".json").read_text())
         assert report["video"]["verified_decode"]
         assert report["video"]["frame_count"] == (18 if mode == "storyboard" else 9)
-        assert report["method"] == "joint-spatiotemporal-diffusion"
+        if args.fps > 12:
+            assert [stage["name"] for stage in report["stages"]] == ["LTX", "Interpolator"]
+            assert report["interpolation"]["verified"] and report["interpolation"]["inserted_frames"] > 0
+            source_hashes = {frame["index"]: frame["sha256"] for frame in report["source_frames"]}
+            assert all(frame["sha256"] == source_hashes[frame["index"]]
+                       for frame in report["frames"] if frame["index"] in source_hashes)
+        else:
+            assert report["method"] == "joint-spatiotemporal-diffusion" and not report["interpolation"]["enabled"]
         assert all(len(shot["denoising"]) == 2 for shot in report["shots"])
         assert len({frame["sha256"] for frame in report["frames"]}) > 1
-        results.append({"mode": mode, "device": args.device, "video": str(output), "verified": True})
+        results.append({"mode": mode, "device": args.device, "fps": args.fps, "video": str(output),
+                        "stages": [stage["name"] for stage in report["stages"]], "verified": True})
         print(json.dumps(results[-1]), flush=True)
-    (directory / f"verification-{args.device}.json").write_text(json.dumps(results, indent=2) + "\n")
+    (directory / f"verification-{args.device}-{args.fps:g}fps.json").write_text(json.dumps(results, indent=2) + "\n")
 
 
 if __name__ == "__main__":

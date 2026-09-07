@@ -9,6 +9,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_request
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,7 +38,7 @@ class FramePipeline(Pipeline):
 class DeforumRuntimeTests(unittest.TestCase):
     def run_frames(self, *, preset="sd15", initial=None, strength="0:(0.5)", controlnet=False,
                    pipeline=None, activation=None, **values):
-        selected, args = generate.resolve_request({"preset": preset, "animation_mode": "2D",
+        selected, args = local_request({"preset": preset, "animation_mode": "2D",
                                                    "max_frames": 3, "width": 32, "height": 32,
                                                    "steps": 4, "device": "cpu",
                                                    "strength_schedule": strength, **values})

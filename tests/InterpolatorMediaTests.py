@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from local_model_fixture import local_request
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +23,7 @@ class InterpolatorPublicationTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="interpolator-media-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
-        _, self.args = generate.resolve_request({"animation_mode": "Interpolator", "max_frames": 3,
+        _, self.args = local_request({"animation_mode": "Interpolator", "max_frames": 3,
                                                  "fps": 12, "width": 32, "height": 32,
                                                  "output": str(self.directory / "movie.mp4")})
 
@@ -72,6 +73,40 @@ class InterpolatorPublicationTests(unittest.TestCase):
             output.commit({"status": "complete", "output": video})
         self.assertEqual((video["frame_count"], video["fps"], video["duration_seconds"]), (3, 12, .25))
         self.assertTrue(video["verified_decode"])
+
+    @unittest.skipUnless(importlib.util.find_spec("PIL") and shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "Pillow and FFmpeg runtime are required")
+    def test_gif_preserves_frames_and_quantized_timing_above_12_fps(self):
+        for mode, fps, count in (("2D", 24, 7), ("Interpolator", 30, 6),
+                                 ("Interpolator", 100, 3), ("2D", 12, 3), ("2D", 24, 1)):
+            with self.subTest(mode=mode, fps=fps):
+                _, args = local_request({"animation_mode": mode, "fps": fps, "max_frames": count,
+                                         "width": 32, "height": 32,
+                                         "output": str(self.directory / f"{mode}-{fps}-{count}.GIF")})
+                environment = preflight_animation(args)
+                with AnimationOutput(args) as output:
+                    self.assertEqual(output.video.suffix, ".gif")
+                    for index in range(count):
+                        image = environment["Image"].new("RGB", (32, 32), (0 if fps == 100 else index * 30, 128, 64))
+                        image.save(output.frames / f"frame-{index:06d}.png")
+                    video = encode_video(output.frames, output.video, args, environment)
+                    output.commit({"status": "complete", "output": video})
+                self.assertEqual((video["codec"], video["frame_count"]), ("gif", count))
+                self.assertTrue(video["verified_decode"])
+                self.assertAlmostEqual(video["duration_seconds"], count / fps, delta=.01)
+                with environment["Image"].open(args.output) as image:
+                    self.assertEqual((image.format, image.n_frames, image.info["loop"]), ("GIF", count, 0))
+
+    @unittest.skipUnless(importlib.util.find_spec("PIL") and shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "Pillow and FFmpeg runtime are required")
+    def test_truncated_gif_frames_are_rejected(self):
+        self.args.output = self.directory / "truncated.gif"
+        environment = preflight_animation(self.args)
+        with AnimationOutput(self.args) as output:
+            environment["Image"].new("RGB", (32, 32)).save(output.frames / "frame-000000.png")
+            with self.assertRaisesRegex(RuntimeError, "frame count"):
+                encode_video(output.frames, output.video, self.args, environment)
+        self.assertFalse(self.args.output.exists())
 
 
 if __name__ == "__main__":

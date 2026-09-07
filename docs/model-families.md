@@ -32,12 +32,12 @@ separate input roles, file-size and SHA-256 provenance, and before/after identit
 checks.
 
 ```sh
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model-config /absolute/path/model-config \
   --preset illustrious --model /absolute/path/illustrious.safetensors \
   --prompt 'a blue ceramic teapot on a wooden table' \
   --output build/reference/illustrious.png
 
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model-config /absolute/path/model-config \
   --preset noobai-v-pred --model /absolute/path/noobai-vpred.safetensors \
   --prompt 'a blue ceramic teapot on a wooden table' \
   --output build/reference/noobai-vpred.png
@@ -53,9 +53,9 @@ Single-file conversion needs the matching tokenizer/component configuration.
 Full SDXL checkpoints must contain both recognized CLIP encoders and a VAE,
 unless `--vae` supplies it. Denoiser-only files use the selected configuration
 package's encoders and VAE, so that package must include those weights.
-`--local-files-only` requires all of this material to be present locally; it
-never obtains missing components from an unpinned fallback. Gated remote model
-repositories still require the user's existing access and authentication.
+All model, configuration and auxiliary weights must already exist locally.
+Generation always uses local-only loading. A missing component fails without
+selecting a repository or downloading a fallback.
 
 For V-pred derivatives without a dedicated preset, use
 `--preset sdxl --prediction-type v_prediction`. Use

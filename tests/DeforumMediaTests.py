@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from local_model_fixture import local_request
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
@@ -25,7 +26,7 @@ class DeforumMediaTests(unittest.TestCase):
         from PIL import Image
         self.np = np
         self.environment = {"cv2": cv2, "np": np, "Image": Image}
-        self.preset, self.args = generate.resolve_request({"animation_mode": "2D", "max_frames": 4,
+        self.preset, self.args = local_request({"animation_mode": "2D", "max_frames": 4,
                                                            "fps": 8, "width": 32, "height": 32})
         grid = np.zeros((32, 32, 3), dtype=np.uint8)
         grid[6:14, 6:14] = [255, 128, 64]

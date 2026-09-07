@@ -9,6 +9,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_request
 from unittest.mock import Mock, patch
 
 
@@ -165,7 +166,7 @@ def request(preset=presets.SD15_PRESET, **values):
     data = {"preset": preset.name, "width": 32, "height": 32, "hires_fix": True,
             "device": "cpu", "hires_seed": 91, "hires_steps": 8}
     data.update(values)
-    return generate.resolve_request(data)[1]
+    return local_request(data)[1]
 
 
 class RuntimeFixture:

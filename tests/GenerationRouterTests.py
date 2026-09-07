@@ -13,6 +13,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser, MODEL
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,26 +51,26 @@ class GenerationRouterTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 self.backend(name, "comfyui", "--workflow", "x.json")
         with self.assertRaisesRegex(SystemExit, "incompatible"):
-            generate.resolve_arguments(generate.build_parser().parse_args(
+            generate.resolve_arguments(local_parser(generate.build_parser).parse_args(
                 ["--base-model", "Illustrious", "--preset", "flux1-dev"]))
 
     def test_base_model_selects_matching_default_and_retains_identity(self):
         for name, expected in (("Illustrious", "illustrious"), ("NoobAI", "noobai"),
                                ("Flux.1 Krea", "flux1-krea-dev")):
             with self.subTest(name=name):
-                preset, args = generate.resolve_arguments(generate.build_parser().parse_args(["--base-model", name]))
+                preset, args = generate.resolve_arguments(local_parser(generate.build_parser).parse_args(["--base-model", name]))
                 self.assertEqual(preset.name, expected)
                 self.assertEqual(args.base_model, name)
 
     def test_community_base_categories_use_compatible_contracts(self):
         for name, expected in (("SD 1.5", "sd15-compatible"), ("SDXL 1.0", "sdxl"),
                                ("Flux.1 S", "flux1-schnell-compatible")):
-            preset, args = generate.resolve_arguments(generate.build_parser().parse_args(["--base-model", name]))
+            preset, args = generate.resolve_arguments(local_parser(generate.build_parser).parse_args(["--base-model", name]))
             self.assertEqual(preset.name, expected)
             self.assertFalse(preset.strict_contract)
 
     def test_noobai_vpred_explicit_variant_is_retained(self):
-        preset, args = generate.resolve_arguments(generate.build_parser().parse_args(
+        preset, args = generate.resolve_arguments(local_parser(generate.build_parser).parse_args(
             ["--base-model", "NoobAI", "--preset", "noobai-v-pred"]))
         self.assertEqual(preset.name, "noobai-v-pred")
         self.assertIn(("prediction_type", "v_prediction"), preset.scheduler_defaults)
@@ -78,18 +79,18 @@ class GenerationRouterTests(unittest.TestCase):
         for base, preset in (("Flux.1 Krea", "flux1-schnell"),
                              ("Illustrious", "noobai"), ("NoobAI", "illustrious")):
             with self.subTest(base=base), self.assertRaisesRegex(SystemExit, "identities"):
-                generate.resolve_arguments(generate.build_parser().parse_args(
+                generate.resolve_arguments(local_parser(generate.build_parser).parse_args(
                     ["--base-model", base, "--preset", preset]))
 
     def test_guidance_zero_is_required_only_for_schnell(self):
         for name in ("flux1-dev", "flux1-krea-dev"):
-            preset, args = generate.resolve_arguments(generate.build_parser().parse_args(["--preset", name]))
+            preset, args = generate.resolve_arguments(local_parser(generate.build_parser).parse_args(["--preset", name]))
             generate.validate_generation_arguments(preset, args)
             call = generate.build_pipeline_call_arguments(preset, args, "generator")
             self.assertEqual(call["guidance_scale"], preset.guidance_scale)
             self.assertEqual(call["max_sequence_length"], 512)
         with self.assertRaisesRegex(SystemExit, "guidance scale"):
-            preset, args = generate.resolve_arguments(generate.build_parser().parse_args(
+            preset, args = generate.resolve_arguments(local_parser(generate.build_parser).parse_args(
                 ["--preset", "flux1-schnell", "--guidance-scale", "3"]))
             generate.validate_generation_arguments(preset, args)
 
@@ -99,7 +100,7 @@ class GenerationRouterTests(unittest.TestCase):
 
     def test_frontdoor_print_config_runs_offline(self):
         result = subprocess.run([sys.executable, str(ROOT / "reference/generate.py"),
-                                 "--base-model", "Illustrious", "--print-config"],
+                                 "--base-model", "Illustrious", "--preset", "illustrious", "--model", MODEL, "--print-config"],
                                 capture_output=True, text=True, check=True)
         output = json.loads(result.stdout)
         self.assertEqual(output["preset"], "illustrious")
@@ -109,7 +110,7 @@ class GenerationRouterTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(ROOT / "reference/generate.py"), "--list-base-models"],
                                 capture_output=True, text=True, check=True)
         output = json.loads(result.stdout)
-        self.assertEqual(len(output["base_models"]), 105)
+        self.assertEqual(len(output["base_models"]), 104)
         self.assertEqual(len(output["source"]["commit"]), 40)
 
     def test_existing_downloaded_weight_files_route_to_local_runtime(self):

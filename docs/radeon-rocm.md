@@ -57,7 +57,7 @@ environment, without imposing the macOS environment's Torch pin:
 ```bash
 python -m pip install -r reference/diffusers/requirements-rocm.txt
 python reference/diffusers/hardware.py --device rocm --dtype float16
-python reference/diffusers/generate.py --preset sdxl-base --device rocm \
+python reference/diffusers/generate.py --preset sdxl-base --device rocm --model-config /absolute/path/model-config \
   --model /absolute/path/base.safetensors \
   --vae /absolute/path/vae.safetensors \
   --lora /absolute/path/style.safetensors --lora-scale 0.75 \

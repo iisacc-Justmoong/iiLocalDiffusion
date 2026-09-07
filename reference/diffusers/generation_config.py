@@ -48,6 +48,21 @@ def json_object(text: str) -> dict[str, Any]:
 class ConfigurationArgumentParser(argparse.ArgumentParser):
     """Prepend typed file values, so explicit CLI values always take precedence."""
 
+    @staticmethod
+    def _canonical_values(values: dict[str, Any], actions: dict[str, argparse.Action]) -> dict[str, Any]:
+        # Accept the parser's declared aliases (e.g. frames/max_frames) in JSON
+        # too, while storing only canonical names for replay and CLI precedence.
+        aliases = {option[2:].replace("-", "_"): action.dest
+                   for action in actions.values() for option in action.option_strings
+                   if option.startswith("--") and not option.startswith("--no-")}
+        result = {}
+        for key, value in values.items():
+            canonical = aliases.get(key, key)
+            if canonical in result:
+                raise ValueError(f"Duplicate configuration value for {canonical} (including aliases).")
+            result[canonical] = value
+        return result
+
     def parse_values(self, values: dict[str, Any] | None = None, *, base_directory: Path | None = None):
         """The same typed schema for Python callers, with no CLI or config file required."""
         values = {} if values is None else values
@@ -60,6 +75,7 @@ class ConfigurationArgumentParser(argparse.ArgumentParser):
         tokens = []
         try:
             _check_finite(values)
+            values = self._canonical_values(values, actions)
             for key, value in values.items():
                 if key not in actions:
                     raise ValueError(f"Unknown generation value: {key}")
@@ -87,7 +103,7 @@ class ConfigurationArgumentParser(argparse.ArgumentParser):
             try:
                 if path.stat().st_size > 1024 * 1024:
                     raise ValueError("Configuration exceeds the 1 MiB limit.")
-                configured = json_object(path.read_text(encoding="utf-8"))
+                configured = self._canonical_values(json_object(path.read_text(encoding="utf-8")), actions)
                 for key, value in configured.items():
                     if key not in actions:
                         raise ValueError(f"Unknown configuration key: {key}")
@@ -157,6 +173,9 @@ class ConfigurationArgumentParser(argparse.ArgumentParser):
 
 def configuration_values(args: argparse.Namespace) -> dict[str, Any]:
     """A replayable flat object, excluding private runtime objects and control flags."""
+    if getattr(args, "model_input", None) is not None and args.model_input.kind != "local":
+        from remote_generation import image_configuration
+        return image_configuration(args)
     values = {name: getattr(args, name) for name in args._argument_names}
     values["model"] = args.model_selection.source
     values["revision"] = args.model_selection.requested_revision

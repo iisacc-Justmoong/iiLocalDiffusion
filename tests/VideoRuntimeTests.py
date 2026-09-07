@@ -8,6 +8,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,7 +47,7 @@ class VideoModelTests(unittest.TestCase):
     def test_camera_caption_cannot_be_silently_truncated(self):
         from video_runtime import validate_captions
         pipeline = SimpleNamespace(tokenizer=lambda *a, **k: {"input_ids": list(range(70))})
-        args = resolve_options(build_parser().parse_args(["--max-sequence-length", "64"]))
+        args = resolve_options(local_parser(build_parser).parse_args(["--max-sequence-length", "64"]))
         with self.assertRaisesRegex(ValueError, "Silent truncation"):
             validate_captions(pipeline, args)
 
@@ -60,7 +61,7 @@ class VideoModelTests(unittest.TestCase):
                 load_tokenizer(self.directory, {"tokenizer": ["transformers", "T5Tokenizer"]})
 
     def test_temporal_bundle_rolls_back_on_publication_failure(self):
-        args = resolve_options(build_parser().parse_args(["--output", str(self.directory / "movie.mp4")]))
+        args = resolve_options(local_parser(build_parser).parse_args(["--output", str(self.directory / "movie.mp4")]))
         def stage(output, content):
             output.video.write_bytes(content)
             (output.frames / "frame-000000.png").write_bytes(content)
@@ -110,17 +111,17 @@ class VideoTensorTests(unittest.TestCase):
         from video_runtime import load_keyframes
         image = self.directory / "image.png"
         self.Image.new("RGB", (64, 32), "red").save(image)
-        args = resolve_options(build_parser().parse_args(["--first-frame", str(image), "--width", "32", "--height", "32"]))
+        args = resolve_options(local_parser(build_parser).parse_args(["--first-frame", str(image), "--width", "32", "--height", "32"]))
         loaded, metadata = load_keyframes(args, self.Image)
         self.assertEqual(loaded[str(image)].size, (32, 32))
         self.assertEqual(metadata[str(image)]["original_size"], [64, 32])
         self.assertEqual(len(metadata[str(image)]["sha256"]), 64)
 
-    def test_temporal_sampling_is_one_call_per_shot_and_trims_only_padding(self):
+    def test_temporal_sampling_uses_source_plan_and_preserves_shot_continuity(self):
         from video_runtime import render_shots
         story = self.directory / "shots.json"
         story.write_text(json.dumps({"shots": [{"frames": 8}, {"frames": 10, "continue_previous": True}]}))
-        args = resolve_options(build_parser().parse_args(["--storyboard", str(story), "--width", "32", "--height", "32", "--steps", "2"]))
+        args = resolve_options(local_parser(build_parser).parse_args(["--storyboard", str(story), "--width", "32", "--height", "32", "--steps", "2"]))
         calls = []
         def pipeline(**kwargs):
             calls.append(kwargs)
@@ -131,16 +132,17 @@ class VideoTensorTests(unittest.TestCase):
             return SimpleNamespace(frames=frames)
         output = SimpleNamespace(frames=self.directory)
         records, frames = render_shots(pipeline, args, self.torch, "cpu", [], {}, output, self.Image)
-        self.assertEqual([call["num_frames"] for call in calls], [9, 17])
-        self.assertEqual(len(frames), 18)
+        self.assertEqual([call["num_frames"] for call in calls], [9, 9])
+        self.assertEqual(len(frames), 11)
         self.assertEqual([record["start_frame"] for record in records], [0, 8])
         self.assertIsNone(calls[0]["conditions"])
-        self.assertEqual(calls[1]["conditions"][0].image.getpixel((0, 0))[0], round(7 / 20 * 255))
-        self.assertTrue(all(call["frame_rate"] == 24 for call in calls))
+        self.assertEqual(calls[1]["conditions"][0].image.getpixel((0, 0))[0], round(4 / 20 * 255))
+        self.assertEqual([call["frame_rate"] for call in calls], [24 * 4 / 7, 24 * 5 / 9])
+        self.assertEqual([f["index"] for f in frames], [0, 2, 4, 6, 7, 8, 10, 12, 14, 16, 17])
 
     def test_bad_decoded_values_do_not_become_black_frames(self):
         from video_runtime import render_shots
-        args = resolve_options(build_parser().parse_args(["--frames", "9", "--width", "32", "--height", "32"]))
+        args = resolve_options(local_parser(build_parser).parse_args(["--frames", "9", "--width", "32", "--height", "32"]))
         frames = self.np.full((1, 9, 32, 32, 3), float("nan"), dtype=self.np.float32)
         with self.assertRaisesRegex(RuntimeError, "finite RGB"):
             render_shots(lambda **kwargs: SimpleNamespace(frames=frames), args, self.torch,

@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_request
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,7 +25,7 @@ class InterpolatorRuntimeTests(unittest.TestCase):
     def setUp(self):
         import torch
         self.torch = torch
-        self.preset, self.args = generate.resolve_request({"animation_mode": "Interpolator", "max_frames": 3,
+        self.preset, self.args = local_request({"animation_mode": "Interpolator", "max_frames": 3,
                                                            "width": 32, "height": 32, "device": "cpu",
                                                            "end_seed": 43, "end_prompt": "a forest"})
 
@@ -81,7 +82,7 @@ class InterpolatorRuntimeTests(unittest.TestCase):
     @unittest.skipUnless(importlib.util.find_spec("diffusers"), "Diffusers runtime is not installed")
     def test_flux_noise_uses_the_pipeline_packing_contract(self):
         from diffusers import FluxPipeline
-        preset, args = generate.resolve_request({"preset": "flux1-schnell", "animation_mode": "Interpolator",
+        preset, args = local_request({"preset": "flux1-schnell", "animation_mode": "Interpolator",
                                                  "width": 32, "height": 32, "max_frames": 3})
         pipeline = SimpleNamespace(vae_scale_factor=8, transformer=SimpleNamespace(config=SimpleNamespace(in_channels=64)),
                                    _pack_latents=FluxPipeline._pack_latents)

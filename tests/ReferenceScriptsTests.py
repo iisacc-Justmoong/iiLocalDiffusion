@@ -10,6 +10,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser, MODEL
 from unittest.mock import patch
 
 
@@ -43,6 +44,7 @@ class ReferenceScriptsTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="reference-local-model-", dir=ROOT / "build")
         self.addCleanup(temporary.cleanup)
         self.model_directory = Path(temporary.name)
+        (self.model_directory / "style.safetensors").write_bytes(b"local adapter fixture")
 
     def test_model_revision_is_shared_and_immutable(self) -> None:
         self.assertEqual(self.generate.MODEL_ID, self.inspect.MODEL_ID)
@@ -111,7 +113,7 @@ class ReferenceScriptsTests(unittest.TestCase):
             if preset.requires_model_override:
                 arguments.extend(["--model", str(self.model_directory)])
             _, generated = self.generate.resolve_arguments(
-                self.generate.build_parser().parse_args(arguments)
+                local_parser(self.generate.build_parser).parse_args(arguments)
             )
             _, inspected = self.inspect.resolve_arguments(
                 self.inspect.build_parser().parse_args(arguments)
@@ -121,23 +123,23 @@ class ReferenceScriptsTests(unittest.TestCase):
 
     def test_default_preset_preserves_sd15_contract(self) -> None:
         preset, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args([])
+            local_parser(self.generate.build_parser).parse_args([])
         )
 
         self.assertEqual(preset.name, "sd15")
-        self.assertEqual(arguments.model_selection.source, self.generate.MODEL_ID)
+        self.assertEqual(arguments.model_selection.source, MODEL)
         self.assertEqual(
             arguments.model_selection.requested_revision,
-            self.generate.MODEL_REVISION,
+            None,
         )
         self.assertEqual((arguments.width, arguments.height), (512, 512))
         self.assertEqual(arguments.steps, 20)
         self.assertEqual(arguments.guidance_scale, 7.5)
-        self.assertEqual(arguments.output, self.generate.DEFAULT_OUTPUT)
+        self.assertEqual(arguments.output, self.generate.DEFAULT_OUTPUT.with_name("sd15-red-cube-custom.png"))
 
     def test_sdxl_preset_uses_dual_text_contract(self) -> None:
         preset, generated = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(["--preset", "sdxl-base"])
+            local_parser(self.generate.build_parser).parse_args(["--preset", "sdxl-base"])
         )
         inspected_preset, inspected = self.inspect.resolve_arguments(
             self.inspect.build_parser().parse_args(["--preset", "sdxl-base"])
@@ -147,8 +149,8 @@ class ReferenceScriptsTests(unittest.TestCase):
         self.assertEqual(preset.pipeline_class, "StableDiffusionXLPipeline")
         self.assertEqual((generated.width, generated.height), (1024, 1024))
         self.assertEqual(generated.guidance_scale, 5.0)
-        self.assertEqual(generated.model_selection.requested_revision, preset.revision)
-        self.assertEqual(generated.output.name, "sdxl-base-red-cube.png")
+        self.assertEqual(generated.model_selection.requested_revision, None)
+        self.assertEqual(generated.output.name, "sdxl-base-red-cube-custom.png")
         self.assertEqual(inspected.output.name, "pipeline-inspection-sdxl-base.json")
         self.assertEqual(
             dict(preset.expected_components),
@@ -165,7 +167,7 @@ class ReferenceScriptsTests(unittest.TestCase):
 
     def test_flux1_schnell_preset_uses_transformer_contract(self) -> None:
         preset, generated = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(["--preset", "flux1-schnell"])
+            local_parser(self.generate.build_parser).parse_args(["--preset", "flux1-schnell"])
         )
         inspected_preset, inspected = self.inspect.resolve_arguments(
             self.inspect.build_parser().parse_args(["--preset", "flux1-schnell"])
@@ -176,8 +178,8 @@ class ReferenceScriptsTests(unittest.TestCase):
         self.assertEqual((generated.width, generated.height), (1024, 1024))
         self.assertEqual(generated.steps, 4)
         self.assertEqual(generated.guidance_scale, 0.0)
-        self.assertEqual(generated.model_selection.requested_revision, preset.revision)
-        self.assertEqual(generated.output.name, "flux1-schnell-red-cube.png")
+        self.assertEqual(generated.model_selection.requested_revision, None)
+        self.assertEqual(generated.output.name, "flux1-schnell-red-cube-custom.png")
         self.assertEqual(inspected.output.name, "pipeline-inspection-flux1-schnell.json")
         self.assertEqual(preset.runtime.accelerator_dtype, "bfloat16")
         self.assertIsNone(preset.runtime.weight_variant)
@@ -199,7 +201,7 @@ class ReferenceScriptsTests(unittest.TestCase):
 
     def test_flux_load_and_generation_arguments_are_canonical(self) -> None:
         preset, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(["--preset", "flux1-schnell"])
+            local_parser(self.generate.build_parser).parse_args(["--preset", "flux1-schnell"])
         )
         load_arguments = self.generate.build_load_arguments(
             preset, arguments, "torch.bfloat16", use_weight_variant=True
@@ -219,7 +221,7 @@ class ReferenceScriptsTests(unittest.TestCase):
 
     def test_flux_generation_argument_guards(self) -> None:
         preset, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(
+            local_parser(self.generate.build_parser).parse_args(
                 ["--preset", "flux1-schnell", "--width", "1000"]
             )
         )
@@ -227,14 +229,14 @@ class ReferenceScriptsTests(unittest.TestCase):
             self.generate.validate_generation_arguments(preset, arguments)
 
         _, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(
+            local_parser(self.generate.build_parser).parse_args(
                 ["--preset", "flux1-schnell", "--steps", "5"]
             )
         )
         self.generate.validate_generation_arguments(preset, arguments)
 
         _, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(
+            local_parser(self.generate.build_parser).parse_args(
                 ["--preset", "flux1-schnell", "--guidance-scale", "1.0"]
             )
         )
@@ -242,7 +244,7 @@ class ReferenceScriptsTests(unittest.TestCase):
             self.generate.validate_generation_arguments(preset, arguments)
 
         _, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(
+            local_parser(self.generate.build_parser).parse_args(
                 ["--preset", "flux1-schnell", "--negative-prompt", "blur"]
             )
         )
@@ -303,7 +305,7 @@ class ReferenceScriptsTests(unittest.TestCase):
             local_model = Path(temporary)
             output = build_directory / "reference" / "custom.png"
             _, arguments = self.generate.resolve_arguments(
-                self.generate.build_parser().parse_args(
+                local_parser(self.generate.build_parser).parse_args(
                     ["--model", str(local_model), "--output", str(output)]
                 )
             )
@@ -319,7 +321,7 @@ class ReferenceScriptsTests(unittest.TestCase):
             lora_file = Path(temporary) / "style.safetensors"
             lora_file.write_bytes(b"adapter")
             _, arguments = self.generate.resolve_arguments(
-                self.generate.build_parser().parse_args(
+                local_parser(self.generate.build_parser).parse_args(
                     ["--lora", str(lora_file), "--lora-scale", "0.65"]
                 )
             )
@@ -336,7 +338,7 @@ class ReferenceScriptsTests(unittest.TestCase):
                 hashlib.sha256(b"adapter").hexdigest(),
             )
             self.assertEqual(selection.size_bytes, 7)
-            self.assertEqual(arguments.output.name, "sd15-red-cube-lora.png")
+            self.assertEqual(arguments.output.name, "sd15-red-cube-custom-lora.png")
             activation = self.generate.LoraActivation(
                 (self.generate.LORA_ADAPTER_NAME,),
                 ("transformer",),
@@ -355,13 +357,13 @@ class ReferenceScriptsTests(unittest.TestCase):
             weight.write_bytes(b"adapter")
             with self.assertRaisesRegex(SystemExit, "--lora-weight-name"):
                 self.generate.resolve_arguments(
-                    self.generate.build_parser().parse_args(
+                    local_parser(self.generate.build_parser).parse_args(
                         ["--lora", str(directory)]
                     )
                 )
 
             _, arguments = self.generate.resolve_arguments(
-                self.generate.build_parser().parse_args(
+                local_parser(self.generate.build_parser).parse_args(
                     [
                         "--lora",
                         str(directory),
@@ -379,7 +381,7 @@ class ReferenceScriptsTests(unittest.TestCase):
             lora_file = Path(temporary) / "style.safetensors"
             lora_file.write_bytes(b"adapter")
             _, arguments = self.generate.resolve_arguments(
-                self.generate.build_parser().parse_args(
+                local_parser(self.generate.build_parser).parse_args(
                     ["--lora", str(lora_file)]
                 )
             )
@@ -399,45 +401,14 @@ class ReferenceScriptsTests(unittest.TestCase):
                     False,
                 )
 
-    def test_remote_lora_requires_immutable_revision_and_weight_name(self) -> None:
-        with self.assertRaisesRegex(SystemExit, "--lora-revision"):
-            self.generate.resolve_arguments(
-                self.generate.build_parser().parse_args(
-                    ["--lora", "vendor/style-lora"]
-                )
-            )
-
-        with self.assertRaisesRegex(SystemExit, "--lora-weight-name"):
-            self.generate.resolve_arguments(
-                self.generate.build_parser().parse_args(
-                    [
-                        "--lora",
-                        "vendor/style-lora",
-                        "--lora-revision",
-                        "b" * 40,
-                    ]
-                )
-            )
-
-        _, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(
-                [
-                    "--lora",
-                    "vendor/style-lora",
-                    "--lora-revision",
-                    "b" * 40,
-                    "--lora-weight-name",
-                    "style.safetensors",
-                ]
-            )
-        )
-        selection = arguments.lora_selection
-        self.assertFalse(selection.is_local)
-        self.assertEqual(selection.requested_revision, "b" * 40)
-        self.assertIsNone(selection.sha256)
+    def test_remote_lora_is_rejected_with_or_without_a_revision(self):
+        for extra in ([], ['--lora-revision', 'b' * 40, '--lora-weight-name', 'style.safetensors']):
+            with self.subTest(extra=extra), self.assertRaisesRegex(SystemExit, 'local'):
+                self.generate.resolve_arguments(local_parser(self.generate.build_parser).parse_args(
+                    ['--lora', 'vendor/style-lora', *extra]))
 
     def test_lora_input_rejects_unsafe_or_ambiguous_values(self) -> None:
-        parser = self.generate.build_parser()
+        parser = local_parser(self.generate.build_parser)
         for invalid_scale in ("nan", "inf", "-inf"):
             with self.subTest(scale=invalid_scale), self.assertRaisesRegex(
                 SystemExit, "finite"
@@ -446,9 +417,7 @@ class ReferenceScriptsTests(unittest.TestCase):
                     parser.parse_args(
                         [
                             "--lora",
-                            "vendor/style-lora",
-                            "--lora-revision",
-                            "b" * 40,
+                            str(self.model_directory),
                             "--lora-weight-name",
                             "style.safetensors",
                             f"--lora-scale={invalid_scale}",
@@ -460,9 +429,7 @@ class ReferenceScriptsTests(unittest.TestCase):
                 parser.parse_args(
                     [
                         "--lora",
-                        "vendor/style-lora",
-                        "--lora-revision",
-                        "b" * 40,
+                        str(self.model_directory),
                         "--lora-weight-name",
                         "../style.safetensors",
                     ]
@@ -478,12 +445,12 @@ class ReferenceScriptsTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(SystemExit, "must not be empty"):
             self.generate.resolve_arguments(parser.parse_args(["--lora", ""]))
-        with self.assertRaisesRegex(SystemExit, "40-character lowercase"):
+        with self.assertRaisesRegex(SystemExit, "local LoRA"):
             self.generate.resolve_arguments(
                 parser.parse_args(
                     [
                         "--lora",
-                        "vendor/style-lora",
+                        str(self.model_directory),
                         "--lora-revision",
                         "main",
                         "--lora-weight-name",
@@ -529,9 +496,7 @@ class ReferenceScriptsTests(unittest.TestCase):
                     parser.parse_args(
                         [
                             "--lora",
-                            "vendor/style-lora",
-                            "--lora-revision",
-                            "b" * 40,
+                            str(self.model_directory),
                             "--lora-weight-name",
                             "style.safetensors",
                             "--lora-scale",
@@ -546,12 +511,10 @@ class ReferenceScriptsTests(unittest.TestCase):
 
     def test_lora_is_loaded_safely_and_activated_before_execution(self) -> None:
         _, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(
+            local_parser(self.generate.build_parser).parse_args(
                 [
                     "--lora",
-                    "vendor/style-lora",
-                    "--lora-revision",
-                    "b" * 40,
+                    str(self.model_directory),
                     "--lora-weight-name",
                     "style.safetensors",
                     "--lora-scale",
@@ -590,7 +553,7 @@ class ReferenceScriptsTests(unittest.TestCase):
             (self.generate.LORA_ADAPTER_NAME,),
         )
         self.assertEqual(activation.registered_components, ("transformer",))
-        self.assertEqual(events[0][0:2], ("load", "vendor/style-lora"))
+        self.assertEqual(events[0][0:2], ("load", str(self.model_directory)))
         self.assertEqual(
             events[0][2],
             {
@@ -598,8 +561,7 @@ class ReferenceScriptsTests(unittest.TestCase):
                 "cache_dir": arguments.cache_dir,
                 "local_files_only": True,
                 "low_cpu_mem_usage": True,
-                "revision": "b" * 40,
-                "use_safetensors": True,
+                                "use_safetensors": True,
                 "weight_name": "style.safetensors",
             },
         )
@@ -611,11 +573,11 @@ class ReferenceScriptsTests(unittest.TestCase):
         metadata = self.generate.lora_metadata(arguments.lora_selection, activation)
         self.assertEqual(metadata["active_adapters"], [self.generate.LORA_ADAPTER_NAME])
         self.assertEqual(metadata["scale"], 0.7)
-        self.assertEqual(metadata["source"], "vendor/style-lora")
+        self.assertEqual(metadata["source"], str(self.model_directory))
         self.assertEqual(metadata["registered_components"], ["transformer"])
         self.assertFalse(metadata["fused"])
         self.assertEqual(metadata["type"], "lora")
-        self.assertIsNone(metadata["resolved_file"])
+        self.assertEqual(metadata["resolved_file"], str(self.model_directory / "style.safetensors"))
 
     def test_pipeline_contract_lora_and_offload_order_is_fixed(self) -> None:
         events: list[str] = []
@@ -672,12 +634,10 @@ class ReferenceScriptsTests(unittest.TestCase):
 
     def test_lora_must_be_registered_and_active(self) -> None:
         _, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(
+            local_parser(self.generate.build_parser).parse_args(
                 [
                     "--lora",
-                    "vendor/style-lora",
-                    "--lora-revision",
-                    "b" * 40,
+                    str(self.model_directory),
                     "--lora-weight-name",
                     "style.safetensors",
                 ]
@@ -711,12 +671,10 @@ class ReferenceScriptsTests(unittest.TestCase):
 
     def test_text_encoder_only_lora_uses_component_active_state(self) -> None:
         _, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(
+            local_parser(self.generate.build_parser).parse_args(
                 [
                     "--lora",
-                    "vendor/text-style-lora",
-                    "--lora-revision",
-                    "b" * 40,
+                    str(self.model_directory),
                     "--lora-weight-name",
                     "style.safetensors",
                 ]
@@ -752,14 +710,12 @@ class ReferenceScriptsTests(unittest.TestCase):
         self.assertEqual(activation.active_adapters, ("iild_lora",))
         self.assertEqual(activation.registered_components, ("text_encoder",))
 
-    def test_gated_lora_error_is_reported_without_a_traceback(self) -> None:
+    def test_lora_loader_failure_reports_the_local_source(self) -> None:
         _, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(
+            local_parser(self.generate.build_parser).parse_args(
                 [
                     "--lora",
-                    "vendor/gated-lora",
-                    "--lora-revision",
-                    "b" * 40,
+                    str(self.model_directory),
                     "--lora-weight-name",
                     "style.safetensors",
                 ]
@@ -773,7 +729,7 @@ class ReferenceScriptsTests(unittest.TestCase):
             def load_lora_weights(self, source, **kwargs):
                 raise GatedRepoError(source)
 
-        with self.assertRaisesRegex(SystemExit, "gated LoRA"):
+        with self.assertRaisesRegex(RuntimeError, "Could not load and activate LoRA"):
             self.generate.apply_lora(
                 GatedPipeline(),
                 arguments.lora_selection,
@@ -783,25 +739,18 @@ class ReferenceScriptsTests(unittest.TestCase):
 
     def test_generation_without_lora_preserves_base_behavior(self) -> None:
         _, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args([])
+            local_parser(self.generate.build_parser).parse_args([])
         )
         self.assertIsNone(arguments.lora_selection)
-        self.assertEqual(arguments.output, self.generate.DEFAULT_OUTPUT)
+        self.assertEqual(arguments.output, self.generate.DEFAULT_OUTPUT.with_name("sd15-red-cube-custom.png"))
         self.assertIsNone(self.generate.apply_lora(object(), None, arguments.cache_dir, False))
         self.assertIsNone(self.generate.lora_metadata(None, None))
 
-    def test_remote_override_requires_immutable_revision(self) -> None:
-        with self.assertRaisesRegex(SystemExit, "commit --revision"):
-            self.generate.resolve_arguments(
-                self.generate.build_parser().parse_args(["--model", "vendor/compatible-model"])
-            )
-
-        _, arguments = self.generate.resolve_arguments(
-            self.generate.build_parser().parse_args(
-                ["--model", "vendor/compatible-model", "--revision", "a" * 40]
-            )
-        )
-        self.assertEqual(arguments.model_selection.requested_revision, "a" * 40)
+    def test_remote_model_override_is_rejected_even_when_pinned(self):
+        for extra in ([], ['--revision', 'a' * 40]):
+            with self.subTest(extra=extra), self.assertRaisesRegex(SystemExit, 'local'):
+                self.generate.resolve_arguments(local_parser(self.generate.build_parser).parse_args(
+                    ['--model', 'vendor/compatible-model', *extra]))
 
     def test_pipeline_loader_reports_gated_repository_without_traceback(self) -> None:
         class GatedRepoError(Exception):

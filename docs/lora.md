@@ -32,7 +32,7 @@ Pass an exact safetensors file:
 
 ```bash
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py \
+  reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset flux1-schnell \
   --lora /absolute/path/to/style.safetensors \
   --lora-scale 0.75 \
@@ -43,7 +43,7 @@ A directory is also accepted only when its exact file is named explicitly:
 
 ```bash
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py \
+  reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sdxl-base \
   --lora /absolute/path/to/adapter-directory \
   --lora-weight-name style.safetensors \
@@ -62,25 +62,12 @@ When `--output` is omitted, `-lora` is appended to the default output stem,
 after any `-custom` model and `-vae` suffixes. Thus combined model/VAE/LoRA
 inputs cannot silently use the canonical base fixture's filename.
 
-## Remote adapter
+## Local-only adapter inputs
 
-A Hugging Face adapter requires both an immutable 40-character lowercase
-commit SHA and the exact safetensors filename:
-
-```bash
-reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py \
-  --preset flux1-schnell \
-  --lora owner/adapter-repository \
-  --lora-revision 0123456789abcdef0123456789abcdef01234567 \
-  --lora-weight-name adapter.safetensors \
-  --lora-scale 1.0
-```
-
-Branch names, tags, implicit repository file selection, pickle `.bin`, `.pt`,
-and `.ckpt` files are rejected. Remote filenames use the standard plural
-`.safetensors` extension. `--local-files-only` applies to the model,
-configuration/auxiliary source, and adapter.
+Adapters must be supplied as existing local files or directories. A directory
+requires `--lora-weight-name`; a direct file does not. Hub IDs and non-null
+`--lora-revision` values are rejected. Model and adapter loading always use
+`local_files_only=True`; no adapter is downloaded during generation.
 
 ## Runtime semantics
 

@@ -259,7 +259,7 @@ not compute text/denoising on CPU. With `--device cpu`, `auto` uses CPU/RAM
 directly. Failures do not switch devices or offload policies automatically.
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \
   --offload model --local-files-only \
   --output build/reference/sdxl-cpu-ram.png

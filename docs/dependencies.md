@@ -14,8 +14,21 @@ defines prompt/seed interpolation. Its application/plugin/model-container
 coupling would duplicate this SDK's loader and execution policies; no source
 is copied or imported. The small two-endpoint coordinator is domain code.
 Maintained numerical, neural inference and media libraries perform the heavy
-operations. Adding an optical-flow/FILM/RIFE dependency would solve a different
-problem (inserting frames between rendered images) and is unnecessary here.
+operations. This standalone prompt/seed mode does not need a frame-insertion
+model. Post-LTX video uses the separate frame-interpolation decision below.
+
+## Post-LTX frame Interpolator
+
+The second video stage reuses the installed FFmpeg `minterpolate` filter with
+motion compensation, plus its timestamp/padding filters and Pillow PNG checks.
+No inference package or second model is introduced. The maintained upstream
+filter supplies motion estimation; SDK code only plans source positions,
+preserves anchors/cuts and verifies/publishes artifacts. This avoids adding a
+second neural runtime or weight-distribution requirement for basic interpolation.
+The existing libx264-enabled external FFmpeg build remains GPL and is not bundled.
+Filter availability and the actual executable version are verified locally.
+Sources: [FFmpeg filter documentation](https://ffmpeg.org/ffmpeg-filters.html#minterpolate),
+[FFmpeg license](https://ffmpeg.org/legal.html).
 
 ## Deforum 2D animation
 
@@ -46,6 +59,13 @@ References: [notebook](https://github.com/deforum/deforum-stable-diffusion),
 [animation semantics](https://github.com/deforum/sd-webui-deforum/wiki/Animation-Settings).
 
 ## Broad local model generation
+
+The [three model source inputs](model-sources.md) add no package dependency.
+Direct remote endpoints use Python's standard HTTP client. Cloud model IDs use
+the existing pinned Apache-2.0 `huggingface-hub==1.29.0` InferenceClient and its
+maintained provider adapters. Pillow/FFmpeg validate and postprocess returned
+media. Providers remain separate services; model-ID parsing and mock dispatch
+tests do not establish live availability or completed paid inference.
 
 The Civitai compatibility work reuses pinned Diffusers 0.40.0 (Apache-2.0)
 instead of implementing additional sampling algorithms. The generic runner
@@ -343,7 +363,7 @@ the published T5 SentencePiece tokenizer. This maintained BSD-3-Clause package
 provides a small native wheel and avoids a custom tokenizer implementation;
 see [the pinned release](https://pypi.org/project/protobuf/7.36.1/).
 Tokenizer loading is checked before reading multi-GB model weights.
-Default LTX Video 2B 0.9.5 weights
-are pinned separately under their Open RAIL-M terms; newer model versions have
+Previously validated LTX Video 2B 0.9.5 weights
+have separate Open RAIL-M terms; callers must supply compatible local weights. Newer model versions have
 different terms. See [the video contract](temporal-video.md) for the reference
 workflow, selection rationale and scope.

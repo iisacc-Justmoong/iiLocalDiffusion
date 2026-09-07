@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser
 from unittest.mock import Mock, patch
 
 
@@ -34,7 +35,7 @@ class HardwarePolicyTests(unittest.TestCase):
     def test_explicit_metal_is_an_mps_alias(self):
         self.assertEqual(hardware.select_device(fake_torch(metal=True), "metal"), "mps")
         self.assertEqual(hardware.select_device(fake_torch(metal=True), "mps"), "mps")
-        self.assertEqual(generate.build_parser().parse_args(["--device", "metal"]).device,
+        self.assertEqual(local_parser(generate.build_parser).parse_args(["--device", "metal"]).device,
                          "metal")
 
     def test_explicit_accelerators_fail_instead_of_changing_device(self):

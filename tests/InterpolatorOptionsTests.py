@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from local_model_fixture import local_request, MODEL
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
@@ -18,13 +19,13 @@ from GenerationRouterTests import router
 
 class InterpolatorOptionsTests(unittest.TestCase):
     def resolve(self, **values):
-        return generate.resolve_request({"animation_mode": "Interpolator", "max_frames": 5, **values})
+        return local_request({"animation_mode": "Interpolator", "max_frames": 5, **values})
 
     def test_defaults_preserve_start_values_and_use_video_output(self):
         _, args = self.resolve(prompt="city", negative_prompt="blur", seed=17)
         self.assertEqual((args.end_prompt, args.end_negative_prompt, args.end_seed), ("city", "blur", 17))
         self.assertTrue(args.cpu_text_encoding)
-        self.assertEqual((args.fps, args.output.suffix), (24, ".mp4"))
+        self.assertEqual((args.fps, args.output.suffix), (12, ".mp4"))
         self.assertIn("interpolator", args.output.stem)
         self.assertIsNone(args.zoom)
 
@@ -42,7 +43,7 @@ class InterpolatorOptionsTests(unittest.TestCase):
         _, args = self.resolve(preset="sdxl-base", end_prompt="forest", end_negative_prompt="",
                                end_seed=2**64-1)
         values = generate.configuration_values(args)
-        _, replay = generate.resolve_request(values)
+        _, replay = local_request(values)
         self.assertEqual(generate.configuration_values(replay), values)
 
     def test_incompatible_requests_fail_without_runtime(self):
@@ -60,7 +61,7 @@ class InterpolatorOptionsTests(unittest.TestCase):
     def test_endpoints_cannot_be_silently_ignored_in_other_modes(self):
         for values in ({"end_prompt": "b"}, {"animation_mode": "2D", "end_seed": 43}):
             with self.subTest(values=values), self.assertRaises(SystemExit):
-                generate.resolve_request(values)
+                local_request(values)
 
     def test_auto_route_wins_over_local_model(self):
         import argparse
@@ -76,7 +77,7 @@ class InterpolatorOptionsTests(unittest.TestCase):
 
     def test_cli_and_json_work_without_importing_runtime(self):
         for flags in (["--backend", "interpolator"], ["--animation-mode", "Interpolator"]):
-            result = subprocess.run([sys.executable, str(ROOT / "reference/generate.py"), *flags,
+            result = subprocess.run([sys.executable, str(ROOT / "reference/generate.py"), "--model", MODEL, *flags,
                                      "--end-prompt", "forest", "--end-seed", "43", "--max-frames", "3",
                                      "--print-config"], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -85,7 +86,7 @@ class InterpolatorOptionsTests(unittest.TestCase):
                              ("Interpolator", "forest", 43))
 
     def test_explicit_backend_rejects_conflicting_mode(self):
-        result = subprocess.run([sys.executable, str(ROOT / "reference/generate.py"),
+        result = subprocess.run([sys.executable, str(ROOT / "reference/generate.py"), "--model", MODEL,
                                  "--backend", "interpolator", "--animation-mode", "2D", "--print-config"],
                                 capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)

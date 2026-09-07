@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from local_model_fixture import local_parser, local_request
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -154,7 +155,7 @@ class HiresOptionsTests(unittest.TestCase):
     def test_pass_count_cannot_bypass_validation_from_json_or_python(self):
         for value in (True, 1.5, "3", 0, -1):
             with self.subTest(value=value), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                generate.resolve_request({"hires_fix": True, "hires_passes": value})
+                local_request({"hires_fix": True, "hires_passes": value})
 
     def test_programmatic_namespace_cannot_bypass_pass_count_validation(self):
         for value in (True, 2.0, "3", 0, -1):
@@ -164,11 +165,11 @@ class HiresOptionsTests(unittest.TestCase):
                 resolve_hires_options(presets.SD15_PRESET, args)
 
     def test_full_python_request_exports_and_replays_repeated_refinement(self):
-        preset, args = generate.resolve_request({"preset": "sd15", "hires_fix": True,
+        preset, args = local_request({"preset": "sd15", "hires_fix": True,
                                                 "hires_passes": 3, "hires_scale": 1.3})
         exported = json.loads(json.dumps(configuration_values(args)))
         self.assertEqual(exported["hires_passes"], 3)
-        replay_preset, replay = generate.resolve_request(exported)
+        replay_preset, replay = local_request(exported)
         self.assertEqual(replay_preset, preset)
         self.assertEqual(replay.hires_stage_sizes, [[664, 664], [864, 864], [1120, 1120]])
         self.assertEqual((replay.width, replay.height), (512, 512))
@@ -179,7 +180,7 @@ class HiresOptionsTests(unittest.TestCase):
             config = Path(directory) / "generation.json"
             config.write_text(json.dumps({"preset": "sd15", "hires_fix": True,
                                           "hires_passes": 3, "hires_scale": 1.3}))
-            cli = generate.build_parser().parse_args(["--config", str(config), "--hires-passes", "2"])
+            cli = local_parser(generate.build_parser).parse_args(["--config", str(config), "--hires-passes", "2"])
             _, args = generate.resolve_arguments(cli)
             self.assertEqual(args.hires_passes, 2)
             self.assertEqual(args.hires_stage_sizes, [[664, 664], [864, 864]])
@@ -450,7 +451,7 @@ class HiresOptionsTests(unittest.TestCase):
                           {"negative_prompt_2": "secondary artifacts"},
                           {"negative_prompt": "blurry", "negative_prompt_2": "secondary artifacts"}):
             with self.subTest(negatives=negatives):
-                preset, args = generate.resolve_request({
+                preset, args = local_request({
                     "preset": "flux1-schnell", "true_cfg_scale": 1,
                     "hires_fix": True, "hires_true_cfg_scale": 2, **negatives,
                 })
@@ -471,11 +472,11 @@ class HiresOptionsTests(unittest.TestCase):
             for negatives in ({"negative_prompt": "blurry"}, {"negative_prompt_2": "artifacts"}):
                 with self.subTest(hires=hires, negatives=negatives), self.assertRaisesRegex(
                         SystemExit, "negative-prompt"):
-                    generate.resolve_request({"preset": "flux1-schnell", "true_cfg_scale": 1,
+                    local_request({"preset": "flux1-schnell", "true_cfg_scale": 1,
                                               **hires, **negatives})
 
     def test_flux_base_cfg_can_use_negative_prompts_when_refinement_cfg_is_disabled(self):
-        preset, args = generate.resolve_request({
+        preset, args = local_request({
             "preset": "flux1-schnell", "true_cfg_scale": 2, "negative_prompt": "blurry",
             "hires_fix": True, "hires_true_cfg_scale": 1,
         })

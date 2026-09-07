@@ -318,7 +318,8 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
                 GenerationOptionsTests GenerationOutputTests
                 DeforumOptionsTests DeforumRuntimeTests DeforumMediaTests
                 InterpolatorOptionsTests InterpolatorRuntimeTests InterpolatorMediaTests
-                VideoOptionsTests VideoRuntimeTests
+                VideoOptionsTests VideoRuntimeTests VideoRoutingPolicyTests VideoInterpolationTests LocalGenerationTests
+                ModelSourceTests RemoteGenerationTests
                 GenericIOTests GenerationCompositionTests GenerationAdapterTests
                 GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests
                 ControlNetTests HiresOptionsTests HiresRuntimeTests HiresRepeatRuntimeTests HiresFluxControlNetTests
@@ -340,10 +341,16 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         endforeach()
         foreach(generation_preset IN ITEMS sd15 sdxl-base flux1-schnell sdxl illustrious
                 noobai noobai-v-pred flux1-dev flux1-krea-dev sd15-compatible flux1-schnell-compatible)
+            set(generation_fixture "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/sdxl-base-manifest")
+            if(generation_preset MATCHES "^sd15")
+                set(generation_fixture "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/sd-v1-manifest")
+            elseif(generation_preset MATCHES "^flux1")
+                set(generation_fixture "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flux1-schnell-manifest")
+            endif()
             add_test(NAME ReferenceGenerateConfig-${generation_preset}
                 COMMAND "${Python3_EXECUTABLE}"
                     "${CMAKE_CURRENT_SOURCE_DIR}/reference/diffusers/generate.py"
-                    --preset ${generation_preset} --print-config)
+                    --preset ${generation_preset} --model "${generation_fixture}" --print-config)
             set_tests_properties(ReferenceGenerateConfig-${generation_preset} PROPERTIES
                 ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
         endforeach()

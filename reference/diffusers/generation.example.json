@@ -1,6 +1,6 @@
 {
   "preset": "sd15",
-  "model": null,
+  "model": "/absolute/path/image-diffusers",
   "vae": null,
   "lora": null,
   "text_embedding": null,

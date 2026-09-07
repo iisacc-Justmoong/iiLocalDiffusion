@@ -1,5 +1,10 @@
 # Generation values and neutral defaults
 
+Select one model location: local `--model-path` (legacy `--model`), direct
+`--model-api`, or remote `--model-cloud` with `--model-provider`. See
+[model sources](model-sources.md) for the remote image/video subset and credential
+arguments. Tensor, scheduler and adapter controls below describe local execution.
+
 `--base-model` selects Civitai families through `reference/generate.py` or the
 preset generator. An explicit `--preset` can select a compatible variant, such
 as `--base-model NoobAI --preset noobai-v-pred`; conflicting families fail.
@@ -16,9 +21,9 @@ argument parsing and JSON use the standard library; loading, scheduling,
 encoding and tensor operations stay in the existing Diffusers/PyTorch APIs.
 This does not add a complete diffusion pipeline to the native C++ library.
 
-## Omission is valid; an invalid explicit value is not replaced
+## Optional defaults and required local model inputs
 
-No generation argument is required. Omitted values and top-level JSON
+An explicit model source is required. Other omitted values and top-level JSON
 `null` use the documented defaults. Explicit `0`, `false` and empty text
 are retained, not mistaken for missing input. Unknown keys, wrong JSON types,
 duplicate keys, non-finite numbers and incompatible combinations fail before
@@ -28,7 +33,8 @@ runtime checks.
 
 Precedence is **explicit CLI > JSON configuration > preset/shared defaults**.
 Boolean controls support both `--name` and `--no-name`, including
-`--no-cpu-text-encoding`, `--no-local-files-only` and `--no-overwrite`.
+`--no-cpu-text-encoding` and `--no-overwrite`. Model loading is always local;
+`--no-local-files-only` is rejected.
 Configuration keys use the CLI destination in snake_case, for example
 `num_images`, `guidance_scale`, `vae_tiling`. File-relative paths are
 resolved against the JSON file's directory; CLI paths use the working
@@ -41,9 +47,9 @@ Inspect or export the complete resolved configuration without importing
 Torch, checking GPUs, downloading a model, creating caches or generating:
 
 ```bash
-python reference/diffusers/generate.py --print-config
-python reference/diffusers/generate.py --preset sdxl-base --print-config
-python reference/diffusers/generate.py --preset flux1-schnell --print-config
+python reference/diffusers/generate.py --print-config --model /absolute/path/image-diffusers
+python reference/diffusers/generate.py --preset sdxl-base --print-config --model /absolute/path/image-diffusers
+python reference/diffusers/generate.py --preset flux1-schnell --print-config --model /absolute/path/image-diffusers
 ```
 
 The printed flat JSON can be saved and supplied to `--config`. Dynamic
@@ -68,7 +74,7 @@ For example, a partial configuration is sufficient:
 ```
 
 ```bash
-python reference/diffusers/generate.py --config build/generation.json \
+python reference/diffusers/generate.py --config build/generation.json --model /absolute/path/image-diffusers \
   --steps 24 --device rocm --cpu-text-encoding --offload model
 ```
 
@@ -81,13 +87,14 @@ The Python entry point resolves exactly the same schema:
 from generate import resolve_request, configuration_values
 
 preset, request = resolve_request({
+    "model": "/absolute/path/image-diffusers",
     "preset": "sdxl-base",
     "seed": 0,
     "width": None,
     "vae_tiling": False,
 })
 resolved_values = configuration_values(request)
-# resolve_request() with no mapping also returns a valid default request.
+# A local model field is required; other omitted fields use preset defaults.
 ```
 
 ## Model-specific defaults
@@ -141,7 +148,7 @@ objects or internal metadata. A misspelled key or unsupported schedule/eta
 is rejected rather than silently ignored. Example:
 
 ```bash
-python reference/diffusers/generate.py --scheduler DDIMScheduler --eta 0.2 \
+python reference/diffusers/generate.py --scheduler DDIMScheduler --eta 0.2 --model /absolute/path/image-diffusers \
   --scheduler-config '{"timestep_spacing":"trailing"}' --steps 20
 ```
 
@@ -178,11 +185,11 @@ These condition the model; they do not crop the saved PNG.
 
 ## Model, hardware, memory and output values
 
-Existing `--model`, `--revision`, `--model-config`,
-`--model-config-revision`, `--vae`, `--lora`, `--lora-revision`,
+Existing local `--model`, `--model-config`, `--vae`, `--lora`,
 `--lora-weight-name`, and `--lora-scale` remain available in all three
-input forms. Omitted model/config selections use the preset's pinned source;
-VAE comes from that source, and no LoRA is loaded. A selected LoRA defaults
+input forms. The local model is required; a single-file model additionally
+requires its local configuration source. The VAE comes from the selected source,
+and an omitted LoRA remains disabled. A selected LoRA defaults
 to scale 1.0. See [model inputs](model-inputs.md) for file layouts and identity.
 
 Optional `--controlnet` and `--control-image` enable one compatible ControlNet
@@ -215,7 +222,7 @@ revisions, single files, JSON keys, and provenance are described in the
 | `--watermark` | SDXL false; explicit true needs its optional installed dependency |
 | `--progress` | True; false hides generation progress |
 | `--cache-dir`, `--xet-cache-dir` | Repository build/reference/huggingface and huggingface-xet |
-| `--local-files-only` | False |
+| `--local-files-only` | True; disabling is rejected |
 | `--output` | Preset filename under build/reference; custom/vae/lora/embedding/controlnet/hires suffixes compose |
 | `--overwrite` | False |
 | `--png-compress-level` | 6, range 0–9; lossless |
@@ -307,7 +314,7 @@ The dimensions come from the loaded model; a wrong shape is not resized.
 meaning those canonical keys, and can map them to other file keys:
 
 ```bash
-python reference/diffusers/generate.py --embeddings /absolute/path/text.safetensors \
+python reference/diffusers/generate.py --embeddings /absolute/path/text.safetensors --model /absolute/path/image-diffusers \
   --embedding-keys '{"prompt_embeds":"positive","negative_prompt_embeds":"negative"}' \
   --latents /absolute/path/noise.safetensors --latents-key noise
 ```
@@ -350,11 +357,10 @@ tokens, components, token IDs and vector counts.
 
 ## Deliberately preserved boundaries
 
-Defaults prevent **missing-parameter** errors, not missing hardware, model
-files, authentication or licenses. A custom remote repository still needs
-its immutable revision; a LoRA directory/repository still needs an exact
-weight name. The program does not guess an unrelated checkpoint or silently
-download a replacement after an explicit file fails.
+Defaults apply to optional sampling parameters. They do not supply hardware, model
+files or licenses. Generation requires an explicit local model path; a LoRA
+directory still needs an exact filename. Missing local files fail without a
+download or replacement. See [local model generation](local-model-generation.md).
 
 Safetensors-only loading, disabled remote code, trained architecture checks,
 RGB PNG output and inference-only execution remain contracts, not unsafe

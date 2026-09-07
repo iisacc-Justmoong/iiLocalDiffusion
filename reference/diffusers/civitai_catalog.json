@@ -6,7 +6,8 @@
     "committed_at": "2026-09-04T02:33:02Z",
     "retrieved_at": "2026-09-04",
     "file_sha256": "032c3f038b5c4abf1e4a47a4622e9eeb8db084080e38c9f2830dcb8fa9f5fea3",
-    "base_model_count": 105
+    "base_model_count": 104,
+    "upstream_base_model_count": 105
   },
   "upstream_sources": {
     "diffusers": {
@@ -1466,21 +1467,6 @@
     {
       "name": "Kling",
       "family": "Kling",
-      "local_status": "hosted",
-      "preferred_backend": "unavailable",
-      "preset": null,
-      "pipeline_class": null,
-      "task": "text-to-video",
-      "notes": "The catalog entry represents a hosted provider/category; no verified local checkpoint route is supplied. Do not automatically call or bill a remote service.",
-      "sources": [
-        "https://github.com/civitai/civitai/blob/ec49115e55d7c85722ec6223ec342c36df59c9d4/packages/civitai-shared/src/basemodel.constants.ts"
-      ],
-      "civitai_hidden": true,
-      "civitai_disabled": false
-    },
-    {
-      "name": "Seedance",
-      "family": "Seedance",
       "local_status": "hosted",
       "preferred_backend": "unavailable",
       "preset": null,

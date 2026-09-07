@@ -13,6 +13,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser, local_request, MODEL
 from unittest.mock import Mock, patch
 
 
@@ -31,7 +32,7 @@ CONFIG_REVISION = "b" * 40
 
 
 def resolved(*arguments):
-    preset, args = generate.resolve_arguments(generate.build_parser().parse_args(list(arguments)))
+    preset, args = generate.resolve_arguments(local_parser(generate.build_parser).parse_args(list(arguments)))
     generate.validate_generation_arguments(preset, args)
     return preset, args
 
@@ -59,7 +60,7 @@ class ControlNetTests(unittest.TestCase):
         preset = presets.PRESETS[values.get("preset", "sd15")]
         if preset.requires_model_override:
             values.setdefault("model", str(self.model_directory))
-        return generate.resolve_request(values)
+        return local_request(values)
 
     def weight(self, name="controlnet.safetensors", contents=b"controlnet weight fixture"):
         path = self.directory / name
@@ -112,14 +113,14 @@ class ControlNetTests(unittest.TestCase):
                 request = {"preset": preset.name}
                 if preset.requires_model_override:
                     request["model"] = str(self.model_directory)
-                _, args = generate.resolve_request(request)
+                _, args = local_request(request)
                 self.assertIsNone(args.controlnet_selection)
                 values = generate.build_pipeline_call_arguments(preset, args, "generator")
                 for name in ("image", "control_image", "controlnet_conditioning_scale",
                              "control_guidance_start", "control_guidance_end", "guess_mode"):
                     self.assertNotIn(name, values)
                 configuration = generate.configuration_values(args)
-                _, replayed = generate.resolve_request(configuration)
+                _, replayed = local_request(configuration)
                 self.assertEqual(generate.configuration_values(replayed), configuration)
 
     def test_local_directory_request_has_neutral_defaults_and_image_identity(self):
@@ -138,11 +139,9 @@ class ControlNetTests(unittest.TestCase):
         self.assertEqual(args.control_image_file.sha256, hashlib.sha256(PNG).hexdigest())
         self.assertEqual(args.control_image_file.size_bytes, len(PNG))
 
-    def test_remote_controlnet_preserves_immutable_revision(self):
-        _, args = self.request(controlnet="vendor/controlnet", controlnet_revision=REVISION)
-        self.assertEqual(args.controlnet_selection.source, "vendor/controlnet")
-        self.assertEqual(args.controlnet_selection.requested_revision, REVISION)
-        self.assertFalse(args.controlnet_selection.is_local)
+    def test_remote_controlnet_is_rejected_even_when_pinned(self):
+        with self.assertRaisesRegex(SystemExit, 'local'):
+            self.request(controlnet='vendor/controlnet', controlnet_revision=REVISION)
 
     def test_remote_controlnet_requires_a_lowercase_40_character_commit(self):
         for revision in (None, "", "main", "v1.0", "A" * 40, "a" * 39, "a" * 41, "g" * 40):
@@ -207,12 +206,9 @@ class ControlNetTests(unittest.TestCase):
         self.assertTrue(args.controlnet_config_selection.is_local)
         self.assertIsNone(args.controlnet_config_selection.requested_revision)
 
-    def test_single_file_accepts_a_pinned_remote_component_config(self):
-        _, args = self.request(controlnet=str(self.weight()), controlnet_config="vendor/config",
-                               controlnet_config_revision=CONFIG_REVISION)
-        self.assertEqual(args.controlnet_config_selection.source, "vendor/config")
-        self.assertEqual(args.controlnet_config_selection.requested_revision, CONFIG_REVISION)
-        self.assertFalse(args.controlnet_config_selection.is_local)
+    def test_single_file_rejects_a_pinned_remote_component_config(self):
+        with self.assertRaisesRegex(SystemExit, 'local'):
+            self.request(controlnet=str(self.weight()), controlnet_config='vendor/config', controlnet_config_revision=CONFIG_REVISION)
 
     def test_component_configuration_must_be_pinned_or_local_without_revision(self):
         weight = self.weight()
@@ -287,7 +283,6 @@ class ControlNetTests(unittest.TestCase):
     def test_local_remote_and_single_file_configurations_round_trip(self):
         cases = (
             {},
-            {"controlnet": "vendor/controlnet", "controlnet_revision": REVISION},
             {"controlnet": str(self.weight()), "controlnet_config": str(self.controlnet)},
         )
         for values in cases:
@@ -297,14 +292,14 @@ class ControlNetTests(unittest.TestCase):
                 self.assertNotIn("controlnet_selection", configuration)
                 self.assertNotIn("control_image_file", configuration)
                 self.assertNotIn("controlnet_image", configuration)
-                _, replayed = generate.resolve_request(configuration)
+                _, replayed = local_request(configuration)
                 self.assertEqual(generate.configuration_values(replayed), configuration)
 
     def test_controlnet_uses_a_separate_default_output_for_each_family(self):
         for preset in presets.PRESETS.values():
             with self.subTest(preset=preset.name):
                 _, args = self.request(preset=preset.name)
-                custom_suffix = "-custom" if preset.requires_model_override else ""
+                custom_suffix = "-custom"
                 self.assertEqual(args.output.name,
                                  Path(preset.generation_filename).stem + custom_suffix + "-controlnet.png")
                 explicit = self.directory / "chosen.png"
@@ -348,7 +343,7 @@ class ControlNetTests(unittest.TestCase):
 
     def test_print_config_requires_no_model_or_image_runtime_packages(self):
         output = io.StringIO()
-        arguments = ["generate.py", "--controlnet", str(self.controlnet),
+        arguments = ["generate.py", "--model", MODEL, "--controlnet", str(self.controlnet),
                      "--control-image", str(self.image), "--print-config"]
         with patch.object(sys, "argv", arguments), redirect_stdout(output), \
                 patch.object(generate, "package_versions", side_effect=AssertionError("packages")), \
@@ -360,7 +355,7 @@ class ControlNetTests(unittest.TestCase):
         self.assertEqual(values["controlnet_scale"], 1.0)
 
     def test_omitting_controlnet_never_loads_or_rewraps_the_base(self):
-        _, args = generate.resolve_request()
+        _, args = local_request()
         pipeline = object()
         with patch.object(controlnet, "validate_pipeline_contract") as validate:
             result, metadata = controlnet.attach_controlnet(pipeline, presets.SD15_PRESET, args, {}, "dtype")
@@ -388,25 +383,9 @@ class ControlNetTests(unittest.TestCase):
         recorded = {item["path"]: item for item in metadata["files"]}
         self.assertEqual(recorded[str(weight)]["sha256"], hashlib.sha256(weight.read_bytes()).hexdigest())
 
-    def test_remote_download_uses_the_requested_commit_and_offline_policy(self):
-        (self.controlnet / "diffusion_pytorch_model.safetensors").write_bytes(b"cached safe weights")
-        args, base, _, _, _, classes = self.loader_fixture(
-            controlnet="vendor/controlnet", controlnet_revision=REVISION, local_files_only=True)
-        download = Mock(return_value=str(self.controlnet))
-        with patch.dict(sys.modules, {"huggingface_hub": SimpleNamespace(snapshot_download=download)}), \
-                patch.object(controlnet, "validate_pipeline_contract"):
-            _, metadata = controlnet.attach_controlnet(base, presets.SD15_PRESET, args, classes, "float32")
-        self.assertEqual(download.call_count, 2)
-        for call in download.call_args_list:
-            self.assertEqual(call.args, ("vendor/controlnet",))
-            self.assertEqual(call.kwargs["revision"], REVISION)
-            self.assertTrue(call.kwargs["local_files_only"])
-            self.assertEqual(call.kwargs["cache_dir"], args.cache_dir)
-        self.assertEqual(download.call_args_list[0].kwargs["allow_patterns"],
-                         ["config.json", "diffusion_pytorch_model.safetensors.index.json"])
-        self.assertEqual(download.call_args_list[1].kwargs["allow_patterns"],
-                         ["diffusion_pytorch_model.safetensors"])
-        self.assertEqual(metadata["requested_revision"], REVISION)
+    def test_offline_policy_does_not_accept_a_hub_id(self):
+        with self.assertRaisesRegex(SystemExit, 'local'):
+            self.request(controlnet='vendor/controlnet', controlnet_revision=REVISION, local_files_only=True)
 
     def test_controlnet_and_config_never_inherit_the_base_presets_remote_revision(self):
         with self.assertRaises(SystemExit):
@@ -426,7 +405,7 @@ class ControlNetTests(unittest.TestCase):
             self.assertEqual({Path(item["path"]).name for item in metadata["files"]}, {"config.json", expected})
             self.assertEqual(loader.from_pretrained.call_args.kwargs.get("variant"), variant)
 
-    def test_modern_variant_index_fetches_exact_legacy_shard_names(self):
+    def test_local_variant_index_resolves_exact_legacy_shard_names(self):
         modern = "diffusion_pytorch_model.safetensors.index.fp16.json"
         shards = ["diffusion_pytorch_model-00001-of-00002.fp16.safetensors",
                   "diffusion_pytorch_model-00002-of-00002.fp16.safetensors"]
@@ -434,15 +413,12 @@ class ControlNetTests(unittest.TestCase):
         for name in (*shards, "diffusion_pytorch_model.safetensors", "diffusion_pytorch_model.ema.safetensors"):
             (self.controlnet / name).write_bytes(name.encode())
         args, base, _, _, _, classes = self.loader_fixture(
-            controlnet="vendor/controlnet", controlnet_revision=REVISION, controlnet_variant="fp16")
+            controlnet_variant="fp16")
         download = Mock(return_value=str(self.controlnet))
         with patch.dict(sys.modules, {"huggingface_hub": SimpleNamespace(snapshot_download=download)}), \
                 patch.object(controlnet, "validate_pipeline_contract"):
             _, metadata = controlnet.attach_controlnet(base, presets.SD15_PRESET, args, classes, "float32")
-        self.assertEqual(download.call_count, 2)
-        self.assertEqual(download.call_args_list[0].kwargs["allow_patterns"], [
-            "config.json", modern, "diffusion_pytorch_model.safetensors.fp16.index.json"])
-        self.assertEqual(download.call_args_list[1].kwargs["allow_patterns"], shards)
+        download.assert_not_called()
         self.assertEqual({Path(item["path"]).name for item in metadata["files"]}, {"config.json", modern, *shards})
 
     def test_legacy_variant_index_and_duplicate_shard_references_are_supported(self):
@@ -477,15 +453,11 @@ class ControlNetTests(unittest.TestCase):
                 index.write_text(json.dumps(value))
                 controlnet._package_files(self.controlnet, None)
 
-    def test_bad_remote_index_is_rejected_before_any_weight_download(self):
-        (self.controlnet / "diffusion_pytorch_model.safetensors.index.json").write_text(
+    def test_local_index_cannot_escape_its_package(self):
+        (self.controlnet / 'diffusion_pytorch_model.safetensors.index.json').write_text(
             '{"weight_map":{"weight":"../escape.safetensors"}}')
-        args, _, _, _, _, _ = self.loader_fixture(controlnet="vendor/controlnet", controlnet_revision=REVISION)
-        download = Mock(return_value=str(self.controlnet))
-        with patch.dict(sys.modules, {"huggingface_hub": SimpleNamespace(snapshot_download=download)}), \
-                self.assertRaises(ValueError):
-            controlnet._snapshot(args.controlnet_selection, args)
-        download.assert_called_once()
+        with self.assertRaises(ValueError):
+            controlnet._package_files(self.controlnet, None)
 
     def test_package_file_selection_reports_missing_directory_and_missing_selected_weights(self):
         missing = self.directory / "missing-package"
@@ -494,16 +466,9 @@ class ControlNetTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing or empty"):
             controlnet._identities(controlnet._package_files(self.controlnet, "fp16"))
 
-    def test_remote_single_file_configuration_does_not_fetch_component_weights(self):
-        _, args = self.request(controlnet=str(self.weight()), controlnet_config="vendor/config",
-                               controlnet_config_revision=CONFIG_REVISION)
-        download = Mock(return_value=str(self.controlnet))
-        with patch.dict(sys.modules, {"huggingface_hub": SimpleNamespace(snapshot_download=download)}):
-            path = controlnet._snapshot(args.controlnet_config_selection, args, config_only=True)
-        self.assertEqual(path, self.controlnet)
-        download.assert_called_once()
-        self.assertEqual(download.call_args.kwargs["allow_patterns"], ["config.json"])
-        self.assertEqual(download.call_args.kwargs["revision"], CONFIG_REVISION)
+    def test_remote_single_file_configuration_cannot_be_resolved_from_a_hub_id(self):
+        with self.assertRaisesRegex(SystemExit, 'local'):
+            self.request(controlnet=str(self.weight()), controlnet_config='vendor/config', controlnet_config_revision=CONFIG_REVISION)
 
     def test_loader_rejects_incomplete_unexpected_and_mismatched_tensor_sets(self):
         (self.controlnet / "diffusion_pytorch_model.safetensors").write_bytes(b"safe weights")

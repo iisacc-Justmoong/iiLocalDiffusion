@@ -6,6 +6,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser
 from unittest.mock import Mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +19,7 @@ import presets
 
 class GenerationOutputTests(unittest.TestCase):
     def args(self, *tokens):
-        return generate.resolve_arguments(generate.build_parser().parse_args(list(tokens)))[1]
+        return generate.resolve_arguments(local_parser(generate.build_parser).parse_args(list(tokens)))[1]
 
     def test_default_collision_allocates_an_unused_name_without_deleting_old_files(self):
         with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:

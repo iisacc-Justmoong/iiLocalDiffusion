@@ -13,12 +13,11 @@ import math
 import os
 from pathlib import Path
 import platform
-import re
 import sys
 import tempfile
 from typing import Any
 
-from animation_options import add_animation_options, resolve_animation_options
+from animation_options import add_animation_options, resolve_animation_options, validate_animation_output
 from cpu_conditioning import CpuConditioning, encode_cpu_prompt
 from controlnet import (
     add_controlnet_options, attach_controlnet, controlnet_call_arguments,
@@ -44,7 +43,6 @@ from interpolator_options import add_interpolator_options, resolve_interpolator_
 from text_embedding_options import add_text_embedding_options, resolve_text_embedding_options
 from text_embeddings import apply_text_embeddings, text_embedding_prompt_context, validate_text_embeddings
 from model_loading import load_generation_pipeline, selection_metadata
-from pipeline_loading import _is_gated_repository_error
 from presets import (
     DEFAULT_PRESET_NAME,
     PRESETS,
@@ -110,21 +108,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--preset", choices=tuple(PRESETS), default=DEFAULT_PRESET_NAME)
     parser.add_argument("--base-model", default=None,
                         help="Civitai base-model identity; chooses a compatible preset")
-    parser.add_argument(
-        "--model",
-        default=None,
-        help="Hub model ID, local Diffusers directory, or local safetensors model file",
-    )
-    parser.add_argument("--revision", default=None, help="Immutable Hub commit revision")
+    from model_sources import add_model_arguments
+    add_model_arguments(parser, local_help="Local Diffusers directory or local safetensors model file")
+    parser.add_argument("--revision", default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "--model-config",
         default=None,
-        help="Diffusers directory/Hub ID supplying a single-file model's configuration and extras",
+        help="Local Diffusers directory supplying a single-file model's configuration and extras",
     )
     parser.add_argument(
         "--model-config-revision",
         default=None,
-        help="Immutable commit for --model-config; defaults to the selected preset revision",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--vae", default=None, help="Replacement local VAE .safetensors or .safetensor file"
@@ -132,17 +127,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lora",
         default=None,
-        help="Local LoRA safetensors file/directory or Hugging Face repository ID",
+        help="Local LoRA safetensors file or directory",
     )
     parser.add_argument(
         "--lora-revision",
         default=None,
-        help="Immutable 40-character commit revision for a remote LoRA",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--lora-weight-name",
         default=None,
-        help="Exact .safetensors filename for a LoRA directory or repository",
+        help="Exact .safetensors filename for a local LoRA directory",
     )
     parser.add_argument(
         "--lora-scale",
@@ -187,7 +182,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the preset and device-specific attention-slicing policy.",
     )
-    parser.add_argument("--local-files-only", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--local-files-only", action=argparse.BooleanOptionalAction, default=True,
+                        help="Local model loading is mandatory; disabling it is rejected")
     parser.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=False)
     add_generation_options(parser)
     add_controlnet_options(parser)
@@ -199,7 +195,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argparse.Namespace]:
+def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset | None, argparse.Namespace]:
+    from model_sources import is_remote, resolve_model_input
+    if is_remote(args):
+        from remote_generation import resolve_image_options
+        try:
+            return None, resolve_image_options(args)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
     if getattr(args, "base_model", None):
         from civitai_catalog import lookup_base_model
         try:
@@ -226,8 +229,11 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
     if getattr(preset, "requires_model_override", False) and args.model is None:
         raise SystemExit(f"Preset {preset.name} requires an explicit --model checkpoint or directory.")
     try:
+        resolve_model_input(args)
+        if not args.local_files_only:
+            raise ValueError("Generation requires local model files; --no-local-files-only is unsupported.")
         selection = resolve_model_selection(
-            preset, args.model, args.revision, allow_single_file=True
+            preset, args.model, args.revision, allow_single_file=True, local_only=True
         )
         config_selection = None
         if selection.single_file is not None:
@@ -237,6 +243,7 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
                 args.model_config_revision,
                 model_argument="--model-config",
                 revision_argument="--model-config-revision",
+                local_only=True,
             )
         elif args.model_config is not None or args.model_config_revision is not None:
             raise ValueError("--model-config options require --model to be a single file.")
@@ -300,7 +307,7 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
     return preset, resolved
 
 
-def resolve_request(values: dict[str, Any] | None = None) -> tuple[PipelinePreset, argparse.Namespace]:
+def resolve_request(values: dict[str, Any] | None = None) -> tuple[PipelinePreset | None, argparse.Namespace]:
     """Resolve and validate all external values for a Python caller without loading models."""
     preset, args = resolve_arguments(build_parser().parse_values(values))
     validate_generation_arguments(preset, args)
@@ -384,22 +391,7 @@ def resolve_lora_selection(args: argparse.Namespace) -> LoraSelection | None:
             local_file=local_file,
         )
 
-    if args.lora_revision is None:
-        raise SystemExit("A remote LoRA requires --lora-revision with an immutable commit SHA.")
-    if re.fullmatch(r"[0-9a-f]{40}", args.lora_revision) is None:
-        raise SystemExit("--lora-revision must be a 40-character lowercase commit SHA.")
-    if args.lora_weight_name is None:
-        raise SystemExit("A remote LoRA requires --lora-weight-name.")
-    _validate_lora_weight_name(args.lora_weight_name)
-    return LoraSelection(
-        source=source,
-        weight_name=args.lora_weight_name,
-        requested_revision=args.lora_revision,
-        is_local=False,
-        scale=scale,
-        sha256=None,
-        size_bytes=None,
-    )
+    raise SystemExit(f"--lora must be an existing local file or directory: {source}")
 
 
 def load_dependencies() -> tuple[Any, dict[str, Any]]:
@@ -502,16 +494,16 @@ def apply_lora(
     if selection is None:
         return None
 
+    if not selection.is_local:
+        raise ValueError("LoRA generation requires local weights.")
     load_arguments: dict[str, Any] = {
         "adapter_name": LORA_ADAPTER_NAME,
         "cache_dir": cache_directory,
-        "local_files_only": local_files_only,
+        "local_files_only": True,
         "low_cpu_mem_usage": low_cpu_mem_usage,
         "use_safetensors": True,
         "weight_name": selection.weight_name,
     }
-    if selection.requested_revision is not None:
-        load_arguments["revision"] = selection.requested_revision
 
     try:
         if selection.local_file is not None:
@@ -527,12 +519,6 @@ def apply_lora(
         pipeline.set_adapters(LORA_ADAPTER_NAME, adapter_weights=selection.scale)
         adapters_by_component = pipeline.get_list_adapters()
     except Exception as error:
-        if _is_gated_repository_error(error):
-            raise SystemExit(
-                f"Cannot access gated LoRA {selection.source}. Accept its terms on "
-                "Hugging Face and authenticate this environment with `hf auth login`, "
-                "then retry."
-            ) from None
         raise RuntimeError(
             f"Could not load and activate LoRA {selection.source}/{selection.weight_name}: "
             f"{error}"
@@ -719,7 +705,7 @@ def build_load_arguments(
     arguments: dict[str, Any] = {
         "cache_dir": args.cache_dir,
         "dtype": dtype,
-        "local_files_only": args.local_files_only,
+        "local_files_only": True,
         "low_cpu_mem_usage": getattr(args, "low_cpu_mem_usage", True),
         "trust_remote_code": False,
         "use_safetensors": True,
@@ -860,7 +846,11 @@ def prepare_pipeline_for_execution(
     return pipeline, optimization
 
 
-def validate_generation_arguments(preset: PipelinePreset, args: argparse.Namespace) -> None:
+def validate_generation_arguments(preset: PipelinePreset | None, args: argparse.Namespace) -> None:
+    if preset is None:
+        # Remote arguments were validated by resolve_image_options; local
+        # scheduler/tensor constraints do not describe a provider's runtime.
+        return
     base_validation_args = args
     if (preset.family == "flux1-schnell" and args.true_cfg_scale == 1
             and getattr(args, "hires_fix", False)
@@ -896,8 +886,10 @@ def validate_generation_arguments(preset: PipelinePreset, args: argparse.Namespa
     ):
         raise SystemExit(f"Preset {preset.name} does not use --negative-prompt.")
     if getattr(args, "animation_mode", "none") != "none":
-        if args.output.suffix.lower() != ".mp4":
-            raise SystemExit("Animation output must use the .mp4 extension.")
+        try:
+            validate_animation_output(args.fps, args.output)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
     elif args.output.suffix.lower() != ".png":
         raise SystemExit("Reference output must use the .png extension.")
 
@@ -909,6 +901,17 @@ def main() -> int:
         print(json.dumps(configuration_values(args), indent=2, sort_keys=True, allow_nan=False))
         return 0
 
+    if preset is None:
+        from remote_generation import generate_image
+        try:
+            reports = generate_image(args)
+        except (ValueError, RuntimeError, OSError, ImportError) as error:
+            raise SystemExit(f"Remote image generation failed: {error}") from error
+        for report in reports:
+            print(f"Image: {report['image']['file']}")
+        return 0
+
+    os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1")
     animation = args.animation_mode != "none"
     animation_environment = None
     if animation:

@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+from local_model_fixture import local_parser
 from unittest.mock import Mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +33,7 @@ def rocm_torch(*, available=True, hip="7.2.1"):
 
 class RocmPolicyTests(unittest.TestCase):
     def test_explicit_rocm_is_a_valid_cli_device(self):
-        args = generate.build_parser().parse_args(["--device", "rocm"])
+        args = local_parser(generate.build_parser).parse_args(["--device", "rocm"])
         self.assertEqual(args.device, "rocm")
 
     def test_rocm_uses_pytorch_cuda_namespace(self):

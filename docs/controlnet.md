@@ -9,7 +9,7 @@ add ControlNet inspection or image generation to C++.
 ## Generate with a conditioning image
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sd15 \
   --controlnet /absolute/path/to/sd15-controlnet-package \
   --control-image /absolute/path/to/prepared-canny.png \
@@ -39,11 +39,9 @@ architecture does not establish training compatibility or image quality.
 
 | Argument | Omitted value / accepted input |
 |---|---|
-| `--controlnet` | Disabled; otherwise local Diffusers component directory, pinned Hub repository, or local safetensors file |
-| `--controlnet-revision` | Required for a remote ControlNet: 40-character lowercase commit SHA; invalid for a local source |
+| `--controlnet` | Disabled; otherwise local Diffusers component directory or local safetensors file |
 | `--control-image` | Required when ControlNet is selected; non-empty local static image |
-| `--controlnet-config` | Single-file component configuration: sibling `config.json` by default, otherwise an explicit local directory or pinned Hub repository |
-| `--controlnet-config-revision` | Immutable commit for a remote component configuration; independent of base and ControlNet revisions |
+| `--controlnet-config` | Single-file component configuration: sibling `config.json` by default, otherwise an explicit local directory |
 | `--controlnet-variant` | No package filename variant; explicit values such as `fp16` are independent of `--weight-variant` |
 | `--controlnet-scale` / `--controlnet-conditioning-scale` | 1.0 when selected; finite and non-negative, 0 gives zero conditioning strength |
 | `--control-guidance-start` | 0.0 when selected |
@@ -61,27 +59,23 @@ against `num_mode`; a non-Union model rejects `--control-mode`.
 
 A component package has a root `config.json` declaring the expected
 ControlNet class and standard Diffusers safetensors weights. Base-pipeline
-packages and ControlNet component packages are separate selections. Remote
-weights use an immutable snapshot; replace the example ID and commit with
-the actual compatible model and its revision:
+packages and ControlNet component packages are separate local selections.
+Supply a compatible local model:
 
-```bash
+```sh
 reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
-  --preset sdxl-base \
-  --controlnet owner/sdxl-controlnet-repository \
-  --controlnet-revision 0123456789abcdef0123456789abcdef01234567 \
-  --control-image /absolute/path/to/prepared-depth.png
+  --preset sdxl --model /absolute/path/sdxl-diffusers \
+  --controlnet /absolute/path/sdxl-controlnet \
+  --control-image /absolute/path/conditioning.png
 ```
 
 Local single files accept `.safetensors` and `.safetensor`. A sibling
 `config.json` supplies the component configuration when present. Otherwise,
-pass `--controlnet-config`; unlike `--model-config`, it does not default to
-the base preset because that repository does not define the selected
-ControlNet. The configuration source must contain its component
+pass an explicit local `--controlnet-config`. The configuration source must contain its component
 `config.json` at the root, not a base pipeline's `model_index.json`.
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset flux1-schnell \
   --controlnet /absolute/path/to/flux-controlnet.safetensor \
   --controlnet-config /absolute/path/to/flux-controlnet-config \
@@ -97,12 +91,12 @@ Supported original-format SD/SDXL ControlNet safetensors are delegated to
 conversion is not provided. Pickle `.ckpt`, `.bin`, and `.pt` files are
 rejected; the singular safe-file extension uses a temporary canonical alias.
 Configuration options apply only to single files; package variants apply
-only to directories or repositories.
+only to local directories.
 
 For packages, the selected variant's index determines exactly which
-safetensors shards are downloaded and hashed, including legacy shard names.
+local safetensors shards are selected and hashed, including legacy shard names.
 Without an index, only that variant's standard single weight file is used.
-Other variants in the same repository or local directory are not loaded.
+Other variants in the same local directory are not loaded.
 
 Original-format conversion uses the pinned upstream converter. Its native
 tensor keys must exactly match the loaded component's state dictionary,
@@ -110,11 +104,9 @@ including when `--no-low-cpu-mem-usage` is selected. Missing weights cannot
 be replaced with random initialization, and unexpected converted tensors
 are rejected.
 
-`--local-files-only` applies to both weights and component configuration.
-Missing files, invalid architecture, incompatible weights, or a changed
-file identity fail explicitly. A failed selection is not replaced with a
-different model. The base model, ControlNet, and configuration revisions are
-independent inputs.
+ControlNet weights and component configuration must exist locally. Loading
+always uses `local_files_only=True`; a missing file fails without a fallback.
+Non-null base, ControlNet and configuration revision arguments are rejected.
 
 ## JSON, Python, and composition
 
@@ -175,14 +167,14 @@ Hires Fix adds `-hires` after `-controlnet`; its optional saved base image
 adds `-base` to the final image stem. Both stages' output paths and sidecars
 participate in the collision checks.
 
-The sidecar records the ControlNet source and immutable revision, model
+The sidecar records the ControlNet local source and file identity, model
 class, configuration source, weight/configuration file paths, SHA-256 hashes
 and byte sizes, package variant, scale, guidance interval, guess/union mode,
 and the conditioning image's identity, oriented dimensions, RGB conversion,
 and requested output size. LoRA activation remains separately recorded.
 The complete resolved request is retained in `parameters` for replay.
 
-Regression coverage addresses request defaults and errors, pinned revisions,
+Regression coverage addresses request defaults and errors, remote-source rejection,
 single-file configuration, JSON/CLI precedence, family-specific call
 arguments, filenames, loading identity, and compatibility. Small real
 Diffusers smoke runs exercise conditioning and generation separately from

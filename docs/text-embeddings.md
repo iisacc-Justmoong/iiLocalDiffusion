@@ -20,7 +20,7 @@ inversion training or native C++ image generation.
 ## CLI and token selection
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sd15 \
   --text-embedding /absolute/path/to/paint-style.safetensors \
   --text-embedding-token '<paintstyle>' \
@@ -58,7 +58,7 @@ override when a filename or stored name is unsuitable for prompt text.
 For example, load distinct learned style and object tokens:
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sd15 \
   --text-embedding /absolute/path/to/style.safetensors /absolute/path/to/object.safetensors \
   --text-embedding-token '<style>' '<object>' \

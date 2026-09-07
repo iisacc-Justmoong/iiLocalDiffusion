@@ -11,7 +11,6 @@ import tempfile
 from typing import Any
 
 from model_loading import require_materialized_component, selection_metadata, read_weight_keys
-from pipeline_loading import _is_gated_repository_error
 from presets import ModelSelection, PipelinePreset, resolve_model_selection, validate_pipeline_contract
 from weight_files import (
     LocalWeightFile, checked_safetensors_path, file_sha256, verify_weight_file,
@@ -32,13 +31,13 @@ DEPENDENT_OPTIONS = (
 
 def add_controlnet_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--controlnet", default=None,
-                        help="ControlNet Diffusers directory, pinned Hub ID, or local safetensors file")
+                        help="Local ControlNet Diffusers directory or safetensors file")
     parser.add_argument("--controlnet-revision", default=None,
-                        help="Immutable 40-character lowercase Hub commit for ControlNet")
+                        help=argparse.SUPPRESS)
     parser.add_argument("--controlnet-config", default=None,
-                        help="Component config directory/Hub ID for a ControlNet file; defaults to its sibling config.json")
+                        help="Local component config directory for a ControlNet file; defaults to its sibling config.json")
     parser.add_argument("--controlnet-config-revision", default=None,
-                        help="Immutable Hub commit for --controlnet-config")
+                        help=argparse.SUPPRESS)
     parser.add_argument("--controlnet-variant", default=None,
                         help="ControlNet package weight variant, for example fp16; independent of base weights")
     parser.add_argument("--control-image", type=Path, default=None,
@@ -74,10 +73,8 @@ def resolve_controlnet_options(preset: PipelinePreset, args: Any) -> None:
     if not args.controlnet:
         raise ValueError("--controlnet must not be empty.")
     args.controlnet_selection = resolve_model_selection(
-        preset, args.controlnet, args.controlnet_revision, allow_single_file=True,
+        preset, args.controlnet, args.controlnet_revision, allow_single_file=True, local_only=True,
         model_argument="--controlnet", revision_argument="--controlnet-revision")
-    if not args.controlnet_selection.is_local and args.controlnet_revision is None:
-        raise ValueError("A remote ControlNet requires an explicit --controlnet-revision.")
     if args.control_image is None:
         raise ValueError("--controlnet requires --control-image.")
     args.control_image_file = _image_file(args.control_image)
@@ -107,7 +104,7 @@ def resolve_controlnet_options(preset: PipelinePreset, args: Any) -> None:
             raise ValueError("--controlnet-config options require a single-file --controlnet.")
     else:
         if args.controlnet_variant is not None:
-            raise ValueError("--controlnet-variant requires a ControlNet directory or Hub repository.")
+            raise ValueError("--controlnet-variant requires a local ControlNet directory.")
         config_source = args.controlnet_config
         if config_source is None:
             sibling = Path(single_file.path).parent
@@ -115,10 +112,8 @@ def resolve_controlnet_options(preset: PipelinePreset, args: Any) -> None:
                 raise ValueError("A single-file --controlnet requires --controlnet-config or a sibling config.json.")
             config_source = str(sibling)
         args.controlnet_config_selection = resolve_model_selection(
-            preset, config_source, args.controlnet_config_revision,
+            preset, config_source, args.controlnet_config_revision, local_only=True,
             model_argument="--controlnet-config", revision_argument="--controlnet-config-revision")
-        if not args.controlnet_config_selection.is_local and args.controlnet_config_revision is None:
-            raise ValueError("A remote ControlNet configuration requires an explicit --controlnet-config-revision.")
 
 
 def controlnet_preset(preset: PipelinePreset) -> PipelinePreset:
@@ -148,30 +143,12 @@ def load_control_image(args: Any) -> Any:
 
 
 def _snapshot(selection: ModelSelection, args: Any, *, config_only: bool = False) -> Path:
-    if selection.is_local:
-        root = Path(selection.source)
-        if not root.is_dir():
-            raise ValueError(f"ControlNet package directory is missing: {root}")
-        return root
-    from huggingface_hub import snapshot_download
-
-    variant = args.controlnet_variant
-    suffix = f".{variant}" if variant else ""
-    indexes = list(dict.fromkeys((f"diffusion_pytorch_model.safetensors.index{suffix}.json",
-                                 f"diffusion_pytorch_model.safetensors{suffix}.index.json")))
-    download_arguments = dict(
-        revision=selection.requested_revision, cache_dir=args.cache_dir,
-        local_files_only=args.local_files_only)
-    root = Path(snapshot_download(
-        selection.source, **download_arguments,
-        allow_patterns=["config.json"] if config_only else ["config.json", *indexes]))
-    if config_only:
-        return root
-    # Read the selected index before fetching tensors. Variant indexes can refer
-    # to historical shard names, so prefix globs both miss files and overfetch.
-    weights = [str(path.relative_to(root).as_posix()) for path in _package_files(root, variant)
-               if path.suffix == ".safetensors"]
-    return Path(snapshot_download(selection.source, **download_arguments, allow_patterns=weights))
+    if not selection.is_local:
+        raise ValueError("ControlNet generation requires a local package directory.")
+    root = Path(selection.source)
+    if not root.is_dir():
+        raise ValueError(f"ControlNet package directory is missing: {root}")
+    return root
 
 
 def _package_files(root: Path, variant: str | None) -> list[Path]:
@@ -298,8 +275,6 @@ def attach_controlnet(pipeline: Any, preset: PipelinePreset, args: Any,
         pipeline = classes[PIPELINES[preset.family][0]].from_pipe(pipeline, dtype=dtype, **extras)
         validate_pipeline_contract(pipeline, controlnet_preset(preset))
     except Exception as error:
-        if _is_gated_repository_error(error):
-            raise SystemExit("Cannot access gated ControlNet/configuration weights; accept their terms and authenticate with `hf auth login`.") from None
         raise RuntimeError(f"Could not assemble ControlNet: {error}") from error
     return pipeline, {
         **selection_metadata(selection),

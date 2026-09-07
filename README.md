@@ -129,11 +129,27 @@ consistent; it does not mean the weights were parsed or inference succeeded.
 
 ## Python reference oracle
 
+Model inputs have three explicit locations: `--model-path PATH` (legacy `--model`),
+`--model-api URL`, or `--model-cloud OWNER/MODEL --model-provider PROVIDER`.
+API/cloud sources evaluate the model remotely without downloading weights.
+See [model sources](docs/model-sources.md) for supported protocols and Python/JSON inputs.
+
+Video requests default to a caller-supplied **LTX** model followed by a
+**frame Interpolator**, with a final rate of 24 FPS and source spacing of 2.
+Set `--interpolation-factor 2..8` to change the spacing. The second stage uses
+existing FFmpeg motion compensation and needs no additional model. It preserves
+the output duration, LTX source anchors and storyboard cuts.
+**FPS <= 12 or GIF output** allows image-model animation: auto selection uses
+Deforum, or Interpolator when end prompt/seed inputs are present. Both image
+animation modes default to 12 FPS and reject higher-FPS MP4 requests, including
+explicit backend/Python calls. See [local model and video selection](docs/local-model-generation.md)
+for the routing table, GIF timing and matching model arguments.
+
 [Interpolator video generation](docs/interpolator-video.md) is available through
 `iild-generate --backend interpolator`. It blends start/end prompt embeddings
 and seeded initial noise, then diffuses every frame with the existing
 SD/SDXL/FLUX.1 model runtime. Set `--end-prompt` and/or `--end-seed`; omission
-holds the corresponding starting value. Verified MP4, PNG frames and tensor/
+holds the corresponding starting value. Verified MP4/GIF, PNG frames and tensor/
 sampling provenance share the video output layer with Deforum. This mode needs
 the existing Diffusers environment and FFmpeg/FFprobe, with no OpenCV dependency.
 
@@ -141,7 +157,7 @@ the existing Diffusers environment and FFmpeg/FFprobe, with no OpenCV dependency
 `iild-generate --backend deforum` (or the preset runner's `--animation-mode 2D`).
 It applies scheduled camera transforms and img2img diffusion to each preceding
 frame, reusing SD/SDXL/FLUX.1 model components, LoRA and static ControlNet.
-The output includes a verified H.264 MP4, lossless PNG frames and per-frame
+The output includes a verified H.264 MP4 or GIF, lossless PNG frames and per-frame
 sampling/provenance records. Install the optional
 `reference/diffusers/requirements-deforum.txt` and provide FFmpeg/FFprobe.
 See the linked guide for keyframes, supported combinations and 2D scope.
@@ -155,8 +171,8 @@ token and text outputs with reusable safetensors descriptors. Existing full
 neural generation remains in the selected Python/backend runtime.
 
 The unified `reference/generate.py` entry point routes Civitai base-model names
-to local generation backends. Its pinned catalog includes all 105 upstream base
-types: 79 local, 24 hosted and 2 unknown. Catalog coverage is distinct from
+to local generation backends. Its pinned catalog describes 104 selected base
+types: 79 local, 23 hosted and 2 unknown. Catalog coverage is distinct from
 successful inference. Illustrious, NoobAI (including a v-prediction preset),
 Pony, FLUX.1 dev and FLUX.1 Krea use the extended image oracle. Other built-in
 Diffusers pipelines and explicit local ComfyUI API workflows provide additional
@@ -172,10 +188,10 @@ See [download-to-image usage](docs/local-image-generation.md) and
 
 ```bash
 python3 reference/generate.py --list-base-models
-python3 reference/generate.py --base-model Illustrious --print-config
+python3 reference/generate.py --base-model Illustrious --print-config --model /absolute/path/image-diffusers
 reference/diffusers/.venv/bin/python reference/generate.py \
   --model /path/illustrious.safetensors --prompt "a red cube" --device mps
-reference/diffusers/.venv/bin/python reference/generate.py \
+reference/diffusers/.venv/bin/python reference/generate.py --model-config /absolute/path/model-config \
   --base-model NoobAI --preset noobai-v-pred --model /path/noobai.safetensors
 reference/diffusers/.venv/bin/python reference/generate.py \
   --backend diffusers --model /path/local-diffusers-package --prompt "a red cube"
@@ -195,8 +211,9 @@ runtime dependency of the C++ library. They pin both the package versions and
 the Hugging Face model revision used by the project's fixed red-cube fixture.
 
 All supported generation values are exposed as CLI options, a typed JSON
-`--config`, and Python `resolve_request()`, with shared/preset defaults
-when omitted. `generate.py --print-config` shows the complete resolved values
+`--config`, and Python `resolve_request()`, with shared/preset defaults for
+optional values. An explicit model source is required. `generate.py --print-config` shows
+the complete resolved values
 without model downloads or a Torch installation. Sampling, scheduler settings,
 secondary prompts, batching/seeds, dtypes, memory policies and optional
 latent/embedding files are covered in [generation parameters](docs/generation-parameters.md).
@@ -211,19 +228,19 @@ reference/diffusers/.venv/bin/python \
   reference/diffusers/inspect_pipeline.py
 
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py
+  reference/diffusers/generate.py --model /absolute/path/image-diffusers
 
 reference/diffusers/.venv/bin/python \
   reference/diffusers/inspect_pipeline.py --preset sdxl-base
 
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py --preset sdxl-base
+  reference/diffusers/generate.py --preset sdxl-base --model /absolute/path/image-diffusers
 
 reference/diffusers/.venv/bin/python \
   reference/diffusers/inspect_pipeline.py --preset flux1-schnell
 
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py --preset flux1-schnell
+  reference/diffusers/generate.py --preset flux1-schnell --model /absolute/path/image-diffusers
 ```
 
 The generation default is `--device auto`; explicit choices include
@@ -242,7 +259,7 @@ To compute text embeddings on CPU and store inactive weights in RAM while
 keeping image denoising/decoding on the selected GPU:
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sdxl-base --cpu-text-encoding --cpu-threads 4 --offload model \
   --output build/reference/sdxl-cpu-ram.png
 ```
@@ -255,7 +272,7 @@ Replace model, VAE, and LoRA weights independently during generation:
 
 ```bash
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py \
+  reference/diffusers/generate.py --model-config /absolute/path/model-config \
   --preset sdxl-base \
   --model /absolute/path/to/sdxl-checkpoint.safetensors \
   --vae /absolute/path/to/sdxl-vae.safetensors \
@@ -264,9 +281,8 @@ reference/diffusers/.venv/bin/python \
 ```
 
 The generation oracle accepts local single-file weights as well as the
-existing Diffusers-directory and pinned Hub-model inputs. `--model-config`
-selects the configuration and auxiliary-component source for a single-file
-model; it defaults to the selected preset's pinned repository. SD 1.5 and
+existing local Diffusers-directory inputs. `--model-config` is required for a
+single-file model and selects its local configuration and auxiliary components. SD 1.5 and
 SDXL accept original-format checkpoints or denoiser-only files, while FLUX
 accepts a transformer-only file. Each file must match the selected model
 family. Both `.safetensors` and the local `.safetensor` spelling are accepted;
@@ -274,25 +290,25 @@ pickle checkpoints are not. This does not add single-file loading or image
 generation to the C++ inspector. See
 [`docs/model-inputs.md`](docs/model-inputs.md) for the full contract.
 
-Apply only a local LoRA while retaining the preset's base weights:
+Apply a local LoRA to an explicitly supplied local base model:
 
 ```bash
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py \
+  reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset flux1-schnell \
   --lora /absolute/path/to/adapter.safetensors \
   --lora-scale 0.75 \
   --output build/reference/flux-lora.png
 ```
 
-No adapter is bundled or selected automatically. Remote adapters require an
-immutable commit SHA and exact safetensors filename. See
+No adapter is bundled or selected automatically. Supply a local adapter file
+or a local directory with an exact safetensors filename. See
 [`docs/lora.md`](docs/lora.md) for the complete input and provenance contract.
 
 Load learned Textual Inversion tokens and reference them in prompt text:
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sd15 \
   --text-embedding /absolute/path/to/style.safetensors \
   --text-embedding-token '<style>' \
@@ -310,7 +326,7 @@ multi-vector tokens and encoder selection.
 Add one ControlNet with a prepared conditioning image:
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sd15 \
   --controlnet /absolute/path/to/sd15-controlnet-package \
   --control-image /absolute/path/to/prepared-canny.png \
@@ -318,7 +334,7 @@ reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
 ```
 
 The SD1/SDXL/FLUX family presets support a compatible single ControlNet from a local
-Diffusers component package, pinned Hub repository, or local safetensors
+Diffusers component package or local safetensors
 file with its component configuration. Omitting `--controlnet` disables it;
 when selected, strength defaults to 1.0 for the full denoising interval.
 Inputs must already be the model's expected edges, depth, pose, or other
@@ -331,7 +347,7 @@ Add Hires Fix for repeated refinement with every preset, including runs
 with ControlNet, LoRA, or a replacement VAE:
 
 ```bash
-reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
+reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sd15 --width 512 --height 512 \
   --hires-fix --hires-passes 2 --hires-scale 2 --hires-upscaler lanczos \
   --hires-denoising-strength 0.35 --hires-steps 30 \
@@ -353,17 +369,21 @@ with its documented resize/strength/steps options. See the
 [Hires Fix contract](docs/hires-fix.md) for defaults, composition, metadata,
 and quality-validation limits.
 
-Downloads and generated outputs default to `build/reference/`, keeping the
+Local generation requires an explicit `--model-path`/`--model`; model downloads are outside
+the generation request. Generated outputs default to `build/reference/`, keeping the
 source tree and the system disk free of multi-gigabyte model caches. See
 [`reference/diffusers/README.md`](reference/diffusers/README.md) for the exact
 commands and limitations.
+
+See [local model arguments](docs/local-model-generation.md) for the required
+model/component paths and offline generation contract.
 
 ## Temporal video generation
 
 Generate video from text or image keyframes with a temporal diffusion model:
 
 ```sh
-reference/diffusers/.venv/bin/python reference/generate.py \
+reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \
   --backend video --prompt 'A glass bottle glints in warm sunlight.' \
   --camera dolly-in --duration 5 --output build/reference/bottle.mp4
 ```

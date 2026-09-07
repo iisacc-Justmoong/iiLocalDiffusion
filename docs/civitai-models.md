@@ -5,9 +5,9 @@ installed-class coverage from actual generated artifacts and remaining gaps.
 
 The entry point is `reference/generate.py`. It routes an explicit Civitai base
 model to a named preset, a local Diffusers pipeline, or a local ComfyUI API
-workflow. The catalog contains **all 105 base-model names** in the pinned Civitai
-snapshot, including hidden and disabled categories. Its 79 `local` entries have
-an upstream local-runtime route; 24 `hosted` entries and 2 `unknown` categories
+workflow. The catalog contains **104 selected base-model names** from the 105-name pinned
+Civitai snapshot, including hidden and disabled local categories. Its 79 `local`
+entries have an upstream local-runtime route; 23 `hosted` entries and 2 `unknown` categories
 do not acquire an automatic local route.
 
 Existing local weight files now default to the [managed local image runtime](local-image-generation.md),
@@ -71,7 +71,7 @@ NoobAI is not enough information to decide the prediction parameterization.
 Use the v-pred preset explicitly when the actual checkpoint is a v-pred model:
 
 ```bash
-reference/diffusers/.venv/bin/python reference/generate.py \
+reference/diffusers/.venv/bin/python reference/generate.py --model-config /absolute/path/model-config \
   --base-model NoobAI --preset noobai-v-pred \
   --model /absolute/path/NoobAI-XL-Vpred.safetensors
 ```
@@ -283,7 +283,6 @@ JSON catalog.
 | Vidu Q1 | hosted | `unavailable` | text-to-video |
 | MiniMax H3 | local | `comfyui` | text-to-video,image-to-video,video-to-video |
 | Kling | hosted | `unavailable` | text-to-video |
-| Seedance | hosted | `unavailable` | text-to-video |
 | ACE Audio | local | `comfyui` | text-to-audio |
 | MiniMax Music 3 | local | `comfyui` | text-to-audio |
 | PolyGen | hosted | `unavailable` | text-to-3d,image-to-3d |

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from local_model_fixture import local_parser, MODEL
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
@@ -21,7 +22,7 @@ class VideoOptionsTests(unittest.TestCase):
         self.directory = Path(temporary.name)
 
     def request(self, *tokens):
-        return resolve_options(build_parser().parse_args(list(tokens)))
+        return resolve_options(local_parser(build_parser).parse_args(list(tokens)))
 
     def document(self, name, data):
         path = self.directory / name
@@ -31,17 +32,19 @@ class VideoOptionsTests(unittest.TestCase):
     def test_defaults_make_a_five_second_temporal_generation_plan(self):
         args = self.request()
         self.assertEqual(args.max_frames, 120)
-        self.assertEqual(args.shots[0]["sample_frames"], 121)
+        self.assertEqual(args.shots[0]["sample_frames"], 65)
+        self.assertEqual(args.shots[0]["ltx_frames"], 61)
         self.assertEqual(args.shots[0]["frames"], 120)
         self.assertEqual(args.fps, 24)
         self.assertEqual(args.animation_mode, "Video")
-        self.assertEqual(len(args.revision), 40)
+        self.assertIsNone(args.revision)
+        self.assertTrue(args.local_files_only)
         self.assertEqual(args.shots[0]["camera"], ["none"])
 
     def test_duration_and_camera_mix_are_compiled_into_explicit_shots(self):
         args = self.request("--duration", "3", "--fps", "25", "--camera", "dolly-in", "pan-left")
         shot = args.shots[0]
-        self.assertEqual((shot["frames"], shot["sample_frames"]), (75, 81))
+        self.assertEqual((shot["frames"], shot["sample_frames"]), (75, 41))
         self.assertIn("forward", shot["effective_prompt"])
         self.assertIn("left", shot["effective_prompt"])
         self.assertEqual(len(CAMERA_MOTIONS), len(set(CAMERA_MOTIONS)))
@@ -78,7 +81,7 @@ class VideoOptionsTests(unittest.TestCase):
         image.write_bytes(b"fixture")
         args = self.request("--frames", "16", "--first-frame", str(image), "--last-frame", str(image))
         self.assertEqual([c["frame"] for c in args.shots[0]["conditions"]], [0, 15])
-        self.assertEqual(args.shots[0]["sample_frames"], 17)
+        self.assertEqual(args.shots[0]["sample_frames"], 9)
 
     def test_storyboard_rejects_ambiguous_or_unusable_conditions(self):
         bad = [{"shots": []}, {"shots": [{"prompt": "x", "unknown": 1}]},
@@ -104,7 +107,7 @@ class VideoOptionsTests(unittest.TestCase):
     def test_frontdoor_video_and_json_routes_work_without_ml_imports(self):
         config = self.document("video.json", {"backend": "video", "frames": 9})
         for tokens in (["--backend", "video"], ["--config", str(config)]):
-            result = subprocess.run([sys.executable, str(ROOT / "reference/generate.py"),
+            result = subprocess.run([sys.executable, str(ROOT / "reference/generate.py"), "--model", MODEL,
                                      *tokens, "--print-config"], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout)["backend"], "video")

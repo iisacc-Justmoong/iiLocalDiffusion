@@ -9,6 +9,12 @@ Illustrious, NoobAI, Pony, FLUX dev and Krea variants. See
 [model families](model-families.md). Selecting different weights does not
 change the architecture or imply cross-family compatibility.
 
+Primary model inputs now have three locations: `--model-path` (legacy `--model`),
+`--model-api`, or `--model-cloud` with `--model-provider`. See the
+[three-source contract](model-sources.md) for remote execution, JSON/Python values,
+credentials and provider boundaries. The local composition rules below apply
+only to the local-path source; auxiliary VAE/LoRA/ControlNet remain local inputs.
+
 This interface belongs to `reference/diffusers/generate.py`. The Python
 inspection command still accepts Diffusers packages, and the C++ inspector
 still validates package metadata without parsing or executing tensor weights.
@@ -17,31 +23,24 @@ still validates package metadata without parsing or executing tensor weights.
 
 | Argument | Accepted input | Purpose |
 |---|---|---|
-| `--model` | Local Diffusers directory, pinned Hub repository, or local single file | Select the complete model package, SD checkpoint, or denoiser weights |
-| `--revision` | 40-character lowercase commit SHA | Pin a remote model package; invalid for local paths |
-| `--model-config` | Local Diffusers directory or pinned Hub repository | Supply configuration and auxiliary components for a single-file model |
-| `--model-config-revision` | 40-character lowercase commit SHA | Pin a remote configuration source independently of the model |
-| `--vae` | Local `.safetensors` or `.safetensor` file | Replace only the `AutoencoderKL` weights |
-| `--lora` | Local file/directory or pinned adapter repository | Apply one optional adapter after pipeline validation |
+| `--model-path` / `--model` | Local Diffusers directory or local single file | Select a complete local model package, checkpoint or denoiser |
+| `--model-api` | Direct inference endpoint URL | Evaluate the deployed model remotely |
+| `--model-cloud` | Provider model ID, with `--model-provider` | Evaluate a cloud model remotely |
+| `--model-config` | Required local Diffusers directory for a single-file model | Supply configuration and auxiliary components |
+| `--vae` | Local `.safetensors` or `.safetensor` file | Replace the `AutoencoderKL` weights |
+| `--lora` | Local file or directory | Apply one optional adapter after pipeline validation |
 
-Omitting `--model` retains the selected preset's pinned repository and
-revision; Pony requires an explicit model because its upstream release is a
-checkpoint rather than a complete Diffusers package. Omitting `--vae` retains
-the package's or checkpoint's VAE. Omitting
-`--lora` does not load an adapter. Adapter-specific filename, revision, and
-scale arguments are described in [the LoRA contract](lora.md).
-One independently selected `--controlnet` can also condition generation;
-its prepared image, component configuration, revisions, and weight formats
-are described in [the ControlNet contract](controlnet.md).
+Every local generation request requires a local model. Presets provide architecture
+and sampling defaults, with no default repository or automatic weight download.
+Missing paths and Hub IDs are rejected before loading, including for optional
+ControlNet and adapter inputs. Non-null legacy revision arguments are rejected.
+Omitting VAE or LoRA preserves the model's VAE or disables the adapter respectively.
+See [local model generation](local-model-generation.md), [LoRA](lora.md) and
+[ControlNet](controlnet.md).
 
-Local paths must exist. Local weight files must be non-empty regular files,
-possibly reached through a regular-file symlink, with exactly the lowercase
-`.safetensors` or `.safetensor` extension. `.ckpt`, `.bin`, `.pt`, GGUF, URLs to
-single files, and implicit selection among files in a directory are not
-accepted as single-file model or VAE inputs. A Hub model override must supply
-`--revision`; a Hub config override must supply `--model-config-revision`.
-The preset repository may retain its built-in pinned revision when no
-revision override is provided.
+Local weight files must be non-empty regular files, possibly reached through a
+regular-file symlink, with the lowercase `.safetensors` or `.safetensor` extension.
+Legacy checkpoints and GGUF use the separate managed local image backend.
 
 ## Model-file roles
 
@@ -65,9 +64,8 @@ corresponding Diffusers component loader. FLUX uses its transformer component
 loader for native or supported original-format weights. Model files cannot
 be substituted with adapter-only or VAE-only files.
 
-`--model-config` is accepted only with a single-file `--model`. It defaults
-to the selected preset's fixed repository, not to a model guessed from the
-filename. The source must describe the matching Diffusers pipeline in
+`--model-config` is required with a single-file `--model` and has no default.
+The explicitly supplied local source must describe the matching Diffusers pipeline in
 `model_index.json`, with permitted component declarations and the required
 component configs. A standalone JSON/YAML config file is not this interface.
 If non-embedded neural components are needed, the source must also provide
@@ -77,21 +75,17 @@ Non-null IP-Adapter or `image_encoder` declarations are rejected because those
 auxiliary models are outside this generation interface. A configuration source
 cannot silently expand the selected preset with additional model components.
 
-On accelerator runs, the canonical SD 1.5 and SDXL repositories retain their
-pinned `fp16` weight variant. A local Diffusers source uses that variant only
-when its actual component filenames declare `fp16`; a custom Hub source is not
-assumed to publish the preset repository's variant. The separately loaded
-SD 1.5 safety checker checks its own local subdirectory, so an unrelated
-component's `fp16` file does not require an unavailable safety-checker variant.
-Single-file weights are loaded directly at the selected runtime dtype and do
-not use a Hub variant.
+On accelerator runs, a local Diffusers source uses the preset's `fp16` variant
+only when its component filenames declare that variant. The SD 1.5 safety checker
+checks its own local subdirectory independently. Single-file weights are loaded
+at the selected runtime dtype.
 
-For example, replace all three SDXL weight inputs while retaining the preset
+For example, replace all three SDXL weight inputs with an explicit local
 configuration source:
 
 ```bash
 reference/diffusers/.venv/bin/python \
-  reference/diffusers/generate.py \
+  reference/diffusers/generate.py --model-config /absolute/path/model-config \
   --preset sdxl-base \
   --model /absolute/path/to/sdxl-checkpoint.safetensors \
   --vae /absolute/path/to/sdxl-vae.safetensors \
@@ -110,11 +104,6 @@ reference/diffusers/.venv/bin/python \
   --vae /absolute/path/to/flux-vae.safetensors \
   --local-files-only
 ```
-
-For a remote configuration override, use
-`--model-config owner/config-repository --model-config-revision COMMIT_SHA`,
-replacing `COMMIT_SHA` with the exact 40-character lowercase commit. This
-revision is independent of any LoRA repository revision.
 
 ## VAE replacement and ordering
 
@@ -135,13 +124,11 @@ and shift `0.1159`. SDXL and FLUX retain their additional profile checks.
 
 ## Safe loading, offline operation, and provenance
 
-Remote configuration snapshots are first resolved at the selected revision,
-respecting `--local-files-only`, before their real local directory is passed
-to `from_single_file`. This avoids Diffusers' fallback behavior that can
-otherwise download missing configs even with its local-only flag set. The
-flag also covers auxiliary component and LoRA loading. Missing cached
-configuration, tokenizers, or weights fail instead of silently fetching a
-replacement. A local model file alone does not guarantee an offline run.
+The supplied local configuration directory is passed directly to
+`from_single_file`. Base, auxiliary and LoRA loading always use
+`local_files_only=True`. Missing configurations, tokenizers or weights fail
+without downloading a replacement. A standalone model file still requires its
+local configuration and any external neural components.
 
 Each local model/VAE/LoRA file is identified by the supplied absolute path,
 resolved target, SHA-256, and byte size. Identity is checked before and after
@@ -164,7 +151,7 @@ configuration selection and local directory, optional VAE file identity, and
 records whether it was overridden, its source, file identity, latent channels,
 scaling/shift factors, and spatial downsampling factor. LoRA identity and
 activation remain in the separate `adapters` array. An
-explicit `--model` or `--revision` adds `-custom` to the default output stem,
+explicit `--model` adds `-custom` to the default output stem,
 `--vae` adds `-vae`, and `--lora` adds `-lora`, in that order. The combined SDXL
 default is `sdxl-base-red-cube-custom-vae-lora.png`. This separates custom runs
 from the canonical fixture; replacing existing files still requires `--overwrite`.

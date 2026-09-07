@@ -7,8 +7,9 @@
   "seed": 42,
   "end_seed": 43,
   "max_frames": 120,
-  "fps": 24,
+  "fps": 12,
   "steps": 20,
   "width": 512,
-  "height": 512
+  "height": 512,
+  "model": "/absolute/path/image-diffusers"
 }

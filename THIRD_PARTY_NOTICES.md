@@ -4,12 +4,12 @@ The temporal video backend uses the existing Diffusers (Apache-2.0), PyTorch,
 Transformers and Accelerate distributions, plus optional protobuf 7.36.1
 (BSD-3-Clause) for SentencePiece tokenizer conversion. Protobuf's upstream
 distribution retains its license and notices; see [the package](https://pypi.org/project/protobuf/7.36.1/).
-Its default separately downloaded
+The separately supplied validation model's
 LTX Video 2B 0.9.5 weights are governed by Lightricks' version-specific Open
 RAIL-M license; see the [pinned license](https://huggingface.co/Lightricks/LTX-Video-0.9.5/blob/e58e28c39631af4d1468ee57a853764e11c1d37e/ltx-video-2b-v0.9.5.license.txt).
 This is distinct from the licenses of newer LTX checkpoints. Model weights are
-not bundled with iiLocalDiffusion. Seedance and Higgsfield are workflow references;
-their models, code and trademarks are not included or represented as this backend.
+not bundled with iiLocalDiffusion. Generation requires explicit local model
+paths; user-selected weights retain their own license terms.
 
 iiLocalDiffusion currently links privately against
 [`json-c`](https://github.com/json-c/json-c), distributed under the MIT
@@ -69,6 +69,11 @@ and the shared external FFmpeg/FFprobe video path. It introduces no additional
 third-party package or bundled model. The DiffusionBee Interpolator's published
 prompt/seed blending behavior was reviewed as a method reference; no
 DiffusionBee source is vendored or imported. See `docs/interpolator-video.md`.
+
+The separate post-LTX frame Interpolator invokes the existing external FFmpeg
+`minterpolate` filter and uses Pillow to validate output PNGs. No FFmpeg source,
+new third-party runtime or interpolation-model weights are bundled. The external
+FFmpeg build retains the licensing described above. See `docs/temporal-video.md`.
 
 Apple builds link privately against the system Foundation and Core ML
 frameworks, subject to Apple's platform/SDK terms. These frameworks are not

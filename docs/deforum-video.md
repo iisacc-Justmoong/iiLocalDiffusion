@@ -1,11 +1,15 @@
 # Deforum 2D video generation
 
 `iild-generate --backend deforum` runs a sequential 2D diffusion animation and
-writes an H.264 MP4, lossless PNG frames and a JSON provenance report. The
+writes an H.264 MP4 or animated GIF, lossless PNG frames and a JSON provenance report. The
 equivalent preset-runner option is `--animation-mode 2D`. Frame zero uses
 text-to-image, or an optional local init image. Every subsequent frame warps
 the **preceding generated frame**, then uses it as image-to-image conditioning.
 Model weights are loaded once; the img2img pipeline shares those components.
+
+Deforum is restricted to **FPS <= 12 or GIF output**; its default is 12 FPS.
+Other automatic video requests use local LTX at 24 FPS. See the
+[shared video selection and GIF rules](local-model-generation.md#images-and-animations-from-the-same-image-model).
 
 This implements the [Deforum 2D feedback and keyframe method](https://github.com/deforum/sd-webui-deforum/wiki/Animation-Settings)
 through the existing Diffusers runtime. It is not an installation of the
@@ -21,7 +25,8 @@ complete video inference runs in Python, as complete image inference does.
 
 Use the existing Diffusers environment plus the optional maintained camera
 dependency. FFmpeg **and FFprobe** must be available on PATH, with FFmpeg's
-`libx264` encoder. The generator preflights these before loading model weights.
+`libx264` encoder for MP4, or its GIF encoder and palette filters for GIF.
+The generator preflights these before loading model weights.
 
 ```sh
 uv pip install --python reference/diffusers/.venv/bin/python \
@@ -31,7 +36,7 @@ reference/diffusers/.venv/bin/python reference/generate.py \
   --backend deforum --preset sd15-compatible \
   --model /absolute/path/to/diffusers-model --local-files-only \
   --animation-prompts '{"0":"a city at sunrise","60":"a forest at sunrise"}' \
-  --max-frames 120 --fps 24 --steps 20 \
+  --max-frames 120 --fps 12 --steps 20 \
   --strength-schedule '0:(0.35), 119:(0.45)' \
   --zoom '0:(1.01)' --angle '0:(0.2*sin(2*pi*t/fps))' \
   --output build/deforum.mp4
@@ -59,7 +64,7 @@ Torch/OpenCV, downloading weights or running FFmpeg. See
 pipeline and an output callback for embedding this frame loop in Python.
 
 ```sh
-python3 reference/generate.py --backend deforum \
+python3 reference/generate.py --backend deforum --model /absolute/path/image-diffusers \
   --config reference/diffusers/deforum.example.json --print-config
 ```
 
@@ -67,8 +72,9 @@ python3 reference/generate.py --backend deforum \
 
 | Option | Default in 2D mode | Meaning |
 |---|---|---|
-| `max_frames` | 120 | Number of output frames, 1 to 1,000,000 |
-| `fps` | 24 | Finite positive frame rate, at most 240 |
+| `max_frames` / `frames` | 120 | Number of output frames, 1 to 1,000,000 |
+| `duration` | none | Seconds rounded to frames; exclusive with a frame count |
+| `fps` | 12 | MP4: positive and at most 12; GIF: `100/65535` to 100 |
 | `init_image` | none | Static local image, EXIF-corrected and resized to the requested dimensions |
 | `animation_prompts` | `{"0": prompt}` | Positive text keyed by canonical zero-based frame numbers |
 | `animation_negative_prompts` | `{"0": negative_prompt}` | Negative text keyframes |
@@ -110,7 +116,7 @@ an init image, the first frame always uses a complete text-to-image pass.
 Positive strengths must produce at least one denoising step. The entire
 timeline is checked before weights load, including later expression failures.
 
-Animation requires `num_images=1` and an `.mp4` output. HiRes Fix, supplied
+Animation requires `num_images=1` and an `.mp4` or `.gif` output. HiRes Fix, supplied
 latents/embeddings, custom timestep/sigma arrays and SDXL early stopping cannot
 be combined with animation. SD 1.5 and ControlNet img2img do not accept a
 nonzero `guidance_rescale`. These combinations fail explicitly. Resolution,
@@ -127,7 +133,9 @@ decodes the encoded video and verifies H.264/yuv420p, resolution, FPS, duration
 and exact frame count before publication. The report records model/loading
 identity, adapter provenance, initial-image identity, each frame's prompts,
 seed, source/output pixel hashes, PNG hashes, actual sampling timesteps,
-finite latents and MP4 hash. A seed does not guarantee identical pixels across
+finite latents and output hash. GIF is decoded with Pillow to check its exact
+frame count, dimensions, loop and duration with 10 ms timing resolution.
+A seed does not guarantee identical pixels across
 hardware or runtime versions.
 
 Existing explicit output paths fail unless `--overwrite` is supplied. Default

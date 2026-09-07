@@ -133,7 +133,7 @@ Use the full command paths without changing the shell's `PATH`:
   /absolute/path/to/diffusers-package
 
 "$HOME/.local/SDK/iiLocalDiffusion/bin/iild-generate" --list-base-models
-"$HOME/.local/SDK/iiLocalDiffusion/bin/iild-generate" \
+"$HOME/.local/SDK/iiLocalDiffusion/bin/iild-generate" --model /absolute/path/image-diffusers \
   --base-model Illustrious --print-config
 ```
 

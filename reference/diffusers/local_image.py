@@ -25,7 +25,7 @@ DEFAULT_PYTHON = ROOT / "build/reference/comfyui-venv" / ("Scripts/python.exe" i
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("--model", type=Path, required=True)
+    parser.add_argument("--model", "--model-path", dest="model", type=Path, required=True)
     parser.add_argument("--base-model")
     parser.add_argument("--model-info", type=Path)
     parser.add_argument("--components", type=json_object, default={}, help="Local vae/text_encoder/text_encoder_2/3/4 paths")
@@ -225,6 +225,7 @@ def managed_server(args, job):
         command.append("--force-fp32" if args.dtype == "float32" else "--force-fp16")
     environment = dict(os.environ)
     environment.update(HF_HOME=str(ROOT / "build/reference/huggingface"),
+                       HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1",
                        XDG_CACHE_HOME=str(ROOT / "build/reference/comfyui-cache"),
                        TORCH_HOME=str(ROOT / "build/reference/torch-cache"),
                        PYTHONPYCACHEPREFIX=str(ROOT / "build/pycache"))

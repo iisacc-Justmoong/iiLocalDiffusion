@@ -58,7 +58,7 @@ class RuntimeCompatibilityTests(unittest.TestCase):
         with patch.object(audit.importlib, "import_module", return_value=available_runtime()) as imported:
             result = audit.inspect_runtime()
         imported.assert_called_once_with("diffusers")
-        self.assertEqual(len(result["rows"]), 105)
+        self.assertEqual(len(result["rows"]), 104)
         self.assertEqual(result["catalog_source"]["commit"], civitai_catalog.CATALOG_SOURCE["commit"])
         self.assertEqual(result["runtime"]["version"], "0.40.0")
         self.assertEqual(result["runtime"]["torch_version"], "2.13.0")
@@ -152,7 +152,7 @@ class RuntimeCompatibilityTests(unittest.TestCase):
     def test_root_import_failure_is_reported_without_aborting_catalog(self):
         with patch.object(audit.importlib, "import_module", side_effect=RuntimeError("incompatible torchvision")):
             result = audit.inspect_runtime()
-        self.assertEqual(len(result["rows"]), 105)
+        self.assertEqual(len(result["rows"]), 104)
         self.assertIn("torchvision", result["runtime"]["error"])
         rows = {row["name"]: row for row in result["rows"]}
         self.assertEqual(rows["Illustrious"]["status"], "runtime_missing")

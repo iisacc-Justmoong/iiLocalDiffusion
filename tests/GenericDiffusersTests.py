@@ -123,14 +123,11 @@ class GenericDiffusersTests(unittest.TestCase):
         text_outputs = [item for item in outputs if item["kind"] == "text"]
         self.assertEqual([Path(item["path"]).read_text() for item in text_outputs], ["한 문장", "a", "b"])
 
-    def test_remote_models_require_an_immutable_revision(self):
-        for revision in (None, "main", "abcdef", "A" * 40):
-            tokens = ["--model", "org/repository"] + (["--revision", revision] if revision else [])
-            with self.subTest(revision=revision), self.assertRaisesRegex(ValueError, "immutable"):
+    def test_remote_models_are_rejected_even_with_an_immutable_revision(self):
+        for revision in (None, 'main', 'abcdef', 'A' * 40, 'a' * 40):
+            tokens = ['--model', 'org/repository'] + (['--revision', revision] if revision else [])
+            with self.subTest(revision=revision), self.assertRaisesRegex(ValueError, 'local'):
                 generic.resolve_arguments(generic.build_parser().parse_args(tokens))
-        args = generic.resolve_arguments(generic.build_parser().parse_args([
-            "--model", "org/repository", "--revision", "a" * 40]))
-        self.assertEqual(args.source_kind, "hub")
 
     def test_missing_local_files_are_not_reinterpreted_as_hub_repositories(self):
         for model in ("/missing/model", "./missing", "weights/missing.safetensors", "weights/model.gguf"):
