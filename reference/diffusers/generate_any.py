@@ -17,10 +17,13 @@ import wave
 from typing import Any
 
 from generation_output import publish_file
+from generation_preview import add_preview_options, attach_preview, validate_preview_location
 from generic_io import (ARCHITECTURES, automatic_token_spec, load_tensor_input,
                         validate_input_descriptor, validate_output_specs, write_tensor_output)
 from hardware import accelerator_preflight, select_device, validate_execution_device
-from weight_files import file_sha256
+from inference_session import (SchedulerConfiguration, cached_configuration, cached_pipeline,
+                               cached_placement, is_preparing, record_device_placement, record_execution, verify_pipeline_sources)
+from weight_files import cached_model_sha256, file_sha256, file_signature
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CACHE = ROOT / "build/reference/huggingface"
@@ -60,6 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--local-files-only", action="store_true", default=True)
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "build/reference/generic-output")
+    add_preview_options(parser)
     parser.add_argument("--audio-sample-rate", type=int,
                         help="WAV rate; otherwise infer from the pipeline's vocoder/VAE/config")
     parser.add_argument("--video-layout", choices=("auto", "bfhwc", "bfchw", "bcfhw"), default="auto",
@@ -175,6 +179,7 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
             result.inputs[key] = value
     result.cache_dir = args.cache_dir.expanduser().absolute()
     result.output_dir = args.output_dir.expanduser().absolute()
+    validate_preview_location(args.preview_dir, result.output_dir)
     return result
 
 
@@ -186,6 +191,7 @@ def configuration(args: argparse.Namespace) -> dict[str, Any]:
         "device": args.device, "dtype": args.dtype, "offload": args.offload,
         "local_files_only": args.local_files_only, "cache_dir": str(args.cache_dir),
         "output_dir": str(args.output_dir), "audio_sample_rate": args.audio_sample_rate,
+        "preview_dir": str(args.preview_dir) if args.preview_dir is not None else None,
         "video_layout": args.video_layout,
         "generation_architecture": args.generation_architecture,
         "generation_architecture_status": "caller-declared" if args.generation_architecture not in ("auto", "unspecified") else "not-inferred",
@@ -279,30 +285,38 @@ def load_model_index(args: argparse.Namespace) -> tuple[dict[str, Any], Path | N
         raise ValueError("Generation requires a local model source.")
     folder = Path(args.model_config if args.source_kind == "single-file" else args.model)
     path = folder / "model_index.json"
-    return validate_model_index(read_json(path.read_text())), folder
+    index = cached_configuration(("generic-model-index", str(path)), [path], lambda: read_json(path.read_text()))
+    return validate_model_index(index), folder
 
 
-def file_identity(path: Path, relative_to: Path | None = None) -> dict[str, Any]:
-    before = path.stat()
-    digest = file_sha256(path)
+def file_identity(path: Path, relative_to: Path | None = None, *, model_file: bool = False) -> dict[str, Any]:
+    before = file_signature(path)
+    digest = cached_model_sha256(path) if model_file else file_sha256(path)
     after = path.stat()
-    if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
+    if before != file_signature(path):
         raise RuntimeError(f"Input changed while hashing: {path}")
     return {"path": str(path.relative_to(relative_to)) if relative_to else str(path),
             "resolved_path": str(path.resolve()), "size_bytes": after.st_size, "sha256": digest}
 
 
+def model_files(folder: Path) -> list[Path]:
+    return [path for path in sorted(folder.rglob("*"))
+            if path.is_file() and not any(part.startswith(".") for part in path.relative_to(folder).parts)
+            and path.suffix not in UNSAFE_WEIGHTS | {".py", ".pyc"}]
+
+
 def model_identity(folder: Path, single_file: str | None = None) -> dict[str, Any]:
-    files = [file_identity(path, folder) for path in sorted(folder.rglob("*"))
-             if path.is_file() and not any(part.startswith(".") for part in path.relative_to(folder).parts)
-             and path.suffix not in UNSAFE_WEIGHTS | {".py", ".pyc"}]
+    files = [file_identity(path, folder, model_file=True) for path in model_files(folder)]
     result: dict[str, Any] = {"directory": str(folder), "files": files}
     if single_file:
-        result["single_file"] = file_identity(Path(single_file))
+        result["single_file"] = file_identity(Path(single_file), model_file=True)
     return result
 
 
 def verify_identity(identity: dict[str, Any]) -> None:
+    folder = Path(identity["directory"])
+    if [str(path.relative_to(folder)) for path in model_files(folder)] != [entry["path"] for entry in identity["files"]]:
+        raise RuntimeError(f"Model directory changed while loading/generating: {folder}")
     entries = list(identity["files"])
     if identity.get("single_file"):
         entries.append(identity["single_file"])
@@ -311,7 +325,7 @@ def verify_identity(identity: dict[str, Any]) -> None:
         if not path.is_absolute():
             path = Path(identity["directory"]) / path
         if (not path.is_file() or str(path.resolve()) != entry["resolved_path"]
-                or path.stat().st_size != entry["size_bytes"] or file_sha256(path) != entry["sha256"]):
+                or path.stat().st_size != entry["size_bytes"] or cached_model_sha256(path) != entry["sha256"]):
             raise RuntimeError(f"Model file changed while loading/generating: {path}")
 
 
@@ -401,6 +415,7 @@ def prepare_inputs(inputs: dict[str, Any], image_module: Any) -> tuple[dict[str,
 
 
 def prepare_execution(pipeline: Any, device: str, offload: str) -> Any:
+    record_device_placement()
     if offload == "none":
         pipeline = pipeline.to(device)
     elif offload == "model":
@@ -409,6 +424,31 @@ def prepare_execution(pipeline: Any, device: str, offload: str) -> Any:
         pipeline.enable_sequential_cpu_offload(device=device)
     validate_execution_device(pipeline, device)
     return pipeline
+
+
+def prepared_pipeline(args, diffusers, dtype, device):
+    index, folder = load_model_index(args)
+    pipeline_name = args.pipeline_class or index["_class_name"]
+    key = (("diffusers", pipeline_name, str(dtype))
+           if pipeline_name in ("StableDiffusionPipeline", "StableDiffusionXLPipeline", "FluxPipeline") else None)
+    if is_preparing() and key is None:
+        raise ValueError("Foreground preparation requires a retained local image pipeline.")
+    sources = [folder] + ([args.model] if args.source_kind == "single-file" else [])
+    def load():
+        pipeline, model = load_pipeline(args, diffusers, dtype)
+        return pipeline, model, SchedulerConfiguration(pipeline) if key is not None else None
+    (pipeline, model, scheduler), configuration_hit = cached_pipeline(key, sources, load)
+    if configuration_hit:
+        scheduler.restore(pipeline)
+    # The declaration is a per-request validation, independent of loaded weights.
+    model = {**model, "base_model_validation": validate_base_model(args.base_model, type(pipeline), diffusers)}
+    def place(previous):
+        if previous is not None and previous[1] != "none":
+            pipeline.remove_all_hooks()
+        return prepare_execution(pipeline, device, args.offload), args.offload
+    (pipeline, _), placement_hit = cached_placement((device, args.offload) if key is not None else None, place)
+    args.model_configuration_cache_hit, args.device_placement_cache_hit = configuration_hit, placement_hit
+    return pipeline, model, configuration_hit and placement_hit
 
 
 def output_value(result: Any, key: str) -> Any:
@@ -652,7 +692,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.print_config:
             print(json.dumps(configuration(args), indent=2, ensure_ascii=False, allow_nan=False))
             return 0
-        if args.output_dir.exists() and not args.overwrite and any(args.output_dir.iterdir()):
+        if not is_preparing() and args.output_dir.exists() and not args.overwrite and any(args.output_dir.iterdir()):
             raise ValueError(f"Output directory is not empty: {args.output_dir}; choose a fresh directory or pass --overwrite.")
         os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1")
         import torch
@@ -662,16 +702,25 @@ def main(argv: list[str] | None = None) -> int:
         device = select_device(torch, args.device)
         dtype = getattr(torch, args.dtype)
         hardware = accelerator_preflight(torch, device, dtype)
-        inputs, input_files = prepare_inputs(args.inputs, Image)
-        pipeline, model = load_pipeline(args, diffusers, dtype)
-        pipeline = prepare_execution(pipeline, device, args.offload)
+        if is_preparing() and set(args.inputs) - {"prompt", "negative_prompt", "width", "height", "num_inference_steps", "guidance_scale"}:
+            raise ValueError("Foreground preparation does not consume task-specific pipeline inputs.")
+        inputs, input_files = ({}, []) if is_preparing() else prepare_inputs(args.inputs, Image)
+        pipeline, model, pipeline_cache_hit = prepared_pipeline(args, diffusers, dtype, device)
+        record_execution(device, args.offload, args.model)
+        if is_preparing():
+            verify_identity(model["identity"])
+            verify_pipeline_sources()
+            return 0
         validate_call_arguments(pipeline.__call__, inputs, seed=args.seed)
         if args.seed is not None:
             inputs["generator"] = torch.Generator(device="cpu").manual_seed(args.seed)
-        with torch.inference_mode():
+        attach_preview(pipeline, inputs, args.preview_dir, torch, inputs.get("width"), inputs.get("height"))
+        # Retained offload weights must remain versioned across device changes.
+        with torch.no_grad():
             result = pipeline(**inputs)
         validate_execution_device(pipeline, device)
         verify_identity(model["identity"])
+        verify_pipeline_sources()
         versions = {}
         for package in ("torch", "diffusers", "transformers", "accelerate", "safetensors", "sentencepiece", "numpy", "Pillow"):
             try:
@@ -680,7 +729,9 @@ def main(argv: list[str] | None = None) -> int:
                 versions[package] = None
         report = {"schema_version": 1, "request": configuration(args), "model": model,
                   "input_files": input_files,
-                  "runtime": {"packages": versions, "hardware": hardware,
+                  "runtime": {"packages": versions, "hardware": hardware, "pipeline_cache_hit": pipeline_cache_hit,
+                              "model_configuration_cache_hit": args.model_configuration_cache_hit,
+                              "device_placement_cache_hit": args.device_placement_cache_hit,
                               "execution_device": device, "dtype": str(dtype), "offload": args.offload},
                   "validation_scope": "Successful execution of these exact files and inputs; not universal family compatibility, visual quality, or model-license clearance."}
         report_path, outputs = publish_generation(result, pipeline, args, Image, np, report)

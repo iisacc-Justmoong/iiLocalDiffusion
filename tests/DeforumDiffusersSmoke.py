@@ -93,7 +93,7 @@ def main():
                        "--dtype", "float32", "--cpu-threads", "2", "--width", "64", "--height", "64",
                        "--steps", "4", "--max-frames", "4", "--fps", "8", "--strength-schedule", "0:(0.5)",
                        "--animation-prompts", '{"0":"a city","2":"a forest"}',
-                       "--zoom", "0:(1.02)", "--angle", "0:(1)", "--seed-behavior", "iter",
+                       "--zoom", "0:(1.02)", "--angle", "0:(1)", "--seed", "42", "--seed-behavior", "iter",
                        "--local-files-only", "--no-progress", "--overwrite", "--output", str(output)]
             if use_controlnet:
                 command.extend(["--controlnet", str(fixture / "controlnet"), "--control-image", str(control)])

@@ -7,7 +7,6 @@ all of its companion encoders are present or that its license permits a use.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -15,6 +14,8 @@ import re
 import struct
 
 from civitai_catalog import lookup_base_model
+from inference_session import cached_configuration
+from weight_files import cached_model_sha256
 
 
 MAX_HEADER_BYTES = 100_000_000
@@ -313,19 +314,25 @@ def _info(path, info_path):
     if hashes:
         if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", value) for value in hashes):
             raise ValueError("Model metadata contains an invalid SHA256")
-        digest = hashlib.sha256()
-        with path.open("rb") as source:
-            for block in iter(lambda: source.read(1024 * 1024), b""):
-                digest.update(block)
-        if digest.hexdigest() not in {value.lower() for value in hashes}:
+        digest = cached_model_sha256(path)
+        if digest not in {value.lower() for value in hashes}:
             raise ValueError("Model metadata SHA256 does not match the selected local file")
-        evidence.append(f"Matched Civitai SHA256: {digest.hexdigest()}")
+        evidence.append(f"Matched Civitai SHA256: {digest}")
     else:
         evidence.append("Metadata has no SHA256; exact file identity is unverified")
     return info, str(selected.absolute()), evidence
 
 
 def inspect_downloaded_model(path, info_path=None):
+    """Resolve bounded model evidence, reusing unchanged headers/sidecars in a session."""
+    selected = Path(path).expanduser().absolute()
+    metadata = ([Path(info_path).expanduser().absolute()] if info_path is not None else
+                [selected.with_suffix(".civitai.info"), Path(str(selected) + ".civitai.info")])
+    return cached_configuration(("checkpoint-inspection", str(selected), tuple(map(str, metadata))),
+                                [selected, *metadata], lambda: _inspect_downloaded_model(selected, info_path))
+
+
+def _inspect_downloaded_model(path, info_path=None):
     """Return bounded local routing evidence; reject malformed or conflicting identity.
 
     ``base_model`` is a validated Civitai category only when metadata names one.

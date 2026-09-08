@@ -15,6 +15,12 @@ backend therefore remains enabled after installation; installation does not
 add a backend that was disabled in that build. No new Python environment or
 model download is performed.
 
+The final generation check supplies the repository's SD 1.5 metadata fixture
+as an explicit model source and prints the HiRes configuration. It does not
+load weights or generate an image. The installer contract test uses stubbed
+native build commands and the real relocated Python launcher to check this
+last step, including an installation path containing spaces.
+
 The prefix and build concurrency can be supplied as environment variables:
 
 ```bash
@@ -66,8 +72,9 @@ tree with symbolic links:
 | `share/iiLocalDiffusion/reference/diffusers/.venv` | `reference/diffusers/.venv` in the checkout |
 | `share/iiLocalDiffusion/build` | `build/` in the checkout |
 
-The second link makes the existing managed ComfyUI environment and cached
-models available to the installed Python scripts. Python source files are
+The second link makes existing development caches and optional ComfyUI assets
+available. Standalone image/video inference needs only the Diffusers environment;
+SD1/SDXL configuration and tokenizer resources are copied into the installation. Python source files are
 copied into the prefix. Retain the checkout's linked virtual environment and
 `build/` directory to keep those runtimes and caches usable. Moving or deleting
 them breaks the corresponding links. If relocating the checkout, update the
@@ -208,3 +215,13 @@ shared video modules, endpoint runtime and example JSON are installed with
 the Python reference files. `--backend interpolator --end-prompt forest
 --end-seed 43 --print-config` also works without inference dependencies.
 See [Interpolator video generation](interpolator-video.md).
+
+## Updating only the generation runtime
+
+`cmake --install build --component Runtime --prefix <existing-prefix>` installs
+the launcher, Python modules, bundled tokenizer/config files and documentation.
+It preserves the installed native C++ libraries and their optional backends.
+A regular full installation includes the same Runtime component. This permits
+Python inference fixes without replacing native backends when a machine lacks
+an optional Metal compiler. It does not install Python dependencies; use the
+existing environment or `IILD_PYTHON_EXECUTABLE` as documented above.

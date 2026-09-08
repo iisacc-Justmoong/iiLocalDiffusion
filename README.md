@@ -1,5 +1,9 @@
 # iiLocalDiffusion
 
+App consumers can use [resident inference sessions](docs/inference-worker.md)
+through `iild-generate --worker` to reuse Python initialization, unchanged model
+hashes and compatible prepared image pipelines across sequential requests.
+
 iiLocalDiffusion is a C++ runtime for assembling local generative-model
 components and orchestrating inference. It does not implement tensor storage,
 matrix multiplication, convolution, attention kernels, or device command
@@ -134,6 +138,12 @@ Model inputs have three explicit locations: `--model-path PATH` (legacy `--model
 API/cloud sources evaluate the model remotely without downloading weights.
 See [model sources](docs/model-sources.md) for supported protocols and Python/JSON inputs.
 
+Image and video generation use a fresh random base seed when `--seed` is omitted.
+Preset/checkpoint and LTX requests retain the seed in their resolved configuration
+and output metadata for replay. An explicit
+seed (including zero) is preserved; batches and animations retain their configured
+seed-stride and frame/shot policies. See [generation parameters](docs/generation-parameters.md).
+
 Video requests default to a caller-supplied **LTX** model followed by a
 **frame Interpolator**, with a final rate of 24 FPS and source spacing of 2.
 Set `--interpolation-factor 2..8` to change the spacing. The second stage uses
@@ -178,12 +188,13 @@ Pony, FLUX.1 dev and FLUX.1 Krea use the extended image oracle. Other built-in
 Diffusers pipelines and explicit local ComfyUI API workflows provide additional
 image, video, audio and 3D execution paths.
 
-Existing downloaded weight files automatically select the managed local image
-runtime. It detects the architecture, safely converts legacy checkpoints,
-connects explicit VAE/text-encoder companions, builds a matching workflow and
-stops its private local engine after saving the images and provenance.
-Install this optional engine once with `python3 reference/setup_comfyui.py`.
-See [download-to-image usage](docs/local-image-generation.md) and
+Downloaded SD 1.x and SDXL checkpoints automatically run in the SDK's
+Diffusers/PyTorch process with bundled offline configuration and tokenizers.
+Image, Deforum/Interpolator and LTX video generation do not require ComfyUI.
+Existing graph/GGUF recipes remain available through the explicit optional
+`--backend comfyui-local` backend. No model weights are bundled or downloaded
+at inference time. See [standalone usage](docs/local-image-generation.md),
+[optional managed workflows](docs/managed-comfyui-image.md), and
 [file inspection](docs/downloaded-models.md).
 
 ```bash

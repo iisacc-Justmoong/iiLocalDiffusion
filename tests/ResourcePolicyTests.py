@@ -58,7 +58,7 @@ class FakeEncoder:
 
 def fake_torch():
     return SimpleNamespace(
-        float32="float32", bfloat16="bfloat16", inference_mode=nullcontext,
+        float32="float32", bfloat16="bfloat16", inference_mode=nullcontext, no_grad=nullcontext,
         isfinite=lambda tensor: SimpleNamespace(all=lambda: SimpleNamespace(item=lambda: True)),
     )
 

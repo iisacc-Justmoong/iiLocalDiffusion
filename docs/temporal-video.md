@@ -157,6 +157,8 @@ JSON uses the same argument names with underscores. An explicit CLI value
 overrides its JSON value. `--config reference/diffusers/video.example.json`
 selects the video backend through `backend: "video"`. `--print-config` resolves
 and validates configuration without importing Torch or downloading weights.
+Omitted or JSON-null seeds are random per request. The resolved configuration and
+shot metadata record the actual seeds. Explicit seeds, including zero, are retained.
 
 | Setting | Default and contract |
 | --- | --- |
@@ -165,7 +167,7 @@ and validates configuration without importing Torch or downloading weights.
 | `fps` | 24; final output rate after interpolation |
 | `interpolation_factor` | 2, integer 2–8; source-frame spacing for FPS above 12 |
 | `steps`, `guidance_scale` | 30, 3 |
-| `seed` | 42; subsequent shots increment it unless specified |
+| `seed` | Random 32-bit base seed per video; subsequent shots increment it unless specified |
 | `max_sequence_length` | 256; T5 prompt limit, configurable up to 512 |
 | `device` | GPU-required auto, or explicit cpu/mps/metal/cuda/rocm |
 | `dtype` | auto uses float32 on CPU and bfloat16 on accelerators |

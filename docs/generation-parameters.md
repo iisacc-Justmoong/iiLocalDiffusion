@@ -116,8 +116,11 @@ These are existing compatible reference defaults, not universal optimum
 settings. The simple fallback prompt is `a red cube on a white table`,
 without a style/persona/artist modifier. Negative text is empty, LoRA is
 absent, ControlNet and Hires Fix are disabled, one image is produced, and additional
-rescaling/early stopping is disabled. A fixed seed of 42 provides a reproducible starting point rather
-than imposing a visual style.
+rescaling/early stopping is disabled. An omitted or JSON-null seed selects a
+fresh random 32-bit base seed for each request. The resolved configuration and
+output metadata retain that seed; pass it explicitly to reproduce the request.
+Explicit seeds, including zero, are preserved. A saved resolved configuration
+therefore reuses its recorded seed; remove it or set it to null for fresh randomness.
 
 ## Prompt, sampling and batch values
 
@@ -125,7 +128,7 @@ than imposing a visual style.
 |---|---|
 | `--prompt`, `--negative-prompt` | Simple cube prompt / empty string |
 | `--prompt-2`, `--negative-prompt-2` | SDXL/FLUX inherit their respective primary text; explicit values are forwarded |
-| `--seed` | 42; PyTorch's range [-2^63, 2^64−1] |
+| `--seed` | Random per request; explicit values support PyTorch's range [-2^63, 2^64−1] |
 | `--num-images` / `--num-images-per-prompt` | 1; positive images for this prompt, all saved |
 | `--seed-stride` | 1; image i receives seed + i × stride; 0 intentionally repeats |
 | `--generator-device` | `cpu`; `execution` requires CUDA/ROCm |

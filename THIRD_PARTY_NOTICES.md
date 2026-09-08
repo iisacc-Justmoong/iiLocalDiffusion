@@ -1,5 +1,21 @@
 # Third-party notices
 
+The standalone checkpoint runner reuses Diffusers 0.40.0 (Apache-2.0),
+PyTorch 2.13.0 and the already pinned Transformers/Accelerate environment.
+It adds no inference package or service. Approximately 4.8 MB of SD1/SDXL
+configuration and CLIP tokenizer files are bundled under
+`reference/diffusers/configs/`; exact revisions and SHA-256 hashes appear in
+`configs/manifest.json`. SD1 resources come from
+`stable-diffusion-v1-5/stable-diffusion-v1-5` revision
+`451f4fe16113bff5a5d2269ed5ad43b0592e9a14` (CreativeML Open RAIL-M).
+SDXL resources come from `stabilityai/stable-diffusion-xl-base-1.0` revision
+`462165984030d82259a11f4367a4eed129e94a7b` (CreativeML Open RAIL++-M).
+License texts accompany the resources. The SD1 pipeline index was modified to
+declare no external safety-checker/feature-extractor weights, because those are
+not contained in standard checkpoints or this package. Actual checker presence
+is retained in generation provenance. User-selected checkpoints retain their
+own licenses; no checkpoint, VAE or text-encoder weights are redistributed.
+
 The temporal video backend uses the existing Diffusers (Apache-2.0), PyTorch,
 Transformers and Accelerate distributions, plus optional protobuf 7.36.1
 (BSD-3-Clause) for SentencePiece tokenizer conversion. Protobuf's upstream

@@ -315,10 +315,10 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         )
 
         foreach(generation_test IN ITEMS
-                GenerationOptionsTests GenerationOutputTests
+                GenerationOptionsTests GenerationOutputTests GenerationSeedTests GenerationPreviewTests InferenceCacheTests ModelPreparationCacheTests ForegroundInferenceTests
                 DeforumOptionsTests DeforumRuntimeTests DeforumMediaTests
                 InterpolatorOptionsTests InterpolatorRuntimeTests InterpolatorMediaTests
-                VideoOptionsTests VideoRuntimeTests VideoRoutingPolicyTests VideoInterpolationTests LocalGenerationTests
+                VideoOptionsTests VideoRuntimeTests VideoRoutingPolicyTests VideoInterpolationTests LocalGenerationTests StandaloneImageTests
                 ModelSourceTests RemoteGenerationTests
                 GenericIOTests GenerationCompositionTests GenerationAdapterTests
                 GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests
@@ -399,8 +399,8 @@ if(IILD_BUILD_TOOLS)
     install(TARGETS iild-run RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
-install(FILES README.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
-install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} FILES_MATCHING PATTERN "*.md")
+install(FILES README.md THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime)
+install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime FILES_MATCHING PATTERN "*.md")
 
 if(IILD_INSTALL_PYTHON_REFERENCE)
     set(iild_reference_directory "${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/reference")
@@ -408,11 +408,12 @@ if(IILD_INSTALL_PYTHON_REFERENCE)
         "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}"
         "${CMAKE_INSTALL_PREFIX}/${iild_reference_directory}")
     configure_file(cmake/iild-generate.py.in "${CMAKE_CURRENT_BINARY_DIR}/iild-generate" @ONLY)
-    install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/iild-generate" DESTINATION ${CMAKE_INSTALL_BINDIR})
-    install(FILES reference/generate.py reference/setup_comfyui.py DESTINATION ${iild_reference_directory})
-    install(DIRECTORY reference/diffusers DESTINATION ${iild_reference_directory}
+    install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/iild-generate" DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
+    install(FILES reference/generate.py reference/setup_comfyui.py DESTINATION ${iild_reference_directory} COMPONENT Runtime)
+    install(DIRECTORY reference/diffusers DESTINATION ${iild_reference_directory} COMPONENT Runtime
         FILES_MATCHING PATTERN "*.py" PATTERN "*.json" PATTERN "requirements*.txt" PATTERN "README.md"
         PATTERN ".venv" EXCLUDE PATTERN "__pycache__" EXCLUDE)
+    install(DIRECTORY reference/diffusers/configs DESTINATION ${iild_reference_directory}/diffusers COMPONENT Runtime)
 endif()
 
 install(

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from pipeline_loading import load_pipeline
+from inference_session import cached_configuration
 from presets import (ModelSelection, PipelinePreset, compatible_scheduler_class,
                      validate_vae_contract)
 from weight_files import LocalWeightFile, checked_safetensors_path, weight_file_metadata
@@ -36,7 +37,8 @@ def resolve_configuration_directory(
     index_path = root / "model_index.json"
     if not index_path.is_file():
         raise ValueError(f"Model configuration requires a local model_index.json: {root}")
-    index = json.loads(index_path.read_text(encoding="utf-8"))
+    index = cached_configuration(("model-index", str(index_path)), [index_path],
+                                 lambda: json.loads(index_path.read_text(encoding="utf-8")))
     if index.get("_class_name") != preset.pipeline_class:
         raise ValueError(f"Model configuration must describe {preset.pipeline_class}: {root}")
 

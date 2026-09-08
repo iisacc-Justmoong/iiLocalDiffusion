@@ -135,7 +135,6 @@ class ModelLoadingTests(unittest.TestCase):
             ("model.ckpt", b"pickle"),
             ("model.bin", b"pickle"),
             ("model.pt", b"pickle"),
-            ("model.SAFETENSORS", b"ambiguous"),
         ):
             path = self.directory / filename
             path.write_bytes(contents)
@@ -827,11 +826,11 @@ class ModelLoadingTests(unittest.TestCase):
         self.assertNotEqual(args.output.name, preset.generation_filename)
         self.assertTrue(args.output.is_relative_to(ROOT / "build"))
 
-    def test_single_file_model_requires_explicit_local_configuration(self):
+    def test_single_file_configuration_rejects_invalid_weights_and_remote_config(self):
         model = self.weight()
         parser = local_parser(self.generate.build_parser)
         for extra in ([], ['--model-config', 'vendor/config', '--model-config-revision', 'e' * 40]):
-            with self.subTest(extra=extra), self.assertRaisesRegex(SystemExit, 'local'):
+            with self.subTest(extra=extra), self.assertRaisesRegex(SystemExit, 'local|safetensors'):
                 self.generate.resolve_arguments(parser.parse_args(['--model', model.path, *extra]))
         directory = self.configuration(presets.SD15_PRESET)
         _, args = self.generate.resolve_arguments(parser.parse_args([

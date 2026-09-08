@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 
 from generation_config import ConfigurationArgumentParser, json_object
+from generation_seed import resolve_seed
 
 ROOT = Path(__file__).resolve().parents[2]
 CAMERA_MOTIONS = {
@@ -61,7 +62,8 @@ def build_parser():
     parser.add_argument("--steps", type=int, default=30)
     parser.add_argument("--guidance-scale", type=float, default=3)
     parser.add_argument("--max-sequence-length", type=int, default=256)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Base seed; omitted chooses a random seed per video and records it")
     parser.add_argument("--device", choices=("auto", "cpu", "mps", "metal", "cuda", "rocm"), default="auto")
     parser.add_argument("--dtype", choices=("auto", "float32", "float16", "bfloat16"), default="auto")
     parser.add_argument("--offload", choices=("auto", "none", "model", "sequential"), default="auto")
@@ -206,6 +208,7 @@ def plan_shots(args):
 
 
 def resolve_options(args):
+    args.seed = resolve_seed(args.seed)
     for name in ("width", "height"):
         value = _integer(getattr(args, name), name, 32, 4096)
         if value % 32:

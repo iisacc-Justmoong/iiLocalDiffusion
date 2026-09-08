@@ -13,7 +13,7 @@ from typing import Any
 from model_loading import require_materialized_component, selection_metadata, read_weight_keys
 from presets import ModelSelection, PipelinePreset, resolve_model_selection, validate_pipeline_contract
 from weight_files import (
-    LocalWeightFile, checked_safetensors_path, file_sha256, verify_weight_file,
+    LocalWeightFile, cached_model_sha256, checked_safetensors_path, file_sha256, verify_weight_file,
 )
 
 
@@ -185,7 +185,7 @@ def _identities(paths: list[Path]) -> list[LocalWeightFile]:
     for path in sorted(set(paths)):
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f"ControlNet package file is missing or empty: {path}")
-        result.append(LocalWeightFile(str(path.absolute()), str(path.resolve()), file_sha256(path), path.stat().st_size))
+        result.append(LocalWeightFile(str(path.absolute()), str(path.resolve()), cached_model_sha256(path), path.stat().st_size))
     return result
 
 

@@ -89,6 +89,23 @@ class LocalImageTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "changed during generation"):
             local_image.verify_identities(identities)
 
+    def test_app_temporary_work_directory_and_case_insensitive_model_suffix(self):
+        workspace = self.directory / "Dreamscapes Temporary/job/runtime"
+        workspace.mkdir(parents=True)
+        args = self.args("--work-dir", str(workspace))
+        self.assertEqual(local_image.prepare_work_directory(args), workspace)
+        self.model = self.directory / "MODEL.SAFETENSOR"
+        self.model.write_bytes(b"original weights")
+        staged, identities = local_image.stage_models(self.resolve(), workspace)
+        self.assertEqual(staged["model"], "model.safetensors")
+        self.assertEqual(Path(identities["model"]["staged_path"]).resolve(), self.model)
+        with self.assertRaisesRegex(ValueError, "empty"):
+            local_image.prepare_work_directory(args)
+        redirected = self.directory / "redirect"
+        redirected.symlink_to(workspace, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "redirected"):
+            local_image.prepare_work_directory(self.args("--work-dir", str(redirected)))
+
     def test_retargeted_model_symlink_cannot_reuse_original_provenance(self):
         staged, identities = local_image.stage_models(self.resolve(), self.directory)
         alternate = self.directory / "other.safetensors"
@@ -109,6 +126,7 @@ class LocalImageTests(unittest.TestCase):
 
     def test_managed_server_is_loopback_isolated_and_stopped_even_on_error(self):
         args = self.runtime_args()
+        args.cache_dir = self.directory / "Society Runtime Cache"
         venv_python = self.directory / "venv-python"
         venv_python.symlink_to(args.runtime_python)
         args.runtime_python = venv_python
@@ -126,6 +144,8 @@ class LocalImageTests(unittest.TestCase):
         self.assertIn("--disable-api-nodes", command)
         self.assertIn("--disable-all-custom-nodes", command)
         self.assertTrue((self.directory / "custom_nodes").is_dir())
+        self.assertEqual(popen.call_args.kwargs["env"]["PYTHONPYCACHEPREFIX"], str(args.cache_dir / "pycache"))
+        self.assertEqual(popen.call_args.kwargs["env"]["HF_HOME"], str(args.cache_dir / "huggingface"))
         process.terminate.assert_called_once()
         process.wait.assert_called_once()
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from contextlib import nullcontext
 from dataclasses import dataclass
+from functools import lru_cache
 import hashlib
 import importlib.metadata
 import json
@@ -32,6 +33,7 @@ from generation_options import (
     uses_negative_prompt, validate_generation_options, with_generation_defaults,
 )
 from generation_output import hires_base_paths, publish_file, resolve_output_paths, write_png
+from generation_preview import add_preview_options, attach_preview, validate_preview_location
 from generation_scheduler import configure_scheduler, validate_clip_skip, validate_scheduler_values
 from generation_tensor_inputs import load_tensor_inputs
 from hardware import (
@@ -40,6 +42,8 @@ from hardware import (
 from hires import DenoisingAudit, image_metadata, run_hires_fix, validate_stage_images
 from hires_options import add_hires_options, resolve_hires_options
 from interpolator_options import add_interpolator_options, resolve_interpolator_options
+from inference_session import (SchedulerConfiguration, cached_pipeline, cached_placement,
+                               is_preparing, record_device_placement, record_execution, verify_pipeline_sources)
 from text_embedding_options import add_text_embedding_options, resolve_text_embedding_options
 from text_embeddings import apply_text_embeddings, text_embedding_prompt_context, validate_text_embeddings
 from model_loading import load_generation_pipeline, selection_metadata
@@ -54,6 +58,7 @@ from presets import (
 from weight_files import (
     LocalWeightFile,
     SAFETENSORS_SUFFIXES,
+    cached_model_sha256,
     checked_safetensors_path,
     file_sha256,
     resolve_weight_file,
@@ -65,7 +70,7 @@ MODEL_ID = SD15_PRESET.model_id
 MODEL_REVISION = SD15_PRESET.revision
 DEFAULT_PROMPT = "a red cube on a white table"
 DEFAULT_NEGATIVE_PROMPT = ""
-DEFAULT_SEED = 42
+DEFAULT_SEED = None
 DEFAULT_WIDTH = SD15_PRESET.width
 DEFAULT_HEIGHT = SD15_PRESET.height
 DEFAULT_STEPS = SD15_PRESET.steps
@@ -148,6 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIRECTORY)
     parser.add_argument("--xet-cache-dir", type=Path, default=DEFAULT_XET_CACHE_DIRECTORY)
     parser.add_argument("--output", type=Path, default=None)
+    add_preview_options(parser)
     parser.add_argument(
         "--device", choices=("auto", "metal", "mps", "cuda", "rocm", "cpu"), default="auto",
         help="GPU required by default; rocm requires AMD HIP PyTorch, metal aliases MPS; CPU is explicit",
@@ -171,7 +177,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--negative-prompt", default=DEFAULT_NEGATIVE_PROMPT)
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED,
+                        help="Base seed; omitted chooses a random seed for each request and records it")
     parser.add_argument("--width", type=int, default=None)
     parser.add_argument("--height", type=int, default=None)
     parser.add_argument("--steps", type=int, default=None)
@@ -225,6 +232,13 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset | None, 
         else:
             args.preset = base["preset"]
         args.base_model = base["name"]
+    if (not args.base_model and args.model_config is None and "preset" not in getattr(args, "_provided", ())
+            and args.model and Path(args.model).expanduser().is_file()):
+        from checkpoint_config import inspect_checkpoint
+        try:
+            args.preset, _ = inspect_checkpoint(args.model)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
     preset = PRESETS[args.preset]
     if getattr(preset, "requires_model_override", False) and args.model is None:
         raise SystemExit(f"Preset {preset.name} requires an explicit --model checkpoint or directory.")
@@ -237,6 +251,9 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset | None, 
         )
         config_selection = None
         if selection.single_file is not None:
+            if args.model_config is None:
+                from checkpoint_config import bundled_configuration
+                args.model_config = bundled_configuration(selection.source, preset)
             config_selection = resolve_model_selection(
                 preset,
                 args.model_config,
@@ -394,6 +411,7 @@ def resolve_lora_selection(args: argparse.Namespace) -> LoraSelection | None:
     raise SystemExit(f"--lora must be an existing local file or directory: {source}")
 
 
+@lru_cache(maxsize=1)
 def load_dependencies() -> tuple[Any, dict[str, Any]]:
     try:
         import torch
@@ -434,6 +452,7 @@ def load_dependencies() -> tuple[Any, dict[str, Any]]:
     }
 
 
+@lru_cache(maxsize=2)
 def package_versions(require_lora: bool) -> dict[str, str]:
     names = (
         "accelerate",
@@ -476,7 +495,7 @@ def _verify_local_lora_identity(selection: LoraSelection) -> None:
     if (
         not path.is_file()
         or path.stat().st_size != selection.size_bytes
-        or file_sha256(path) != selection.sha256
+        or cached_model_sha256(path) != selection.sha256
     ):
         raise RuntimeError(
             f"Local LoRA changed after argument resolution: {path}"
@@ -561,10 +580,12 @@ def prepare_pipeline_with_adapters(
     device: str,
     attention_slicing: bool,
     torch: Any = None,
+    *,
+    scheduler_configured: bool = False,
 ) -> tuple[Any, dict[str, Any], LoraActivation | None, CpuConditioning | None]:
     contract = controlnet_preset(preset) if getattr(args, "controlnet_selection", None) is not None else preset
     validate_pipeline_contract(pipeline, contract)
-    if (getattr(args, "scheduler", "auto") != "auto" or getattr(args, "scheduler_config", {})
+    if not scheduler_configured and (getattr(args, "scheduler", "auto") != "auto" or getattr(args, "scheduler_config", {})
             or getattr(args, "prediction_type", "auto") != "auto"
             or getattr(preset, "scheduler_defaults", ()) or getattr(preset, "default_scheduler", None)):
         args.scheduler_metadata = configure_scheduler(pipeline, args)
@@ -797,6 +818,7 @@ def prepare_pipeline_for_execution(
         raise ValueError(f"Unknown RAM offload policy: {offload}")
     if offload in ("model", "sequential") and device not in ("mps", "cuda"):
         raise ValueError("RAM weight offload requires a GPU execution device.")
+    record_device_placement()
     optimization = {
         "attention_slicing": False,
         "attention_slice_size": None,
@@ -820,8 +842,10 @@ def prepare_pipeline_for_execution(
         if enabled:
             getattr(pipeline.vae, "enable_" + name)()
             optimization["vae_" + name + "_enabled"] = True
-        elif requested is False:
-            getattr(pipeline.vae, "disable_" + name)()
+        else:
+            disable = getattr(pipeline.vae, "disable_" + name, None)
+            if callable(disable):
+                disable()
     offload_arguments = {"device": device}
     if device == "cuda" and device_index != 0:
         offload_arguments["gpu_id"] = device_index
@@ -843,10 +867,19 @@ def prepare_pipeline_for_execution(
             pipeline.enable_attention_slicing(attention_slice_size)
         optimization["attention_slicing"] = True
         optimization["attention_slice_size"] = attention_slice_size
+    else:
+        disable = getattr(pipeline, "disable_attention_slicing", None)
+        if callable(disable):
+            disable()
     return pipeline, optimization
 
 
 def validate_generation_arguments(preset: PipelinePreset | None, args: argparse.Namespace) -> None:
+    if getattr(args, "preview_dir", None) is not None and (
+            preset is None or args.animation_mode != "none" or args.hires_fix):
+        raise ValueError("Live previews currently require a local, single-pass image generation request.")
+    if getattr(args, "preview_dir", None) is not None:
+        validate_preview_location(args.preview_dir, getattr(args, "output_dir", None) or args.output.parent)
     if preset is None:
         # Remote arguments were validated by resolve_image_options; local
         # scheduler/tensor constraints do not describe a provider's runtime.
@@ -894,9 +927,82 @@ def validate_generation_arguments(preset: PipelinePreset | None, args: argparse.
         raise SystemExit("Reference output must use the .png extension.")
 
 
-def main() -> int:
-    preset, args = resolve_arguments(build_parser().parse_args())
+def main(argv=None) -> int:
+    return run(*resolve_arguments(build_parser().parse_args(argv)))
+
+
+def retainable_pipeline(args):
+    return (args.model_selection.is_local and args.animation_mode == "none"
+                 and not args.hires_fix and args.lora_selection is None
+                 and args.controlnet_selection is None and not args.text_embedding_selections
+                 and not args.cpu_text_encoding and args.latents_file is None and args.embeddings_file is None)
+
+
+def prepared_pipeline(preset, args, pipeline_classes, load_arguments, device, dtype, attention_slicing, torch):
+    """Retain model composition separately from its execution placement."""
+    cacheable = retainable_pipeline(args)
+    sources = [args.model_selection.source]
+    if args.config_selection is not None:
+        sources.append(args.config_selection.source)
+    if args.vae_file is not None:
+        sources.append(args.vae_file.path)
+    def compose():
+        pipeline, loading = load_generation_pipeline(
+            pipeline_classes[preset.pipeline_class], preset, args.model_selection,
+            args.config_selection, args.vae_file, load_arguments, pipeline_classes)
+        pipeline, controlnet = attach_controlnet(pipeline, preset, args, pipeline_classes, dtype)
+        if controlnet is not None:
+            loading["component_sources"]["controlnet"] = "controlnet_override"
+        return pipeline, loading, controlnet
+
+    if not cacheable:
+        def load():
+            pipeline, loading, controlnet = compose()
+            pipeline, optimization, activation, conditioning = prepare_pipeline_with_adapters(
+                pipeline, preset, args, device, attention_slicing, torch)
+            return pipeline, loading, controlnet, optimization, activation, conditioning
+        value, hit = cached_pipeline(None, sources, load)
+        args.model_configuration_cache_hit = args.device_placement_cache_hit = False
+        return (*value, hit)
+
+    # Only construction inputs belong here. Sampling options never reload weights.
+    construction = {name: value for name, value in load_arguments.items() if name != "cache_dir"}
+    key = ("preset", preset.name, str(dtype), json.dumps(construction, sort_keys=True, default=str))
+    def load():
+        pipeline, loading, controlnet = compose()
+        return pipeline, loading, controlnet, SchedulerConfiguration(pipeline)
+    (pipeline, loading, controlnet, scheduler), configuration_hit = cached_pipeline(key, sources, load)
+    if configuration_hit:
+        scheduler.restore(pipeline)
+    args.scheduler_metadata = configure_scheduler(pipeline, args)
+    args.text_embedding_activation = None
+    validate_clip_skip(pipeline, preset, args)
+    validate_scheduler_values(pipeline, args)
+
+    offload = args.offload
+    if offload == "auto":
+        offload = ("sequential" if device in ("mps", "cuda")
+                   and preset.runtime.accelerator_execution == "sequential-cpu-offload" else "none")
+    vae_slicing = args.vae_slicing if args.vae_slicing is not None else device != "cpu" and preset.runtime.accelerator_vae_slicing
+    vae_tiling = args.vae_tiling if args.vae_tiling is not None else device != "cpu" and preset.runtime.accelerator_vae_tiling
+    placement = (device, args.device_index, offload, attention_slicing,
+                 args.attention_slice_size if attention_slicing else None, vae_slicing, vae_tiling)
+    def place(previous):
+        if previous is not None and previous[1]["offload_policy"] != "none":
+            pipeline.remove_all_hooks()
+        return prepare_pipeline_with_adapters(pipeline, preset, args, device, attention_slicing, torch,
+                                              scheduler_configured=True)
+    (pipeline, optimization, activation, conditioning), placement_hit = cached_placement(placement, place)
+    args.model_configuration_cache_hit, args.device_placement_cache_hit = configuration_hit, placement_hit
+    optimization = {**optimization, "requested_offload": args.offload}
+    return pipeline, loading, controlnet, optimization, activation, conditioning, configuration_hit and placement_hit
+
+
+def run(preset, args) -> int:
     validate_generation_arguments(preset, args)
+    preparing = is_preparing()
+    if preparing and (preset is None or not retainable_pipeline(args)):
+        raise ValueError("Foreground preparation requires a retained local single-pass image pipeline.")
     if args.print_config:
         print(json.dumps(configuration_values(args), indent=2, sort_keys=True, allow_nan=False))
         return 0
@@ -921,16 +1027,19 @@ def main() -> int:
             from animation_video import preflight_animation
         animation_environment = preflight_animation(args)
         output_paths = []
-    else:
+    elif not preparing:
         output_paths = resolve_output_paths(args)
     load_control_image(args)
 
     installed_package_versions = package_versions(args.lora_selection is not None)
 
+    if preparing:
+        args.xet_cache_dir = args.cache_dir / "xet"
     args.cache_dir.mkdir(parents=True, exist_ok=True)
     args.xet_cache_dir.mkdir(parents=True, exist_ok=True)
     os.environ["HF_XET_CACHE"] = str(args.xet_cache_dir.resolve())
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    if not preparing:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
 
     torch, pipeline_classes = load_dependencies()
     if args.cpu_threads is not None:
@@ -953,7 +1062,6 @@ def main() -> int:
         preset, args, dtype, use_weight_variant=device != "cpu"
     )
 
-    pipeline_class = pipeline_classes[preset.pipeline_class]
     print(f"Model: {args.model_selection.source}", flush=True)
     if args.config_selection is not None:
         print(f"Configuration / auxiliary models: {args.config_selection.source}", flush=True)
@@ -964,26 +1072,9 @@ def main() -> int:
     if args.controlnet_selection is not None:
         print(f"ControlNet: {args.controlnet_selection.source}; image: {args.control_image}", flush=True)
 
-    pipeline, loading_metadata = load_generation_pipeline(
-        pipeline_class,
-        preset,
-        args.model_selection,
-        args.config_selection,
-        args.vae_file,
-        load_arguments,
-        pipeline_classes,
-    )
-    pipeline, controlnet_metadata = attach_controlnet(pipeline, preset, args, pipeline_classes, dtype)
-    if controlnet_metadata is not None:
-        loading_metadata["component_sources"]["controlnet"] = "controlnet_override"
-    pipeline, optimization, lora_activation, conditioning = prepare_pipeline_with_adapters(
-        pipeline,
-        preset,
-        args,
-        device,
-        attention_slicing,
-        torch,
-    )
+    (pipeline, loading_metadata, controlnet_metadata, optimization,
+     lora_activation, conditioning, pipeline_cache_hit) = prepared_pipeline(
+        preset, args, pipeline_classes, load_arguments, device, dtype, attention_slicing, torch)
     for source in getattr(getattr(args, "text_embedding_activation", None), "metadata", []):
         for registration in source["registrations"]:
             print(f"Text embedding: {registration['token']}; encoder={registration['component']}; "
@@ -1001,6 +1092,10 @@ def main() -> int:
     print(f"Resources: {', '.join(hardware['participating_devices'])}; "
           f"weight storage={optimization['weight_storage']}; "
           f"offload={optimization['offload_policy']}", flush=True)
+    record_execution(device, optimization["offload_policy"], args.model_selection.source)
+    if preparing:
+        verify_pipeline_sources()
+        return 0
 
     if animation:
         if args.animation_mode == "2D":
@@ -1029,12 +1124,15 @@ def main() -> int:
         clip_skip_compatibility(pipeline, preset, args.clip_skip)
         if conditioning is None else nullcontext(False)
     )
-    with (torch.inference_mode(), clip_context as clip_compatibility_used,
+    # Offload and VAE hooks can replace weights during a call. Keep these
+    # tensors versioned so a retained model can be repositioned next time.
+    with (torch.no_grad(), clip_context as clip_compatibility_used,
           text_embedding_prompt_context(pipeline, preset, args) as prompt_args):
         call_arguments = build_pipeline_call_arguments(preset, prompt_args, generator, conditioning, device, dtype)
         base_audit = DenoisingAudit(torch) if args.hires_fix else None
         if base_audit is not None:
             call_arguments["callback_on_step_end"] = base_audit
+        attach_preview(pipeline, call_arguments, getattr(args, "preview_dir", None), torch, args.width, args.height)
         result = pipeline(**call_arguments)
 
     render_args = args
@@ -1077,6 +1175,7 @@ def main() -> int:
 
     if len(result.images) != args.num_images:
         raise RuntimeError(f"Expected {args.num_images} generated images, received {len(result.images)}.")
+    verify_pipeline_sources()
     validated = []
     for image in result.images:
         if image.mode != "RGB":
@@ -1149,6 +1248,9 @@ def main() -> int:
         },
         "output": outputs[0],
         "runtime": {
+            "pipeline_cache_hit": pipeline_cache_hit,
+            "model_configuration_cache_hit": args.model_configuration_cache_hit,
+            "device_placement_cache_hit": args.device_placement_cache_hit,
             "clip_skip_layout_compatibility": clip_compatibility_used,
             "device": device,
             "execution_device": str(pipeline._execution_device),

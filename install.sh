@@ -38,5 +38,6 @@ for original, link in (
 PY
 
 "${install_prefix}/bin/iild-run" --help
-"${install_prefix}/bin/iild-generate" --backend preset --hires-fix --print-config
+"${install_prefix}/bin/iild-generate" --backend preset --preset sd15 \
+    --model-path "${project_root}/tests/fixtures/sd-v1-manifest" --hires-fix --print-config
 printf 'Installed iiLocalDiffusion: %s\n' "${install_prefix}"

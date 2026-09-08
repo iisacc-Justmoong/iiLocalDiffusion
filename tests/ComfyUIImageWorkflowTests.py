@@ -291,7 +291,7 @@ class ComfyUIImageWorkflowTests(unittest.TestCase):
         self.assertEqual(components, {"vae": "vae.safetensors"})
 
     def test_hires_omission_keeps_the_original_graph(self):
-        self.assertEqual(self.build(), self.build(hires_fix=False))
+        self.assertEqual(self.build(seed=0), self.build(seed=0, hires_fix=False))
         self.assertFalse(classes(self.build(), "ImageScale"))
         self.assertEqual(resolve_workflow_hires("Illustrious"), {"enabled": False, "passes": 0, "stages": []})
 

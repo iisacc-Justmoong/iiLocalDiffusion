@@ -40,7 +40,7 @@ class DeforumRuntimeTests(unittest.TestCase):
                    pipeline=None, activation=None, **values):
         selected, args = local_request({"preset": preset, "animation_mode": "2D",
                                                    "max_frames": 3, "width": 32, "height": 32,
-                                                   "steps": 4, "device": "cpu",
+                                                   "steps": 4, "device": "cpu", "seed": 42,
                                                    "strength_schedule": strength, **values})
         if controlnet:
             args.controlnet_selection = object()

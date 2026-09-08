@@ -158,6 +158,9 @@ class Torch:
     def inference_mode(self):
         return nullcontext()
 
+    def no_grad(self):
+        return nullcontext()
+
     def get_num_threads(self):
         return 1
 

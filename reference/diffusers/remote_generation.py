@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 
 from model_sources import resolve_model_input
+from generation_seed import resolve_seed
 from remote_inference import RemoteInference
 from weight_files import file_sha256
 
@@ -20,6 +21,7 @@ IMAGE_FIELDS = SOURCE_FIELDS | {"prompt", "negative_prompt", "width", "height", 
 
 def resolve_image_options(args):
     from video_options import _integer, _number, _text
+    args.seed = resolve_seed(args.seed)
     args.model_input = resolve_model_input(args)
     if args.model_input.kind == "local":
         raise ValueError("Remote image execution requires --model-api or --model-cloud.")

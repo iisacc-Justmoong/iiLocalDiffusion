@@ -46,7 +46,7 @@ endif()
 
 foreach(document IN ITEMS README.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md
         docs/generation-io-native.md docs/generation-composition.md docs/deforum-video.md docs/interpolator-video.md
-        docs/temporal-video.md)
+        docs/temporal-video.md docs/inference-worker.md)
     if(NOT EXISTS "${stage_directory}/${DOC_DIRECTORY}/${document}")
         message(FATAL_ERROR "The installed package is missing documentation: ${document}")
     endif()
@@ -73,6 +73,11 @@ if(PYTHON_REFERENCE_ENABLED)
         message(FATAL_ERROR "The installed generation launcher is missing")
     endif()
     foreach(resource IN ITEMS generate.py setup_comfyui.py diffusers/generate.py
+            diffusers/inference_session.py diffusers/inference_worker.py
+            diffusers/standalone_image.py diffusers/checkpoint_config.py diffusers/generation_seed.py diffusers/configs/manifest.json
+            diffusers/configs/sd1/model_index.json diffusers/configs/sd1/tokenizer/merges.txt
+            diffusers/configs/sd1/LICENSE.txt diffusers/configs/sdxl/model_index.json
+            diffusers/configs/sdxl/tokenizer_2/merges.txt diffusers/configs/sdxl/LICENSE.md
             diffusers/generation_composition.py diffusers/generation_adapters.py diffusers/generic_io.py
             diffusers/deforum_options.py diffusers/deforum_schedules.py diffusers/deforum_runtime.py
             diffusers/deforum_video.py diffusers/deforum.example.json diffusers/requirements-deforum.txt
@@ -87,6 +92,19 @@ if(PYTHON_REFERENCE_ENABLED)
         endif()
     endforeach()
     if(PYTHON_EXECUTABLE)
+        file(WRITE "${WORK_DIRECTORY}/worker-input.jsonl"
+            "{\"schema\":\"iild-worker-request-v1\",\"id\":\"installed-probe\",\"arguments\":[\"--list-base-models\"]}\n")
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
+                "${PYTHON_EXECUTABLE}" "${installed_launcher}" --worker
+            WORKING_DIRECTORY "${source_directory}"
+            INPUT_FILE "${WORK_DIRECTORY}/worker-input.jsonl"
+            RESULT_VARIABLE worker_result OUTPUT_VARIABLE worker_output ERROR_VARIABLE worker_error
+            TIMEOUT 20)
+        if(NOT worker_result EQUAL 0 OR NOT worker_output MATCHES "IILD_READY "
+           OR NOT worker_output MATCHES "IILD_RESULT .*installed-probe.*\"ok\": true")
+            message(FATAL_ERROR "Relocated worker protocol/EOF failed: ${worker_error}\n${worker_output}")
+        endif()
         execute_process(
             COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
                 "${PYTHON_EXECUTABLE}" "${installed_launcher}"

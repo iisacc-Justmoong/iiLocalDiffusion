@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from generation_config import json_object
+from generation_seed import resolve_seed
 from presets import PipelinePreset
 
 
@@ -92,6 +93,7 @@ def add_generation_options(parser: argparse.ArgumentParser) -> None:
 
 
 def resolve_generation_options(preset: PipelinePreset, args: argparse.Namespace) -> None:
+    args.seed = resolve_seed(getattr(args, "seed", None))
     if preset.family in ("sdxl-base", "flux1-schnell"):
         if args.prompt_2 is None:
             args.prompt_2 = args.prompt

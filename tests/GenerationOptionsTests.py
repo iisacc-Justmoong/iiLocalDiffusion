@@ -235,7 +235,9 @@ class GenerationOptionsTests(unittest.TestCase):
 
     def test_programmatic_request_uses_the_same_defaults_and_type_checks(self):
         preset, args = local_request()
-        self.assertEqual((preset.name, args.num_images, args.seed), ("sd15", 1, 42))
+        self.assertEqual((preset.name, args.num_images), ("sd15", 1))
+        self.assertIsInstance(args.seed, int)
+        self.assertTrue(0 <= args.seed < 2**32)
         _, args = local_request({"seed": 0, "height": None, "vae_tiling": False})
         self.assertEqual((args.seed, args.height, args.vae_tiling), (0, 512, False))
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):

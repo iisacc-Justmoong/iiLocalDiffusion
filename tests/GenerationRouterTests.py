@@ -188,7 +188,7 @@ class GenerationRouterTests(unittest.TestCase):
         with patch.object(router.importlib, "import_module", return_value=backend) as imported:
             result = router.main(["--backend", "local", "--base-model", "Illustrious", "--model", "download.safetensors", "--print-config"])
         self.assertEqual(result, 0)
-        imported.assert_called_once_with("local_image")
+        imported.assert_called_once_with("standalone_image")
         self.assertEqual(called, [["--base-model", "Illustrious", "--model", "download.safetensors", "--print-config"]])
 
     def test_inspect_model_outputs_tensor_identity_without_generation(self):

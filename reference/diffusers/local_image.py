@@ -16,6 +16,7 @@ import uuid
 
 from comfyui_runtime import Client, run as run_workflow, write_json
 from generation_config import json_object
+from generation_seed import resolve_seed
 from weight_files import file_sha256
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,7 +40,8 @@ def build_parser():
     parser.add_argument("--negative-prompt", default="")
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Base seed; omitted chooses a random seed for each request and records it")
     parser.add_argument("--steps", type=int)
     parser.add_argument("--guidance-scale", type=float)
     parser.add_argument("--embedded-guidance", type=float)
@@ -64,6 +66,8 @@ def build_parser():
     parser.add_argument("--device", choices=("auto", "cpu", "mps", "metal", "cuda", "rocm"), default="auto")
     parser.add_argument("--dtype", choices=("auto", "float32", "float16"), default="auto")
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--work-dir", type=Path, help="Empty caller-owned directory for runtime files, logs and model links")
+    parser.add_argument("--cache-dir", type=Path, help="Reusable runtime cache shared between caller-owned jobs")
     parser.add_argument("--runtime-source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--runtime-python", type=Path, default=DEFAULT_PYTHON)
     parser.add_argument("--timeout", type=float, default=3600)
@@ -140,6 +144,7 @@ def resolved_request(args):
     if prediction not in (None, "epsilon", "v_prediction"):
         prediction = None  # Flow models use their architecture's native sampling implementation.
     return {"base_model": record["name"], "model": str(model), "model_type": model_type,
+            "seed": resolve_seed(args.seed),
             "components": files, "inspection": inspection, "recipe": recipe, "prediction_type": prediction,
             "hires": hires}
 
@@ -160,7 +165,8 @@ def stage_models(request, job):
         folder = (("checkpoints" if request["model_type"] == "checkpoint" else "diffusion_models") if name == "model"
                   else "diffusion_models" if name in ("model_negative", "decoder")
                   else "vae" if name == "vae" else "text_encoders")
-        target = job / "models" / folder / (name + (".safetensors" if path.suffix == ".safetensor" else path.suffix))
+        suffix = path.suffix.lower()
+        target = job / "models" / folder / (name + (".safetensors" if suffix == ".safetensor" else suffix))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.symlink_to(path)
         identities[name]["staged_path"] = str(target)
@@ -224,11 +230,12 @@ def managed_server(args, job):
     if args.dtype != "auto":
         command.append("--force-fp32" if args.dtype == "float32" else "--force-fp16")
     environment = dict(os.environ)
-    environment.update(HF_HOME=str(ROOT / "build/reference/huggingface"),
+    cache = args.cache_dir.expanduser().absolute() if args.cache_dir else ROOT / "build/reference"
+    environment.update(HF_HOME=str(cache / "huggingface"),
                        HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1",
-                       XDG_CACHE_HOME=str(ROOT / "build/reference/comfyui-cache"),
-                       TORCH_HOME=str(ROOT / "build/reference/torch-cache"),
-                       PYTHONPYCACHEPREFIX=str(ROOT / "build/pycache"))
+                       XDG_CACHE_HOME=str(cache / "comfyui-cache"),
+                       TORCH_HOME=str(cache / "torch-cache"),
+                       PYTHONPYCACHEPREFIX=str(cache / "pycache" if args.cache_dir else ROOT / "build/pycache"))
     log = job / "runtime.log"
     with log.open("w") as stream:
         process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT,
@@ -266,6 +273,16 @@ def managed_server(args, job):
                 process.wait()
 
 
+def prepare_work_directory(args):
+    job = args.work_dir.expanduser().absolute() if args.work_dir else ROOT / "build/reference/local-image-jobs" / uuid.uuid4().hex
+    if job.resolve() != job or job.is_symlink():
+        raise ValueError("The work directory must not be redirected.")
+    if job.exists() and (not job.is_dir() or any(job.iterdir())):
+        raise ValueError("The work directory must be empty.")
+    job.mkdir(parents=True, exist_ok=True)
+    return job
+
+
 def main(argv=None):
     tokens = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(tokens)
@@ -281,14 +298,13 @@ def main(argv=None):
             print(json.dumps(request, indent=2))
             return 0
         from comfyui_image_workflow import build_workflow
-        job = ROOT / "build/reference/local-image-jobs" / uuid.uuid4().hex
-        job.mkdir(parents=True)
+        job = prepare_work_directory(args)
         staged, identities = stage_models(request, job)
         with managed_server(args, job) as (url, objects, stats):
             graph = build_workflow(request["base_model"], staged["model"],
                 {name: value for name, value in staged.items() if name != "model"}, args.prompt, objects,
                 model_type=request["model_type"], negative_prompt=args.negative_prompt,
-                width=args.width, height=args.height, seed=args.seed, steps=args.steps,
+                width=args.width, height=args.height, seed=request["seed"], steps=args.steps,
                 cfg=args.guidance_scale, sampler_name=args.sampler, scheduler=args.scheduler,
                 batch_size=args.num_images, prediction_type=request["prediction_type"],
                 guidance=args.embedded_guidance, sampling_shift=args.sampling_shift,

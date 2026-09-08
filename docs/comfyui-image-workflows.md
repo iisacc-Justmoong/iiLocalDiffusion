@@ -111,7 +111,9 @@ latent nodes; it never silently rounds a requested image size.
 Optional arguments include `negative_prompt`, `width`, `height`, `seed`, `steps`,
 `cfg`, `sampler_name`, `scheduler`, `batch_size`, `prediction_type`, `model_type`,
 `guidance`, `sampling_shift`, `zsnr`, and `clip_skip`. Omitted values retain the
-recipe or checkpoint defaults. `guidance` is Flux's embedded guidance and is
+recipe or checkpoint defaults, except `seed`: omission selects a fresh random
+32-bit seed for the graph. Explicit seeds, including zero, are preserved; all
+refinement passes share that graph's seed. `guidance` is Flux's embedded guidance and is
 separate from CFG. Flux2 and Ideogram4 require their native named schedules.
 `prediction_type` supports `epsilon`, `v_prediction`, `sample`, and `lcm` only
 for SD1/2/SDXL; `zsnr=True` requires an explicit prediction type. NoobAI is not

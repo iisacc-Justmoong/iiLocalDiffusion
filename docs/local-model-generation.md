@@ -8,18 +8,18 @@ including `--print-config`. A preset selects architecture and sampling defaults;
 it does not select or download model weights. Hub repository IDs, URLs and missing
 paths fail before model loading, even if an immutable revision is supplied.
 
-The existing Diffusers/PyTorch implementation and managed local ComfyUI runtime
-remain the inference dependencies. No new inference library or paid service is
+The existing Diffusers/PyTorch implementation provides standalone inference.
+ComfyUI is only required by explicitly selected workflow backends. No new inference library or paid service is
 introduced. Runtime installation is a separate preparation step. Generation uses
 local-only model loading; missing configurations, tokenizers, encoders and weights
-must be supplied by the caller instead of downloaded during inference.
+must exist in the SDK bundle or be supplied locally instead of downloaded during inference.
 
 ## Model inputs
 
 | Generation route | Required local input |
 |---|---|
 | Automatic image route | Downloaded checkpoint file, or complete Diffusers model directory |
-| Preset image, Deforum, Interpolator | Compatible SD/SDXL/FLUX.1 Diffusers directory; a safetensors model file additionally requires a local `--model-config` directory |
+| Preset image, Deforum, Interpolator | Compatible SD/SDXL/FLUX.1 Diffusers directory; SD1/SDXL checkpoints use bundled offline configs; other single files require local `--model-config` extras |
 | Generic Diffusers | Complete model directory; supported single-file pipelines require a local `--model-config` directory |
 | Temporal video | Compatible LTX Diffusers directory containing the transformer, temporal VAE, text encoder, tokenizer and scheduler |
 | Explicit ComfyUI workflow | Local API workflow referring to models already installed in the loopback runtime |

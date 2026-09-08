@@ -259,7 +259,7 @@ def _text_loader(graph: _Graph, recipe: dict, components: dict):
 
 def build_workflow(base_model: str, model_name: str, components: dict, prompt: str,
                    object_info: dict, *, negative_prompt: str = "", width: int | None = None,
-                   height: int | None = None, seed: int = 0, steps: int | None = None,
+                   height: int | None = None, seed: int | None = None, steps: int | None = None,
                    cfg: float | None = None, sampler_name: str | None = None,
                    scheduler: str | None = None, batch_size: int = 1,
                    prediction_type: str | None = None, model_type: str = "auto",
@@ -277,6 +277,8 @@ def build_workflow(base_model: str, model_name: str, components: dict, prompt: s
     denoiser requires its VAE and text encoder files. GGUF requires corresponding
     local GGUF loader nodes. No filename guessing or implicit downloads occur.
     """
+    from generation_seed import resolve_seed
+    seed = resolve_seed(seed)
     recipe = workflow_requirements(base_model)
     if not isinstance(components, dict) or set(components) - _COMPONENT_KEYS:
         raise ValueError(f"Components must use these keys: {', '.join(sorted(_COMPONENT_KEYS))}.")

@@ -66,10 +66,10 @@ class ReferenceScriptsTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "accelerator execution policy"):
             presets.validate_preset_definition(invalid_preset)
 
-    def test_fixed_fixture_contract(self) -> None:
+    def test_default_generation_contract(self) -> None:
         self.assertEqual(self.generate.DEFAULT_PROMPT, "a red cube on a white table")
         self.assertEqual(self.generate.DEFAULT_NEGATIVE_PROMPT, "")
-        self.assertEqual(self.generate.DEFAULT_SEED, 42)
+        self.assertIsNone(self.generate.DEFAULT_SEED)
         self.assertEqual((self.generate.DEFAULT_WIDTH, self.generate.DEFAULT_HEIGHT), (512, 512))
         self.assertEqual(self.generate.DEFAULT_STEPS, 20)
         self.assertEqual(self.generate.DEFAULT_GUIDANCE_SCALE, 7.5)

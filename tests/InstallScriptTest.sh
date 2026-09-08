@@ -7,6 +7,7 @@ touch "${work}/home/.local/SDK/iiPaintEngine/lib/cmake/iiPaintEngine/iiPaintEngi
 cat > "${work}/bin/cmake" <<'MOCK'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "${INSTALL_TEST_ARGUMENTS}"
+[[ "${INSTALL_TEST_SMOKE:-0}" == 1 ]] && exit 0
 exit 91
 MOCK
 chmod +x "${work}/bin/cmake"
@@ -28,3 +29,45 @@ for mode in default override; do
     grep -Fx -- "-DCMAKE_INSTALL_PREFIX=${expected}" "${work}/arguments"
     grep -Fx -- "${source_root}/build" "${work}/arguments"
 done
+
+# Exercise the final installer commands with the real relocated Python launcher.
+# Native compilation is stubbed here; the normal CTest suite covers the library.
+smoke_prefix="${work}/smoke prefix"
+mkdir -p "${smoke_prefix}/bin"
+cat > "${work}/bin/ctest" <<'MOCK'
+#!/usr/bin/env bash
+exit 0
+MOCK
+cat > "${smoke_prefix}/bin/iild-run" <<'MOCK'
+#!/usr/bin/env bash
+[[ "$#" == 1 && "$1" == --help ]]
+MOCK
+chmod +x "${work}/bin/ctest" "${smoke_prefix}/bin/iild-run"
+python3 - "${source_root}" "${smoke_prefix}" <<'PY'
+from pathlib import Path
+import shutil
+import sys
+
+source, prefix = map(Path, sys.argv[1:])
+reference = prefix / "share/iiLocalDiffusion/reference"
+reference.mkdir(parents=True, exist_ok=True)
+shutil.copy2(source / "reference/generate.py", reference / "generate.py")
+for original in (source / "reference/diffusers").rglob("*"):
+    relative = original.relative_to(source / "reference/diffusers")
+    if any(part in {".venv", "__pycache__", ".git"} for part in relative.parts):
+        continue
+    if original.is_file() and original.suffix in {".py", ".json"}:
+        destination = reference / "diffusers" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(original, destination)
+launcher = prefix / "bin/iild-generate"
+launcher.write_text((source / "cmake/iild-generate.py.in").read_text().replace(
+    "@IILD_REFERENCE_FROM_BINDIR@", "../share/iiLocalDiffusion/reference"))
+launcher.chmod(0o755)
+PY
+env PATH="${work}/bin:${PATH}" IILD_INSTALL_PREFIX="${smoke_prefix}" \
+    INSTALL_TEST_ARGUMENTS="${work}/arguments" INSTALL_TEST_SMOKE=1 \
+    bash "${source_root}/install.sh" > "${work}/smoke-output" 2>&1 || {
+        cat "${work}/smoke-output"
+        exit 1
+    }

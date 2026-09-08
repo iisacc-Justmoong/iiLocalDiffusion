@@ -10,8 +10,9 @@ Civitai snapshot, including hidden and disabled local categories. Its 79 `local`
 entries have an upstream local-runtime route; 23 `hosted` entries and 2 `unknown` categories
 do not acquire an automatic local route.
 
-Existing local weight files now default to the [managed local image runtime](local-image-generation.md),
-which automatically assembles its supported image workflows. An explicit preset,
+Existing SD1/SDXL checkpoint files now default to the [standalone image runtime](local-image-generation.md),
+which loads bundled offline configuration and tokenizers through Diffusers. The
+managed workflow recipes require `--backend comfyui-local`. An explicit preset,
 pipeline or workflow keeps its corresponding execution path. The
 [download inspector](downloaded-models.md) identifies bundled/split weights and
 component roles; [legacy conversion](checkpoint-formats.md) preserves source hashes.

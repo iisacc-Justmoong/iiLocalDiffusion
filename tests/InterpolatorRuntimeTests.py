@@ -27,7 +27,7 @@ class InterpolatorRuntimeTests(unittest.TestCase):
         self.torch = torch
         self.preset, self.args = local_request({"animation_mode": "Interpolator", "max_frames": 3,
                                                            "width": 32, "height": 32, "device": "cpu",
-                                                           "end_seed": 43, "end_prompt": "a forest"})
+                                                           "seed": 42, "end_seed": 43, "end_prompt": "a forest"})
 
     def conditioning(self, value, *, pooled=False):
         tensors = {"prompt_embeds": self.torch.full((1, 3, 4), value, dtype=self.torch.float32),

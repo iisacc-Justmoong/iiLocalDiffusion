@@ -155,11 +155,14 @@ def select_backend(args, remaining: list[str]) -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False, add_help=False)
     parser.add_argument("--base-model", default=None)
-    parser.add_argument("--backend", choices=("auto", "local", "preset", "diffusers", "comfyui", "deforum", "interpolator", "video"), default="auto")
+    parser.add_argument("--backend", choices=("auto", "local", "preset", "diffusers", "comfyui", "comfyui-local", "deforum", "interpolator", "video"), default="auto")
     parser.add_argument("--list-base-models", action="store_true")
     parser.add_argument("--check-runtime", action="store_true")
     parser.add_argument("--inspect-model", action="store_true")
     tokens = list(sys.argv[1:] if argv is None else argv)
+    if tokens == ["--worker"]:
+        from inference_worker import serve
+        return serve(main)
     args, remaining = parser.parse_known_args(tokens)
     if args.list_base_models:
         print(json.dumps({"source": CATALOG_SOURCE, "base_models": list_base_models()}, indent=2))
@@ -192,9 +195,12 @@ def main(argv=None) -> int:
         print(__doc__ + "\n\n"
               "--list-base-models                 List the pinned Civitai compatibility catalog\n"
               "--check-runtime                    Audit installed pipelines without downloading weights\n"
+              "--worker                           Serve sequential NDJSON requests with memory caches and foreground-residency\n"
               "--inspect-model --model PATH        Inspect a local model and its Civitai metadata\n"
               "--base-model NAME                  Select a Civitai base identity\n"
-              "--backend auto|local|preset|diffusers|comfyui|deforum|interpolator|video\n\n"
+              "--backend auto|local|preset|diffusers|comfyui|comfyui-local|deforum|interpolator|video\n\n"
+              "Local checkpoints use standalone Diffusers/PyTorch; ComfyUI is optional.\n"
+              "--backend comfyui-local            Explicit opt-in to the legacy managed ComfyUI runtime\n\n"
               "--backend video                    Generate LTX video, then interpolate its frames\n"
               "--backend deforum                  Generate a Deforum 2D MP4/GIF animation\n"
               "--backend interpolator             Generate an interpolated prompt/seed MP4/GIF\n\n"
@@ -235,8 +241,12 @@ def main(argv=None) -> int:
             parser.exit(2, f"--backend {backend} requires --animation-mode {mode}.\n")
         remaining = [*remaining, "--animation-mode", mode]
         backend = "preset"
+    from inference_session import is_preparing
+    if is_preparing() and backend not in ("local", "preset", "diffusers"):
+        parser.exit(2, "Foreground preparation requires a local image pipeline.\n")
     module = importlib.import_module({"preset": "generate", "diffusers": "generate_any", "video": "generate_video",
-                                      "comfyui": "comfyui_runtime", "local": "local_image"}[backend])
+                                      "comfyui": "comfyui_runtime", "comfyui-local": "local_image",
+                                      "local": "standalone_image"}[backend])
     if backend == "preset":
         # Preserve the original CLI entry point and Python API.
         previous = sys.argv
