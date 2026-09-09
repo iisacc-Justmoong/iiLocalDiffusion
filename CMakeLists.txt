@@ -51,7 +51,7 @@ if(PROJECT_IS_TOP_LEVEL)
 endif()
 
 option(IILD_BUILD_TOOLS "Build iiLocalDiffusion command-line tools" ${PROJECT_IS_TOP_LEVEL})
-option(IILD_INSTALL_PYTHON_REFERENCE "Install the Python generation entry point and reference sources" ON)
+option(IILD_INSTALL_PYTHON_REFERENCE "Install the Python generation/merge entry points and reference sources" ON)
 option(IILD_ENABLE_COREML "Build the Apple Core ML component runtime" ${APPLE})
 if(IILD_ENABLE_COREML AND NOT APPLE)
     message(FATAL_ERROR "Core ML requires an Apple platform; set IILD_ENABLE_COREML=OFF")
@@ -332,7 +332,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         foreach(model_compatibility_test IN ITEMS
                 CivitaiCatalogTests ModelFamilyTests GenericDiffusersTests
                 ComfyUIRuntimeTests GenerationRouterTests RuntimeCompatibilityTests
-                DownloadedModelTests CheckpointConversionTests ComfyUIImageWorkflowTests
+                DownloadedModelTests CheckpointConversionTests ModelMergeTests ModelMergeLoraTests ComfyUIImageWorkflowTests
                 LocalImageTests SetupComfyUITests)
             add_test(NAME ${model_compatibility_test}
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${model_compatibility_test}.py")
@@ -407,9 +407,15 @@ if(IILD_INSTALL_PYTHON_REFERENCE)
     file(RELATIVE_PATH IILD_REFERENCE_FROM_BINDIR
         "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}"
         "${CMAKE_INSTALL_PREFIX}/${iild_reference_directory}")
-    configure_file(cmake/iild-generate.py.in "${CMAKE_CURRENT_BINARY_DIR}/iild-generate" @ONLY)
-    install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/iild-generate" DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
-    install(FILES reference/generate.py reference/setup_comfyui.py DESTINATION ${iild_reference_directory} COMPONENT Runtime)
+    foreach(iild_python_command IN ITEMS generate merge)
+        set(IILD_PYTHON_ENTRY "${iild_python_command}.py")
+        configure_file(cmake/iild-python.py.in "${CMAKE_CURRENT_BINARY_DIR}/iild-${iild_python_command}" @ONLY)
+        install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/iild-${iild_python_command}"
+            DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
+    endforeach()
+    unset(IILD_PYTHON_ENTRY)
+    install(FILES reference/generate.py reference/merge.py reference/setup_comfyui.py
+        DESTINATION ${iild_reference_directory} COMPONENT Runtime)
     install(DIRECTORY reference/diffusers DESTINATION ${iild_reference_directory} COMPONENT Runtime
         FILES_MATCHING PATTERN "*.py" PATTERN "*.json" PATTERN "requirements*.txt" PATTERN "README.md"
         PATTERN ".venv" EXCLUDE PATTERN "__pycache__" EXCLUDE)

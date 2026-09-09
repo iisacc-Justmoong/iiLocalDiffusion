@@ -51,7 +51,8 @@ import sys
 source, prefix = map(Path, sys.argv[1:])
 reference = prefix / "share/iiLocalDiffusion/reference"
 reference.mkdir(parents=True, exist_ok=True)
-shutil.copy2(source / "reference/generate.py", reference / "generate.py")
+for entry in ("generate.py", "merge.py"):
+    shutil.copy2(source / "reference" / entry, reference / entry)
 for original in (source / "reference/diffusers").rglob("*"):
     relative = original.relative_to(source / "reference/diffusers")
     if any(part in {".venv", "__pycache__", ".git"} for part in relative.parts):
@@ -60,10 +61,12 @@ for original in (source / "reference/diffusers").rglob("*"):
         destination = reference / "diffusers" / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(original, destination)
-launcher = prefix / "bin/iild-generate"
-launcher.write_text((source / "cmake/iild-generate.py.in").read_text().replace(
-    "@IILD_REFERENCE_FROM_BINDIR@", "../share/iiLocalDiffusion/reference"))
-launcher.chmod(0o755)
+for command in ("generate", "merge"):
+    launcher = prefix / f"bin/iild-{command}"
+    launcher.write_text((source / "cmake/iild-python.py.in").read_text().replace(
+        "@IILD_REFERENCE_FROM_BINDIR@", "../share/iiLocalDiffusion/reference").replace(
+        "@IILD_PYTHON_ENTRY@", f"{command}.py"))
+    launcher.chmod(0o755)
 PY
 env PATH="${work}/bin:${PATH}" IILD_INSTALL_PREFIX="${smoke_prefix}" \
     INSTALL_TEST_ARGUMENTS="${work}/arguments" INSTALL_TEST_SMOKE=1 \

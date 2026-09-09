@@ -66,9 +66,10 @@
       "license": "CreativeML Open RAIL++-M",
       "files": {
         "LICENSE.md": {
-          "sha256": "19b6998b569b53ac1fc2158a8a3202c8699a9a4605b47075715d9c96be7fb6d0",
-          "size_bytes": 14109,
-          "modified": false
+          "sha256": "5f44a64473fdb1019fc616d999d351f60bf061a4d77272b4b7309f799dba3676",
+          "size_bytes": 14107,
+          "modified": true,
+          "modification": "Whitespace normalized; license wording unchanged from the pinned upstream revision."
         },
         "model_index.json": {
           "sha256": "6d7b93508390ab91ac5bfbe4aeb4dc2d83f7bb1b05fb069d714b5b0c75f70d44",

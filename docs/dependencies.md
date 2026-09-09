@@ -1,5 +1,36 @@
 # Dependency decisions
 
+## Model merging
+
+Model merging reuses the installed PyTorch (BSD-3-Clause) and pinned
+`safetensors==0.8.0` (Apache-2.0); there are no additional packages, native
+dependencies or model downloads. The installed environment was checked with
+Torch 2.13.0 and safetensors 0.8.0. Maintained upstream tensor arithmetic,
+lazy readers and the official serializer handle numerical work and file bytes.
+SDK code owns coefficient/default policy, compatibility, provenance and output
+publication. Legacy checkpoints reuse the existing gated weights-only converter.
+This avoids adding a separate WebUI/model-merging stack or a custom tensor/file
+implementation. See the upstream [safetensors Torch API](https://huggingface.co/docs/safetensors/api/torch),
+[lazy-loading API](https://huggingface.co/docs/safetensors/index) and
+[license](https://github.com/safetensors/safetensors/blob/main/LICENSE).
+
+Offline LoRA fusion reuses the same Torch matrix/convolution tensor operations.
+The existing pinned Apache-2.0 Diffusers 0.40.0 supplies SD LDM/OpenCLIP name
+mapping; PEFT 0.20.0 (Apache-2.0) provides the independent fusion/forward oracle in
+verification. Both are already maintained generation dependencies; no WebUI,
+adapter framework, model download or extra runtime package is added. Direct
+checkpoint arithmetic does not import Diffusers or PEFT. SDK code owns only
+material selection, target resolution, coefficient policy and validation. Sources:
+[Diffusers LoRA merging](https://huggingface.co/docs/diffusers/main/en/using-diffusers/merge_loras),
+[PEFT LoRA configuration](https://huggingface.co/docs/peft/main/package_reference/lora).
+
+The existing bundled SDXL license was also checked against its pinned upstream
+revision during package validation. The shipped file differs only by removal of
+one trailing space and a final blank line. Its configuration manifest now records
+the shipped 14,107-byte file's hash and marks this whitespace normalization;
+the license wording is unchanged. Source:
+[pinned SDXL license](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/462165984030d82259a11f4367a4eed129e94a7b/LICENSE.md).
+
 ## Interpolator animation
 
 The Interpolator reuses pinned Diffusers/PyTorch, including the existing text

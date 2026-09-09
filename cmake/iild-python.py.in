@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the installed image generator with the selected local Python environment."""
+"""Run an installed SDK command with the selected local Python environment."""
 
 import os
 from pathlib import Path
@@ -9,9 +9,9 @@ import sys
 
 def main():
     reference = (Path(__file__).resolve().parent / "@IILD_REFERENCE_FROM_BINDIR@").resolve()
-    entry = reference / "generate.py"
+    entry = reference / "@IILD_PYTHON_ENTRY@"
     if not entry.is_file():
-        sys.exit(f"Installed generation entry point is missing: {entry}")
+        sys.exit(f"Installed Python entry point is missing: {entry}")
     requested = os.environ.get("IILD_PYTHON_EXECUTABLE")
     if requested:
         selected = shutil.which(str(Path(requested).expanduser()))

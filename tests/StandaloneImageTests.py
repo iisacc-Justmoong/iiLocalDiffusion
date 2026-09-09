@@ -65,8 +65,8 @@ class StandaloneImageTests(unittest.TestCase):
             self.assertEqual(len(record["revision"]), 40)
             for name, identity in record["files"].items():
                 data = (checkpoint_config.CONFIGS / family / name).read_bytes()
-                self.assertEqual(hashlib.sha256(data).hexdigest(), identity["sha256"])
-                self.assertEqual(len(data), identity["size_bytes"])
+                self.assertEqual(hashlib.sha256(data).hexdigest(), identity["sha256"], f"{family}/{name}: SHA-256")
+                self.assertEqual(len(data), identity["size_bytes"], f"{family}/{name}: size")
                 self.assertNotIn(Path(name).suffix, (".safetensors", ".bin", ".ckpt"))
             self.assertTrue((checkpoint_config.CONFIGS / family / "tokenizer/merges.txt").is_file())
 

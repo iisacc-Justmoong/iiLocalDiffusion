@@ -1,5 +1,10 @@
 # LoRA generation contract
 
+To save a full checkpoint with one or more LoRA changes fused into its weights,
+use [model merging](model-merging.md). `iild-merge --additional-model` accepts LoRAs
+alongside full checkpoints for weighted sums or direct weighted subtraction.
+The following contract describes applying an adapter during generation.
+
 ## Scope
 
 The Python Diffusers generation oracle can apply one explicitly selected LoRA

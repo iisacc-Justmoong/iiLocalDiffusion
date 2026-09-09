@@ -4,6 +4,13 @@ App consumers can use [resident inference sessions](docs/inference-worker.md)
 through `iild-generate --worker` to reuse Python initialization, unchanged model
 hashes and compatible prepared image pipelines across sequential requests.
 
+[Local model merging](docs/model-merging.md) is available through `iild-merge`
+and Python `merge_models(base_model, additional_model, ...)`. Both model inputs
+are required; weights and further models are optional. It supports weighted sums
+and direct weighted subtraction of matching checkpoints or Diffusers packages,
+with one or more LoRAs as additional materials, including checkpoint/LoRA mixtures.
+LoRA deltas are fused into the output; originals and source/output provenance are preserved.
+
 iiLocalDiffusion is a C++ runtime for assembling local generative-model
 components and orchestrating inference. It does not implement tensor storage,
 matrix multiplication, convolution, attention kernels, or device command

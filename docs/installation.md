@@ -1,6 +1,6 @@
 # Local installation
 
-`install.sh` installs the library and generation entry point into
+`install.sh` installs the library, generation and model-merge entry points into
 `$HOME/.local/SDK/iiLocalDiffusion`. Run it from an existing checkout with the
 [native build requirements](../README.md#build-and-test) available:
 
@@ -51,6 +51,7 @@ The prefix contains the following public entry points and resources:
 | --- | --- |
 | `bin/iild-run` | Native component computation and metadata inspection CLI |
 | `bin/iild-generate` | Unified Python image-generation launcher |
+| `bin/iild-merge` | Python weighted checkpoint/LoRA sum/subtraction launcher |
 | `lib/` | Shared library and enabled bundled native runtime resources |
 | `lib/cmake/iiLocalDiffusion/` | CMake package configuration and exported target |
 | `include/` | Public C++ headers |
@@ -127,7 +128,8 @@ relocated installed-consumer test covers this inherited environment, including
 an installation path containing spaces.
 
 The C++ API performs component computation and metadata inspection. Complete
-image generation uses the separate Python entry point below.
+image generation and [model merging](model-merging.md) use the separate Python
+entry points. Both Python commands share the interpreter selection below.
 
 ## Use the installed commands
 
@@ -140,6 +142,7 @@ Use the full command paths without changing the shell's `PATH`:
   /absolute/path/to/diffusers-package
 
 "$HOME/.local/SDK/iiLocalDiffusion/bin/iild-generate" --list-base-models
+"$HOME/.local/SDK/iiLocalDiffusion/bin/iild-merge" --help
 "$HOME/.local/SDK/iiLocalDiffusion/bin/iild-generate" --model /absolute/path/image-diffusers \
   --base-model Illustrious --print-config
 ```

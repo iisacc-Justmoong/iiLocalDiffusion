@@ -46,7 +46,7 @@ endif()
 
 foreach(document IN ITEMS README.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md
         docs/generation-io-native.md docs/generation-composition.md docs/deforum-video.md docs/interpolator-video.md
-        docs/temporal-video.md docs/inference-worker.md)
+        docs/temporal-video.md docs/inference-worker.md docs/model-merging.md)
     if(NOT EXISTS "${stage_directory}/${DOC_DIRECTORY}/${document}")
         message(FATAL_ERROR "The installed package is missing documentation: ${document}")
     endif()
@@ -72,7 +72,9 @@ if(PYTHON_REFERENCE_ENABLED)
     if(NOT EXISTS "${installed_launcher}")
         message(FATAL_ERROR "The installed generation launcher is missing")
     endif()
-    foreach(resource IN ITEMS generate.py setup_comfyui.py diffusers/generate.py
+    foreach(resource IN ITEMS generate.py merge.py setup_comfyui.py diffusers/generate.py
+            diffusers/model_merge.py diffusers/model_merge_options.py diffusers/model_merge_files.py
+            diffusers/model_merge_lora.py diffusers/model_merge_lora_targets.py
             diffusers/inference_session.py diffusers/inference_worker.py
             diffusers/standalone_image.py diffusers/checkpoint_config.py diffusers/generation_seed.py diffusers/configs/manifest.json
             diffusers/configs/sd1/model_index.json diffusers/configs/sd1/tokenizer/merges.txt
@@ -92,6 +94,24 @@ if(PYTHON_REFERENCE_ENABLED)
         endif()
     endforeach()
     if(PYTHON_EXECUTABLE)
+        set(installed_merge "${stage_directory}/${BIN_DIRECTORY}/iild-merge")
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
+                "${PYTHON_EXECUTABLE}" "${installed_merge}"
+                --base-model "${FIXTURE}" --additional-model "${FIXTURE}"
+                --mode weighted-difference --print-config
+            WORKING_DIRECTORY "${source_directory}"
+            RESULT_VARIABLE merge_result OUTPUT_VARIABLE merge_output ERROR_VARIABLE merge_error)
+        if(NOT merge_result EQUAL 0)
+            message(FATAL_ERROR "Relocated merge launcher failed: ${merge_error}")
+        endif()
+        string(JSON merge_mode GET "${merge_output}" mode)
+        string(JSON merge_resolution GET "${merge_output}" coefficient_resolution)
+        string(JSON merge_weight_type TYPE "${merge_output}" weights)
+        if(NOT merge_mode STREQUAL "weighted-difference" OR NOT merge_resolution STREQUAL "after-input-inspection"
+           OR NOT merge_weight_type STREQUAL "NULL")
+            message(FATAL_ERROR "Relocated merge configuration was not preserved: ${merge_output}")
+        endif()
         file(WRITE "${WORK_DIRECTORY}/worker-input.jsonl"
             "{\"schema\":\"iild-worker-request-v1\",\"id\":\"installed-probe\",\"arguments\":[\"--list-base-models\"]}\n")
         execute_process(
