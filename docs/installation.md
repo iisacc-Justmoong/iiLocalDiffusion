@@ -20,6 +20,9 @@ as an explicit model source and prints the HiRes configuration. It does not
 load weights or generate an image. The installer contract test uses stubbed
 native build commands and the real relocated Python launcher to check this
 last step, including an installation path containing spaces.
+Its reference-source walk prunes `.venv`, `__pycache__` and `.git` before
+descending into them, so an existing model runtime does not inflate the
+installer check or its temporary package.
 
 The prefix and build concurrency can be supplied as environment variables:
 

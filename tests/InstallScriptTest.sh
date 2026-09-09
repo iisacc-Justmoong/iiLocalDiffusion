@@ -45,6 +45,7 @@ MOCK
 chmod +x "${work}/bin/ctest" "${smoke_prefix}/bin/iild-run"
 python3 - "${source_root}" "${smoke_prefix}" <<'PY'
 from pathlib import Path
+import os
 import shutil
 import sys
 
@@ -53,11 +54,14 @@ reference = prefix / "share/iiLocalDiffusion/reference"
 reference.mkdir(parents=True, exist_ok=True)
 for entry in ("generate.py", "merge.py"):
     shutil.copy2(source / "reference" / entry, reference / entry)
-for original in (source / "reference/diffusers").rglob("*"):
-    relative = original.relative_to(source / "reference/diffusers")
-    if any(part in {".venv", "__pycache__", ".git"} for part in relative.parts):
-        continue
-    if original.is_file() and original.suffix in {".py", ".json"}:
+diffusers = source / "reference/diffusers"
+for directory, children, files in os.walk(diffusers):
+    children[:] = [name for name in children if name not in {".venv", "__pycache__", ".git"}]
+    for name in files:
+        original = Path(directory) / name
+        if original.suffix not in {".py", ".json"}:
+            continue
+        relative = original.relative_to(diffusers)
         destination = reference / "diffusers" / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(original, destination)
