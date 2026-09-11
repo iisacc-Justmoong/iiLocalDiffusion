@@ -1,0 +1,67 @@
+--- a/src/convert.cpp
++++ b/src/convert.cpp
+@@ -129,7 +129,9 @@
+     output_storage.type          = job.info.type;
+     mem_size += static_cast<size_t>(output_storage.nbytes());
+ 
+-    ggml_context* ggml_ctx = ggml_init({mem_size, nullptr, false});
++    std::unique_ptr<ggml_context, decltype(&ggml_free)> owned_context(
++        ggml_init({mem_size, nullptr, false}), ggml_free);
++    ggml_context* ggml_ctx = owned_context.get();
+     if (ggml_ctx == nullptr) {
+         job.error = "ggml_init failed for tensor '" + job.info.storage.name + "'";
+         return false;
+@@ -137,7 +139,6 @@
+ 
+     ggml_tensor* tensor = ggml_new_tensor(ggml_ctx, job.info.type, job.info.storage.n_dims, job.info.storage.ne);
+     if (tensor == nullptr) {
+-        ggml_free(ggml_ctx);
+         job.error = "ggml_new_tensor failed for tensor '" + job.info.storage.name + "'";
+         return false;
+     }
+@@ -145,7 +146,6 @@
+ 
+     const size_t tensor_nbytes = ggml_nbytes(tensor);
+     if (tensor_nbytes > 0 && !model_loader.load_tensor(job.info.storage, tensor)) {
+-        ggml_free(ggml_ctx);
+         job.error = "failed to load tensor '" + job.info.storage.name + "'";
+         return false;
+     }
+@@ -154,7 +154,6 @@
+     if (tensor_nbytes > 0) {
+         memcpy(job.data.data(), tensor->data, tensor_nbytes);
+     }
+-    ggml_free(ggml_ctx);
+     return true;
+ }
+ 
+@@ -175,7 +174,9 @@
+     bool failed              = false;
+     std::string failure;
+ 
+-    const size_t memory_budget = 1024ull * 1024ull * 1024ull;
++    // Reserve room for the source, float conversion scratch and GGML output
++    // in addition to queued output bytes on memory-constrained mobile devices.
++    const size_t memory_budget = 256ull * 1024ull * 1024ull;
+     size_t reserved_bytes      = 0;
+ 
+     std::mutex work_mutex;
+@@ -241,7 +242,9 @@
+                 TensorExportJob job;
+                 job.info = tensors[tensor_index];
+                 try {
++                    sd_check_abort();
+                     job.success = load_tensor_for_export(model_loader, job);
++                    sd_check_abort();
+                 } catch (const std::exception& e) {
+                     job.error   = e.what();
+                     job.success = false;
+@@ -306,7 +309,7 @@
+     if (!preallocate_output_file(output_path, writer.file_size(), error)) {
+         return false;
+     }
+-    model_loader.process_model_files(false, false);
++    model_loader.process_model_files(true, false);
+     return stream_tensor_data(model_loader, output_path, tensors, writer, n_threads, error);
+ }
+ 

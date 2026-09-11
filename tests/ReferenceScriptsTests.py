@@ -298,6 +298,12 @@ class ReferenceScriptsTests(unittest.TestCase):
                 presets.FLUX1_SCHNELL_PRESET, "mps", True
             )
 
+    def test_sdxl_mps_defaults_to_sdpa_and_preserves_explicit_slicing(self) -> None:
+        for device in ("mps", "cpu", "cuda"):
+            self.assertFalse(self.generate.resolve_attention_slicing(presets.SDXL_BASE_PRESET, device, None))
+        self.assertTrue(self.generate.resolve_attention_slicing(presets.SDXL_BASE_PRESET, "mps", True))
+        self.assertFalse(self.generate.resolve_attention_slicing(presets.SDXL_BASE_PRESET, "mps", False))
+
     def test_explicit_output_and_local_model_override(self) -> None:
         build_directory = ROOT / "build"
         build_directory.mkdir(exist_ok=True)

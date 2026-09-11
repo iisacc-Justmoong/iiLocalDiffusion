@@ -1,5 +1,14 @@
 # Third-party notices
 
+The optional in-process image backend uses stable-diffusion.cpp
+`d04e8950c1ec8d30248cbe996682b3182fb1adf6` and ggml
+`e20c3a14aa70ee84ca58499814206dd08d8026bc` (MIT). Its bundled JSON,
+ZIP, Darts Clone, stb, PyTorch-derived RNG, and SentencePiece-derived tokenizer
+notices are retained in `ThirdParty/NativeDiffusion` and installed with the two
+upstream licenses under `share/iiLocalDiffusion/licenses`. The app embeds these
+notices. Web UI, server, WebP/WebM and RPC are disabled. Model weights are not
+downloaded or redistributed by this backend.
+
 The standalone checkpoint runner reuses Diffusers 0.40.0 (Apache-2.0),
 PyTorch 2.13.0 and the already pinned Transformers/Accelerate environment.
 It adds no inference package or service. Approximately 4.8 MB of SD1/SDXL
@@ -105,3 +114,14 @@ Stable Diffusion XL Base 1.0 reference declares the CreativeML Open RAIL++-M
 model license. The configured Black Forest Labs FLUX.1-schnell reference is
 licensed under Apache-2.0. FLUX.1-dev is not a configured reference and its
 separate non-commercial terms are not treated as interchangeable with Schnell.
+
+Native inference also applies `native-mapped-upload.patch` to the pinned MIT backend. It removes a redundant host allocation/copy for unchanged memory-mapped tensors; conversion paths retain upstream behavior.
+
+The tensor-wakeup patch wakes progress waits when model readers finish, preserving progress cadence, conversion behavior, and joined-thread cancellation.
+
+The pinned ggml Metal backend includes `native-metal-shared-upload.patch` to identify shared storage. The mapped loader copies disjoint shared-memory tensors concurrently; private GPU buffers retain serialized uploads. MIT licenses remain unchanged.
+
+Q8 disk preparation uses the pinned MIT backend streaming converter. `native-conversion-cancellation.patch` adds cooperative abort checks before and after tensor conversion, preserving worker joining and error propagation. No new dependency is introduced.
+The conversion patch also uses read-only mmap and reduces queued output reservations to 256 MiB to leave headroom for source and conversion scratch memory on mobile devices.
+
+`native-thread-safe-logging.patch` gives concurrent logging calls independent buffers and passes preformatted ggml messages as string arguments. Conversion scratch contexts use RAII so cancellation exceptions release them.

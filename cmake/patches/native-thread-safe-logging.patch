@@ -1,0 +1,36 @@
+--- a/src/core/util.cpp
++++ b/src/core/util.cpp
+@@ -614,7 +614,7 @@
+     va_list args;
+     va_start(args, format);
+ 
+-    static char log_buffer[LOG_BUFFER_SIZE + 1];
++    char log_buffer[LOG_BUFFER_SIZE + 1]{};
+     int written = snprintf(log_buffer, LOG_BUFFER_SIZE, "%s:%-4d - ", sd_basename(file).c_str(), line);
+ 
+     if (written >= 0 && written < LOG_BUFFER_SIZE) {
+@@ -635,19 +635,19 @@
+ void sd_ggml_log_callback(ggml_log_level level, const char* text, void*) {
+     switch (level) {
+         case GGML_LOG_LEVEL_DEBUG:
+-            LOG_VERBOSE(text);
++            LOG_VERBOSE("%s", text);
+             break;
+         case GGML_LOG_LEVEL_INFO:
+-            LOG_INFO(text);
++            LOG_INFO("%s", text);
+             break;
+         case GGML_LOG_LEVEL_WARN:
+-            LOG_WARN(text);
++            LOG_WARN("%s", text);
+             break;
+         case GGML_LOG_LEVEL_ERROR:
+-            LOG_ERROR(text);
++            LOG_ERROR("%s", text);
+             break;
+         default:
+-            LOG_VERBOSE(text);
++            LOG_VERBOSE("%s", text);
+     }
+ }
+ 

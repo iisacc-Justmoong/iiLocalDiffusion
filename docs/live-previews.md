@@ -6,6 +6,11 @@ needed: the existing Diffusers callback, Torch, VAE and Pillow produce a preview
 after every actual denoising step. The original sampler latents and RNG state are
 preserved. This performs extra VAE decoding and therefore adds generation time.
 
+SDXL accelerator defaults enable the existing Diffusers VAE tiling path for
+both previews and final decoding. The bundled VAE tiles dimensions above
+1024px to limit decoder activation memory; this does not rescale the sampler's
+latents or the requested output. Explicit `--no-vae-tiling` remains supported.
+
 The directory must be new or empty, outside the final output directory. A frame
 is atomically published as `step-000001.png` before its newline-delimited stdout
 event is flushed:
@@ -35,6 +40,19 @@ not supported by this single-pass image preview option.
 isolation, normalization, FP16 restoration, FLUX unpacking and invalid paths.
 Run it with the installed Torch/Diffusers Python environment. The consumer must
 still verify the final process exit, image and generation manifest separately.
+
+`Cannot preview non-finite denoising latents` means the sampler already produced
+NaN or infinity before preview decoding. It remains a hard failure; skipping
+the preview or replacing invalid values would conceal a failed generation.
+For SDXL on MPS, the default processor is PyTorch SDPA because FP16 sliced QK
+scores can overflow. Explicit slicing upcasts score accumulation through
+Diffusers while retaining FP16 weights. `GenerationPreviewTests` reproduces
+the overflow with finite FP16 inputs on CPU and, when available, MPS, and checks
+finite probabilities after the precision policy is applied.
+The same SDXL/MPS slicing failure is documented in
+[Diffusers issue 11229](https://github.com/huggingface/diffusers/issues/11229);
+the SDK policy is covered by the local tensor regression and real-checkpoint
+verification in `docs/standalone-validation.md`.
 
 The callback contract follows the official
 [Diffusers pipeline callbacks](https://huggingface.co/docs/diffusers/using-diffusers/callback)

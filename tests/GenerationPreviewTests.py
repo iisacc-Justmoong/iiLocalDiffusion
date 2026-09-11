@@ -11,6 +11,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 from generation_preview import DenoisingPreview, attach_preview, validate_preview_location
+import generate
 try:
     import torch
     from diffusers.image_processor import VaeImageProcessor
@@ -75,6 +76,29 @@ class GenerationPreviewTests(unittest.TestCase):
         self.assertEqual(len(set(images)), 3)
         self.assertEqual(len(list(callback.directory.iterdir())), 3)
         self.assertFalse((callback.directory / "generation.json").exists())
+
+    def test_explicit_mps_slicing_upcasts_scores_without_upcasting_weights(self):
+        from diffusers.models.attention_processor import Attention
+        attention = Attention(query_dim=8, heads=1, dim_head=8).to(dtype=torch.float16)
+        pipeline = SimpleNamespace(unet=SimpleNamespace(dtype=torch.float16, modules=lambda: [attention]))
+        devices = ["cpu"] + (["mps"] if torch.backends.mps.is_available() else [])
+        for device in devices:
+            with self.subTest(device=device):
+                attention.upcast_attention = False
+                query = torch.full((1, 4, 8), 1000., dtype=torch.float16, device=device)
+                # Finite half-precision inputs overflow the sliced QK score calculation.
+                self.assertTrue(torch.isfinite(query).all())
+                self.assertFalse(torch.isfinite(attention.get_attention_scores(query, query, None)).all())
+                self.assertEqual(generate.configure_sliced_attention_precision(pipeline, "mps", True), 1)
+                probabilities = attention.get_attention_scores(query, query, None)
+                self.assertTrue(torch.isfinite(probabilities).all())
+                self.assertTrue(torch.equal(probabilities, torch.full_like(probabilities, 0.25)))
+                self.assertEqual(probabilities.dtype, torch.float16)
+                self.assertEqual(attention.to_q.weight.dtype, torch.float16)
+        attention.upcast_attention = False
+        self.assertEqual(generate.configure_sliced_attention_precision(pipeline, "cuda", True), 0)
+        self.assertEqual(generate.configure_sliced_attention_precision(pipeline, "mps", False), 0)
+        self.assertFalse(attention.upcast_attention)
 
     def test_vae_normalization_upcast_and_dtype_restore(self):
         vae = self.pipeline.vae

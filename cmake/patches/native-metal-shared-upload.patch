@@ -1,0 +1,27 @@
+--- a/ggml/src/ggml-metal/ggml-metal.cpp
++++ b/ggml/src/ggml-metal/ggml-metal.cpp
+@@ -179,6 +179,12 @@
+ static bool ggml_backend_buffer_is_metal(ggml_backend_buffer_t buffer) {
+     return buffer->iface.free_buffer == ggml_backend_metal_buffer_shared_free_buffer ||
+            buffer->iface.free_buffer == ggml_backend_metal_buffer_private_free_buffer;
++}
++
++// Distinct tensor writes are safe to run concurrently only for shared
++// storage, whose set_tensor implementation is a plain CPU memcpy.
++bool ggml_backend_metal_buffer_is_shared(ggml_backend_buffer_t buffer) {
++    return buffer && buffer->iface.free_buffer == ggml_backend_metal_buffer_shared_free_buffer;
+ }
+ 
+ //
+--- a/ggml/include/ggml-metal.h
++++ b/ggml/include/ggml-metal.h
+@@ -44,6 +44,9 @@
+ 
+ GGML_BACKEND_API bool ggml_backend_is_metal(ggml_backend_t backend);
+ 
++// True only for shared Metal storage; false for CPU, private, and null buffers.
++GGML_BACKEND_API bool ggml_backend_metal_buffer_is_shared(ggml_backend_buffer_t buffer);
++
+ GGML_BACKEND_API void ggml_backend_metal_set_abort_callback(ggml_backend_t backend, ggml_abort_callback abort_callback, void * user_data);
+ 
+ // helper to check if the device supports a specific family

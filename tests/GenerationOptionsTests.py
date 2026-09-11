@@ -163,6 +163,27 @@ class GenerationOptionsTests(unittest.TestCase):
         pipeline.vae.enable_tiling.assert_not_called()
         self.assertFalse(values["vae_slicing_enabled"])
 
+    def test_sdxl_vae_tiling_defaults_and_overrides(self):
+        for device, requested, expected in (
+            ("mps", None, True), ("cuda", None, True), ("cpu", None, False),
+            ("mps", False, False), ("cuda", False, False), ("cpu", True, True),
+        ):
+            with self.subTest(device=device, requested=requested):
+                pipeline = Mock()
+                pipeline.to.return_value = pipeline
+                _, values = generate.prepare_pipeline_for_execution(
+                    pipeline, presets.SDXL_BASE_PRESET, device, False, vae_tiling=requested)
+                self.assertEqual(values["vae_tiling_enabled"], expected)
+                if expected:
+                    pipeline.vae.enable_tiling.assert_called_once_with()
+                    pipeline.vae.disable_tiling.assert_not_called()
+                else:
+                    pipeline.vae.disable_tiling.assert_called_once_with()
+                    pipeline.vae.enable_tiling.assert_not_called()
+                self.assertFalse(values["vae_slicing_enabled"])
+                self.assertEqual(values["offload_policy"], "none")
+                pipeline.to.assert_called_once_with(device)
+
     def test_weight_variant_and_watermark_values_reach_loader(self):
         preset, args = resolved("--preset", "sdxl-base", "--weight-variant", "none", "--watermark")
         values = generate.build_load_arguments(preset, args, "torch.float32", True)

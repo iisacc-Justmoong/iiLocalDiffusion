@@ -1,5 +1,7 @@
 # iiLocalDiffusion
 
+App consumers can also use [in-process native image inference](docs/native-image-generation.md), including iOS builds with `IILD_ENABLE_NATIVE_DIFFUSION=ON`.
+
 App consumers can use [resident inference sessions](docs/inference-worker.md)
 through `iild-generate --worker` to reuse Python initialization, unchanged model
 hashes and compatible prepared image pipelines across sequential requests.
@@ -442,3 +444,7 @@ licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency
 notices. The SD 1.5 reference uses CreativeML OpenRAIL-M, SDXL Base 1.0 uses
 CreativeML Open RAIL++-M, and FLUX.1-schnell uses Apache-2.0; no model weights
 are stored in this repository.
+
+Native progress now distinguishes weight loading, denoising and image decoding. The pinned backend patch and cooperative cancellation/deadline contract are described in [native-image-generation.md](docs/native-image-generation.md).
+
+네이티브 생성은 선택적으로 원본을 보존한 Q8/VAE F16 모델 사본을 디스크에 캐싱하고, 성공한 최근 모델의 엔진과 mmap을 메모리에 유지한다. Apple의 기기별 GPU 예산·전체 CPU 코어·직접 mmap 업로드와 캐시 해제 계약은 [네이티브 문서](docs/native-image-generation.md)를 참조한다.

@@ -1,4 +1,48 @@
-# Standalone generation verification — 2026-09-08
+# Standalone generation verification
+
+## SDXL MPS attention precision — 2026-09-11
+
+Dreamscapes reported `Cannot preview non-finite denoising latents` while queuing
+100 images with `A beautiful girl`, aspect ratio 3:4. The then-current
+512px-extent application resolved that ratio to 384×512; the application
+processes separate image requests serially.
+With `redLilyIllu_v10.safetensors`, 20 steps and explicit seed 0, the previous
+default MPS FP16 sliced-attention path produced NaN at the second UNet call.
+Disabling slicing completed all 20 steps with finite UNet output; explicitly
+upcasting sliced attention scores also completed all 20 steps. A separate
+finite-input attention probe reproduced FP16 score overflow before softmax.
+
+SDXL now retains PyTorch SDPA by default on MPS. Explicit slicing uses Diffusers'
+FP32 score accumulation for FP16 UNet/ControlNet attention. Model weights stay
+FP16, the resident pipeline is reused, and invalid preview/output checks remain
+active. Evidence and installed-runtime validation are recorded in
+`build/nonfinite-latents/REPORT.md`.
+
+## SDXL rectangular decoding — 2026-09-11
+
+Dreamscapes now keeps the shorter side at 1024px, so 9:16 requests are
+1024×1824 after rounding to the latent grid. The initial real-app attempt
+without VAE tiling slowed from roughly 13 seconds for the first preview to
+roughly 130 seconds between later previews and was cancelled after five steps.
+The process sample was dominated by MPS upsampling, the preview path decoded
+the full-resolution VAE image each step, and system swap usage reached
+approximately 17.7 GB. No final image was published.
+
+SDXL accelerator defaults now enable the existing Diffusers VAE tiling path.
+The bundled VAE retains full decoding at 1024×1024 and uses overlapping tiles
+for larger extents. Model placement stays resident, and explicit disable plus
+CPU defaults are preserved. SDK build and all 79 CTest entries passed. Real
+app evidence and the final-image verification status are kept in Dreamscapes
+`build/quickgenerate-short-side/REPORT.md`.
+
+The updated Dreamscapes app completed real MPS FP16 generation at 1024×1824
+with 20 preview events in 220.789 seconds (foreground preparation excluded).
+The saved RGB PNG dimensions and displayed completed image were verified.
+Generation reused the prepared model with zero pipeline loads, full model
+hashes or device placements. This was one neutral teapot image, not a
+100-image run or a physical mobile-device test.
+
+## Standalone routing — 2026-09-08
 
 The previous Dreamscapes request failed with `Local image runtime is missing.
 Run reference/setup_comfyui.py once.` Automatic single-file dispatch now calls

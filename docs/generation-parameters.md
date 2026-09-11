@@ -110,7 +110,14 @@ resolved_values = configuration_values(request)
 | `--max-sequence-length` | Not applicable | Not applicable | 256; explicit range 1–512 |
 | Automatic weight variant | fp16 when available on GPU | fp16 when available on GPU | None |
 | Automatic GPU offload | Resident, or model offload with CPU encoding | Same | Sequential |
-| Automatic GPU VAE slicing/tiling | Off / off | Off / off | On / on |
+| Automatic GPU VAE slicing/tiling | Off / off | Off / on | On / on |
+
+SDXL enables Diffusers VAE tiling on MPS/CUDA. The bundled SDXL VAE decodes
+1024×1024 in one pass; larger spatial extents use overlapping tiles, including
+per-step previews. This bounds decoder activation memory without resizing the
+requested output or offloading the resident model. Tile blending can produce
+small pixel differences compared with a full decode. `--no-vae-tiling` keeps
+the explicit full-decode option, and CPU defaults remain unchanged.
 
 These are existing compatible reference defaults, not universal optimum
 settings. The simple fallback prompt is `a red cube on a white table`,

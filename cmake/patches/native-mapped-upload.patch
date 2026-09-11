@@ -1,0 +1,49 @@
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -26,6 +26,9 @@
+ #include "core/ggml_extend_backend.h"
+ #include "ggml-alloc.h"
+ #include "ggml-backend.h"
++#ifdef IILD_NATIVE_METAL_SHARED_UPLOAD
++#include "ggml-metal.h"
++#endif
+ #include "ggml.h"
+ #include "zip.h"
+ 
+@@ -1115,6 +1118,36 @@
+                         return true;
+                     };
+ 
++                    // An unchanged mapped tensor can be uploaded directly. Avoid
++                    // allocating/zeroing/copying a second host buffer for every
++                    // streamed segment (particularly costly on unified memory).
++                    if (mmapped && !tensor_storage.is_f64 && !tensor_storage.is_i64 &&
++                        tensor_storage.type == dst_tensor->type &&
++                        dst_tensor->buffer != nullptr && !ggml_backend_buffer_is_host(dst_tensor->buffer)) {
++                        if (tensor_storage.offset > mmapped->size() ||
++                            nbytes_to_read > mmapped->size() - tensor_storage.offset) {
++                            failed = true;
++                            break;
++                        }
++                        const auto* source = static_cast<const uint8_t*>(mmapped->data()) + tensor_storage.offset;
++                        const int64_t upload_start = ggml_time_ms();
++                        bool shared_metal = false;
++#ifdef IILD_NATIVE_METAL_SHARED_UPLOAD
++                        shared_metal = ggml_backend_metal_buffer_is_shared(dst_tensor->buffer);
++#endif
++                        if (shared_metal) {
++                            // Shared Metal set_tensor is a CPU memcpy. Workers
++                            // own disjoint tensors; no command queue is touched.
++                            ggml_backend_tensor_set(dst_tensor, source, 0, ggml_nbytes(dst_tensor));
++                        } else {
++                            std::lock_guard<std::mutex> lock(backend_tensor_set_mutex);
++                            ggml_backend_tensor_set(dst_tensor, source, 0, ggml_nbytes(dst_tensor));
++                        }
++                        copy_to_backend_time_ms.fetch_add(ggml_time_ms() - upload_start);
++                        bytes_processed.fetch_add((uint64_t)nbytes_to_read);
++                        continue;
++                    }
++
+                     char* read_buf    = nullptr;
+                     char* target_buf  = nullptr;
+                     char* convert_buf = nullptr;

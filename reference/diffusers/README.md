@@ -382,8 +382,14 @@ for a base run or records the exact LoRA
 source, identity, scale, registered components, and active state. A separate
 ControlNet record preserves its model/configuration files, conditioning
 image hashes, and applied controls. For presets
-that support it, attention slicing is enabled
-automatically on MPS to reduce peak memory use and can be changed explicitly.
+that support it, attention slicing is enabled automatically on MPS to reduce
+peak memory use, except SDXL, which keeps PyTorch SDPA by default. SDXL FP16
+sliced attention can overflow its QK scores on MPS before a preview is decoded.
+Explicit `--attention-slicing` remains available; MPS FP16 UNet/ControlNet
+attention uses Diffusers' `upcast_attention` to accumulate scores in FP32 while
+keeping model weights and attention outputs in FP16. The optimization sidecar
+records `sliced_attention_upcast_modules`. `--no-attention-slicing` explicitly
+selects the pipeline's unsliced processor.
 For SDXL on fp16 accelerators, the pinned Diffusers pipeline's verified
 `force_upcast` path performs VAE decode in float32. Loading only the VAE as
 float32 up front is intentionally avoided: Diffusers 0.40's current MPS branch

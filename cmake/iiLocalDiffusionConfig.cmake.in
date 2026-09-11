@@ -1,4 +1,5 @@
 @PACKAGE_INIT@
+set(iiLocalDiffusion_NATIVE_DIFFUSION @IILD_ENABLE_NATIVE_DIFFUSION@)
 
 include("${CMAKE_CURRENT_LIST_DIR}/iiLocalDiffusionTargets.cmake")
 

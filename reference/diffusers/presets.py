@@ -128,7 +128,7 @@ SDXL_BASE_PRESET = PipelinePreset(
         accelerator_execution="resident",
         supports_attention_slicing=True,
         accelerator_vae_slicing=False,
-        accelerator_vae_tiling=False,
+        accelerator_vae_tiling=True,
     ),
 )
 

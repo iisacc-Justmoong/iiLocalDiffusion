@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.31)
 
 project(
     iiLocalDiffusion
-    VERSION 0.3.0
+    VERSION 0.6.0
     DESCRIPTION "A local generative-model pipeline runtime"
     LANGUAGES CXX
 )
@@ -58,6 +58,7 @@ if(IILD_ENABLE_COREML AND NOT APPLE)
 endif()
 include(cmake/IildMlx.cmake)
 include(cmake/IildTorch.cmake)
+include(cmake/IildNative.cmake)
 
 add_library(iiLocalDiffusion SHARED
     src/Compute/ComputeRuntime.cpp
@@ -66,11 +67,52 @@ add_library(iiLocalDiffusion SHARED
     src/Compute/TorchLinearBackend.cpp
     src/Flux/FluxModelManifest.cpp
     src/Generation/GenerationIO.cpp
+    src/Generation/NativeDiffusion.cpp
     src/ModelManifest/DiffusionModelManifest.cpp
     src/ModelManifest/ModelManifest.cpp
     src/StableDiffusion/StableDiffusionModelManifest.cpp
 )
 add_library(iiLocalDiffusion::iiLocalDiffusion ALIAS iiLocalDiffusion)
+target_compile_definitions(iiLocalDiffusion PRIVATE IILD_HAS_NATIVE_DIFFUSION=$<BOOL:${IILD_ENABLE_NATIVE_DIFFUSION}>)
+if(IILD_ENABLE_NATIVE_DIFFUSION)
+    target_link_libraries(iiLocalDiffusion PRIVATE stable-diffusion)
+    if(APPLE)
+        target_sources(iiLocalDiffusion PRIVATE src/Generation/NativeResources.mm)
+        set_source_files_properties(src/Generation/NativeResources.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+        set_target_properties(iiLocalDiffusion PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED YES)
+        target_link_libraries(iiLocalDiffusion PRIVATE "-framework Metal" "-framework Foundation")
+    endif()
+endif()
+if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(NativeDiffusionTests tests/NativeDiffusionTests.cpp)
+    target_link_libraries(NativeDiffusionTests PRIVATE iiLocalDiffusion)
+    add_test(NAME NativeDiffusionTests COMMAND NativeDiffusionTests "${CMAKE_CURRENT_BINARY_DIR}/native-contract")
+    add_executable(NativeCachePolicyTests tests/NativeCachePolicyTests.cpp)
+    target_include_directories(NativeCachePolicyTests PRIVATE src)
+    target_compile_features(NativeCachePolicyTests PRIVATE cxx_std_20)
+    add_test(NAME NativeCachePolicyTests COMMAND NativeCachePolicyTests "${CMAKE_CURRENT_BINARY_DIR}/native-cache-contract")
+    add_executable(NativeDiskCacheTests tests/NativeDiskCacheTests.cpp)
+    target_include_directories(NativeDiskCacheTests PRIVATE src)
+    target_compile_features(NativeDiskCacheTests PRIVATE cxx_std_20)
+    add_test(NAME NativeDiskCacheTests COMMAND NativeDiskCacheTests "${CMAKE_CURRENT_BINARY_DIR}/native-disk-cache-contract")
+    add_executable(NativeCacheIntegration tests/NativeCacheIntegration.cpp)
+    target_link_libraries(NativeCacheIntegration PRIVATE iiLocalDiffusion)
+    if(IILD_ENABLE_NATIVE_DIFFUSION)
+        add_executable(NativeLoggingTests tests/NativeLoggingTests.cpp)
+        target_link_libraries(NativeLoggingTests PRIVATE stable-diffusion)
+        add_test(NAME NativeLoggingTests COMMAND NativeLoggingTests)
+        add_executable(NativePreparationTests tests/NativePreparationTests.cpp)
+        target_link_libraries(NativePreparationTests PRIVATE iiLocalDiffusion)
+        add_test(NAME NativePreparationTests COMMAND NativePreparationTests "${CMAKE_CURRENT_BINARY_DIR}/native-preparation-contract")
+    endif()
+    if(APPLE AND IILD_ENABLE_NATIVE_DIFFUSION)
+        add_executable(NativeMetalUploadTests tests/NativeMetalUploadTests.cpp)
+        target_link_libraries(NativeMetalUploadTests PRIVATE stable-diffusion ggml-metal)
+        add_test(NAME NativeMetalSharedUpload COMMAND NativeMetalUploadTests)
+        add_test(NAME NativeMetalPrivateBuffer COMMAND NativeMetalUploadTests --private)
+        set_tests_properties(NativeMetalPrivateBuffer PROPERTIES ENVIRONMENT "GGML_METAL_SHARED_BUFFERS_DISABLE=1")
+    endif()
+endif()
 
 target_compile_features(iiLocalDiffusion PUBLIC cxx_std_20)
 set_target_properties(iiLocalDiffusion PROPERTIES
@@ -443,7 +485,7 @@ install(
 )
 
 install(
-    FILES src/Generation/GenerationIO.hpp
+    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Generation
 )
 

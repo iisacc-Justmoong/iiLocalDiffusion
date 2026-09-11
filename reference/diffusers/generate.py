@@ -798,8 +798,26 @@ def resolve_attention_slicing(
     if requested and not preset.runtime.supports_attention_slicing:
         raise SystemExit(f"Attention slicing is not supported by preset {preset.name}.")
     if requested is None:
-        return device == "mps" and preset.runtime.supports_attention_slicing
+        # SDXL's FP16 sliced QK scores can overflow on MPS before the preview
+        # callback runs. Keep its native PyTorch SDPA processor by default.
+        return device == "mps" and preset.runtime.supports_attention_slicing and preset.family != "sdxl-base"
     return requested
+
+
+def configure_sliced_attention_precision(pipeline: Any, device: str, attention_slicing: bool) -> int:
+    """Use Diffusers' FP32 score accumulation for explicitly sliced MPS FP16 attention."""
+    if device != "mps" or not attention_slicing:
+        return 0
+    count = 0
+    for name in ("unet", "controlnet"):
+        component = getattr(pipeline, name, None)
+        if str(getattr(component, "dtype", "")) != "torch.float16":
+            continue
+        for module in component.modules():
+            if callable(getattr(module, "get_attention_scores", None)):
+                module.upcast_attention = True
+                count += 1
+    return count
 
 
 def prepare_pipeline_for_execution(
@@ -871,6 +889,7 @@ def prepare_pipeline_for_execution(
         disable = getattr(pipeline, "disable_attention_slicing", None)
         if callable(disable):
             disable()
+    optimization["sliced_attention_upcast_modules"] = configure_sliced_attention_precision(pipeline, device, attention_slicing)
     return pipeline, optimization
 
 
