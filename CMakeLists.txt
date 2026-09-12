@@ -98,6 +98,15 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     add_executable(NativeCacheIntegration tests/NativeCacheIntegration.cpp)
     target_link_libraries(NativeCacheIntegration PRIVATE iiLocalDiffusion)
     if(IILD_ENABLE_NATIVE_DIFFUSION)
+        # Exercise the production adapter against controlled C API results.
+        # No model download or GPU inference is needed to cover output handling.
+        add_executable(NativeResultTests tests/NativeResultTests.cpp src/Generation/NativeDiffusion.cpp)
+        target_include_directories(NativeResultTests PRIVATE src
+            $<TARGET_PROPERTY:stable-diffusion,INTERFACE_INCLUDE_DIRECTORIES>)
+        target_compile_features(NativeResultTests PRIVATE cxx_std_20)
+        target_compile_definitions(NativeResultTests PRIVATE IILD_HAS_NATIVE_DIFFUSION=1 iiLocalDiffusion_EXPORTS)
+        target_link_libraries(NativeResultTests PRIVATE Threads::Threads)
+        add_test(NAME NativeResultTests COMMAND NativeResultTests "${CMAKE_CURRENT_BINARY_DIR}/native-result-contract")
         add_executable(NativeLoggingTests tests/NativeLoggingTests.cpp)
         target_link_libraries(NativeLoggingTests PRIVATE stable-diffusion)
         add_test(NAME NativeLoggingTests COMMAND NativeLoggingTests)
@@ -485,7 +494,7 @@ install(
 )
 
 install(
-    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp
+    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/NativeExecutionControl.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Generation
 )
 

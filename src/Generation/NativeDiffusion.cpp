@@ -64,9 +64,23 @@ NativeGenerationResult generateNativeImage(const NativeGenerationRequest &reques
 NativeGenerationResult generateNativeImageWithProgress(const NativeGenerationRequest &request,
     const std::atomic_bool &cancelled, const NativeProgressCallback &progress)
 {
+    return generateNativeImageWithExecutionControl(request, cancelled, progress, {});
+}
+
+NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGenerationRequest &request,
+    const std::atomic_bool &cancelled, const NativeProgressCallback &progress,
+    const std::shared_ptr<NativeExecutionControl> &control)
+{
     NativeGenerationResult result;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(request.timeoutMilliseconds);
-    const auto timedOut = [&] { return std::chrono::steady_clock::now() >= deadline; };
+    const auto started = std::chrono::steady_clock::now();
+    const auto pausedAtStart = control ? control->pausedDuration() : NativeExecutionControl::Clock::duration::zero();
+    const auto timedOut = [&] {
+        const auto paused = control ? control->pausedDuration() - pausedAtStart : NativeExecutionControl::Clock::duration::zero();
+        return std::chrono::steady_clock::now() - started - paused >= std::chrono::milliseconds(request.timeoutMilliseconds);
+    };
+    const auto stopped = [&] {
+        return cancelled || (control && !control->waitUntilRunnable(cancelled)) || timedOut();
+    };
     try {
         if (cancelled) { result.cancelled = true; return result; }
         if (!request.modelPath.is_absolute() || !std::filesystem::is_regular_file(request.modelPath)
@@ -84,9 +98,11 @@ NativeGenerationResult generateNativeImageWithProgress(const NativeGenerationReq
         std::unique_lock lock(cache.mutex, std::defer_lock);
         if (progress) progress({NativeGenerationStage::Waiting});
         while (!lock.try_lock_for(std::chrono::milliseconds(20))) {
+            if (control) control->waitUntilRunnable(cancelled);
             if (cancelled) { result.cancelled = true; return result; }
             if (timedOut()) throw std::runtime_error("Native image generation exceeded its time limit.");
         }
+        if (control) control->waitUntilRunnable(cancelled);
         if (cancelled) { result.cancelled = true; return result; }
         if (timedOut()) throw std::runtime_error("Native image generation exceeded its time limit.");
         struct EngineAccess {
@@ -96,18 +112,22 @@ NativeGenerationResult generateNativeImageWithProgress(const NativeGenerationReq
         struct Callbacks {
             const std::atomic_bool &cancelled;
             const NativeProgressCallback &progress;
-            std::chrono::steady_clock::time_point deadline;
+            const std::function<bool()> stopped;
             sd_ctx_t *context = nullptr;
             bool preparing = false;
             std::string error;
             std::mutex logMutex;
-            bool stop() const { return cancelled || std::chrono::steady_clock::now() >= deadline; }
+            bool stop() const { return stopped(); }
+            std::string failure(const char *message) {
+                const std::lock_guard lock(logMutex);
+                return error.empty() ? message : std::string(message) + " " + error;
+            }
             ~Callbacks() {
                 sd_set_abort_callback(nullptr, nullptr);
                 sd_set_progress_stage_callback(nullptr, nullptr);
                 sd_set_log_callback(nullptr, nullptr);
             }
-        } callbacks{cancelled, progress, deadline};
+        } callbacks{cancelled, progress, stopped};
         struct CacheUse {
             EngineCache &cache;
             std::uint64_t epoch;
@@ -138,7 +158,9 @@ NativeGenerationResult generateNativeImageWithProgress(const NativeGenerationReq
             if (text && std::getenv("IILD_NATIVE_DIAGNOSTICS")) std::fputs(text, stderr);
             if (text && std::string_view(text).find("decoding ") != std::string_view::npos && state.progress)
                 state.progress({NativeGenerationStage::Decoding});
-            if (level >= SD_LOG_WARN && text) {
+            // Warnings (including SDXL's built-in VAE scale) are not failures.
+            // Keep real backend errors as context, never replace our diagnosis.
+            if (level >= SD_LOG_ERROR && text) {
                 const std::lock_guard lock(state.logMutex);
                 state.error += text;
                 if (state.error.size() > 4000) state.error.erase(0, state.error.size() - 4000);
@@ -237,13 +259,16 @@ NativeGenerationResult generateNativeImageWithProgress(const NativeGenerationReq
         if (cancelled) { result.cancelled = true; return result; }
         if (timedOut()) throw std::runtime_error("Native image generation exceeded its time limit.");
         if (!context || !sd_ctx_supports_image_generation(context))
-            throw std::runtime_error(callbacks.error.empty() ? "This model could not be loaded by the native image engine." : callbacks.error);
+            throw std::runtime_error(callbacks.failure("This model could not be loaded by the native image engine."));
         callbacks.context = context;
         sd_img_gen_params_t parameters;
         sd_img_gen_params_init(&parameters);
         parameters.prompt = request.prompt.c_str();
-        parameters.width = request.width;
-        parameters.height = request.height;
+        // The pinned engine aligns UNet requests to VAE(8) * UNet(8).
+        // Make its internal canvas explicit, then center-crop the returned RGB
+        // to preserve our public 8-pixel output-size contract without rescaling.
+        parameters.width = (request.width + 63) / 64 * 64;
+        parameters.height = (request.height + 63) / 64 * 64;
         parameters.seed = request.seed;
         parameters.batch_count = 1;
         parameters.sample_params.sample_steps = request.steps;
@@ -263,14 +288,26 @@ NativeGenerationResult generateNativeImageWithProgress(const NativeGenerationReq
         }
         if (cancelled) { result.cancelled = true; return result; }
         if (timedOut()) throw std::runtime_error("Native image generation exceeded its time limit.");
-        if (!ok || !images.data || images.count != 1 || !images.data[0].data
-            || images.data[0].width != static_cast<unsigned>(request.width)
-            || images.data[0].height != static_cast<unsigned>(request.height) || images.data[0].channel != 3)
-            throw std::runtime_error(callbacks.error.empty() ? "The native engine did not return a complete RGB image." : callbacks.error);
+        if (!ok || !images.data || images.count != 1 || !images.data[0].data || images.data[0].channel != 3)
+            throw std::runtime_error(callbacks.failure("The native engine did not return a complete RGB image."));
+        const auto &decoded = images.data[0];
+        if (decoded.width != static_cast<unsigned>(parameters.width)
+            || decoded.height != static_cast<unsigned>(parameters.height))
+            throw std::runtime_error("The native engine returned an unexpected image size: expected "
+                + std::to_string(parameters.width) + "x" + std::to_string(parameters.height)
+                + ", received " + std::to_string(decoded.width) + "x" + std::to_string(decoded.height) + ".");
         result.width = request.width;
         result.height = request.height;
-        const auto size = static_cast<std::size_t>(result.width) * static_cast<std::size_t>(result.height) * 3;
-        result.rgb.assign(images.data[0].data, images.data[0].data + size);
+        const auto outputWidth = static_cast<std::size_t>(result.width);
+        const auto outputHeight = static_cast<std::size_t>(result.height);
+        const auto rowBytes = outputWidth * 3;
+        const auto sourceStride = static_cast<std::size_t>(decoded.width) * 3;
+        const auto left = (decoded.width - outputWidth) / 2;
+        const auto top = (decoded.height - outputHeight) / 2;
+        result.rgb.resize(rowBytes * outputHeight);
+        for (std::size_t y = 0; y < outputHeight; ++y)
+            std::copy_n(decoded.data + (top + y) * sourceStride + left * 3,
+                        rowBytes, result.rgb.data() + y * rowBytes);
         // A sync client may atomically replace the source during generation.
         if (native_detail::modelIdentity(request.modelPath) != sourceIdentity
             || native_detail::modelIdentity(effectiveModel) != effectiveIdentity)

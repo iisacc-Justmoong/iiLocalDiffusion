@@ -1,9 +1,11 @@
 #pragma once
 #include "Export.hpp"
+#include "NativeExecutionControl.hpp"
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -48,6 +50,8 @@ struct NativeGenerationResult {
 // child processes. Q8 can change pixels even with the same seed.
 // Call on a worker thread. Cancellation/deadlines are checked while waiting,
 // between weight tensors and between compute segments. GPU calls must return.
+// Output dimensions match the requested 8-pixel grid. Inference uses a canvas
+// rounded up to 64 pixels; extra borders are center-cropped without resampling.
 IILD_EXPORT bool nativeDiffusionAvailable() noexcept;
 // Nonblocking: release idle residency now, or after the active GPU call returns.
 // Call on memory pressure, actual background entry, or application teardown.
@@ -56,4 +60,10 @@ IILD_EXPORT NativeGenerationResult generateNativeImage(const NativeGenerationReq
     const std::atomic_bool &cancelled, const std::function<void(int, int)> &progress = {});
 IILD_EXPORT NativeGenerationResult generateNativeImageWithProgress(const NativeGenerationRequest &request,
     const std::atomic_bool &cancelled, const NativeProgressCallback &progress);
+// The execution control may pause/resume a live request without discarding its
+// context or latent state. Paused time is excluded from the inference deadline.
+// Existing request/result layouts and entry points remain ABI-compatible.
+IILD_EXPORT NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGenerationRequest &request,
+    const std::atomic_bool &cancelled, const NativeProgressCallback &progress,
+    const std::shared_ptr<NativeExecutionControl> &control);
 }
