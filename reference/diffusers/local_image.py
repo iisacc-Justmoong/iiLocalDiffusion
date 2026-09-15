@@ -51,11 +51,11 @@ def build_parser():
     parser.add_argument("--num-images", type=int, default=1)
     parser.add_argument("--sampler")
     parser.add_argument("--scheduler")
-    parser.add_argument("--hires-fix", action=argparse.BooleanOptionalAction, default=False,
-                        help="Upscale the latest generated image and refine it repeatedly")
+    parser.add_argument("--hires-fix", action=argparse.BooleanOptionalAction, default=True,
+                        help="Generate at half size and refine to --width/--height (default)")
     parser.add_argument("--hires-passes", type=int,
                         help="Additional refinement passes after base generation (default: 1)")
-    parser.add_argument("--hires-scale", type=float, help="Per-pass size multiplier (default: 2)")
+    parser.add_argument("--hires-scale", type=float, help="Explicit per-pass multiplier; switches width/height to base-size inputs")
     parser.add_argument("--hires-denoising-strength", "--hires-strength", dest="hires_strength", type=float,
                         help="Per-pass denoising strength in (0,1] (default: 0.35)")
     parser.add_argument("--hires-steps", type=int,

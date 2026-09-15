@@ -52,6 +52,7 @@ import sys
 source, prefix = map(Path, sys.argv[1:])
 reference = prefix / "share/iiLocalDiffusion/reference"
 reference.mkdir(parents=True, exist_ok=True)
+shutil.copytree(source / "resources", reference.parent / "resources", dirs_exist_ok=True)
 for entry in ("generate.py", "merge.py"):
     shutil.copy2(source / "reference" / entry, reference / entry)
 diffusers = source / "reference/diffusers"

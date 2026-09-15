@@ -1,4 +1,4 @@
-"""Generate local checkpoint images directly with the SDK's Diffusers/PyTorch runtime."""
+"""Generate local checkpoints with the SDK's Diffusers/PyTorch or native image engine."""
 
 import argparse
 import json
@@ -9,9 +9,12 @@ import uuid
 
 import generate
 from checkpoint_config import inspect_checkpoint
+from downloaded_model import inspect_downloaded_model
 from generation_config import configuration_values
 from inference_session import is_preparing
 from weight_files import file_sha256, verify_weight_file
+from presets import PRESETS
+from vae_defaults import pipeline_vae_family, verify_vae_selection
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,13 +34,19 @@ def build_parser():
 def resolve_arguments(args):
     if not args.model or not Path(args.model).expanduser().is_file():
         raise ValueError("The standalone checkpoint backend requires a local --model-path file.")
+    if args.output is not None and args.output_dir is not None:
+        raise ValueError("Choose --output or --output-dir, not both.")
+    inspection = inspect_downloaded_model(args.model, args.model_info)
+    if inspection.get("architecture") == "anima" and inspection.get("role") == "checkpoint":
+        from native_image import resolve_arguments as resolve_native
+        return resolve_native(args, inspection)
     selected, inspection = inspect_checkpoint(args.model, args.base_model, args.model_info)
     if "preset" not in getattr(args, "_provided", ()):
         args.preset = selected
         args._provided = set(args._provided) | {"preset"}
     if not args.model_config:
         missing = set(inspection.get("missing_components", []))
-        if args.vae:
+        if args.vae or pipeline_vae_family(PRESETS[args.preset].pipeline_class):
             missing.discard("vae")
         if missing:
             raise ValueError("Checkpoint is missing components: " + ", ".join(sorted(missing))
@@ -76,27 +85,33 @@ def relocate(value, stage, output):
 def main(argv=None):
     try:
         preset, args = resolve_arguments(build_parser().parse_args(argv))
+        runner = generate.run
+        configuration = configuration_values
+        if getattr(args, "engine", None) == "native":
+            from native_image import run as runner
+            from native_image import configuration_values as configuration
         if args.print_config or args.validate_only:
-            print(json.dumps(configuration_values(args), indent=2))
+            print(json.dumps(configuration(args), indent=2))
             return 0
         if is_preparing() or (args.output_dir is None and not args.output_was_default):
-            return generate.run(preset, args)
+            return runner(preset, args)
         output = empty_directory(args.output_dir or ROOT / "build/reference/standalone-image" / uuid.uuid4().hex)
         if args.work_dir:
             work = empty_directory(args.work_dir)
-            (work / "request.json").write_text(json.dumps(configuration_values(args), indent=2))
+            (work / "request.json").write_text(json.dumps(configuration(args), indent=2))
         # Inference stays in this process. Publish the complete directory only
         # after images, hashes and per-image provenance have all been checked.
         with tempfile.TemporaryDirectory(prefix=".iild-generation-", dir=output.parent) as temporary:
             stage = Path(temporary)
             args.output, args.output_was_default = stage / "image.png", False
             args.xet_cache_dir = args.cache_dir / "xet"
-            result = generate.run(preset, args)
+            result = runner(preset, args)
             if result:
                 return result
             verify_weight_file(args.model_selection.single_file, "model")
             if args.vae_file:
                 verify_weight_file(args.vae_file, "VAE")
+            verify_vae_selection(getattr(args, "vae_selection", None))
             images = sorted(p for p in stage.glob("*.png") if not p.stem.endswith("-base"))
             if len(images) != args.num_images:
                 raise RuntimeError("Inference did not produce the requested image count.")
@@ -113,7 +128,7 @@ def main(argv=None):
                 reports.append(relocate(report, stage, output))
             for path in stage.glob("*.json"):
                 path.write_text(json.dumps(relocate(json.loads(path.read_text()), stage, output), indent=2))
-            manifest = {"schema": "iild-standalone-image-v1", "status": "complete", "backend": "diffusers",
+            manifest = {"schema": "iild-standalone-image-v1", "status": "complete", "backend": getattr(args, "engine", "diffusers"),
                         "output_directory": str(output), "outputs": [report["output"] for report in reports],
                         "images": reports}
             (stage / "generation.json").write_text(json.dumps(manifest, indent=2))

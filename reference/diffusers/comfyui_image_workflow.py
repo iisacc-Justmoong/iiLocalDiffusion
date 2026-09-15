@@ -90,7 +90,7 @@ def _dimension_multiple(family: str) -> int:
 
 
 def resolve_workflow_hires(base_model: str, *, width=None, height=None, steps=None,
-                          hires_fix=False, hires_passes=None, hires_scale=None,
+                          hires_fix=True, hires_passes=None, hires_scale=None,
                           hires_strength=None, hires_steps=None, hires_upscaler=None) -> dict:
     """Resolve repeatable image refinement before starting the managed server.
 
@@ -111,7 +111,7 @@ def resolve_workflow_hires(base_model: str, *, width=None, height=None, steps=No
     width = recipe["width"] if width is None else width
     height = recipe["height"] if height is None else height
     passes = 1 if hires_passes is None else hires_passes
-    scale = 2.0 if hires_scale is None else hires_scale
+    scale = hires_scale
     strength = 0.35 if hires_strength is None else hires_strength
     schedule_steps = recipe["steps"] if steps is None else steps
     schedule_steps = schedule_steps if hires_steps is None else hires_steps
@@ -122,13 +122,27 @@ def resolve_workflow_hires(base_model: str, *, width=None, height=None, steps=No
     if (isinstance(strength, bool) or not isinstance(strength, (int, float))
             or not math.isfinite(strength) or not 0 < strength <= 1):
         raise ValueError("--hires-strength must be finite and in (0, 1].")
+    if scale is None and hires_steps is None:
+        minimum_steps = 1 / strength
+        if not math.isfinite(minimum_steps) or minimum_steps > 4096:
+            raise ValueError("HiRes strength requires more than 4096 schedule steps.")
+        schedule_steps = max(schedule_steps, math.ceil(minimum_steps))
     effective_steps = round(schedule_steps * strength)
     if effective_steps < 1:
         raise ValueError("HiRes refinement needs at least one denoising step; increase --hires-steps or --hires-strength.")
     if upscaler not in ("nearest", "bilinear", "bicubic", "lanczos"):
         raise ValueError("--hires-upscaler must be nearest, bilinear, bicubic, or lanczos.")
-    dimensions = resolve_hires_stage_sizes(width, height, passes, scale=scale,
-                                           dimension_multiple=_dimension_multiple(recipe["family"]))
+    multiple = _dimension_multiple(recipe["family"])
+    if scale is None:
+        if isinstance(passes, bool) or not isinstance(passes, int) or not 1 <= passes <= 1000:
+            raise ValueError("Target-size --hires-passes must be an integer in [1,1000].")
+        for axis in (width, height):
+            if isinstance(axis, bool) or not isinstance(axis, int) or axis % multiple or not 2 * multiple <= axis <= 16384:
+                raise ValueError(f"Half-size generation requires target dimensions in [{2 * multiple},16384] on the {multiple}-pixel grid.")
+        dimensions = [[width, height] for _ in range(passes)]
+        width, height = (math.floor(axis / (2 * multiple) + 0.5) * multiple for axis in (width, height))
+    else:
+        dimensions = resolve_hires_stage_sizes(width, height, passes, scale=scale, dimension_multiple=multiple)
     if any(max(size) > 16384 for size in dimensions):
         raise ValueError("HiRes image dimensions exceed the native ComfyUI ImageScale limit of 16384.")
     return {"enabled": True, "passes": passes, "scale": scale, "strength": strength,
@@ -265,7 +279,7 @@ def build_workflow(base_model: str, model_name: str, components: dict, prompt: s
                    prediction_type: str | None = None, model_type: str = "auto",
                    guidance: float | None = None, sampling_shift: float | None = None,
                    zsnr: bool = False, clip_skip: int | None = None,
-                   hires_fix: bool = False, hires_passes: int | None = None,
+                   hires_fix: bool = True, hires_passes: int | None = None,
                    hires_scale: float | None = None, hires_strength: float | None = None,
                    hires_steps: int | None = None, hires_upscaler: str | None = None) -> dict:
     """Return a fully connected API graph, validated against live /object_info.
@@ -307,6 +321,8 @@ def build_workflow(base_model: str, model_name: str, components: dict, prompt: s
     hires = resolve_workflow_hires(base_model, width=width, height=height, steps=steps,
                                   hires_fix=hires_fix, hires_passes=hires_passes, hires_scale=hires_scale,
                                   hires_strength=hires_strength, hires_steps=hires_steps, hires_upscaler=hires_upscaler)
+    if hires["enabled"]:
+        width, height = hires["base_size"]
     if guidance is not None and family not in ("flux1", "flux2"):
         raise ValueError("Embedded guidance applies only to Flux.1 dev/Krea and Flux.2 dev.")
     if guidance is not None and recipe["base_model"] == "Flux.1 S":

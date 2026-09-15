@@ -177,6 +177,8 @@ def configuration_values(args: argparse.Namespace) -> dict[str, Any]:
         from remote_generation import image_configuration
         return image_configuration(args)
     values = {name: getattr(args, name) for name in args._argument_names}
+    if getattr(args, "_hires_output_size", None) is not None:
+        values["width"], values["height"] = args._hires_output_size
     values["model"] = args.model_selection.source
     values["revision"] = args.model_selection.requested_revision
     if args.config_selection is not None:

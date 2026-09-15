@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.31)
 
 project(
     iiLocalDiffusion
-    VERSION 0.6.0
+    VERSION 0.6.1
     DESCRIPTION "A local generative-model pipeline runtime"
     LANGUAGES CXX
 )
@@ -68,12 +68,20 @@ add_library(iiLocalDiffusion SHARED
     src/Flux/FluxModelManifest.cpp
     src/Generation/GenerationIO.cpp
     src/Generation/NativeDiffusion.cpp
+    src/Generation/NativeImageBridge.cpp
+    src/Generation/GenerationDefaults.cpp
     src/ModelManifest/DiffusionModelManifest.cpp
     src/ModelManifest/ModelManifest.cpp
     src/StableDiffusion/StableDiffusionModelManifest.cpp
 )
 add_library(iiLocalDiffusion::iiLocalDiffusion ALIAS iiLocalDiffusion)
-target_compile_definitions(iiLocalDiffusion PRIVATE IILD_HAS_NATIVE_DIFFUSION=$<BOOL:${IILD_ENABLE_NATIVE_DIFFUSION}>)
+target_compile_definitions(iiLocalDiffusion PRIVATE
+    IILD_HAS_NATIVE_DIFFUSION=$<BOOL:${IILD_ENABLE_NATIVE_DIFFUSION}>
+    IILD_NATIVE_CPU_VAE=$<STREQUAL:${CMAKE_SYSTEM_NAME},iOS>)
+target_compile_definitions(iiLocalDiffusion PRIVATE
+    IILD_BUILD_LIBRARY_DIRECTORY="$<TARGET_FILE_DIR:iiLocalDiffusion>"
+    IILD_BUILD_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources")
+target_link_libraries(iiLocalDiffusion PRIVATE ${CMAKE_DL_LIBS})
 if(IILD_ENABLE_NATIVE_DIFFUSION)
     target_link_libraries(iiLocalDiffusion PRIVATE stable-diffusion)
     if(APPLE)
@@ -91,6 +99,10 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     target_include_directories(NativeCachePolicyTests PRIVATE src)
     target_compile_features(NativeCachePolicyTests PRIVATE cxx_std_20)
     add_test(NAME NativeCachePolicyTests COMMAND NativeCachePolicyTests "${CMAKE_CURRENT_BINARY_DIR}/native-cache-contract")
+    add_executable(NativeVaePolicyTests tests/NativeVaePolicyTests.cpp)
+    target_include_directories(NativeVaePolicyTests PRIVATE src)
+    target_compile_features(NativeVaePolicyTests PRIVATE cxx_std_20)
+    add_test(NAME NativeVaePolicyTests COMMAND NativeVaePolicyTests)
     add_executable(NativeDiskCacheTests tests/NativeDiskCacheTests.cpp)
     target_include_directories(NativeDiskCacheTests PRIVATE src)
     target_compile_features(NativeDiskCacheTests PRIVATE cxx_std_20)
@@ -100,16 +112,37 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     if(IILD_ENABLE_NATIVE_DIFFUSION)
         # Exercise the production adapter against controlled C API results.
         # No model download or GPU inference is needed to cover output handling.
-        add_executable(NativeResultTests tests/NativeResultTests.cpp src/Generation/NativeDiffusion.cpp)
-        target_include_directories(NativeResultTests PRIVATE src
-            $<TARGET_PROPERTY:stable-diffusion,INTERFACE_INCLUDE_DIRECTORIES>)
-        target_compile_features(NativeResultTests PRIVATE cxx_std_20)
-        target_compile_definitions(NativeResultTests PRIVATE IILD_HAS_NATIVE_DIFFUSION=1 iiLocalDiffusion_EXPORTS)
-        target_link_libraries(NativeResultTests PRIVATE Threads::Threads)
-        add_test(NAME NativeResultTests COMMAND NativeResultTests "${CMAKE_CURRENT_BINARY_DIR}/native-result-contract")
+        foreach(result_test IN ITEMS NativeResultTests NativeMobileResultTests)
+            add_executable(${result_test} tests/NativeResultTests.cpp src/Generation/NativeDiffusion.cpp src/Generation/NativeImageBridge.cpp src/Generation/GenerationDefaults.cpp)
+            target_include_directories(${result_test} PRIVATE src
+                $<TARGET_PROPERTY:stable-diffusion,INTERFACE_INCLUDE_DIRECTORIES>)
+            target_compile_features(${result_test} PRIVATE cxx_std_20)
+            target_compile_definitions(${result_test} PRIVATE IILD_HAS_NATIVE_DIFFUSION=1 iiLocalDiffusion_EXPORTS
+                IILD_NATIVE_CPU_VAE=$<STREQUAL:${result_test},NativeMobileResultTests>
+                IILD_BUILD_LIBRARY_DIRECTORY="$<TARGET_FILE_DIR:${result_test}>"
+                IILD_BUILD_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources")
+            target_link_libraries(${result_test} PRIVATE Threads::Threads ${IILD_JSON_C_TARGET} ${CMAKE_DL_LIBS})
+            add_test(NAME ${result_test} COMMAND ${result_test} "${CMAKE_CURRENT_BINARY_DIR}/${result_test}-contract")
+        endforeach()
+        add_executable(NativeVaeConfigTests tests/NativeVaeConfigTests.cpp src/Generation/GenerationDefaults.cpp)
+        target_include_directories(NativeVaeConfigTests PRIVATE src)
+        target_compile_features(NativeVaeConfigTests PRIVATE cxx_std_20)
+        target_link_libraries(NativeVaeConfigTests PRIVATE ${IILD_JSON_C_TARGET} ${CMAKE_DL_LIBS})
+        add_test(NAME NativeVaeConfigTests COMMAND NativeVaeConfigTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${CMAKE_CURRENT_BINARY_DIR}/native-vae-config-contract")
         add_executable(NativeLoggingTests tests/NativeLoggingTests.cpp)
         target_link_libraries(NativeLoggingTests PRIVATE stable-diffusion)
         add_test(NAME NativeLoggingTests COMMAND NativeLoggingTests)
+        add_executable(NativeVaeFallbackTests tests/NativeVaeFallbackTests.cpp)
+        target_link_libraries(NativeVaeFallbackTests PRIVATE stable-diffusion)
+        add_executable(NativeVaeDecodeProbe tests/NativeVaeDecodeProbe.cpp)
+        target_link_libraries(NativeVaeDecodeProbe PRIVATE stable-diffusion)
+        add_executable(NativeVaeSafetyTests tests/NativeVaeSafetyTests.cpp)
+        target_link_libraries(NativeVaeSafetyTests PRIVATE stable-diffusion)
+        add_test(NAME NativeVaeSafetyTests COMMAND NativeVaeSafetyTests)
+        add_test(NAME NativeVaeFallbackTests COMMAND NativeVaeFallbackTests
+            "${CMAKE_CURRENT_BINARY_DIR}/native-vae-contract"
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources/vae")
         add_executable(NativePreparationTests tests/NativePreparationTests.cpp)
         target_link_libraries(NativePreparationTests PRIVATE iiLocalDiffusion)
         add_test(NAME NativePreparationTests COMMAND NativePreparationTests "${CMAKE_CURRENT_BINARY_DIR}/native-preparation-contract")
@@ -120,6 +153,17 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         add_test(NAME NativeMetalSharedUpload COMMAND NativeMetalUploadTests)
         add_test(NAME NativeMetalPrivateBuffer COMMAND NativeMetalUploadTests --private)
         set_tests_properties(NativeMetalPrivateBuffer PROPERTIES ENVIRONMENT "GGML_METAL_SHARED_BUFFERS_DISABLE=1")
+        add_executable(NativeMappedStorageTests tests/NativeMappedStorageTests.cpp)
+        target_link_libraries(NativeMappedStorageTests PRIVATE stable-diffusion ggml-metal)
+        add_test(NAME NativeMappedMetalStorage COMMAND NativeMappedStorageTests "${CMAKE_CURRENT_BINARY_DIR}/native-mapped-shared-contract")
+        add_test(NAME NativeMappedPrivateStorage COMMAND NativeMappedStorageTests "${CMAKE_CURRENT_BINARY_DIR}/native-mapped-private-contract")
+        set_tests_properties(NativeMappedPrivateStorage PROPERTIES ENVIRONMENT "GGML_METAL_SHARED_BUFFERS_DISABLE=1")
+        add_executable(NativeMixedBackendTests tests/NativeMixedBackendTests.cpp)
+        target_link_libraries(NativeMixedBackendTests PRIVATE stable-diffusion ggml-metal)
+        add_test(NAME NativeMixedBackendStorage COMMAND NativeMixedBackendTests)
+        add_executable(NativeLegacyMetalTests tests/NativeLegacyMetalTests.cpp)
+        target_link_libraries(NativeLegacyMetalTests PRIVATE stable-diffusion ggml-metal)
+        add_test(NAME NativeLegacyMetalStorage COMMAND NativeLegacyMetalTests)
     endif()
 endif()
 
@@ -369,12 +413,12 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
                 GenerationOptionsTests GenerationOutputTests GenerationSeedTests GenerationPreviewTests InferenceCacheTests ModelPreparationCacheTests ForegroundInferenceTests
                 DeforumOptionsTests DeforumRuntimeTests DeforumMediaTests
                 InterpolatorOptionsTests InterpolatorRuntimeTests InterpolatorMediaTests
-                VideoOptionsTests VideoRuntimeTests VideoRoutingPolicyTests VideoInterpolationTests LocalGenerationTests StandaloneImageTests
+                VideoOptionsTests VideoRuntimeTests VideoRoutingPolicyTests VideoInterpolationTests LocalGenerationTests StandaloneImageTests NativeImageTests
                 ModelSourceTests RemoteGenerationTests
                 GenericIOTests GenerationCompositionTests GenerationAdapterTests
                 GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests
                 ControlNetTests HiresOptionsTests HiresRuntimeTests HiresRepeatRuntimeTests HiresFluxControlNetTests
-                TextEmbeddingOptionsTests TextEmbeddingRuntimeTests)
+                TextEmbeddingOptionsTests TextEmbeddingRuntimeTests GenerationDefaultsTests VaeDefaultsTests LongClipConditioningTests UniversalLoraTests)
             add_test(NAME ${generation_test}
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${generation_test}.py")
             set_tests_properties(${generation_test} PROPERTIES
@@ -452,6 +496,13 @@ endif()
 
 install(FILES README.md THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime)
 install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime FILES_MATCHING PATTERN "*.md")
+install(FILES resources/generation-defaults.json resources/README.md
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources COMPONENT Runtime)
+install(DIRECTORY resources/ DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources
+    COMPONENT Runtime FILES_MATCHING PATTERN "*.safetensors" PATTERN "config.json" PATTERN "LICENSE*" PATTERN "README.md" PATTERN "NOTICE.md"
+    PATTERN ".cache" EXCLUDE)
+install(FILES cmake/IildGenerationResources.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/iiLocalDiffusion)
 
 if(IILD_INSTALL_PYTHON_REFERENCE)
     set(iild_reference_directory "${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/reference")
@@ -494,7 +545,7 @@ install(
 )
 
 install(
-    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/NativeExecutionControl.hpp
+    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/NativeExecutionControl.hpp src/Generation/NativeImageBridge.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Generation
 )
 

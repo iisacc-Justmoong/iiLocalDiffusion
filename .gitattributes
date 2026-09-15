@@ -1,2 +1,4 @@
 resources/*.safetensors filter=lfs diff=lfs merge=lfs -text
 resources/*.pt filter=lfs diff=lfs merge=lfs -text
+resources/embeddings/*.safetensors filter=lfs diff=lfs merge=lfs -text
+resources/vae/**/*.safetensors filter=lfs diff=lfs merge=lfs -text

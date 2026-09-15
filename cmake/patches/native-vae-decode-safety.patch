@@ -1,0 +1,58 @@
+--- a/src/model/vae/vae.hpp
++++ b/src/model/vae/vae.hpp
+@@ -1,6 +1,7 @@
+ #ifndef __SD_MODEL_VAE_VAE_HPP__
+ #define __SD_MODEL_VAE_VAE_HPP__
+ 
++#include <cmath>
+ #include "core/tensor_ggml.hpp"
+ #include "model/common/block.hpp"
+ #include "model/vae/vae_tiling.hpp"
+@@ -270,6 +271,12 @@
+                                      bool circular_x   = false,
+                                      bool circular_y   = false,
+                                      bool silent       = false) {
++        for (float value : x.values()) {
++            if (!std::isfinite(value)) {
++                LOG_ERROR("VAE input contains nonfinite latents from denoising");
++                return {};
++            }
++        }
+         int64_t t0              = ggml_time_ms();
+         sd::Tensor<float> input = x;
+         sd::Tensor<float> output;
+@@ -312,6 +319,14 @@
+             LOG_ERROR("vae decode compute failed");
+             return {};
+         }
++        // Clamping NaN with std::min/max turns invalid activations into white
++        // pixels. Validate before normalization, never publish corrupted RGB.
++        for (float value : output.values()) {
++            if (!std::isfinite(value)) {
++                LOG_ERROR("VAE decode produced nonfinite pixels before normalization");
++                return {};
++            }
++        }
+         if (scale_input) {
+             scale_tensor_to_0_1(&output);
+         }
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -1485,12 +1485,12 @@
+                                                                  false,
+                                                                  vae_version,
+                                                                  model_manager);
+-                    if (sd_version_is_sdxl(version) &&
+-                        (strlen(SAFE_STR(sd_ctx_params->vae_path)) == 0 || sd_ctx_params->force_sdxl_vae_conv_scale || external_vae_is_invalid)) {
++                    // Conv2d internally stages activations as fp16 even when
++                    // external VAE weights are fp32. Protect both mount paths.
++                    if (sd_version_is_sdxl(version)) {
+                         float vae_conv_2d_scale = 1.f / 32.f;
+-                        LOG_WARN(
+-                            "No valid VAE specified with --vae or --force-sdxl-vae-conv-scale flag set, "
+-                            "using Conv2D scale %.3f",
++                        LOG_INFO(
++                            "SDXL VAE automatic fp16 activation protection: Conv2D scale %.3f",
+                             vae_conv_2d_scale);
+                         model->set_conv2d_scale(vae_conv_2d_scale);
+                     }

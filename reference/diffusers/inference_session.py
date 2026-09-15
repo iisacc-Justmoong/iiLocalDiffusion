@@ -179,6 +179,13 @@ def cached_placement(key, prepare):
     return (prepare(None), False) if session is None else session.placement(key, prepare)
 
 
+def invalidate_placement():
+    """Shared pipeline conversion moved weights/hooks; retain only construction."""
+    session = _current.get()
+    if session is not None:
+        session.placement_key = session.placement_value = None
+
+
 def record_device_placement():
     session = _current.get()
     if session is not None:

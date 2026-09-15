@@ -30,6 +30,7 @@ class DenoisingPreview:
             raise ValueError("The preview directory must be empty.")
         self.directory.mkdir(parents=True, exist_ok=True)
         self.torch, self.width, self.height = torch, width, height
+        self.sequence = 0
 
     def __call__(self, pipeline, step, timestep, values):
         torch = self.torch
@@ -68,21 +69,31 @@ class DenoisingPreview:
         image.thumbnail((512, 512))
         if self.directory.is_symlink() or self.directory.resolve() != self.directory:
             raise RuntimeError("The preview directory was redirected during generation.")
-        name = f"step-{step + 1:06d}.png"
+        name = f"step-{self.sequence + 1:06d}.png"
         write_png(image, self.directory / name, compress_level=1, optimize=False, overwrite=False)
+        self.sequence += 1
         print("IILD_PREVIEW " + json.dumps({"schema": "iild-preview-v1", "step": step + 1,
               "total_steps": len(pipeline.scheduler.timesteps), "image": name}), flush=True)
         return values
 
 
-def attach_preview(pipeline, arguments, directory, torch, width, height):
+def attach_preview(pipeline, arguments, directory, torch, width, height, *, preview=None):
     if directory is None:
         return
     parameters = inspect.signature(pipeline.__call__).parameters
     if ("callback_on_step_end" not in parameters or "latents" not in getattr(pipeline, "_callback_tensor_inputs", ())
             or not callable(getattr(getattr(pipeline, "vae", None), "decode", None))):
         raise ValueError("This pipeline does not expose latent image denoising callbacks for live previews.")
-    if "callback_on_step_end" in arguments:
+    previous = arguments.get("callback_on_step_end")
+    if previous is not None and not callable(previous):
         raise ValueError("Live previews cannot replace an existing denoising callback.")
-    arguments["callback_on_step_end"] = DenoisingPreview(directory, torch, width, height)
-    arguments["callback_on_step_end_tensor_inputs"] = ["latents"]
+    preview = preview or DenoisingPreview(directory, torch, width, height)
+    preview.width, preview.height = width, height
+    def callback(pipeline, step, timestep, values):
+        if previous is not None:
+            values = previous(pipeline, step, timestep, values)
+        return preview(pipeline, step, timestep, values)
+    arguments["callback_on_step_end"] = preview if previous is None else callback
+    arguments["callback_on_step_end_tensor_inputs"] = list(dict.fromkeys(
+        [*arguments.get("callback_on_step_end_tensor_inputs", ()), "latents"]))
+    return preview

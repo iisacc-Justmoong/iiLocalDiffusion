@@ -73,6 +73,35 @@ class DownloadedModelTests(unittest.TestCase):
                 self.assertEqual(found["missing_components"], ["vae", "text_encoder"])
                 self.assertIsNone(found["base_model"])
 
+    def test_complete_anima_is_not_its_embedded_vae(self):
+        for prefix in ("", "net.", "model.diffusion_model.net.", "diffusion_model."):
+            with self.subTest(prefix=prefix):
+                model = self.safetensors({
+                    prefix + "llm_adapter.blocks.0.cross_attn.q_proj.weight": [2, 2],
+                    prefix + "blocks.0.self_attn.q_proj.weight": [2, 2],
+                    "vae.encoder.conv1.weight": [1], "vae.decoder.conv1.weight": [1],
+                    "text_encoders.llm.model.embed_tokens.weight": [2, 2],
+                })
+                found = downloaded_model.inspect_downloaded_model(model)
+                self.assertEqual(found["role"], "checkpoint")
+                self.assertEqual(found["architecture"], "anima")
+                self.assertEqual(found["weights_role"], "checkpoint")
+                self.assertEqual(found["missing_components"], [])
+
+    def test_anima_denoiser_and_vae_remain_distinct(self):
+        found = downloaded_model.inspect_downloaded_model(self.safetensors({
+            "llm_adapter.blocks.0.cross_attn.q_proj.weight": [2, 2],
+            "blocks.0.self_attn.q_proj.weight": [2, 2],
+        }))
+        self.assertEqual(found["architecture"], "anima")
+        self.assertEqual(found["weights_role"], "denoiser")
+        self.assertEqual(found["missing_components"], ["vae", "text_encoder"])
+        found = downloaded_model.inspect_downloaded_model(self.safetensors({
+            "vae.encoder.conv1.weight": [1], "vae.decoder.conv1.weight": [1],
+        }, name="anima-complete.safetensors"))
+        self.assertEqual(found["role"], "vae")
+        self.assertIsNone(found["architecture"])
+
     def test_full_checkpoint_components_are_distinguished_from_denoiser(self):
         path = self.safetensors({
             "model.diffusion_model.input_blocks.0.0.weight": [1, 4, 1, 1],

@@ -1,0 +1,16 @@
+--- a/src/core/ggml_extend.cpp
++++ b/src/core/ggml_extend.cpp
+@@ -603,7 +603,12 @@
+ 
+         auto out = ggml_flash_attn_ext(ctx, q_in, k_in, v_in, mask_in, scale / kv_scale, 0, 0);
+         if (!ggml_backend_supports_op(backend, out)) {
+-            return nullptr;
++            // Keep the linear-memory operation for the workspace's CPU fallback.
++            // Materializing all attention scores can exceed mobile memory limits.
++            auto cpu = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
++            if (cpu == nullptr || !ggml_backend_dev_supports_op(cpu, out)) {
++                return nullptr;
++            }
+         }
+         ggml_flash_attn_ext_set_prec(out, GGML_PREC_F32);
+         if (kv_scale != 1.0f) {

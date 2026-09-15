@@ -7,13 +7,26 @@ The following contract describes applying an adapter during generation.
 
 ## Scope
 
-The Python Diffusers generation oracle can apply one explicitly selected LoRA
-adapter to any of the `sd15`, `sdxl-base`, or `flux1-schnell` presets. There is
-no built-in or automatically selected LoRA. Omitting `--lora` preserves the
-base-model generation path without calling an adapter loader.
+The preset and standalone runners support SD1, SDXL and FLUX.1 LoRAs. The
+generic `--backend diffusers` runner shares the same loader, strength controls
+and component-level activation checks with all installed pipelines exposing
+Diffusers' `load_lora_weights`, `set_adapters` and `get_list_adapters` APIs.
+This includes SD2/SD3 and compatible FLUX2, Qwen Image and other image pipelines;
+an unsupported loader fails before base weights are allocated. No custom remote
+pipeline code or new inference dependency is introduced.
 
-LoRA loading is not part of the current C++ manifest inspector or a C++
-inference backend. The base model must first pass its pinned pipeline contract;
+Omitting `--lora` selects the matching family entry from the shared
+[generation defaults manifest](generation-defaults.md). The supplied
+`addDetailAesthetic_v20_32` is an SDXL adapter with default strength 1.0.
+Other families need their own compatible adapter; an SDXL LoRA does not become
+an SD2, SD3 or FLUX LoRA by changing its family label, keys or tensor dimensions.
+An explicit adapter replaces the fallback. `--no-default-modifiers` provides
+an explicit baseline without automatic weights.
+
+The native C++ generator also passes explicit LoRAs to its engine for any
+supported model family and resolves family defaults after the engine identifies
+the loaded model. The metadata-only C++ manifest inspector does not run LoRAs.
+The base model must first pass its pipeline contract;
 the adapter is then loaded and activated before device placement or sequential
 CPU offload hooks are installed.
 When `--cpu-text-encoding` is enabled, CPU prompt encoding runs after verified
@@ -54,6 +67,27 @@ reference/diffusers/.venv/bin/python \
   --lora-weight-name style.safetensors \
   --lora-scale 0.8
 ```
+
+SD2, SD3 and other built-in image pipelines use their complete local Diffusers
+directory (or an explicit local single-file configuration):
+
+Explicit `[null, null]` components in its local `model_index.json` are forwarded
+as `None` to matching constructor parameters, including an SD3 model saved
+without T5. Omitted components are not invented or fetched.
+
+```bash
+reference/diffusers/.venv/bin/python reference/generate.py \
+  --backend diffusers --model /absolute/path/sd3-diffusers \
+  --lora /absolute/path/sd3-style.safetensors --lora-scale 0.75 \
+  --prompt 'a red cube' --output-dir build/reference/sd3-style
+```
+
+The same `--lora` and `--lora-scale` inputs work with `--backend deforum`,
+including SD, SDXL and FLUX.1 text-to-image followed by image-to-image frames.
+Every generated frame validates adapters before prompt encoding, after device
+placement and after inference. Conversion with `from_pipe` must retain them.
+A zero-denoising-strength frame only warps the previous image and records
+`frames[].lora.applied: false`; it does not claim new LoRA inference.
 
 The selected local file must exist, be non-empty, and end in `.safetensors`
 or `.safetensor`. The singular spelling is exposed through a temporary
@@ -101,10 +135,26 @@ explicitly rejected by this interface.
 
 ## Provenance
 
-The JSON sidecar contains an `adapters` array. A base-only run records an empty
-array. A LoRA run records its source, exact file, requested revision, local file
+Preset/Deforum JSON contains an `adapters` array; generic `generation.json`
+contains `adapters.lora` (null for a base-only run). A LoRA run records its source,
+exact file, requested revision, local file
 hash and size when applicable, scale, safetensors format, fixed adapter name,
 actual registered components, active adapter list, and `fused: false`.
+Generic reports also record PEFT's installed version and default selection
+status. Cached image pipelines include the adapter identity and strength in
+their construction key: changing either reloads the pipeline; an unchanged
+request reuses its registered adapter. Files are rechecked after inference.
+
+`UniversalLoraTests`, `ModelPreparationCacheTests`, `DeforumRuntimeTests` and
+`NativeResultTests` cover routing, default selection, precedence, cache changes
+and adapter loss. `tests/UniversalLoraDiffusersSmoke.py` is an opt-in real
+Diffusers/PEFT test using small locally initialized SD1, SD2, SDXL, SD3 and FLUX
+weights. It compares no adapter, zero strength, default strength and repeated
+generation, then checks SD1/SDXL/FLUX Deforum frame effects and video decoding.
+It does not download models or establish trained-model visual quality.
+
+The implementation uses the existing Diffusers 0.40 / PEFT 0.20 stack and its
+[official LoRA loader interfaces](https://huggingface.co/docs/diffusers/en/api/loaders/lora).
 
 Adapter licensing is independent of the base model and Diffusers/PEFT library
 licenses. The operator must review the selected adapter repository or local

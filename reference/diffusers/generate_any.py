@@ -17,13 +17,17 @@ import wave
 from typing import Any
 
 from generation_output import publish_file
+from generation_defaults import pipeline_lora_family, resolve_family_default_lora
 from generation_preview import add_preview_options, attach_preview, validate_preview_location
 from generic_io import (ARCHITECTURES, automatic_token_spec, load_tensor_input,
                         validate_input_descriptor, validate_output_specs, write_tensor_output)
 from hardware import accelerator_preflight, select_device, validate_execution_device
+from lora import (add_lora_options, apply_lora, lora_metadata, resolve_lora_selection,
+                  validate_lora_activation, validate_lora_support, verify_lora_identity)
 from inference_session import (SchedulerConfiguration, cached_configuration, cached_pipeline,
                                cached_placement, is_preparing, record_device_placement, record_execution, verify_pipeline_sources)
 from weight_files import cached_model_sha256, file_sha256, file_signature
+from vae_defaults import resolve_vae_selection, load_selected_vae, verify_vae_selection, vae_metadata
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CACHE = ROOT / "build/reference/huggingface"
@@ -43,7 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--revision", help=argparse.SUPPRESS)
     parser.add_argument("--pipeline-class", help="Installed diffusers pipeline class; otherwise use model_index.json")
     parser.add_argument("--model-config", help="Local complete Diffusers configuration/extras for a single file")
+    parser.add_argument("--vae", help="Replacement local Diffusers VAE directory; omitted Qwen RGB VAE uses installed fallback")
     parser.add_argument("--base-model", help="Civitai identity checked against the selected pipeline architecture")
+    add_lora_options(parser)
+    parser.add_argument("--default-modifiers", action=argparse.BooleanOptionalAction, default=True,
+                        help="Select the compatible default LoRA from the installed resource manifest")
+    parser.add_argument("--generation-resources", type=Path,
+                        help="Directory containing generation-defaults.json and its local adapters")
     parser.add_argument("--pipeline-inputs", default="{}",
                         help="JSON object or @JSON-file containing explicit pipeline __call__ arguments")
     parser.add_argument("--generation-architecture", choices=ARCHITECTURES, default="unspecified",
@@ -179,6 +189,11 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
             result.inputs[key] = value
     result.cache_dir = args.cache_dir.expanduser().absolute()
     result.output_dir = args.output_dir.expanduser().absolute()
+    index, folder = load_model_index(result)
+    family = pipeline_lora_family(result.pipeline_class or index["_class_name"], folder)
+    resolve_family_default_lora(family, result)
+    result.lora_selection = resolve_lora_selection(result)
+    result.vae_selection, result.vae_status = resolve_vae_selection(result, index, folder)
     validate_preview_location(args.preview_dir, result.output_dir)
     return result
 
@@ -188,6 +203,10 @@ def configuration(args: argparse.Namespace) -> dict[str, Any]:
         "runner": "generic-diffusers", "model": args.model, "source_kind": args.source_kind,
         "revision": args.revision, "model_config": args.model_config, "base_model": args.base_model,
         "pipeline_class": args.pipeline_class, "pipeline_inputs": args.inputs, "seed": args.seed,
+        "lora": args.lora, "lora_scale": args.lora_selection.scale if args.lora_selection else None,
+        "lora_weight_name": args.lora_weight_name,
+        "generation_defaults": args.default_modifier_metadata,
+        "vae": vae_metadata(args.vae_selection, args.vae_status),
         "device": args.device, "dtype": args.dtype, "offload": args.offload,
         "local_files_only": args.local_files_only, "cache_dir": str(args.cache_dir),
         "output_dir": str(args.output_dir), "audio_sample_rate": args.audio_sample_rate,
@@ -334,6 +353,8 @@ def load_pipeline(args: argparse.Namespace, diffusers: Any, dtype: Any) -> tuple
     validate_components(diffusers, index, folder)
     pipeline_class = builtin_pipeline(diffusers, args.pipeline_class or index["_class_name"])
     validate_base_model(args.base_model, pipeline_class, diffusers)
+    if getattr(args, "lora_selection", None) is not None:
+        validate_lora_support(pipeline_class)
     # Validate user input names before allocating model weights, including **kwargs pipelines.
     validate_call_arguments(pipeline_class.__call__, args.inputs, seed=args.seed)
     assert folder is not None
@@ -347,6 +368,16 @@ def load_pipeline(args: argparse.Namespace, diffusers: Any, dtype: Any) -> tuple
     identity = model_identity(folder, args.model if args.source_kind == "single-file" else None)
     kwargs = {"dtype": dtype, "local_files_only": True, "cache_dir": str(args.cache_dir),
               "use_safetensors": True, "trust_remote_code": False}
+    # A saved SD3 pipeline may explicitly omit T5. Diffusers requires those
+    # constructor arguments as None even though model_index.json records them.
+    parameters = inspect.signature(pipeline_class.__init__).parameters
+    kwargs.update({name: None for name, value in index.items()
+                   if value == [None, None] and name in parameters})
+    selection = getattr(args, "vae_selection", None)
+    if selection is not None:
+        if "vae" not in parameters:
+            raise ValueError("The selected pipeline does not accept a VAE component.")
+        kwargs["vae"] = load_selected_vae(selection, diffusers, dtype)
     if args.source_kind == "single-file":
         pipeline = pipeline_class.from_single_file(args.model, config=str(folder), **kwargs)
     else:
@@ -354,6 +385,7 @@ def load_pipeline(args: argparse.Namespace, diffusers: Any, dtype: Any) -> tuple
     if pipeline.__class__ is not pipeline_class:
         raise RuntimeError(f"Requested {pipeline_class.__name__}, but loader instantiated {pipeline.__class__.__name__}.")
     verify_identity(identity)
+    verify_vae_selection(selection)
     return pipeline, {"identity": identity, "index_class": index["_class_name"],
                       "actual_class": pipeline.__class__.__name__,
                       "base_model_validation": validate_base_model(args.base_model, pipeline.__class__, diffusers)}
@@ -429,15 +461,25 @@ def prepare_execution(pipeline: Any, device: str, offload: str) -> Any:
 def prepared_pipeline(args, diffusers, dtype, device):
     index, folder = load_model_index(args)
     pipeline_name = args.pipeline_class or index["_class_name"]
-    key = (("diffusers", pipeline_name, str(dtype))
+    selection = getattr(args, "lora_selection", None)
+    verify_lora_identity(selection)
+    vae = getattr(args, "vae_selection", None)
+    verify_vae_selection(vae)
+    key = (("diffusers", pipeline_name, str(dtype), repr(selection), repr(vae))
            if pipeline_name in ("StableDiffusionPipeline", "StableDiffusionXLPipeline", "FluxPipeline") else None)
     if is_preparing() and key is None:
         raise ValueError("Foreground preparation requires a retained local image pipeline.")
     sources = [folder] + ([args.model] if args.source_kind == "single-file" else [])
+    if selection is not None:
+        sources.append(Path(selection.source) / selection.weight_name)
+    if vae is not None:
+        sources.extend([vae.weight.path, vae.config_path])
     def load():
         pipeline, model = load_pipeline(args, diffusers, dtype)
-        return pipeline, model, SchedulerConfiguration(pipeline) if key is not None else None
-    (pipeline, model, scheduler), configuration_hit = cached_pipeline(key, sources, load)
+        activation = (apply_lora(pipeline, selection, args.cache_dir, True)
+                      if selection is not None else None)
+        return pipeline, model, SchedulerConfiguration(pipeline) if key is not None else None, activation
+    (pipeline, model, scheduler, activation), configuration_hit = cached_pipeline(key, sources, load)
     if configuration_hit:
         scheduler.restore(pipeline)
     # The declaration is a per-request validation, independent of loaded weights.
@@ -447,6 +489,8 @@ def prepared_pipeline(args, diffusers, dtype, device):
             pipeline.remove_all_hooks()
         return prepare_execution(pipeline, device, args.offload), args.offload
     (pipeline, _), placement_hit = cached_placement((device, args.offload) if key is not None else None, place)
+    validate_lora_activation(pipeline, activation)
+    args.lora_activation = activation
     args.model_configuration_cache_hit, args.device_placement_cache_hit = configuration_hit, placement_hit
     return pipeline, model, configuration_hit and placement_hit
 
@@ -719,15 +763,19 @@ def main(argv: list[str] | None = None) -> int:
         with torch.no_grad():
             result = pipeline(**inputs)
         validate_execution_device(pipeline, device)
+        validate_lora_activation(pipeline, args.lora_activation)
+        verify_lora_identity(args.lora_selection)
+        verify_vae_selection(args.vae_selection)
         verify_identity(model["identity"])
         verify_pipeline_sources()
         versions = {}
-        for package in ("torch", "diffusers", "transformers", "accelerate", "safetensors", "sentencepiece", "numpy", "Pillow"):
+        for package in ("torch", "diffusers", "transformers", "accelerate", "safetensors", "sentencepiece", "numpy", "Pillow", "peft"):
             try:
                 versions[package] = importlib.metadata.version(package)
             except importlib.metadata.PackageNotFoundError:
                 versions[package] = None
         report = {"schema_version": 1, "request": configuration(args), "model": model,
+                  "adapters": {"lora": lora_metadata(args.lora_selection, args.lora_activation)},
                   "input_files": input_files,
                   "runtime": {"packages": versions, "hardware": hardware, "pipeline_cache_hit": pipeline_cache_hit,
                               "model_configuration_cache_hit": args.model_configuration_cache_hit,

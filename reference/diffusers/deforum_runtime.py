@@ -14,7 +14,8 @@ from encoder_compatibility import clip_skip_compatibility
 from generation_options import build_generators
 from generation_output import write_png
 from hardware import validate_execution_device
-from hires import DenoisingAudit, PIPELINES, image_metadata, validate_stage_images, _validate_preserved_adapters
+from hires import DenoisingAudit, PIPELINES, image_metadata, validate_stage_images
+from lora import validate_lora_activation
 from text_embeddings import text_embedding_prompt_context, validate_text_embeddings
 from weight_files import file_sha256
 
@@ -63,11 +64,12 @@ def _prepare_frame_pipeline(pipeline: Any, preset: Any, request: Any, torch: Any
         if preset.family == "sdxl-base":
             overrides["add_watermarker"] = bool(request.watermark)
         pipeline = selected.from_pipe(pipeline, **overrides)
-        _validate_preserved_adapters(pipeline, activation)
+        validate_lora_activation(pipeline, activation, "Deforum conversion")
         validate_text_embeddings(pipeline, getattr(request, "text_embedding_activation", None), torch)
         converted = True
     else:
         pipeline.scheduler = scheduler
+    validate_lora_activation(pipeline, activation, "Deforum conditioning")
     conditioning = None
     if request.cpu_text_encoding:
         with text_embedding_prompt_context(pipeline, preset, request) as prompt_args:
@@ -85,6 +87,7 @@ def _prepare_frame_pipeline(pipeline: Any, preset: Any, request: Any, torch: Any
         if device == "cuda" and pipeline._execution_device.index != request.device_index:
             raise RuntimeError("Deforum pipeline did not retain the requested GPU device index.")
     pipeline.set_progress_bar_config(disable=not request.progress)
+    validate_lora_activation(pipeline, activation, "Deforum execution")
     return pipeline, conditioning, converted
 
 
@@ -133,6 +136,7 @@ def render_deforum_frames(
                         pipeline, request, [initial], call, torch, generator, device, dtype)
                 else:
                     result = pipeline(**call)
+            validate_lora_activation(pipeline, activation, "Deforum frame")
             sampling = audit.metadata()
             image, = validate_stage_images(result, 1, args.width, args.height)
             method = "text-to-image" if initial is None else "image-to-image"
@@ -158,6 +162,10 @@ def render_deforum_frames(
             "pipeline_class": type(pipeline).__name__, "safety": safety,
             "cpu_conditioning": None if conditioning is None else conditioning.metadata,
             "compatibility": compatibility,
+            "lora": None if activation is None else {
+                "active_adapters": list(activation.active_adapters),
+                "registered_components": list(activation.registered_components),
+                "applied": method != "warp-only"},
         })
         previous = image
         if reference is None:

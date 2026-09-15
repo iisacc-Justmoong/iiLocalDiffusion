@@ -166,7 +166,7 @@ class Torch:
 
 
 def request(preset=presets.SD15_PRESET, **values):
-    data = {"preset": preset.name, "width": 32, "height": 32, "hires_fix": True,
+    data = {"preset": preset.name, "width": 32, "height": 32, "hires_fix": True, "hires_scale": 2,
             "device": "cpu", "hires_seed": 91, "hires_steps": 8}
     data.update(values)
     return local_request(data)[1]
@@ -473,6 +473,7 @@ class HiresRuntimeTests(unittest.TestCase):
 
     def test_main_publishes_refined_images_and_optional_base_metadata(self):
         cases = (
+            (presets.SD15_PRESET, True, {"width": 64, "height": 64, "hires_scale": None}, "", ""),
             (presets.SD15_PRESET, False, {}, "", ""),
             (presets.SD15_PRESET, True, {}, "", ""),
             (presets.FLUX1_SCHNELL_PRESET, True,
@@ -489,6 +490,7 @@ class HiresRuntimeTests(unittest.TestCase):
                 args = request(preset, output=str(root / "result.png"), hires_save_base=save_base,
                                cache_dir=str(root / "cache"), xet_cache_dir=str(root / "xet"),
                                seed=7, hires_seed=13, **options)
+                args.model_configuration_cache_hit = args.device_placement_cache_hit = False
                 events = []
                 base = Pipeline(events, width=32, height=32)
                 refined = Pipeline(events, width=64, height=64)
@@ -509,6 +511,9 @@ class HiresRuntimeTests(unittest.TestCase):
 
                 with ExitStack() as stack:
                     replacements = {
+                        "prepared_pipeline": Mock(return_value=(base, {
+                            "component_sources": {"vae": "base_model"}, "vae_override": None},
+                            None, optimization, None, None, False)),
                         "resolve_arguments": Mock(return_value=(preset, args)),
                         "package_versions": Mock(return_value={}),
                         "load_dependencies": Mock(return_value=(torch, {preset.pipeline_class: object()})),
@@ -534,6 +539,8 @@ class HiresRuntimeTests(unittest.TestCase):
                 self.assertEqual((metadata["fixture"]["width"], metadata["fixture"]["height"]), (64, 64))
                 self.assertEqual(metadata["hires_fix"]["base"]["seeds"], [7])
                 self.assertEqual(metadata["hires_fix"]["base"]["executed_steps"], 1)
+                self.assertEqual(metadata["parameters"]["width"], options.get("width", 32))
+                self.assertEqual(metadata["hires_fix"]["base"]["size"], [32, 32])
                 self.assertEqual((root / "result-base.png").exists(), save_base)
                 self.assertEqual((root / "result-base.json").exists(), save_base)
                 if save_base:

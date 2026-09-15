@@ -47,10 +47,45 @@ def resolved(*arguments, preset=presets.SD15_PRESET, base=None):
 
 
 class HiresOptionsTests(unittest.TestCase):
-    def test_omitted_options_keep_hires_disabled_and_optional_values_null(self):
+    def test_default_request_halves_base_and_replays_final_dimensions(self):
+        from hires_options import base_request
+        for name, width, height, base in (("sd15", 512, 768, (256, 384)),
+                ("sdxl-base", 1024, 1368, (512, 688)),
+                ("flux1-schnell", 1024, 768, (512, 384))):
+            with self.subTest(preset=name):
+                values = {"model": str(ROOT / "tests/fixtures/sd-v1-manifest"),
+                          "default_modifiers": False, "preset": name,
+                          "width": width, "height": height, "steps": 1}
+                preset, args = generate.resolve_request(values)
+                self.assertTrue(args.hires_fix)
+                first = base_request(preset, args)
+                self.assertEqual((first.width, first.height), base)
+                self.assertEqual((args.width, args.height), (width, height))
+                self.assertEqual(args.hires_stage_sizes, [[width, height]])
+                self.assertGreaterEqual(args.hires_steps * args.hires_denoising_strength, 1)
+                exported = configuration_values(first)
+                self.assertEqual((exported["width"], exported["height"]), (width, height))
+                _, replay = generate.resolve_request(exported)
+                self.assertEqual(replay.hires_stage_sizes, args.hires_stage_sizes)
+                self.assertEqual((replay.hires_base_width, replay.hires_base_height), base)
+
+    def test_default_repeated_refinement_keeps_requested_final_size(self):
+        args = resolved("--hires-passes", "3")
+        self.assertEqual(args.hires_stage_sizes, [[512, 512]] * 3)
+
+    def test_target_policy_rejects_unrepresentable_sizes_and_empty_schedules(self):
+        for values in ({"width": 8}, {"height": 2**40}, {"hires_passes": 10**100},
+                       {"hires_denoising_strength": 1e-320}, {"hires_steps": 1}):
+            args = base_arguments(presets.SD15_PRESET)
+            args.__dict__.update(values)
+            args.hires_fix = True
+            with self.subTest(values=values), self.assertRaises(SystemExit):
+                resolve_hires_options(presets.SD15_PRESET, args)
+
+    def test_explicit_disable_keeps_optional_values_null(self):
         for preset in presets.PRESETS.values():
             with self.subTest(preset=preset.name):
-                args = resolved(preset=preset)
+                args = resolved("--no-hires-fix", preset=preset)
                 self.assertFalse(args.hires_fix)
                 for name in args._argument_names:
                     if name != "hires_fix":
@@ -66,7 +101,7 @@ class HiresOptionsTests(unittest.TestCase):
                 args = resolved("--hires-fix", preset=preset)
                 self.assertTrue(args.hires_fix)
                 self.assertEqual(args.hires_passes, 1)
-                self.assertEqual(args.hires_scale, 2.0)
+                self.assertIsNone(args.hires_scale)
                 self.assertEqual(args.hires_upscaler, "lanczos")
                 self.assertEqual(args.hires_denoising_strength, 0.35)
                 self.assertEqual(args.hires_steps, preset.steps)
@@ -77,8 +112,10 @@ class HiresOptionsTests(unittest.TestCase):
                 self.assertEqual(args.hires_scheduler_config, {})
                 self.assertFalse(args.hires_save_base)
                 self.assertEqual((args.hires_target_width, args.hires_target_height),
-                                 (preset.width * 2, preset.height * 2))
-                self.assertEqual(args.hires_stage_sizes, [[preset.width * 2, preset.height * 2]])
+                                 (preset.width, preset.height))
+                self.assertEqual(args.hires_stage_sizes, [[preset.width, preset.height]])
+                self.assertEqual((args.hires_base_width, args.hires_base_height),
+                                 (preset.width // 2, preset.height // 2))
                 self.assertIsNone(args.hires_width)
                 self.assertIsNone(args.hires_height)
 
@@ -94,7 +131,7 @@ class HiresOptionsTests(unittest.TestCase):
         )
         for arguments in cases:
             with self.subTest(arguments=arguments), self.assertRaisesRegex(SystemExit, "--hires-fix"):
-                resolved(*arguments)
+                resolved("--no-hires-fix", *arguments)
 
     def test_explicit_dimensions_preserve_the_original_request(self):
         args = resolved("--hires-fix", "--hires-width", "768", "--hires-height", "1024")
@@ -377,7 +414,7 @@ class HiresOptionsTests(unittest.TestCase):
         second = hires_request(presets.SD15_PRESET, args)
         self.assertIsNot(second, args)
         self.assertEqual((second.width, second.height, second.steps, second.seed, second.guidance_scale),
-                         (1024, 1024, 30, 12, 4.0))
+                         (512, 512, 30, 12, 4.0))
         self.assertEqual(second.scheduler, "DDIMScheduler")
         self.assertEqual(second.scheduler_config, {})
         self.assertEqual(second.guidance_rescale, 0.0)
@@ -416,7 +453,7 @@ class HiresOptionsTests(unittest.TestCase):
         args = resolved("--hires-fix", "--hires-passes", "3")
         request = hires_request(presets.SD15_PRESET, args, pass_index=1)
         request.hires_stage_sizes[0][0] = 8
-        self.assertEqual(args.hires_stage_sizes[0], [1024, 1024])
+        self.assertEqual(args.hires_stage_sizes[0], [512, 512])
 
     def test_sdxl_each_stage_updates_size_conditioning(self):
         preset = presets.SDXL_BASE_PRESET
@@ -444,7 +481,7 @@ class HiresOptionsTests(unittest.TestCase):
 
     def test_disabled_hires_cannot_produce_a_second_pass_request(self):
         with self.assertRaisesRegex(ValueError, "--hires-fix"):
-            hires_request(presets.SD15_PRESET, resolved())
+            hires_request(presets.SD15_PRESET, resolved("--no-hires-fix"))
 
     def test_flux_negative_prompts_can_be_reserved_for_second_pass_cfg(self):
         for negatives in ({"negative_prompt": "blurry"},

@@ -6,8 +6,12 @@ The optional in-process image backend uses stable-diffusion.cpp
 ZIP, Darts Clone, stb, PyTorch-derived RNG, and SentencePiece-derived tokenizer
 notices are retained in `ThirdParty/NativeDiffusion` and installed with the two
 upstream licenses under `share/iiLocalDiffusion/licenses`. The app embeds these
-notices. Web UI, server, WebP/WebM and RPC are disabled. Model weights are not
-downloaded or redistributed by this backend.
+notices. Web UI, server, WebP/WebM and RPC are disabled. Base checkpoints are not
+downloaded or redistributed by this backend. The user-supplied LoRA and seven
+negative embeddings listed in `resources/generation-defaults.json` are installed
+as generation defaults; their original weight licenses remain separate from the
+SDK code license. Three legacy PT embeddings have tensor-identical safetensors
+copies, with source and derivative hashes recorded in that manifest.
 
 The standalone checkpoint runner reuses Diffusers 0.40.0 (Apache-2.0),
 PyTorch 2.13.0 and the already pinned Transformers/Accelerate environment.
@@ -125,3 +129,13 @@ Q8 disk preparation uses the pinned MIT backend streaming converter. `native-con
 The conversion patch also uses read-only mmap and reduces queued output reservations to 256 MiB to leave headroom for source and conversion scratch memory on mobile devices.
 
 `native-thread-safe-logging.patch` gives concurrent logging calls independent buffers and passes preformatted ggml messages as string arguments. Conversion scratch contexts use RAII so cancellation exceptions release them.
+
+The bundled Qwen-Image VAE and original configuration are from [Qwen/Qwen-Image](https://huggingface.co/Qwen/Qwen-Image/tree/75e0b4be04f60ec59a75f475837eced720f823b6/vae), revision `75e0b4be04f60ec59a75f475837eced720f823b6`, under Apache-2.0. The unmodified license is installed at `share/iiLocalDiffusion/resources/vae/qwen-image/LICENSE`; file identities are recorded in `generation-defaults.json`. The SDK consumes the unmodified weights through its existing Diffusers and stable-diffusion.cpp dependencies. `native-vae-fallback.patch` adds metadata-only Qwen RGB, SDXL, FLUX.1 and FLUX.2 VAE omission inspection to the MIT native backend; no new dependency or weights conversion is introduced.
+
+### Additional bundled VAE components
+
+- SDXL: unmodified `stabilityai/sdxl-vae` at `6f5909a7e596173e25d4e97b07fd19cdf9611c76`. Upstream declares MIT in its model card; the original card is preserved in `resources/vae/sdxl/README.md` (upstream supplies no separate license file).
+- FLUX.1: `diffusers/FLUX.1-vae` at `da548cfb003bdeebaff6da0211fc8fbc67cb563a`, byte-identical weights and configuration to BFL FLUX.1 schnell at `741f7c3ce8b383c54771c7003378a50191e9efe9`. Apache-2.0 terms and provenance are in `resources/vae/flux1/LICENSE` and `NOTICE.md`.
+- FLUX.2: unmodified VAE from `black-forest-labs/FLUX.2-klein-4B` at `e7b7dc27f91deacad38e78976d1f2b499d76a294`, Apache-2.0. Original license and model card are included in `resources/vae/flux2/`.
+
+Only these VAE components are bundled, with pinned SHA-256 and configuration identities in `generation-defaults.json`. Other denoiser checkpoints retain their own licenses. Existing Diffusers and stable-diffusion.cpp load the files; no additional runtime dependency is introduced.

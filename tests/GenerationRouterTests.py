@@ -160,7 +160,9 @@ class GenerationRouterTests(unittest.TestCase):
 
     def test_top_level_model_config_dispatches_generic_print_config_offline(self):
         path = self.directory / "download.safetensors"
-        path.write_bytes(b"model")
+        header = json.dumps({"model.diffusion_model.weight":
+                             {"dtype": "F32", "shape": [1], "data_offsets": [0, 4]}}).encode()
+        path.write_bytes(len(header).to_bytes(8, "little") + header + b"\0" * 4)
         config = self.directory / "config"
         config.mkdir()
         (config / "model_index.json").write_text('{"_class_name":"StableDiffusionXLPipeline"}')

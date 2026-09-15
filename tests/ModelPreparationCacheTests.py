@@ -81,11 +81,12 @@ class ModelPreparationCacheTests(unittest.TestCase):
         stack = self.enterContext(ExitStack())
         self.session = stack.enter_context(inference_session.InferenceSession())
         self.load = stack.enter_context(patch.object(generate, "load_generation_pipeline",
-                                                    side_effect=lambda *args: (Pipeline(), {})))
+                                                    side_effect=lambda *args, **kwargs: (Pipeline(), {})))
         stack.enter_context(patch.object(generate, "validate_pipeline_contract"))
 
     def prepare(self, device="cpu", **values):
-        preset, args = generate.resolve_request({"preset": "sd15", "model": str(self.folder), **values})
+        preset, args = generate.resolve_request({"preset": "sd15", "model": str(self.folder),
+                                               "default_modifiers": False, **values})
         dtype = "float32" if args.dtype == "auto" else args.dtype
         loading = generate.build_load_arguments(preset, args, dtype, device != "cpu")
         result = generate.prepared_pipeline(preset, args, {preset.pipeline_class: Pipeline}, loading,
@@ -111,6 +112,18 @@ class ModelPreparationCacheTests(unittest.TestCase):
         self.assertEqual(third.scheduler.history, [])
         self.assertEqual(self.load.call_count, 1)
         self.assertEqual(third.placements, [("resident", "cpu")])
+
+    def test_hires_conversion_invalidates_placement_but_keeps_loaded_model(self):
+        first, args, _ = self.prepare()
+        self.assertTrue(args.hires_target_mode)
+        inference_session.invalidate_placement()
+        second, args, hit = self.prepare(width=1024)
+        self.assertIs(second, first)
+        self.assertFalse(hit)
+        self.assertTrue(args.model_configuration_cache_hit)
+        self.assertFalse(args.device_placement_cache_hit)
+        self.assertEqual(self.load.call_count, 1)
+        self.assertEqual(len(second.placements), 2)
 
     def test_device_or_attention_change_repositions_existing_components_only_once(self):
         pipeline, _, _ = self.prepare(attention_slicing=True)
@@ -150,6 +163,31 @@ class ModelPreparationCacheTests(unittest.TestCase):
         self.assertEqual(self.load.call_count, 3)
         self.assertEqual(third.placements, [("resident", "cpu")])
 
+    def test_default_embeddings_and_lora_are_registered_once_and_strength_invalidates_cache(self):
+        lora = self.directory / "override.safetensors"
+        lora.write_bytes(b"local adapter fixture")
+        embedding_activation = SimpleNamespace(registrations=[], metadata=[])
+        with (patch.object(generate, "apply_text_embeddings", return_value=embedding_activation) as embeddings,
+              patch.object(generate, "validate_text_embeddings"),
+              patch.object(generate, "apply_lora", return_value=SimpleNamespace()) as adapter):
+            first, first_args, hit = self.prepare(default_modifiers=True, lora=str(lora))
+            self.assertFalse(hit)
+            self.assertEqual(len(first_args.text_embedding_selections), 3)
+            second, second_args, hit = self.prepare(default_modifiers=True, lora=str(lora),
+                                                  negative_prompt="new negative text")
+            self.assertTrue(hit)
+            self.assertIs(first, second)
+            self.assertIs(second_args.text_embedding_activation, embedding_activation)
+            self.assertEqual((embeddings.call_count, adapter.call_count), (1, 1))
+            third, _, hit = self.prepare(default_modifiers=True, lora=str(lora), lora_scale=0.5)
+            self.assertFalse(hit)
+            self.assertIsNot(second, third)
+            self.assertEqual((embeddings.call_count, adapter.call_count), (2, 2))
+            lora.write_bytes(b"changed local adapter fixture")
+            _, _, hit = self.prepare(default_modifiers=True, lora=str(lora), lora_scale=0.5)
+            self.assertFalse(hit)
+            self.assertEqual(self.load.call_count, 3)
+
     def test_failed_replacement_evicts_the_partially_moved_pipeline(self):
         first, _, _ = self.prepare()
         with patch.object(first, "to", side_effect=RuntimeError("device unavailable")):
@@ -164,7 +202,7 @@ class ModelPreparationCacheTests(unittest.TestCase):
         import generate_any
         args = SimpleNamespace(source_kind="directory", model=str(self.folder), model_config=None,
                                pipeline_class=None, base_model=None, offload="none")
-        with (patch.object(generate_any, "load_pipeline", side_effect=lambda *args: (Pipeline(), {})) as load,
+        with (patch.object(generate_any, "load_pipeline", side_effect=lambda *args, **kwargs: (Pipeline(), {})) as load,
               patch.object(generate_any, "validate_base_model", return_value={}),
               patch.object(generate_any, "validate_execution_device")):
             first, _, hit = generate_any.prepared_pipeline(args, None, "float32", "cpu")
@@ -181,6 +219,46 @@ class ModelPreparationCacheTests(unittest.TestCase):
         self.assertEqual(self.session.statistics()["device_placement_hits"], 1)
         self.assertEqual(self.session.statistics()["configuration_reads"], 1)
         self.assertEqual(self.session.statistics()["configuration_hits"], 2)
+
+    def test_generic_lora_loads_before_placement_and_cache_tracks_strength_and_file(self):
+        import generate_any
+        adapter = self.directory / "style.safetensors"
+        adapter.write_bytes(b"local adapter fixture")
+        events = []
+
+        def load(*unused):
+            pipeline = Pipeline()
+            pipeline.unet = SimpleNamespace(active_adapters=lambda: ["iild_lora"])
+            pipeline.to = lambda device: (events.append("place") or pipeline)
+            return pipeline, {}
+
+        def activate(*unused):
+            events.append("lora")
+            return generate.LoraActivation(("iild_lora",), ("unet",))
+
+        def prepare(scale="0.7"):
+            args = generate_any.resolve_arguments(generate_any.build_parser().parse_args([
+                "--model", str(self.folder), "--lora", str(adapter), "--lora-scale", scale]))
+            return generate_any.prepared_pipeline(args, None, "float32", "cpu")
+
+        with (patch.object(generate_any, "load_pipeline", side_effect=load) as loader,
+              patch.object(generate_any, "apply_lora", side_effect=activate) as apply,
+              patch.object(generate_any, "validate_base_model", return_value={}),
+              patch.object(generate_any, "validate_execution_device")):
+            first, _, hit = prepare()
+            self.assertEqual(events, ["lora", "place"])
+            repeated, _, hit = prepare()
+            self.assertTrue(hit)
+            self.assertIs(first, repeated)
+            self.assertEqual(apply.call_count, 1)
+            changed, _, hit = prepare("0.4")
+            self.assertFalse(hit)
+            self.assertIsNot(first, changed)
+            adapter.write_bytes(b"changed local adapter fixture")
+            _, _, hit = prepare("0.4")
+            self.assertFalse(hit)
+            self.assertEqual(loader.call_count, 3)
+            self.assertEqual(apply.call_count, 3)
 
     def test_checkpoint_inspection_cache_detects_sidecar_addition_change_and_removal(self):
         import DownloadedModelTests

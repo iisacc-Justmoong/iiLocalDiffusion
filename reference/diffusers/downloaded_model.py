@@ -248,6 +248,12 @@ def _tensor_identity(shapes):
                 key = key[len(prefix):]
                 break
         normalized[key] = shape
+    # A complete Anima contains a Cosmos denoiser, its LLM adapter, Qwen text
+    # encoder and VAE. Recognize the denoiser before standalone VAE detection.
+    # Match the pinned native ModelLoader signature, including its net. wrapper.
+    if any(key.removeprefix("net.") == "llm_adapter.blocks.0.cross_attn.q_proj.weight"
+           and len(shape) == 2 for key, shape in normalized.items()):
+        return "anima", "checkpoint", ["Anima LLM cross-attention adapter tensor signature"], None
     if any(k.startswith(("encoder.", "first_stage_model.encoder.", "vae.encoder.")) for k in keys) and any(
             k.startswith(("decoder.", "first_stage_model.decoder.", "vae.decoder.")) for k in keys) and not any(
             k.startswith(("input_blocks.", "down_blocks.", "double_blocks.", "joint_blocks.", "transformer_blocks.")) for k in normalized):

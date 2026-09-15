@@ -1,5 +1,17 @@
 # iiLocalDiffusion
 
+Qwen Image RGB·SDXL·FLUX.1·FLUX.2 모델에서 VAE 인자를 생략하고 모델에도 VAE가 없으면, 네이티브와 Diffusers 로더가 [계열별 VAE 폴백](docs/generation-defaults.md#vae-자동-폴백)을 자동 사용한다. 원본 가중치·설정·배포 라이선스 및 출처를 번들에 포함한다. 내장 VAE와 명시적 선택을 우선하며, 서로 다른 잠재 공간의 VAE를 혼용하지 않으며 RGBA Layered는 제외한다.
+
+Image generation uses [bundled negative embeddings and a fallback LoRA](docs/generation-defaults.md).
+SDXL automatically loads all seven negative embeddings and `addDetailAesthetic_v20_32` at strength 1.0;
+an explicit LoRA replaces the fallback. Native and Python generators share the installed resource manifest.
+
+LoRA loading also covers generic SD2/SD3/FLUX and other built-in Diffusers image
+pipelines with compatible adapter loaders, plus SD/SDXL/FLUX Deforum frames.
+Family-specific defaults, activation checks, and examples are described in
+[the LoRA contract](docs/lora.md). The supplied SDXL adapter still requires an
+SDXL base; other architectures use their own compatible adapters.
+
 App consumers can also use [in-process native image inference](docs/native-image-generation.md), including iOS builds with `IILD_ENABLE_NATIVE_DIFFUSION=ON`.
 
 App consumers can use [resident inference sessions](docs/inference-worker.md)
@@ -379,7 +391,10 @@ This generates at 512 × 512, then resizes and refines at 1024 × 1024 and
 settings with fresh scheduler and generator state. `--hires-passes` defaults
 to 1 when enabled; `--hires-scale` applies per pass. Explicit HiRes dimensions
 instead select the first refinement size, whose per-axis factors repeat.
-Hires Fix is disabled by default; enabling it adds `-hires` to default
+Hires Fix is enabled by default: without explicit resize overrides, dimensions
+are the final target and base generation uses half of each axis. An explicit
+`--hires-scale` or `--hires-width/height` selects the resize chain above;
+`--no-hires-fix` requests a single pass. Hires adds `-hires` to default
 filenames. Only the final refinement is saved unless `--hires-save-base`
 also preserves the original base image. Sidecars retain ordered stage
 records and requested/completed refinement counts. Strength selects the
@@ -448,3 +463,7 @@ are stored in this repository.
 Native progress now distinguishes weight loading, denoising and image decoding. The pinned backend patch and cooperative cancellation/deadline contract are described in [native-image-generation.md](docs/native-image-generation.md).
 
 네이티브 생성은 선택적으로 원본을 보존한 Q8/VAE F16 모델 사본을 디스크에 캐싱하고, 성공한 최근 모델의 엔진과 mmap을 메모리에 유지한다. Apple의 기기별 GPU 예산·전체 CPU 코어·직접 mmap 업로드와 캐시 해제 계약은 [네이티브 문서](docs/native-image-generation.md)를 참조한다.
+
+`generateNativeImageWithBackend` adds explicit CPU-only image inference for consumers with a background CPU grant and no GPU access. Existing APIs keep automatic placement and ABI layouts. See [native execution](docs/native-image-generation.md#explicit-cpu-execution-for-background-tasks) for resource and cache behavior.
+
+네이티브 VAE는 전체 텐서 구조를 검증한 뒤 마운트하고, SDXL 타일 크기를 메모리 예산에 맞춰 자동 조절한다. 비정상 잠재값·디코딩 값은 RGB 저장 전에 오류로 차단한다. [VAE 검증과 자동 최적화](docs/native-image-generation.md#vae-마운트-검증과-자동-최적화)에 정책과 실제 가중치 수치 비교 방법을 기록했다.

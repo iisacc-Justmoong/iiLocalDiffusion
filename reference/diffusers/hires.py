@@ -15,6 +15,8 @@ from generation_scheduler import configure_scheduler, validate_scheduler_values
 from generation_tensor_inputs import load_tensor_inputs
 from hardware import validate_execution_device
 from hires_options import hires_request
+from generation_preview import attach_preview
+from inference_session import invalidate_placement
 from text_embeddings import text_embedding_prompt_context, validate_text_embeddings
 
 
@@ -102,12 +104,8 @@ def refinement_call_arguments(preset: Any, request: Any, arguments: dict[str, An
 
 
 def _validate_preserved_adapters(pipeline: Any, activation: Any) -> None:
-    if activation is None:
-        return
-    for name in activation.registered_components:
-        component = getattr(pipeline, name)
-        if not set(activation.active_adapters).issubset(component.active_adapters()):
-            raise RuntimeError(f"HiRes refinement lost active LoRA adapters on {name}.")
+    from lora import validate_lora_activation
+    validate_lora_activation(pipeline, activation, "HiRes refinement")
 
 
 @dataclass
@@ -140,6 +138,7 @@ def _run_hires_pass(
 
     # Sequential offload may leave parameters on meta. Its public removal API
     # first restores their stored weights; only then is moving/conversion safe.
+    invalidate_placement()
     pipeline.remove_all_hooks()
     pipeline.to("cpu")
     scheduler = type(pipeline.scheduler).from_config(pipeline.scheduler.config)
@@ -179,11 +178,13 @@ def _run_hires_pass(
     clip_context = (clip_skip_compatibility(refined, preset, request.clip_skip)
                     if conditioning is None else nullcontext(False))
     compatibility = None
-    with (torch.inference_mode(), clip_context as clip_compatibility,
+    with (torch.no_grad(), clip_context as clip_compatibility,
           text_embedding_prompt_context(refined, preset, request) as prompt_args):
         call = refinement_call_arguments(
             preset, request, build_call(preset, prompt_args, generator, conditioning, device, dtype), upscaled)
         call["callback_on_step_end"] = audit
+        attach_preview(refined, call, getattr(request, "preview_dir", None), torch, request.width, request.height,
+                       preview=getattr(args, "_preview_callback", None))
         if preset.family == "flux1-schnell" and request.controlnet_selection is not None:
             from hires_flux_controlnet import refine_flux_controlnet
             result, compatibility = refine_flux_controlnet(

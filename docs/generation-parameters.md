@@ -256,21 +256,23 @@ Atomic non-overwrite publication uses same-directory hard links; an
 unsupported filesystem or an I/O failure is an explicit error, not permission
 to overwrite. A multi-file batch is not a filesystem transaction.
 
-## Optional Hires Fix
+## Default Hires Fix
 
 `--hires-fix` enables base generation followed by repeated RGB upscaling and
 img2img refinement for the SD1/SDXL/FLUX family presets, including their
 ControlNet variants. `--hires-passes N` selects N additional refinement
 passes after the base image; its enabled default of 1 preserves the original
-two-stage behavior. Omission keeps the existing single-stage behavior.
+two-stage behavior. Without explicit resize overrides, width/height are the
+final target and the base uses half of each axis, rounded to the model grid.
+Repeated passes retain that target; `--no-hires-fix` selects a single stage.
 Dependent values are inactive/null when disabled and explicit dependent
 settings require Hires Fix.
 
 | Argument | Default when enabled / behavior |
 |---|---|
-| `--hires-fix` | False; boolean enable/disable |
+| `--hires-fix` | True for still images; half-size base followed by refinement to the requested dimensions; explicit false selects a single pass |
 | `--hires-passes` | 1 when enabled; positive integer number of refinements after base generation; null when disabled |
-| `--hires-scale` | 2; finite factor greater than 1 applied at every refinement, mutually exclusive with explicit first-refinement dimensions |
+| `--hires-scale` | Null by default; an explicit factor greater than 1 switches to the per-pass resize chain with width/height as the base dimensions |
 | `--hires-width`, `--hires-height` | First-refinement target; infer a missing axis from the base aspect ratio, then repeat the first pass's per-axis factors; family dimension multiples apply |
 | `--hires-upscaler` | `lanczos`; nearest/bilinear/bicubic/lanczos RGB resizing |
 | `--hires-denoising-strength` / `--hires-strength` | 0.35; `0 < value <= 1` |
@@ -282,8 +284,8 @@ settings require Hires Fix.
 | `--hires-scheduler-config` | `{}`; validated constructor overrides reused with fresh scheduler state at every refinement |
 | `--hires-save-base` | False; also save each base PNG and its JSON sidecar |
 
-Each pass takes the preceding output image, retains or enlarges both axes and
-enlarges at least one. With `--hires-passes 2 --hires-scale 2`, a 512 × 512 base
+With explicit resize overrides, each pass takes the preceding output image,
+retains or enlarges both axes and enlarges at least one. With `--hires-passes 2 --hires-scale 2`, a 512 × 512 base
 becomes 1024 × 1024, then 2048 × 2048. Explicit width/height name the first
 refinement target; their per-axis factors are repeated for later passes,
 with rounding to the preset dimension multiple. Model, VAE, LoRA,

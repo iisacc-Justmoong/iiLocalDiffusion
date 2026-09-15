@@ -29,6 +29,16 @@ int main(int argc, char **argv) {
     result = generateNativeImageWithProgress(request, cancelled, {});
     if (result.error != "Invalid native image generation parameters.") return 6;
     request.timeoutMilliseconds = 900000;
+    NativeGenerationOptions sharedOptions;
+    sharedOptions.defaultModifiers = false;
+    sharedOptions.resourceDirectory = directory / "society-resources-not-installed";
+    result = generateNativeImageWithOptions(request, sharedOptions, NativeComputeBackend::Cpu, cancelled);
+    if (result.error.empty() || !result.rgb.empty()
+        || result.error.find("generation-defaults.json") != std::string::npos) return 11;
+    cancelled = true;
+    result = generateNativeImageWithOptions(request, sharedOptions, NativeComputeBackend::Cpu, cancelled);
+    if (!result.cancelled || !result.rgb.empty()) return 12;
+    cancelled = false;
     bool falseStep = false;
     result = generateNativeImage(request, cancelled, [&](int, int) { falseStep = true; });
     if (falseStep) return 7; // Loading a rejected file cannot emit denoising steps.

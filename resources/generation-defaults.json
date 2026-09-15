@@ -1,0 +1,190 @@
+{
+  "version": 1,
+  "fallback_lora": {
+    "file": "addDetailAesthetic_v20_32.safetensors",
+    "scale": 1.0,
+    "families": [
+      "sdxl-base"
+    ],
+    "sha256": "0444f6834d0f7a2fe32236408828939663b8c6345543c2676be7321c89b08ac6",
+    "size": 271173804
+  },
+  "negative_embeddings": [
+    {
+      "file": "(negative_v2 Color_Balance_Calibration_0.8).safetensors",
+      "token": "iild_negative_color_balance",
+      "shape": [
+        7,
+        768
+      ],
+      "families": [
+        "sdxl-base"
+      ],
+      "sha256": "e431a7bbddedbf15d511bd11e6692a7c8196a5361925428d200a86bda3c4ac6f",
+      "size": 29176
+    },
+    {
+      "file": "NDXL.safetensors",
+      "token": "iild_ndxl",
+      "shape": [
+        10,
+        768
+      ],
+      "families": [
+        "sdxl-base"
+      ],
+      "sha256": "34775d5ebe6e88615d5453c69a90c1091b1c08e56173fcbbe8a0d1512c0674ec",
+      "size": 82072
+    },
+    {
+      "file": "embeddings/NegativeDynamics-neg.safetensors",
+      "token": "iild_negative_dynamics",
+      "shape": [
+        10,
+        768
+      ],
+      "families": [
+        "sd15",
+        "sdxl-base"
+      ],
+      "source": "NegativeDynamics-neg.pt",
+      "source_sha256": "84052543aba9cfe47a810035f856a163d73d0946f0ac6ff75b66c26a0fe576da",
+      "sha256": "7a8fea13455f3ecc216f81ba6d079aaac7028bb3ed83cadd3a9f39f635096740",
+      "size": 30936
+    },
+    {
+      "file": "negativeXL_D.safetensors",
+      "token": "iild_negative_xl",
+      "shape": [
+        16,
+        768
+      ],
+      "families": [
+        "sdxl-base"
+      ],
+      "sha256": "fff5d51ab6558d2bf0b77f805c67af855116718284f24877fbf26200e52fd5f5",
+      "size": 131224
+    },
+    {
+      "file": "embeddings/negative_hand-neg.safetensors",
+      "token": "iild_negative_hand",
+      "shape": [
+        8,
+        768
+      ],
+      "families": [
+        "sd15",
+        "sdxl-base"
+      ],
+      "source": "negative_hand-neg.pt",
+      "source_sha256": "73b524a2da121eb1b7ad04dea11da286277813120700ff8f1d8522516f7b30ab",
+      "sha256": "37de62682ec9d72de905dac1e9d5657e37d9e781667db1520cd01f000e47cc8b",
+      "size": 24784
+    },
+    {
+      "file": "negdetface-neg.safetensors",
+      "token": "iild_negative_face",
+      "shape": [
+        2,
+        768
+      ],
+      "families": [
+        "sdxl-base"
+      ],
+      "sha256": "37a15e4fd50ed8b20133289a31bd36fbbd2497ee26c9a44d2f00dd3ac872dc34",
+      "size": 16536
+    },
+    {
+      "file": "embeddings/realisticvision-negative-embedding.safetensors",
+      "token": "iild_negative_realisticvision",
+      "shape": [
+        75,
+        768
+      ],
+      "families": [
+        "sd15",
+        "sdxl-base"
+      ],
+      "source": "realisticvision-negative-embedding.pt",
+      "source_sha256": "5511b02e263f2e42029b8829469345cd882b1c0ed1592e54fc877f68095bdf77",
+      "sha256": "6577a67154e69892201e8f57d3ad2f4297473c1cdb18be6efcb94de75bbf5912",
+      "size": 230624
+    }
+  ],
+  "fallback_vae": {
+    "file": "vae/qwen-image/vae/diffusion_pytorch_model.safetensors",
+    "sha256": "0c8bc8b758c649abef9ea407b95408389a3b2f610d0d10fcb054fe171d0a8344",
+    "size": 253806966,
+    "families": [
+      "qwen-image"
+    ],
+    "class_name": "AutoencoderKLQwenImage",
+    "config": {
+      "file": "vae/qwen-image/vae/config.json",
+      "sha256": "e4e61b7553f930e9eabf8935f0a77e6d004cc3ee67a601a56ef03cc41ccada68",
+      "size": 730
+    },
+    "repo_id": "Qwen/Qwen-Image",
+    "revision": "75e0b4be04f60ec59a75f475837eced720f823b6",
+    "source_file": "vae/diffusion_pytorch_model.safetensors",
+    "license": "apache-2.0"
+  },
+  "fallback_vaes": [
+    {
+      "file": "vae/sdxl/diffusion_pytorch_model.safetensors",
+      "sha256": "1598f3d24932bcfe6634e8b618ea1e30ab1d57f5aad13a6d2de446d2199f2341",
+      "size": 334643268,
+      "families": [
+        "sdxl-base"
+      ],
+      "class_name": "AutoencoderKL",
+      "config": {
+        "file": "vae/sdxl/config.json",
+        "sha256": "1ab8e39aeac945453e4c4bd1dd4d0953c566cb9eb9291f87cd316e75c61073cf",
+        "size": 607
+      },
+      "repo_id": "stabilityai/sdxl-vae",
+      "revision": "6f5909a7e596173e25d4e97b07fd19cdf9611c76",
+      "source_file": "diffusion_pytorch_model.safetensors",
+      "license": "mit"
+    },
+    {
+      "file": "vae/flux1/diffusion_pytorch_model.safetensors",
+      "sha256": "f5b59a26851551b67ae1fe58d32e76486e1e812def4696a4bea97f16604d40a3",
+      "size": 167666902,
+      "families": [
+        "flux1"
+      ],
+      "class_name": "AutoencoderKL",
+      "config": {
+        "file": "vae/flux1/config.json",
+        "sha256": "bc1e208f414a315365fbecf426838f43b87c9d5c051219e0968a56e2644b2998",
+        "size": 774
+      },
+      "repo_id": "diffusers/FLUX.1-vae",
+      "revision": "da548cfb003bdeebaff6da0211fc8fbc67cb563a",
+      "source_file": "diffusion_pytorch_model.safetensors",
+      "license": "apache-2.0",
+      "original_repo_id": "black-forest-labs/FLUX.1-schnell",
+      "original_revision": "741f7c3ce8b383c54771c7003378a50191e9efe9"
+    },
+    {
+      "file": "vae/flux2/vae/diffusion_pytorch_model.safetensors",
+      "sha256": "ca70d2202afe6415bdbcb8793ba8cd99fd159cfe6192381504d6c4d3036e0f04",
+      "size": 168120878,
+      "families": [
+        "flux2"
+      ],
+      "class_name": "AutoencoderKLFlux2",
+      "config": {
+        "file": "vae/flux2/vae/config.json",
+        "sha256": "0d6dfb69ae95a5e2ac9836284bbb63d8b38ce67b25ba2dff380752b2a10ab948",
+        "size": 821
+      },
+      "repo_id": "black-forest-labs/FLUX.2-klein-4B",
+      "revision": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
+      "source_file": "vae/diffusion_pytorch_model.safetensors",
+      "license": "apache-2.0"
+    }
+  ]
+}

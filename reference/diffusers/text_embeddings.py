@@ -147,6 +147,13 @@ def apply_text_embeddings(pipeline: Any, preset: Any, args: Any, torch: Any) -> 
     occupied = {name: set(tokenizer.get_vocab()) for name, (_, tokenizer) in components.items()}
     for selection in selections:
         raw, metadata = _read_file(selection, args.cache_dir / "single-file-aliases")
+        # SDXL uses the same token positions in both CLIP encoders. The three
+        # bundled legacy embeddings only train CLIP-L; zero-pad CLIP-G exactly
+        # as the native backend does, without inventing learned CLIP-G vectors.
+        default_tokens = getattr(args, "default_modifier_metadata", {}).get("negative_tokens", ())
+        if preset.family == "sdxl-base" and selection.token in default_tokens and set(raw) == {"clip_l"}:
+            dimension = components["text_encoder_2"][0].get_input_embeddings().weight.shape[-1]
+            raw["clip_g"] = torch.zeros((raw["clip_l"].shape[0], dimension), dtype=raw["clip_l"].dtype)
         entries = _prepare_entries(selection, raw, metadata, components, preset, torch)
         for entry in entries:
             names = occupied[entry["component"]]
@@ -234,12 +241,17 @@ def text_embedding_prompt_context(pipeline: Any, preset: Any, args: Any):
         # Resolve this before expansion so it uses the second encoder's tokens.
         if original is None or (name.endswith("_2") and original == ""):
             original = getattr(args, fallback)
+        if name.startswith("negative_prompt"):
+            from generation_defaults import append_default_tokens
+            original = append_default_tokens(original, getattr(args, "default_modifier_metadata", {}).get("negative_tokens", ()))
         setattr(request, name, _expand_prompt(original, activation.registrations, component))
     absent = object()
     original_conversion = vars(pipeline).get("maybe_convert_prompt", absent)
     pipeline.maybe_convert_prompt = lambda prompt, tokenizer: prompt
     try:
-        yield request
+        from long_clip_conditioning import long_clip_prompt_context
+        with long_clip_prompt_context(pipeline, preset):
+            yield request
     finally:
         if original_conversion is absent:
             del pipeline.maybe_convert_prompt

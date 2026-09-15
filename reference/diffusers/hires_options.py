@@ -22,12 +22,12 @@ HIRES_OPTION_NAMES = (
 
 
 def add_hires_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--hires-fix", action=argparse.BooleanOptionalAction, default=False,
-                        help="Upscale generated images and refine them with repeated diffusion passes")
+    parser.add_argument("--hires-fix", action=argparse.BooleanOptionalAction, default=True,
+                        help="Generate at half size and refine to --width/--height (default for still images)")
     parser.add_argument("--hires-passes", type=int, default=None,
                         help="Number of additional HiRes refinements (default when enabled: 1)")
     parser.add_argument("--hires-scale", type=float, default=None,
-                        help="Per-pass HiRes multiplier above 1; defaults to 2 when no first target size is given")
+                        help="Explicit per-pass multiplier above 1; switches width/height to base-size inputs")
     parser.add_argument("--hires-width", type=int, default=None,
                         help="First refinement width; subsequent passes repeat the resulting width ratio")
     parser.add_argument("--hires-height", type=int, default=None,
@@ -153,13 +153,17 @@ def resolve_hires_stage_sizes(width: int, height: int, passes: int, *, scale: fl
 
 def resolve_hires_options(preset: PipelinePreset, args: argparse.Namespace) -> None:
     """Validate options and record target dimensions without changing their replayable inputs."""
-    args.hires_fix = getattr(args, "hires_fix", False)
+    args.hires_fix = getattr(args, "hires_fix", True)
+    if getattr(args, "animation_mode", "none") != "none" and "hires_fix" not in getattr(args, "_provided", ()):
+        args.hires_fix = False
     for name in HIRES_OPTION_NAMES:
         if not hasattr(args, name):
             setattr(args, name, None)
     args.hires_target_width = None
     args.hires_target_height = None
     args.hires_stage_sizes = None
+    args.hires_target_mode = False
+    args.hires_base_width, args.hires_base_height = args.width, args.height
     if not args.hires_fix:
         provided = [name for name in HIRES_OPTION_NAMES if getattr(args, name) is not None]
         if provided:
@@ -169,20 +173,43 @@ def resolve_hires_options(preset: PipelinePreset, args: argparse.Namespace) -> N
     if args.hires_passes is None:
         args.hires_passes = 1
     explicit_size = args.hires_width is not None or args.hires_height is not None
-    if not explicit_size and args.hires_scale is None:
-        args.hires_scale = 2.0
-    try:
-        args.hires_stage_sizes = resolve_hires_stage_sizes(
-            args.width, args.height, args.hires_passes, scale=args.hires_scale,
-            target_width=args.hires_width, target_height=args.hires_height,
-            dimension_multiple=preset.runtime.dimension_multiple)
-    except ValueError as error:
-        raise SystemExit(str(error)) from error
+    args.hires_target_mode = not explicit_size and args.hires_scale is None
+    if args.hires_target_mode:
+        _integer(args.hires_passes, "hires_passes", positive=True)
+        if args.hires_passes > 1000:
+            raise SystemExit("Target-size refinement supports at most 1000 --hires-passes.")
+        multiple = preset.runtime.dimension_multiple
+        for axis in ("width", "height"):
+            target = getattr(args, axis)
+            _integer(target, axis, positive=True)
+            if target % multiple or target > 2**31 - 1 or target < 2 * multiple:
+                raise SystemExit(f"--{axis} must be a multiple of {multiple}, at least {2 * multiple}, "
+                                 "and fit a signed 32-bit image size for half-size generation.")
+            setattr(args, "hires_base_" + axis, _nearest_multiple(target / 2, multiple))
+        # Extra passes refine the same target instead of unexpectedly growing
+        # the requested output. Explicit sizing options retain the scale chain.
+        args.hires_stage_sizes = [[args.width, args.height] for _ in range(args.hires_passes)]
+    else:
+        try:
+            args.hires_stage_sizes = resolve_hires_stage_sizes(
+                args.width, args.height, args.hires_passes, scale=args.hires_scale,
+                target_width=args.hires_width, target_height=args.hires_height,
+                dimension_multiple=preset.runtime.dimension_multiple)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
     args.hires_target_width, args.hires_target_height = args.hires_stage_sizes[-1]
 
+    strength = 0.35 if args.hires_denoising_strength is None else args.hires_denoising_strength
+    _finite_number(strength, "hires_denoising_strength", lower=0, inclusive=False, upper=1)
+    default_steps = args.steps
+    if args.hires_target_mode and args.hires_steps is None:
+        minimum_steps = 1 / strength
+        if not math.isfinite(minimum_steps):
+            raise SystemExit("HiRes strength is too small to represent a non-empty schedule.")
+        default_steps = max(default_steps, math.ceil(minimum_steps))
     defaults = {
         "hires_upscaler": "lanczos", "hires_denoising_strength": 0.35,
-        "hires_steps": args.steps, "hires_seed": args.seed,
+        "hires_steps": default_steps, "hires_seed": args.seed,
         "hires_guidance_scale": args.guidance_scale, "hires_true_cfg_scale": args.true_cfg_scale,
         "hires_scheduler": "auto", "hires_scheduler_config": {}, "hires_save_base": False,
     }
@@ -226,6 +253,20 @@ def resolve_hires_options(preset: PipelinePreset, args: argparse.Namespace) -> N
         raise SystemExit(f"--hires-scheduler-config must be a finite JSON object: {error}") from error
     if not isinstance(args.hires_save_base, bool):
         raise SystemExit("--hires-save-base must be a boolean.")
+
+
+def base_request(preset: PipelinePreset, args: argparse.Namespace) -> argparse.Namespace:
+    """Keep public/replay dimensions intact while submitting the reduced base."""
+    if not getattr(args, "hires_target_mode", False):
+        return args
+    request = argparse.Namespace(**vars(args))
+    request._hires_output_size = (args.hires_target_width, args.hires_target_height)
+    request.width, request.height = args.hires_base_width, args.hires_base_height
+    if preset.family == "sdxl-base":
+        for name in SDXL_SIZES:
+            if getattr(request, name) == (args.height, args.width):
+                setattr(request, name, (request.height, request.width))
+    return request
 
 
 def hires_request(preset: PipelinePreset, args: argparse.Namespace, pass_index: int = 0) -> argparse.Namespace:

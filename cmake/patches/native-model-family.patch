@@ -1,0 +1,41 @@
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -462,6 +462,8 @@
+ SD_API int32_t sd_get_num_physical_cores();
+ SD_API const char* sd_get_system_info();
+ SD_API bool sd_ctx_supports_image_generation(const sd_ctx_t* sd_ctx);
++// Stable family identifiers for caller-owned compatible modifier defaults.
++SD_API const char* sd_get_model_family(const sd_ctx_t* sd_ctx);
+ SD_API bool sd_ctx_supports_video_generation(const sd_ctx_t* sd_ctx);
+
+ // ControlNet hot-swap APIs are not safe to call while generation is in flight.
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -3958,6 +3958,27 @@
+     return sd_version_supports_image_generation(sd_ctx->sd->version);
+ }
+
++SD_API const char* sd_get_model_family(const sd_ctx_t* sd_ctx) {
++    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) return "other";
++    if (sd_version_is_sdxl(sd_ctx->sd->version)) return "sdxl-base";
++    if (sd_version_is_sd1(sd_ctx->sd->version)) return "sd15";
++    if (sd_version_is_sd2(sd_ctx->sd->version)) return "sd2";
++    if (sd_version_is_sd3(sd_ctx->sd->version)) return "sd3";
++    switch (sd_ctx->sd->version) {
++        case VERSION_FLUX:
++        case VERSION_FLUX_FILL:
++        case VERSION_FLUX_CONTROLS: return "flux1";
++        case VERSION_FLUX2:
++        case VERSION_FLUX2_KLEIN: return "flux2";
++        case VERSION_QWEN_IMAGE:
++        case VERSION_QWEN_IMAGE_LAYERED: return "qwen-image";
++        case VERSION_Z_IMAGE: return "z-image";
++        case VERSION_CHROMA_RADIANCE: return "chroma-radiance";
++        default: break;
++    }
++    return "other";
++}
++
+ SD_API bool sd_ctx_supports_video_generation(const sd_ctx_t* sd_ctx) {
+     if (sd_ctx == nullptr || sd_ctx->sd == nullptr) {
+         return false;

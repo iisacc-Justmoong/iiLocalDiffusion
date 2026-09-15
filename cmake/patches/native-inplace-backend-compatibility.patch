@@ -1,0 +1,78 @@
+--- a/ggml/src/ggml-backend.cpp
++++ b/ggml/src/ggml-backend.cpp
+@@ -21,6 +21,7 @@
+ #include <string.h>
+ #include <algorithm>
+ #include <vector>
++#include <unordered_map>
+ 
+ #ifdef __APPLE__
+ #include <sys/types.h>
+@@ -1281,6 +1282,67 @@
+             ggml_backend_sched_set_if_supported(sched, node, b, cur_backend_id);
+         }
+         GGML_ASSERT(*cur_backend_id != -1);
++    }
++
++    // In-place operations and their views share the root tensor's allocation.
++    // Copying src[] during graph splitting cannot move the destination's view_src.
++    // Keep an incompatible alias group on one backend that supports every op.
++    std::unordered_map<ggml_tensor *, std::vector<ggml_tensor *>> alias_groups;
++    auto add_alias = [&](ggml_tensor * node) {
++        if (node->view_src == NULL) {
++            return;
++        }
++        auto * root = node->view_src;
++        while (root->view_src != NULL) {
++            root = root->view_src;
++        }
++        auto & group = alias_groups[root];
++        if (group.empty()) {
++            group.push_back(root);
++        }
++        group.push_back(node);
++    };
++    for (int i = 0; i < graph->n_leafs; ++i) {
++        add_alias(graph->leafs[i]);
++    }
++    for (int i = 0; i < graph->n_nodes; ++i) {
++        add_alias(graph->nodes[i]);
++    }
++    for (const auto & entry : alias_groups) {
++        auto * root = entry.first;
++        const auto & group = entry.second;
++        const int root_backend = tensor_backend_id(root);
++        GGML_ASSERT(root_backend != -1);
++        auto buft = root->buffer ? root->buffer->buft : sched->bufts[root_backend];
++        bool compatible = true;
++        for (auto * node : group) {
++            const int b = tensor_backend_id(node);
++            if (b == -1 || !ggml_backend_supports_buft(sched->backends[b], buft)) {
++                compatible = false;
++                break;
++            }
++        }
++        if (compatible) {
++            continue;
++        }
++        int common_backend = -1;
++        for (int b = 0; b < sched->n_backends; ++b) {
++            if (root->buffer && !ggml_backend_supports_buft(sched->backends[b], buft)) {
++                continue;
++            }
++            const bool supports_group = std::all_of(group.begin(), group.end(), [&](ggml_tensor * node) {
++                return ggml_backend_supports_op(sched->backends[b], node);
++            });
++            if (supports_group) {
++                common_backend = b;
++                break;
++            }
++        }
++        GGML_ASSERT(common_backend != -1 && "no backend supports this in-place alias group");
++        for (auto * node : group) {
++            tensor_backend_id(node) = common_backend;
++            SET_CAUSE(node, "4.alias");
++        }
+     }
+ 
+     // pass 5: split graph, find tensors that need to be copied

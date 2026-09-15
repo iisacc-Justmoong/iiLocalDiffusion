@@ -4,6 +4,14 @@ These scripts preserve a known-good implementation against which future C++
 components can be compared. They are not called by the iiLocalDiffusion
 library.
 
+Complete Anima safetensors passed to `iild-generate --backend local` use the
+SDK's native engine inside the persistent worker. Tensor inspection recognizes
+the Anima denoiser before its embedded VAE. A VAE-only file remains a component;
+an incomplete Anima reports missing companions. See the [worker contract](../../docs/inference-worker.md#complete-anima-checkpoints)
+for supported arguments, cache residency, outputs and preview limitations.
+
+Qwen Image RGB·SDXL·FLUX.1·FLUX.2 파이프라인에 VAE가 없으면 계열별 기본 VAE를 자동 사용한다. SDXL/FLUX.1 프리셋과 VAE가 빠진 SDXL 단일 체크포인트에도 같은 폴백을 적용한다. `--vae` 생략이 기본이며 명시하려면 로컬 Diffusers VAE 디렉터리를 전달한다. 내장 VAE를 우선하고 `--no-default-modifiers`에서도 디코더 폴백은 유지한다. 각 파이프라인에 호환되는 VAE를 선택하며 RGBA Layered는 제외한다. [리비전·해시·재다운로드·검증](../../docs/generation-defaults.md#vae-자동-폴백)을 참고한다.
+
 The unified launcher and image/video runners accept local `--model-path`
 (legacy `--model`), direct `--model-api`, or remote `--model-cloud` with
 `--model-provider`. See [model sources](../../docs/model-sources.md) for the API
@@ -215,7 +223,22 @@ It supplies configs, tokenizers and any neural components not embedded in the
 checkpoint. There is no default configuration repository. Model and adapter
 revision arguments are rejected; all model inputs are local paths.
 
-## Optional LoRA
+## LoRA override and bundled fallback
+
+`generate_any.py` (`--backend diffusers`) uses the same local LoRA selection,
+strength and activation implementation as `generate.py`. SD2, SD3, FLUX and
+other installed image pipeline loaders accept `--lora` and `--lora-scale`;
+missing adapter APIs fail before loading the base model. Both runners select
+compatible per-family defaults from `fallback_lora`/`fallback_loras` in the
+shared resource manifest. Generic runs retain their arbitrary prompt-input
+contract; automatic learned negative embeddings remain on the preset,
+standalone and Deforum paths. Deforum verifies adapter activation for every
+generated frame and records `frames[].lora.applied`.
+
+SDXL defaults to the bundled `addDetailAesthetic_v20_32` LoRA at strength 1.0,
+with seven learned negative embeddings. An explicit LoRA replaces that fallback.
+See [generation defaults](../../docs/generation-defaults.md) for family compatibility,
+long CLIP conditioning, installed assets, and explicit baseline comparisons.
 
 Apply one local LoRA safetensors file after the selected base pipeline has
 passed its contract:
@@ -297,7 +320,12 @@ settings accompany each PNG in its sidecar. The default filename uses
 [complete ControlNet contract](../../docs/controlnet.md) for compatibility,
 JSON/Python usage, hashing, and family-specific limitations.
 
-## Optional Hires Fix
+## Default Hires Fix
+
+Still-image dimensions are the final target: 1024×1024 runs a 512×512 base
+and a 1024×1024 refinement by default. Model grid rounding applies to the base.
+`--no-hires-fix` explicitly selects a single pass. The explicit resize options
+in the example below select the existing growing refinement chain.
 
 The SD1/SDXL/FLUX family presets support repeated img2img refinement, with or without
 ControlNet and with the existing model/VAE/LoRA choices:
@@ -319,8 +347,8 @@ axis is inferred from the base aspect ratio, and those first per-axis factors
 repeat at later passes. Additional options select a shared refinement seed,
 guidance, scheduler and scheduler constructor configuration. Every refinement
 starts fresh scheduler and per-image generator state, reusing its configured
-seed rather than incrementing it by pass. The default is disabled; when
-enabled, passes default to 1, the resize factor is 2, the method is Lanczos,
+seed rather than incrementing it by pass. The default is enabled;
+passes default to 1, the method is Lanczos,
 and strength is 0.35. Steps and seed inherit the base settings. Strength
 selects a portion of each requested schedule, so the active refinement step
 count is normally smaller.
@@ -378,7 +406,7 @@ and revision, all fixture parameters, direct package versions, device, dtype,
 attention-slicing state, safety-checker and watermarker presence, and output
 SHA-256. Custom runs also identify the model's weight role, configuration
 source, VAE override, and each component's source. Its `adapters` array is empty
-for a base run or records the exact LoRA
+when neither a compatible default nor an override applies, or records the exact LoRA
 source, identity, scale, registered components, and active state. A separate
 ControlNet record preserves its model/configuration files, conditioning
 image hashes, and applied controls. For presets

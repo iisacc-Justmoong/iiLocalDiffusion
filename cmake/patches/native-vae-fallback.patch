@@ -1,0 +1,149 @@
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -494,6 +494,25 @@
+ SD_API void sd_ctx_params_init(sd_ctx_params_t* sd_ctx_params);
+ SD_API char* sd_ctx_params_to_str(const sd_ctx_params_t* sd_ctx_params);
+ 
++// Inspect safetensors/GGUF tensor metadata without loading weights. Strings are static.
++typedef enum {
++    SD_VAE_UNSUPPORTED,
++    SD_VAE_EMBEDDED,
++    SD_VAE_MISSING,
++    SD_VAE_INCOMPATIBLE
++} sd_vae_state_t;
++typedef struct {
++    const char* model_family;
++    const char* vae_family;
++    sd_vae_state_t state;
++} sd_model_vae_info_t;
++SD_API bool sd_model_inspect_vae(const char* model_path, sd_model_vae_info_t* info);
++// Validate the external file alone; partial embedded tensors must not complete it.
++SD_API bool sd_model_validate_vae(const char* model_path, const char* vae_path);
++// Compatibility entry points: empty family means embedded or no registered fallback.
++SD_API bool sd_model_missing_vae_family(const char* model_path, const char** family);
++SD_API bool sd_model_requires_qwen_image_vae(const char* model_path, bool* required);
++
+ SD_API sd_ctx_t* new_sd_ctx(const sd_ctx_params_t* sd_ctx_params);
+ SD_API void free_sd_ctx(sd_ctx_t* sd_ctx);
+ SD_API void free_sd_audio(sd_audio_t* audio);
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -22,6 +22,7 @@
+ #include "model_loader.h"
+ #include "model_manager.h"
+ #include "stable-diffusion.h"
++#include "ggml-cpu.h"
+ 
+ #include "conditioning/conditioner.hpp"
+ #include "core/backend_fit.h"
+@@ -3866,6 +3867,110 @@
+     return !sd_version_supports_video_generation(version);
+ }
+ 
++static sd_model_vae_info_t sd_vae_contract(SDVersion version) {
++    sd_model_vae_info_t info = {"other", "", SD_VAE_UNSUPPORTED};
++    if (sd_version_is_sd1(version)) info = {"sd15", "sd15", SD_VAE_MISSING};
++    else if (sd_version_is_sd2(version)) info = {"sd2", "sd2", SD_VAE_MISSING};
++    else if (sd_version_is_sd3(version)) info = {"sd3", "sd3", SD_VAE_MISSING};
++    else if (sd_version_is_sdxl(version)) info = {"sdxl-base", "sdxl-base", SD_VAE_MISSING};
++    else switch (version) {
++        case VERSION_QWEN_IMAGE: info = {"qwen-image", "qwen-image", SD_VAE_MISSING}; break;
++        case VERSION_ANIMA: info = {"anima", "qwen-image", SD_VAE_MISSING}; break;
++        case VERSION_Z_IMAGE: info = {"z-image", "flux1", SD_VAE_MISSING}; break;
++        case VERSION_FLUX:
++        case VERSION_FLUX_FILL:
++        case VERSION_FLUX_CONTROLS: info = {"flux1", "flux1", SD_VAE_MISSING}; break;
++        case VERSION_FLUX2:
++        case VERSION_FLUX2_KLEIN: info = {"flux2", "flux2", SD_VAE_MISSING}; break;
++        case VERSION_QWEN_IMAGE_LAYERED: info.model_family = "qwen-image-layered"; break;
++        default: break;
++    }
++    // Only verified family contracts share resources. Latent channel count alone
++    // does not imply compatible scaling, normalization, patching or RGB/RGBA.
++    return info;
++}
++
++static bool sd_validate_vae_tensors(SDVersion version, const String2TensorStorage& storage) {
++    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> cpu(ggml_backend_cpu_init(), ggml_backend_free);
++    if (!cpu) return false;
++    std::unique_ptr<VAE> vae;
++    if (version == VERSION_QWEN_IMAGE || version == VERSION_ANIMA)
++        vae = std::make_unique<WAN::WanVAERunner>(cpu.get(), storage, "first_stage_model", false, version);
++    else
++        vae = std::make_unique<AutoEncoderKL>(cpu.get(), storage, "first_stage_model", false, false, version);
++    std::map<std::string, ggml_tensor*> required;
++    vae->get_param_tensors(required);
++    if (required.empty()) return false;
++    for (const auto& [name, tensor] : required) {
++        const auto found = storage.find(name);
++        if (found == storage.end() ||
++            !std::equal(tensor->ne, tensor->ne + GGML_MAX_DIMS, found->second.ne)) {
++            LOG_WARN("VAE tensor contract mismatch: %s", name.c_str());
++            return false;
++        }
++    }
++    return true;
++}
++
++bool sd_model_inspect_vae(const char* model_path, sd_model_vae_info_t* info) {
++    if (info == nullptr) return false;
++    *info = {"other", "", SD_VAE_UNSUPPORTED};
++    if (model_path == nullptr || *model_path == '\0') return false;
++    ModelLoader loader;
++    if (!loader.init_from_file(model_path)) return false;
++    loader.convert_tensors_name();
++    const auto version = loader.get_sd_version();
++    *info = sd_vae_contract(version);
++    if (info->state == SD_VAE_UNSUPPORTED) {
++        LOG_INFO("VAE auto-mount-v2: model=%s source=unsupported", info->model_family);
++        return true;
++    }
++    const auto& storage = loader.get_tensor_storage_map();
++    const bool embedded = std::any_of(storage.begin(), storage.end(), [](const auto& entry) {
++        return starts_with(entry.first, "first_stage_model.");
++    });
++    if (embedded)
++        info->state = sd_validate_vae_tensors(version, storage) ? SD_VAE_EMBEDDED : SD_VAE_INCOMPATIBLE;
++    const auto source = info->state == SD_VAE_EMBEDDED ? "embedded-validated"
++        : info->state == SD_VAE_MISSING ? "missing" : "incompatible";
++    LOG_INFO("VAE auto-mount-v2: model=%s family=%s source=%s", info->model_family, info->vae_family, source);
++    return true;
++}
++
++bool sd_model_validate_vae(const char* model_path, const char* vae_path) {
++    if (model_path == nullptr || vae_path == nullptr || *vae_path == '\0') return false;
++    ModelLoader model;
++    if (!model.init_from_file(model_path)) return false;
++    model.convert_tensors_name();
++    const auto version = model.get_sd_version();
++    if (sd_vae_contract(version).state == SD_VAE_UNSUPPORTED) return false;
++    ModelLoader external;
++    if (!external.init_from_file_and_convert_name(vae_path, "vae.", version)) return false;
++    return sd_validate_vae_tensors(version, external.get_tensor_storage_map());
++}
++
++bool sd_model_missing_vae_family(const char* model_path, const char** family) {
++    if (family == nullptr) return false;
++    *family = "";
++    sd_model_vae_info_t info;
++    if (!sd_model_inspect_vae(model_path, &info)) return false;
++    // Retain this legacy API's no-default behavior for SD1/2/3. The richer
++    // inspector reports their missing VAE explicitly to new callers.
++    if ((info.state == SD_VAE_MISSING || info.state == SD_VAE_INCOMPATIBLE)
++        && strcmp(info.vae_family, "sd15") != 0 && strcmp(info.vae_family, "sd2") != 0
++        && strcmp(info.vae_family, "sd3") != 0) *family = info.vae_family;
++    return true;
++}
++
++bool sd_model_requires_qwen_image_vae(const char* model_path, bool* required) {
++    if (required == nullptr) return false;
++    *required = false;
++    const char* family = nullptr;
++    if (!sd_model_missing_vae_family(model_path, &family)) return false;
++    *required = strcmp(family, "qwen-image") == 0;
++    return true;
++}
++
+ sd_ctx_t* new_sd_ctx(const sd_ctx_params_t* sd_ctx_params) {
+     sd_ctx_t* sd_ctx = (sd_ctx_t*)malloc(sizeof(sd_ctx_t));
+     if (sd_ctx == nullptr) {

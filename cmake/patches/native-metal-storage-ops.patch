@@ -1,0 +1,36 @@
+--- a/ggml/src/ggml-metal/ggml-metal-device.m
++++ b/ggml/src/ggml-metal/ggml-metal-device.m
+@@ -1087,6 +1087,20 @@
+     const bool has_simdgroup_mm        = dev->props.has_simdgroup_mm;
+     const bool has_simdgroup_reduction = dev->props.has_simdgroup_reduction;
+     const bool has_bfloat              = dev->props.has_bfloat;
++
++    // Storage and metadata-only views do not execute a typed GPU kernel.
++    // BF16 weights can reside in Metal buffers and be copied to a CPU fallback
++    // even when this device cannot perform BF16 arithmetic.
++    switch (op->op) {
++        case GGML_OP_NONE:
++        case GGML_OP_RESHAPE:
++        case GGML_OP_VIEW:
++        case GGML_OP_TRANSPOSE:
++        case GGML_OP_PERMUTE:
++            return true;
++        default:
++            break;
++    }
+ 
+     if (!has_bfloat) {
+         if (op->type == GGML_TYPE_BF16) {
+@@ -1158,12 +1172,6 @@
+                default:
+                     return false;
+             }
+-        case GGML_OP_NONE:
+-        case GGML_OP_RESHAPE:
+-        case GGML_OP_VIEW:
+-        case GGML_OP_TRANSPOSE:
+-        case GGML_OP_PERMUTE:
+-            return true;
+         case GGML_OP_CONCAT:
+             {
+                 const enum ggml_type src0_type = op->src[0]->type;

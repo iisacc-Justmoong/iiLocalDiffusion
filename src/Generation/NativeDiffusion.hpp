@@ -13,6 +13,7 @@ namespace iiLocalDiffusion {
 struct NativeGenerationRequest {
     std::filesystem::path modelPath;
     std::string prompt;
+    // Final output size. Base inference uses half of each axis before Hires fix.
     int width = 512;
     int height = 512;
     int steps = 20;
@@ -45,13 +46,37 @@ struct NativeGenerationResult {
     std::uint64_t modelBytes = 0;
     double preparationMilliseconds = 0;
 };
+struct NativeLoRA {
+    std::filesystem::path path;
+    float strength = 1.0f;
+};
+// Separate options preserve the ABI of existing request/result structures.
+// An empty LoRA list selects the manifest fallback for the loaded model family.
+// Custom LoRAs replace it; each adapter must match its actual base architecture.
+// Custom negative text is combined with the bundled compatible learned tokens.
+struct NativeGenerationOptions {
+    std::string negativePrompt;
+    std::vector<NativeLoRA> loras;
+    std::filesystem::path resourceDirectory;
+    bool defaultModifiers = true;
+};
+enum class NativeComputeBackend { Automatic, Cpu };
+// Explicit CPU placement supports OS background tasks without GPU access.
+// Existing request/options layouts and entry points retain their ABI.
+IILD_EXPORT NativeGenerationResult generateNativeImageWithBackend(const NativeGenerationRequest &request,
+    NativeComputeBackend backend, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress = {},
+    const std::shared_ptr<NativeExecutionControl> &control = {});
+IILD_EXPORT std::filesystem::path nativeGenerationResourceDirectory();
 // In-process inference. Optionally cache a Q8 derivative on disk; retain one
 // validated model context and its mappings in memory. No downloads/network or
 // child processes. Q8 can change pixels even with the same seed.
 // Call on a worker thread. Cancellation/deadlines are checked while waiting,
 // between weight tensors and between compute segments. GPU calls must return.
-// Output dimensions match the requested 8-pixel grid. Inference uses a canvas
-// rounded up to 64 pixels; extra borders are center-cropped without resampling.
+// Output dimensions match the requested 8-pixel grid. Half-size base inference
+// is followed by Lanczos upscaling and diffusion refinement (strength 0.35).
+// The model aligns its base canvas; the final canvas is rounded up to 64 pixels
+// and extra borders are center-cropped after refinement.
 IILD_EXPORT bool nativeDiffusionAvailable() noexcept;
 // Nonblocking: release idle residency now, or after the active GPU call returns.
 // Call on memory pressure, actual background entry, or application teardown.
@@ -66,4 +91,19 @@ IILD_EXPORT NativeGenerationResult generateNativeImageWithProgress(const NativeG
 IILD_EXPORT NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGenerationRequest &request,
     const std::atomic_bool &cancelled, const NativeProgressCallback &progress,
     const std::shared_ptr<NativeExecutionControl> &control);
+IILD_EXPORT NativeGenerationResult generateNativeImageWithOptions(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress = {},
+    const std::shared_ptr<NativeExecutionControl> &control = {});
+// A storage owner can supply shared resources while retaining explicit CPU
+// placement for an OS background task. No process-wide resource override.
+IILD_EXPORT NativeGenerationResult generateNativeImageWithOptions(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, NativeComputeBackend backend, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress = {},
+    const std::shared_ptr<NativeExecutionControl> &control = {});
+// Validate and retain the same native context without encoding or sampling.
+// Lazy weight placement still occurs at first use. No image is produced.
+IILD_EXPORT NativeGenerationResult prepareNativeImageModel(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress = {});
 }

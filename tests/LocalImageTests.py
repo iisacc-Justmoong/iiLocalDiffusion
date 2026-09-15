@@ -187,12 +187,13 @@ class LocalImageTests(unittest.TestCase):
         plan = request["hires"]
         self.assertEqual((plan["passes"], plan["scale"], plan["strength"], plan["steps"]), (3, 1.5, 0.4, 10))
         self.assertEqual([(x["width"], x["height"]) for x in plan["stages"]], [(96, 96), (144, 144), (216, 216)])
-        self.assertFalse(self.resolve()["hires"]["enabled"])
+        self.assertTrue(self.resolve()["hires"]["enabled"])
+        self.assertFalse(self.resolve("--no-hires-fix")["hires"]["enabled"])
         self.assertEqual(self.resolve("--hires-fix")["hires"]["passes"], 1)
         self.assertEqual(self.resolve("--hires-fix", "--hires-denoising-strength", "0.6")["hires"]["strength"], 0.6)
 
     def test_hires_bad_options_fail_before_managed_server_start(self):
-        for flags in (("--hires-passes", "2"), ("--no-hires-fix", "--hires-scale", "2"),
+        for flags in (("--no-hires-fix", "--hires-passes", "2"), ("--no-hires-fix", "--hires-scale", "2"),
                       ("--hires-fix", "--hires-passes", "0"), ("--hires-fix", "--hires-passes", "-1"),
                       ("--hires-fix", "--hires-strength", "nan"), ("--hires-fix", "--hires-scale", "1"),
                       ("--hires-fix", "--hires-steps", "0")):

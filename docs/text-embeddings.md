@@ -12,10 +12,11 @@ prompt/pooled tensors and bypasses text encoding.
 | `--embeddings` | Completed `prompt_embeds` and related tensors | Replace prompt text encoding with supplied conditioning tensors |
 
 The two input modes cannot be combined in one request. Omitting
-`--text-embedding` leaves learned-token loading disabled. This feature
+`--text-embedding` still loads the [bundled negative defaults](generation-defaults.md).
+An explicit `--no-default-modifiers` selects a baseline without them. This feature
 supports the existing `sd15`, `sdxl-base`, and `flux1-schnell` presets,
 including ControlNet and Hires Fix generation. It does not add textual
-inversion training or native C++ image generation.
+inversion training. Native C++ image generation uses the same bundled defaults.
 
 ## CLI and token selection
 

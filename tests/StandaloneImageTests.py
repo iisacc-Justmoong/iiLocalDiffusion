@@ -51,6 +51,39 @@ class StandaloneImageTests(unittest.TestCase):
                 standalone_image.resolve_arguments(standalone_image.build_parser().parse_args(
                     ["--model", str(model), *extra]))
 
+    def test_sdxl_checkpoint_without_vae_reaches_pipeline_with_bundled_override(self):
+        from model_loading import load_generation_pipeline
+        from unittest.mock import Mock
+        shapes = {
+            "model.diffusion_model.input_blocks.0.0.weight": [1, 4, 1, 1],
+            "model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight": [1, 2048],
+            "conditioner.embedders.0.transformer.text_model.embeddings.position_embedding.weight": [1],
+            "conditioner.embedders.1.model.positional_embedding": [1],
+        }
+        model = self.safetensors(shapes)
+        preset, args = standalone_image.resolve_arguments(standalone_image.build_parser().parse_args(
+            ["--model", str(model), "--no-default-modifiers"]))
+        self.assertIsNone(args.vae_file)
+        self.assertEqual(args.vae_status, "fallback")
+        vae = SimpleNamespace(config=SimpleNamespace(in_channels=3, out_channels=3, latent_channels=4,
+            block_out_channels=(128, 256, 512, 512), scaling_factor=0.13025),
+            named_parameters=lambda: [], named_buffers=lambda: [])
+        result = SimpleNamespace(components={"vae": vae})
+        with patch("model_loading.read_weight_keys", return_value=set(shapes)), \
+                patch("model_loading._load_checkpoint_pipeline", return_value=result) as assemble:
+            pipeline, metadata = load_generation_pipeline(object, preset, args.model_selection, args.config_selection,
+                None, {"dtype": "float32", "cache_dir": self.directory},
+                {"AutoencoderKL": SimpleNamespace(from_pretrained=Mock(return_value=vae))},
+                vae_selection=args.vae_selection, vae_status=args.vae_status)
+        self.assertIs(pipeline, result)
+        self.assertIs(assemble.call_args.args[5]["vae"], vae)
+        self.assertEqual(metadata["component_sources"]["vae"], "vae_fallback")
+
+    def test_missing_text_encoder_is_not_hidden_by_vae_fallback(self):
+        model = self.sd(2048, name="denoiser-only.safetensors")
+        with self.assertRaisesRegex((ValueError, SystemExit), "components"):
+            standalone_image.resolve_arguments(standalone_image.build_parser().parse_args(["--model", str(model)]))
+
     def test_explicit_config_and_prediction_metadata_are_preserved(self):
         model = self.checkpoint(metadata={"prediction_type": "v_prediction"})
         config = checkpoint_config.CONFIGS / "sdxl"

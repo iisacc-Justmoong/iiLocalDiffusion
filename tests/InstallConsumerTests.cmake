@@ -35,6 +35,53 @@ endif()
 # Run against a relocated prefix, including private runtime resources.
 file(RENAME "${stage_directory}" "${WORK_DIRECTORY}/relocated stage")
 set(stage_directory "${WORK_DIRECTORY}/relocated stage")
+set(default_resources "${stage_directory}/share/iiLocalDiffusion/resources")
+file(READ "${default_resources}/generation-defaults.json" defaults_manifest)
+string(JSON default_embedding_count LENGTH "${defaults_manifest}" negative_embeddings)
+if(NOT default_embedding_count EQUAL 7)
+    message(FATAL_ERROR "Installed package must include seven default negative embeddings")
+endif()
+foreach(index RANGE 0 9)
+    if(index EQUAL 9)
+        string(JSON item GET "${defaults_manifest}" fallback_vae config)
+    elseif(index EQUAL 8)
+        string(JSON item GET "${defaults_manifest}" fallback_vae)
+    elseif(index EQUAL 7)
+        string(JSON item GET "${defaults_manifest}" fallback_lora)
+    else()
+        string(JSON item GET "${defaults_manifest}" negative_embeddings ${index})
+    endif()
+    string(JSON filename GET "${item}" file)
+    string(JSON expected_hash GET "${item}" sha256)
+    file(SHA256 "${default_resources}/${filename}" actual_hash)
+    if(NOT actual_hash STREQUAL expected_hash)
+        message(FATAL_ERROR "Relocated default resource differs: ${filename}")
+    endif()
+endforeach()
+if(NOT EXISTS "${default_resources}/vae/qwen-image/LICENSE")
+    message(FATAL_ERROR "Relocated Qwen VAE is missing its Apache-2.0 license")
+endif()
+string(JSON vae_count LENGTH "${defaults_manifest}" fallback_vaes)
+if(NOT vae_count EQUAL 3)
+    message(FATAL_ERROR "Installed package requires SDXL, FLUX.1 and FLUX.2 VAE defaults")
+endif()
+foreach(index RANGE 0 2)
+    string(JSON vae GET "${defaults_manifest}" fallback_vaes ${index})
+    string(JSON config GET "${vae}" config)
+    foreach(item IN ITEMS "${vae}" "${config}")
+        string(JSON filename GET "${item}" file)
+        string(JSON expected_hash GET "${item}" sha256)
+        file(SHA256 "${default_resources}/${filename}" actual_hash)
+        if(NOT actual_hash STREQUAL expected_hash)
+            message(FATAL_ERROR "Relocated VAE resource differs: ${filename}")
+        endif()
+    endforeach()
+endforeach()
+foreach(notice IN ITEMS vae/sdxl/README.md vae/flux1/LICENSE vae/flux1/NOTICE.md vae/flux2/LICENSE.md)
+    if(NOT EXISTS "${default_resources}/${notice}")
+        message(FATAL_ERROR "Relocated VAE is missing its license/provenance: ${notice}")
+    endif()
+endforeach()
 if(LIBTORCH_ENABLED AND
    (NOT EXISTS "${stage_directory}/share/licenses/iiLocalDiffusion/libtorch/LICENSE" OR
     NOT EXISTS "${stage_directory}/share/licenses/iiLocalDiffusion/safetensors-cpp/LICENSE"))
@@ -46,7 +93,7 @@ endif()
 
 foreach(document IN ITEMS README.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md
         docs/generation-io-native.md docs/generation-composition.md docs/deforum-video.md docs/interpolator-video.md
-        docs/temporal-video.md docs/inference-worker.md docs/model-merging.md)
+        docs/temporal-video.md docs/inference-worker.md docs/model-merging.md docs/generation-defaults.md docs/lora.md)
     if(NOT EXISTS "${stage_directory}/${DOC_DIRECTORY}/${document}")
         message(FATAL_ERROR "The installed package is missing documentation: ${document}")
     endif()
@@ -76,6 +123,8 @@ if(PYTHON_REFERENCE_ENABLED)
             diffusers/model_merge.py diffusers/model_merge_options.py diffusers/model_merge_files.py
             diffusers/model_merge_lora.py diffusers/model_merge_lora_targets.py
             diffusers/inference_session.py diffusers/inference_worker.py
+            diffusers/generation_defaults.py diffusers/long_clip_conditioning.py diffusers/lora.py
+            diffusers/vae_defaults.py
             diffusers/standalone_image.py diffusers/checkpoint_config.py diffusers/generation_seed.py diffusers/configs/manifest.json
             diffusers/configs/sd1/model_index.json diffusers/configs/sd1/tokenizer/merges.txt
             diffusers/configs/sd1/LICENSE.txt diffusers/configs/sdxl/model_index.json
@@ -308,7 +357,9 @@ endif()
 file(WRITE "${source_directory}/CMakeLists.txt" [=[
 cmake_minimum_required(VERSION 3.31)
 project(iiLocalDiffusionConsumer LANGUAGES CXX)
-find_package(iiLocalDiffusion 0.3 REQUIRED CONFIG)
+# The command pins iiLocalDiffusion_DIR to the just-relocated package. A stale
+# historical minor version would reject it and select an older system install.
+find_package(iiLocalDiffusion REQUIRED CONFIG)
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     list(FIND CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES
         "$ENV{LIBRARY_PATH}" implicit_package_directory_index)
@@ -319,6 +370,7 @@ endif()
 add_executable(consumer main.cpp)
 target_compile_features(consumer PRIVATE cxx_std_20)
 target_link_libraries(consumer PRIVATE iiLocalDiffusion::iiLocalDiffusion)
+iiLocalDiffusion_deploy_generation_resources(consumer)
 set_target_properties(consumer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/bin"
@@ -331,6 +383,7 @@ set_target_properties(consumer PROPERTIES
 file(WRITE "${source_directory}/main.cpp" [=[
 #include <Flux/FluxModelManifest.hpp>
 #include <Generation/GenerationIO.hpp>
+#include <Generation/NativeDiffusion.hpp>
 #include <Compute/LinearLayer.hpp>
 #include <Compute/CoreMLModel.hpp>
 #include <ModelManifest/DiffusionModelManifest.hpp>
@@ -349,6 +402,9 @@ int main(const int argc, const char *const argv[])
     {
         return 2;
     }
+    const auto resources = iiLocalDiffusion::nativeGenerationResourceDirectory();
+    if (!std::filesystem::is_regular_file(resources / "generation-defaults.json")) return 12;
+    if (!iiLocalDiffusion::NativeGenerationOptions{}.defaultModifiers) return 13;
     const iild::GenerationTensorSpec state{iild::TensorDType::float32, {1, 2}, "BC",
         iild::GenerationSemantic::sample, "vae:installed-consumer"};
     auto prediction = state;
@@ -472,6 +528,7 @@ execute_process(
         -B "${binary_directory}"
         -G "${GENERATOR}"
         "-DCMAKE_PREFIX_PATH=${stage_directory}"
+        "-DiiLocalDiffusion_DIR=${stage_directory}/lib/cmake/iiLocalDiffusion"
     RESULT_VARIABLE configure_result
     OUTPUT_VARIABLE configure_output
     ERROR_VARIABLE configure_error

@@ -97,7 +97,8 @@ class ComfyUIImageWorkflowTests(unittest.TestCase):
         self.objects = object_info()
 
     def build(self, name="Illustrious", model="checkpoint.safetensors", components=None, **kwargs):
-        return build_workflow(name, model, components or {}, "a lighthouse", self.objects, **kwargs)
+        return build_workflow(name, model, components or {}, "a lighthouse", self.objects,
+                              **{"hires_fix": False, **kwargs})
 
     def test_sdxl_derivatives_keep_checkpoint_model_clip_and_vae_roles(self):
         for name in ("SDXL 1.0", "Illustrious", "NoobAI", "Pony"):
@@ -290,10 +291,17 @@ class ComfyUIImageWorkflowTests(unittest.TestCase):
         self.assertEqual(self.objects, before)
         self.assertEqual(components, {"vae": "vae.safetensors"})
 
-    def test_hires_omission_keeps_the_original_graph(self):
-        self.assertEqual(self.build(seed=0), self.build(seed=0, hires_fix=False))
+    def test_hires_default_halves_base_and_refines_to_requested_target(self):
+        graph = build_workflow("Illustrious", "checkpoint.safetensors", {}, "a lighthouse", self.objects,
+                               width=1024, height=1368, steps=1)
+        self.assertEqual(classes(graph, "EmptyLatentImage")[0][1]["width"], 512)
+        self.assertEqual(classes(graph, "EmptyLatentImage")[0][1]["height"], 688)
+        self.assertEqual([(x["width"], x["height"]) for _, x in classes(graph, "ImageScale")], [(1024, 1368)])
+        self.assertEqual(len(classes(graph, "VAEEncode")), 1)
+        self.assertEqual(len(classes(graph, "SamplerCustomAdvanced")), 1)
         self.assertFalse(classes(self.build(), "ImageScale"))
-        self.assertEqual(resolve_workflow_hires("Illustrious"), {"enabled": False, "passes": 0, "stages": []})
+        self.assertEqual(resolve_workflow_hires("Illustrious", hires_fix=False),
+                         {"enabled": False, "passes": 0, "stages": []})
 
     def test_hires_repeat_uses_latest_refinement_as_next_input_and_saves_only_final(self):
         graph = self.build(width=64, height=64, hires_fix=True, hires_passes=3,
@@ -325,7 +333,7 @@ class ComfyUIImageWorkflowTests(unittest.TestCase):
             with self.subTest(name=name):
                 components = {"Ideogram 4.0": {"model_negative": "negative.safetensors"},
                               "Stable Cascade": {"decoder": "decoder.safetensors"}}.get(name, {})
-                size = 256 if name in ("Ideogram 4.0", "Stable Cascade") else 64
+                size = 512 if name in ("Ideogram 4.0", "Stable Cascade") else 64
                 graph = self.build(name, components=components, width=size, height=size,
                                    hires_fix=True, hires_passes=2, hires_steps=10)
                 validate_workflow(graph, self.objects)
@@ -335,11 +343,11 @@ class ComfyUIImageWorkflowTests(unittest.TestCase):
     def test_hires_flux2_and_ideogram_keep_size_aware_native_schedules(self):
         for name, schedule, components in (("Flux.2 D", "Flux2Scheduler", {}),
                                            ("Ideogram 4.0", "Ideogram4Scheduler", {"model_negative": "negative.safetensors"})):
-            size = 256 if name == "Ideogram 4.0" else 64
+            size = 512 if name == "Ideogram 4.0" else 64
             graph = self.build(name, components=components, width=size, height=size,
                                hires_fix=True, hires_passes=2, hires_steps=10)
             self.assertEqual([(x["width"], x["height"]) for _, x in classes(graph, schedule)],
-                             [(size, size), (size * 2, size * 2), (size * 4, size * 4)])
+                             [(size // 2, size // 2), (size, size), (size, size)])
             self.assertFalse(classes(graph, "BasicScheduler"))
             if name == "Ideogram 4.0":
                 guiders = classes(graph, "DualModelGuider")
@@ -348,9 +356,9 @@ class ComfyUIImageWorkflowTests(unittest.TestCase):
 
     def test_hires_resolution_conditioning_updates_and_cascade_refines_stage_b(self):
         graph = self.build("PixArt a", width=64, height=64, hires_fix=True, hires_passes=2)
-        self.assertEqual([x["width"] for _, x in classes(graph, "CLIPTextEncodePixArtAlpha")], [64, 64, 128, 128, 256, 256])
+        self.assertEqual([x["width"] for _, x in classes(graph, "CLIPTextEncodePixArtAlpha")], [32, 32, 64, 64, 64, 64])
         graph = self.build("Lens", width=64, height=64, hires_fix=True, hires_passes=2)
-        self.assertEqual([x["width"] for _, x in classes(graph, "ModelSamplingFlux")], [64, 128, 256])
+        self.assertEqual([x["width"] for _, x in classes(graph, "ModelSamplingFlux")], [32, 64, 64])
         graph = self.build("Stable Cascade", components={"decoder": "decoder.safetensors"}, hires_fix=True, hires_passes=2)
         decoder = classes(graph, "UNETLoader")[0][0]
         self.assertEqual(len(classes(graph, "KSampler")), 2)
@@ -358,8 +366,9 @@ class ComfyUIImageWorkflowTests(unittest.TestCase):
 
     def test_hires_plan_defaults_rounding_effective_steps_and_invalid_values(self):
         plan = resolve_workflow_hires("Illustrious", width=64, height=64, hires_fix=True, steps=10)
-        self.assertEqual((plan["passes"], plan["scale"], plan["strength"], plan["effective_steps"]), (1, 2.0, 0.35, 4))
-        self.assertEqual(plan["stages"], [{"pass_index": 1, "width": 128, "height": 128}])
+        self.assertEqual((plan["passes"], plan["scale"], plan["strength"], plan["effective_steps"]), (1, None, 0.35, 4))
+        self.assertEqual(plan["base_size"], [32, 32])
+        self.assertEqual(plan["stages"], [{"pass_index": 1, "width": 64, "height": 64}])
         for values in ({"hires_passes": 0}, {"hires_passes": -1}, {"hires_passes": True}, {"hires_passes": 1.5},
                        {"hires_scale": 1}, {"hires_scale": float("inf")}, {"hires_strength": 0},
                        {"hires_strength": float("nan")}, {"hires_strength": 1.1}, {"hires_steps": 0},

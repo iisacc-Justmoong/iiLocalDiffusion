@@ -167,6 +167,21 @@ class GenerationPreviewTests(unittest.TestCase):
             validate_preview_location(self.directory / "preview", self.directory)
         validate_preview_location(self.directory / "preview", self.directory / "final")
 
+    def test_hires_reuses_preview_storage_and_preserves_both_denoising_audits(self):
+        from hires import DenoisingAudit
+        preview = None
+        for width in (32, 64):
+            audit = DenoisingAudit(torch)
+            arguments = {"callback_on_step_end": audit}
+            preview = attach_preview(self.pipeline, arguments, self.directory / "preview", torch,
+                                     width, width, preview=preview)
+            with contextlib.redirect_stdout(io.StringIO()):
+                arguments["callback_on_step_end"](self.pipeline, 0, 3, {"latents": torch.ones((1, 4, 8, 8))})
+            self.assertEqual(audit.metadata()["executed_steps"], 1)
+        self.assertEqual(preview.width, 64)
+        self.assertEqual(sorted(path.name for path in preview.directory.iterdir()),
+                         ["step-000001.png", "step-000002.png"])
+
 
 if __name__ == "__main__":
     unittest.main()

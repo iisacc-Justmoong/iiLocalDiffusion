@@ -859,6 +859,9 @@ class ModelLoadingTests(unittest.TestCase):
     def test_custom_nonvariant_configuration_does_not_inherit_preset_fp16_variant(self):
         parser = local_parser(self.generate.build_parser)
         model = self.weight()
+        header = json.dumps({"first_stage_model.decoder.conv_in.weight":
+                             {"dtype": "F32", "shape": [1], "data_offsets": [0, 4]}}).encode()
+        Path(model.path).write_bytes(len(header).to_bytes(8, "little") + header + b"\0" * 4)
         directory = self.configuration(presets.SDXL_BASE_PRESET)
         weights = directory / "text_encoder" / "model.safetensors"
         weights.parent.mkdir()

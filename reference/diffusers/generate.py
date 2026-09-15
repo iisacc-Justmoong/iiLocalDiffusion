@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 from contextlib import nullcontext
-from dataclasses import dataclass
 from functools import lru_cache
 import hashlib
 import importlib.metadata
@@ -40,13 +39,16 @@ from hardware import (
     accelerator_preflight, configure_tensor_cores, select_device, validate_execution_device,
 )
 from hires import DenoisingAudit, image_metadata, run_hires_fix, validate_stage_images
-from hires_options import add_hires_options, resolve_hires_options
+from hires_options import add_hires_options, base_request, resolve_hires_options
 from interpolator_options import add_interpolator_options, resolve_interpolator_options
 from inference_session import (SchedulerConfiguration, cached_pipeline, cached_placement,
                                is_preparing, record_device_placement, record_execution, verify_pipeline_sources)
 from text_embedding_options import add_text_embedding_options, resolve_text_embedding_options
 from text_embeddings import apply_text_embeddings, text_embedding_prompt_context, validate_text_embeddings
+from lora import (LORA_ADAPTER_NAME, LoraActivation, LoraSelection, add_lora_options,
+                  apply_lora, lora_metadata, resolve_lora_selection)
 from model_loading import load_generation_pipeline, selection_metadata
+from vae_defaults import resolve_preset_vae, verify_vae_selection, vae_metadata
 from presets import (
     DEFAULT_PRESET_NAME,
     PRESETS,
@@ -56,10 +58,6 @@ from presets import (
     validate_pipeline_contract,
 )
 from weight_files import (
-    LocalWeightFile,
-    SAFETENSORS_SUFFIXES,
-    cached_model_sha256,
-    checked_safetensors_path,
     file_sha256,
     resolve_weight_file,
     verify_weight_file,
@@ -75,30 +73,11 @@ DEFAULT_WIDTH = SD15_PRESET.width
 DEFAULT_HEIGHT = SD15_PRESET.height
 DEFAULT_STEPS = SD15_PRESET.steps
 DEFAULT_GUIDANCE_SCALE = SD15_PRESET.guidance_scale
-LORA_ADAPTER_NAME = "iild_lora"
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CACHE_DIRECTORY = REPOSITORY_ROOT / "build" / "reference" / "huggingface"
 DEFAULT_XET_CACHE_DIRECTORY = REPOSITORY_ROOT / "build" / "reference" / "huggingface-xet"
 DEFAULT_OUTPUT = REPOSITORY_ROOT / "build" / "reference" / SD15_PRESET.generation_filename
-
-
-@dataclass(frozen=True)
-class LoraSelection:
-    source: str
-    weight_name: str
-    requested_revision: str | None
-    is_local: bool
-    scale: float
-    sha256: str | None
-    size_bytes: int | None
-    local_file: LocalWeightFile | None = None
-
-
-@dataclass(frozen=True)
-class LoraActivation:
-    active_adapters: tuple[str, ...]
-    registered_components: tuple[str, ...]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -129,27 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vae", default=None, help="Replacement local VAE .safetensors or .safetensor file"
     )
-    parser.add_argument(
-        "--lora",
-        default=None,
-        help="Local LoRA safetensors file or directory",
-    )
-    parser.add_argument(
-        "--lora-revision",
-        default=None,
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "--lora-weight-name",
-        default=None,
-        help="Exact .safetensors filename for a local LoRA directory",
-    )
-    parser.add_argument(
-        "--lora-scale",
-        type=float,
-        default=None,
-        help="LoRA adapter scale; defaults to 1.0",
-    )
+    add_lora_options(parser)
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIRECTORY)
     parser.add_argument("--xet-cache-dir", type=Path, default=DEFAULT_XET_CACHE_DIRECTORY)
     parser.add_argument("--output", type=Path, default=None)
@@ -177,6 +136,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--negative-prompt", default=DEFAULT_NEGATIVE_PROMPT)
+    parser.add_argument("--default-modifiers", action=argparse.BooleanOptionalAction, default=True,
+                        help="Use bundled family-compatible negative embeddings and fallback LoRA (default: enabled)")
+    parser.add_argument("--generation-resources", type=Path, default=None,
+                        help="Relocated iiLocalDiffusion resources directory containing generation-defaults.json")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED,
                         help="Base seed; omitted chooses a random seed for each request and records it")
     parser.add_argument("--width", type=int, default=None)
@@ -274,8 +237,14 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset | None, 
     resolved.model_selection = selection
     resolved.config_selection = config_selection
     resolved.vae_file = vae_file
+    resolved.vae_selection, resolved.vae_status = resolve_preset_vae(preset, resolved)
     resolved.latents_file = latents_file
     resolved.embeddings_file = embeddings_file
+    from generation_defaults import resolve_default_lora, resolve_default_embeddings
+    try:
+        resolve_default_lora(preset, resolved)
+    except (ValueError, OSError) as error:
+        raise SystemExit(str(error)) from error
     resolved.lora_selection = resolve_lora_selection(resolved)
     if resolved.lora_selection is not None:
         resolved.lora_scale = resolved.lora_selection.scale
@@ -292,6 +261,7 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset | None, 
         resolve_controlnet_options(preset, resolved)
         resolve_hires_options(preset, resolved)
         resolve_text_embedding_options(preset, resolved)
+        resolve_default_embeddings(preset, resolved)
         resolve_animation_options(resolved)
         resolve_deforum_options(preset, resolved)
         resolve_interpolator_options(preset, resolved)
@@ -303,9 +273,9 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset | None, 
         modifiers.append("custom")
     if vae_file is not None:
         modifiers.append("vae")
-    if resolved.lora_selection is not None:
+    if args.lora is not None:
         modifiers.append("lora")
-    if resolved.text_embedding_selections:
+    if args.text_embedding:
         modifiers.append("embedding")
     if resolved.controlnet_selection is not None:
         modifiers.append("controlnet")
@@ -329,86 +299,6 @@ def resolve_request(values: dict[str, Any] | None = None) -> tuple[PipelinePrese
     preset, args = resolve_arguments(build_parser().parse_values(values))
     validate_generation_arguments(preset, args)
     return preset, args
-
-
-def _validate_lora_weight_name(weight_name: str, *, local: bool = False) -> None:
-    suffixes = SAFETENSORS_SUFFIXES if local else (".safetensors",)
-    if (
-        not weight_name
-        or "/" in weight_name
-        or "\\" in weight_name
-        or Path(weight_name).suffix not in suffixes
-    ):
-        raise SystemExit(
-            "--lora-weight-name must be one .safetensors filename without directories."
-        )
-
-
-def resolve_lora_selection(args: argparse.Namespace) -> LoraSelection | None:
-    if args.lora is None:
-        if args.lora_revision is not None or args.lora_weight_name is not None:
-            raise SystemExit(
-                "Using --lora-revision or --lora-weight-name requires --lora."
-            )
-        if args.lora_scale is not None:
-            raise SystemExit("--lora-scale requires --lora.")
-        return None
-
-    scale = 1.0 if args.lora_scale is None else args.lora_scale
-    if not math.isfinite(scale):
-        raise SystemExit("--lora-scale must be finite.")
-
-    source = args.lora
-    if not source:
-        raise SystemExit("--lora must not be empty.")
-    candidate = Path(source).expanduser()
-    looks_local = (
-        candidate.exists()
-        or candidate.is_absolute()
-        or source.startswith((".", "~"))
-        or source.lower().endswith(SAFETENSORS_SUFFIXES)
-    )
-    if looks_local and not candidate.exists():
-        raise SystemExit(f"Local LoRA path does not exist: {candidate}")
-
-    if candidate.exists():
-        if args.lora_revision is not None:
-            raise SystemExit("A local LoRA does not accept --lora-revision.")
-        if candidate.is_file():
-            if args.lora_weight_name is not None:
-                raise SystemExit(
-                    "A direct LoRA file does not accept --lora-weight-name."
-                )
-            resolved_file = candidate.absolute()
-        elif candidate.is_dir():
-            if args.lora_weight_name is None:
-                raise SystemExit(
-                    "A LoRA directory requires --lora-weight-name."
-                )
-            _validate_lora_weight_name(args.lora_weight_name, local=True)
-            resolved_file = (candidate / args.lora_weight_name).absolute()
-        else:
-            raise SystemExit(f"Local LoRA path is not a regular file or directory: {candidate}")
-
-        _validate_lora_weight_name(resolved_file.name, local=True)
-        if not resolved_file.is_file() or resolved_file.stat().st_size == 0:
-            raise SystemExit(f"LoRA safetensors file is missing or empty: {resolved_file}")
-        try:
-            local_file = resolve_weight_file(str(resolved_file), "--lora")
-        except ValueError as error:
-            raise SystemExit(str(error)) from error
-        return LoraSelection(
-            source=str(resolved_file.parent),
-            weight_name=resolved_file.name,
-            requested_revision=None,
-            is_local=True,
-            scale=scale,
-            sha256=local_file.sha256,
-            size_bytes=local_file.size_bytes,
-            local_file=local_file,
-        )
-
-    raise SystemExit(f"--lora must be an existing local file or directory: {source}")
 
 
 @lru_cache(maxsize=1)
@@ -485,94 +375,6 @@ def package_versions(require_lora: bool) -> dict[str, str]:
     return versions
 
 
-def _verify_local_lora_identity(selection: LoraSelection) -> None:
-    if not selection.is_local:
-        return
-    if selection.local_file is not None:
-        verify_weight_file(selection.local_file, "LoRA")
-        return
-    path = Path(selection.source) / selection.weight_name
-    if (
-        not path.is_file()
-        or path.stat().st_size != selection.size_bytes
-        or cached_model_sha256(path) != selection.sha256
-    ):
-        raise RuntimeError(
-            f"Local LoRA changed after argument resolution: {path}"
-        )
-
-
-def apply_lora(
-    pipeline: Any,
-    selection: LoraSelection | None,
-    cache_directory: Path,
-    local_files_only: bool,
-    *,
-    low_cpu_mem_usage: bool = True,
-) -> LoraActivation | None:
-    if selection is None:
-        return None
-
-    if not selection.is_local:
-        raise ValueError("LoRA generation requires local weights.")
-    load_arguments: dict[str, Any] = {
-        "adapter_name": LORA_ADAPTER_NAME,
-        "cache_dir": cache_directory,
-        "local_files_only": True,
-        "low_cpu_mem_usage": low_cpu_mem_usage,
-        "use_safetensors": True,
-        "weight_name": selection.weight_name,
-    }
-
-    try:
-        if selection.local_file is not None:
-            with checked_safetensors_path(
-                selection.local_file, cache_directory / "single-file-aliases", "LoRA"
-            ) as path:
-                load_arguments["weight_name"] = path.name
-                pipeline.load_lora_weights(str(path.parent), **load_arguments)
-        else:
-            _verify_local_lora_identity(selection)
-            pipeline.load_lora_weights(selection.source, **load_arguments)
-            _verify_local_lora_identity(selection)
-        pipeline.set_adapters(LORA_ADAPTER_NAME, adapter_weights=selection.scale)
-        adapters_by_component = pipeline.get_list_adapters()
-    except Exception as error:
-        raise RuntimeError(
-            f"Could not load and activate LoRA {selection.source}/{selection.weight_name}: "
-            f"{error}"
-        ) from error
-
-    registered_components = tuple(
-        sorted(
-            component
-            for component, adapter_names in adapters_by_component.items()
-            if LORA_ADAPTER_NAME in adapter_names
-        )
-    )
-    if not registered_components:
-        raise RuntimeError(
-            f"LoRA adapter {LORA_ADAPTER_NAME} was not registered and activated."
-        )
-
-    active_adapters: set[str] = set()
-    for component in registered_components:
-        model_component = getattr(pipeline, component, None)
-        active_adapter_query = getattr(model_component, "active_adapters", None)
-        if not callable(active_adapter_query):
-            raise RuntimeError(
-                f"LoRA component {component} cannot report its active adapters."
-            )
-        component_active_adapters = tuple(active_adapter_query())
-        if LORA_ADAPTER_NAME not in component_active_adapters:
-            raise RuntimeError(
-                f"LoRA adapter {LORA_ADAPTER_NAME} is not active on {component}."
-            )
-        active_adapters.update(component_active_adapters)
-
-    return LoraActivation(tuple(sorted(active_adapters)), registered_components)
-
-
 def prepare_pipeline_with_adapters(
     pipeline: Any,
     preset: PipelinePreset,
@@ -593,15 +395,22 @@ def prepare_pipeline_with_adapters(
     if (getattr(args, "timesteps", None) is not None or getattr(args, "sigmas", None) is not None
             or getattr(args, "eta", 0) != 0):
         validate_scheduler_values(pipeline, args)
-    args.text_embedding_activation = apply_text_embeddings(pipeline, preset, args, torch)
-    activation = apply_lora(
-        pipeline,
-        args.lora_selection,
-        args.cache_dir,
-        args.local_files_only,
-        **({"low_cpu_mem_usage": False} if not getattr(args, "low_cpu_mem_usage", True) else {}),
-    )
-    validate_text_embeddings(pipeline, args.text_embedding_activation, torch)
+    prepared_modifiers = (getattr(pipeline, "_iild_prepared_modifiers", None)
+                          if getattr(args, "_retain_modifiers", False) else None)
+    if prepared_modifiers is None:
+        args.text_embedding_activation = apply_text_embeddings(pipeline, preset, args, torch)
+        activation = apply_lora(
+            pipeline,
+            args.lora_selection,
+            args.cache_dir,
+            args.local_files_only,
+            **({"low_cpu_mem_usage": False} if not getattr(args, "low_cpu_mem_usage", True) else {}),
+        )
+        validate_text_embeddings(pipeline, args.text_embedding_activation, torch)
+        if getattr(args, "_retain_modifiers", False):
+            pipeline._iild_prepared_modifiers = (args.text_embedding_activation, activation)
+    else:
+        args.text_embedding_activation, activation = prepared_modifiers
     conditioning = None
     if getattr(args, "latents_file", None) is not None or getattr(args, "embeddings_file", None) is not None:
         if torch is None:
@@ -640,40 +449,6 @@ def prepare_pipeline_with_adapters(
     )
     optimization["requested_offload"] = requested_offload
     return pipeline, optimization, activation, conditioning
-
-
-def lora_metadata(
-    selection: LoraSelection | None,
-    activation: LoraActivation | None,
-) -> dict[str, Any] | None:
-    if selection is None:
-        return None
-    if activation is None:
-        raise RuntimeError("LoRA metadata requires a verified activation.")
-    return {
-        "active_adapters": list(activation.active_adapters),
-        "adapter_name": LORA_ADAPTER_NAME,
-        "format": "safetensors",
-        "fused": False,
-        "is_local": selection.is_local,
-        "registered_components": list(activation.registered_components),
-        "requested_revision": selection.requested_revision,
-        "resolved_file": (
-            (
-                selection.local_file.resolved_file
-                if selection.local_file is not None
-                else str(Path(selection.source) / selection.weight_name)
-            )
-            if selection.is_local
-            else None
-        ),
-        "scale": selection.scale,
-        "sha256": selection.sha256,
-        "size_bytes": selection.size_bytes,
-        "source": selection.source,
-        "type": "lora",
-        "weight_name": selection.weight_name,
-    }
 
 
 def write_json_atomically(path: Path, value: dict[str, Any], *, overwrite: bool = True) -> None:
@@ -895,8 +670,8 @@ def prepare_pipeline_for_execution(
 
 def validate_generation_arguments(preset: PipelinePreset | None, args: argparse.Namespace) -> None:
     if getattr(args, "preview_dir", None) is not None and (
-            preset is None or args.animation_mode != "none" or args.hires_fix):
-        raise ValueError("Live previews currently require a local, single-pass image generation request.")
+            preset is None or args.animation_mode != "none"):
+        raise ValueError("Live previews currently require a local still-image generation request.")
     if getattr(args, "preview_dir", None) is not None:
         validate_preview_location(args.preview_dir, getattr(args, "output_dir", None) or args.output.parent)
     if preset is None:
@@ -952,23 +727,32 @@ def main(argv=None) -> int:
 
 def retainable_pipeline(args):
     return (args.model_selection.is_local and args.animation_mode == "none"
-                 and not args.hires_fix and args.lora_selection is None
-                 and args.controlnet_selection is None and not args.text_embedding_selections
+                 and (not args.hires_fix or getattr(args, "hires_target_mode", False))
+                 and args.controlnet_selection is None
                  and not args.cpu_text_encoding and args.latents_file is None and args.embeddings_file is None)
 
 
 def prepared_pipeline(preset, args, pipeline_classes, load_arguments, device, dtype, attention_slicing, torch):
     """Retain model composition separately from its execution placement."""
     cacheable = retainable_pipeline(args)
+    args._retain_modifiers = cacheable
     sources = [args.model_selection.source]
     if args.config_selection is not None:
         sources.append(args.config_selection.source)
     if args.vae_file is not None:
         sources.append(args.vae_file.path)
+    vae_selection = getattr(args, "vae_selection", None)
+    if vae_selection is not None:
+        verify_vae_selection(vae_selection)
+        sources.extend([vae_selection.weight.path, vae_selection.config_path])
+    if args.lora_selection is not None:
+        sources.append(str(Path(args.lora_selection.source) / args.lora_selection.weight_name))
+    sources.extend(item.file.path for item in args.text_embedding_selections)
     def compose():
         pipeline, loading = load_generation_pipeline(
             pipeline_classes[preset.pipeline_class], preset, args.model_selection,
-            args.config_selection, args.vae_file, load_arguments, pipeline_classes)
+            args.config_selection, args.vae_file, load_arguments, pipeline_classes,
+            vae_selection=vae_selection, vae_status=getattr(args, "vae_status", None))
         pipeline, controlnet = attach_controlnet(pipeline, preset, args, pipeline_classes, dtype)
         if controlnet is not None:
             loading["component_sources"]["controlnet"] = "controlnet_override"
@@ -986,7 +770,8 @@ def prepared_pipeline(preset, args, pipeline_classes, load_arguments, device, dt
 
     # Only construction inputs belong here. Sampling options never reload weights.
     construction = {name: value for name, value in load_arguments.items() if name != "cache_dir"}
-    key = ("preset", preset.name, str(dtype), json.dumps(construction, sort_keys=True, default=str))
+    key = ("preset", preset.name, str(dtype), json.dumps(construction, sort_keys=True, default=str),
+           repr(args.lora_selection), repr(args.text_embedding_selections), repr(vae_selection))
     def load():
         pipeline, loading, controlnet = compose()
         return pipeline, loading, controlnet, SchedulerConfiguration(pipeline)
@@ -1012,6 +797,7 @@ def prepared_pipeline(preset, args, pipeline_classes, load_arguments, device, dt
         return prepare_pipeline_with_adapters(pipeline, preset, args, device, attention_slicing, torch,
                                               scheduler_configured=True)
     (pipeline, optimization, activation, conditioning), placement_hit = cached_placement(placement, place)
+    args.text_embedding_activation = getattr(pipeline, "_iild_prepared_modifiers", (None, None))[0]
     args.model_configuration_cache_hit, args.device_placement_cache_hit = configuration_hit, placement_hit
     optimization = {**optimization, "requested_offload": args.offload}
     return pipeline, loading, controlnet, optimization, activation, conditioning, configuration_hit and placement_hit
@@ -1021,7 +807,7 @@ def run(preset, args) -> int:
     validate_generation_arguments(preset, args)
     preparing = is_preparing()
     if preparing and (preset is None or not retainable_pipeline(args)):
-        raise ValueError("Foreground preparation requires a retained local single-pass image pipeline.")
+        raise ValueError("Foreground preparation requires a retained local image pipeline.")
     if args.print_config:
         print(json.dumps(configuration_values(args), indent=2, sort_keys=True, allow_nan=False))
         return 0
@@ -1036,6 +822,7 @@ def run(preset, args) -> int:
             print(f"Image: {report['image']['file']}")
         return 0
 
+    args = base_request(preset, args)
     os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1")
     animation = args.animation_mode != "none"
     animation_environment = None
@@ -1151,7 +938,8 @@ def run(preset, args) -> int:
         base_audit = DenoisingAudit(torch) if args.hires_fix else None
         if base_audit is not None:
             call_arguments["callback_on_step_end"] = base_audit
-        attach_preview(pipeline, call_arguments, getattr(args, "preview_dir", None), torch, args.width, args.height)
+        args._preview_callback = attach_preview(pipeline, call_arguments,
+            getattr(args, "preview_dir", None), torch, args.width, args.height)
         result = pipeline(**call_arguments)
 
     render_args = args
@@ -1219,7 +1007,9 @@ def run(preset, args) -> int:
                                  "channel_extrema": image.getextrema()})
         hires_metadata["base"]["outputs"] = base_outputs
 
+    verify_vae_selection(getattr(args, "vae_selection", None))
     metadata: dict[str, Any] = {
+        "generation_defaults": getattr(args, "default_modifier_metadata", {}),
         "adapters": (
             []
             if args.lora_selection is None
@@ -1257,6 +1047,7 @@ def run(preset, args) -> int:
             "note": "Custom schedules override the step-count request; early stopping may use only part of this schedule.",
         },
         "vae": {
+            **vae_metadata(getattr(args, "vae_selection", None), getattr(args, "vae_status", "model")),
             "overridden": args.vae_file is not None,
             "source": loading_metadata["component_sources"]["vae"],
             "file": loading_metadata["vae_override"],

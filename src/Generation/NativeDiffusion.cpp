@@ -1,6 +1,9 @@
 #include "NativeDiffusion.hpp"
 #include "NativeCachePolicy.hpp"
 #include "NativeDiskCache.hpp"
+#include "NativeVaePolicy.hpp"
+#include "GenerationDefaults.hpp"
+#include <cmath>
 #include <algorithm>
 #include <memory>
 #include <mutex>
@@ -31,6 +34,10 @@ struct EngineCache {
     std::atomic_uint64_t releaseEpoch{0};
     std::unique_ptr<sd_ctx_t, decltype(&free_sd_ctx)> context{nullptr, free_sd_ctx};
     std::string identity;
+    std::string inspectedModelIdentity;
+    sd_model_vae_info_t vaeInfo{};
+    std::string missingVaeFamily;
+    std::string validatedVaeIdentity;
     std::uint64_t budget = 0;
 };
 EngineCache &engineCache() { static EngineCache cache; return cache; }
@@ -38,6 +45,7 @@ thread_local bool ownsEngine = false;
 }
 #endif
 bool nativeDiffusionAvailable() noexcept { return IILD_HAS_NATIVE_DIFFUSION; }
+std::filesystem::path nativeGenerationResourceDirectory() { return native_detail::generationResourceDirectory(); }
 void releaseNativeDiffusionCache() noexcept {
 #if IILD_HAS_NATIVE_DIFFUSION
     auto &cache = engineCache();
@@ -71,6 +79,14 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
     const std::atomic_bool &cancelled, const NativeProgressCallback &progress,
     const std::shared_ptr<NativeExecutionControl> &control)
 {
+    return generateNativeImageWithOptions(request, {}, cancelled, progress, control);
+}
+
+static NativeGenerationResult nativeImage(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control,
+    bool prepareOnly, NativeComputeBackend backend = NativeComputeBackend::Automatic)
+{
     NativeGenerationResult result;
     const auto started = std::chrono::steady_clock::now();
     const auto pausedAtStart = control ? control->pausedDuration() : NativeExecutionControl::Clock::duration::zero();
@@ -91,6 +107,12 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
             || request.width % 8 || request.height % 8 || request.steps < 1 || request.steps > 1000
             || request.timeoutMilliseconds < 1)
             throw std::runtime_error("Invalid native image generation parameters.");
+        if (options.negativePrompt.size() > 128000 || options.negativePrompt.find('\0') != std::string::npos)
+            throw std::runtime_error("Invalid native negative prompt.");
+        for (const auto &lora : options.loras)
+            if (!lora.path.is_absolute() || !std::filesystem::is_regular_file(lora.path)
+                || std::filesystem::canonical(lora.path) != lora.path || !std::isfinite(lora.strength))
+                throw std::runtime_error("Choose an available local LoRA and finite strength.");
 #if IILD_HAS_NATIVE_DIFFUSION
         // Upstream callbacks are process-global. Serialize only this backend's
         // calls and clear callback state before any caller-owned data is freed.
@@ -180,6 +202,13 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
         result.threads = std::max(result.threads, static_cast<int>(std::thread::hardware_concurrency()));
 #endif
         const auto sourceIdentity = native_detail::modelIdentity(request.modelPath);
+        const auto defaults = options.defaultModifiers
+            ? native_detail::loadGenerationDefaults(options.resourceDirectory) : native_detail::GenerationDefaults{};
+        std::vector<std::string> embeddingPaths;
+        for (const auto &embedding : defaults.embeddings) embeddingPaths.push_back(embedding.path.string());
+        std::vector<sd_embedding_t> embeddings;
+        for (std::size_t i = 0; i < defaults.embeddings.size(); ++i)
+            embeddings.push_back({defaults.embeddings[i].token.c_str(), embeddingPaths[i].c_str()});
         auto effectiveModel = request.modelPath;
         if (!request.q8CacheDirectory.empty()) {
             Elapsed timing{result.preparationMilliseconds};
@@ -204,7 +233,33 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
         } else result.modelBytes = std::filesystem::file_size(effectiveModel);
         const auto model = effectiveModel.string();
         const auto effectiveIdentity = native_detail::modelIdentity(effectiveModel);
-        const auto identity = sourceIdentity + ':' + effectiveIdentity;
+        if (cache.inspectedModelIdentity != effectiveIdentity) {
+            sd_model_vae_info_t info{};
+            if (!sd_model_inspect_vae(model.c_str(), &info))
+                throw std::runtime_error(callbacks.failure("Cannot inspect the local model's VAE components."));
+            cache.vaeInfo = info;
+            cache.missingVaeFamily = (info.state == SD_VAE_MISSING || info.state == SD_VAE_INCOMPATIBLE)
+                ? info.vae_family : "";
+            cache.inspectedModelIdentity = effectiveIdentity;
+            cache.validatedVaeIdentity.clear();
+        }
+        // A required decoder remains enabled even when style modifiers are off.
+        // Inspect the actual mounted file, including prepared GGUF caches.
+        const auto fallbackVae = !cache.missingVaeFamily.empty()
+            ? native_detail::loadFallbackVae(options.resourceDirectory, cache.missingVaeFamily) : native_detail::DefaultVae{};
+        if (!fallbackVae.path.empty() && cache.validatedVaeIdentity != fallbackVae.identity) {
+            if (!sd_model_validate_vae(model.c_str(), fallbackVae.path.string().c_str()))
+                throw std::runtime_error("The selected VAE does not match the " + cache.missingVaeFamily
+                    + " tensor contract: " + fallbackVae.path.string());
+            cache.validatedVaeIdentity = fallbackVae.identity;
+            if (std::getenv("IILD_NATIVE_DIAGNOSTICS"))
+                std::fprintf(stderr, "iiLocalDiffusion VAE auto-mount-v2: model=%s family=%s source=fallback-validated path=%s\n",
+                    cache.vaeInfo.model_family, cache.vaeInfo.vae_family, fallbackVae.path.string().c_str());
+        }
+        auto modifierIdentity = defaults.identity + fallbackVae.identity;
+        for (const auto &lora : options.loras) modifierIdentity += ':' + native_detail::modelIdentity(lora.path);
+        const auto identity = sourceIdentity + ':' + effectiveIdentity + ':' + modifierIdentity
+            + (backend == NativeComputeBackend::Cpu ? ":cpu" : ":automatic");
         if (cache.identity != identity) {
             if (cache.context && std::getenv("IILD_NATIVE_DIAGNOSTICS"))
                 std::fputs("iiLocalDiffusion cache: model identity changed\n", stderr);
@@ -216,11 +271,12 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
         if (!cache.context) {
 #if defined(__APPLE__)
             const auto limits = native_detail::resourceLimits();
-            budget = native_detail::memoryBudget(limits);
+            budget = native_detail::memoryBudget(limits, IILD_NATIVE_CPU_VAE);
             if (std::getenv("IILD_NATIVE_DIAGNOSTICS"))
-                std::fprintf(stderr, "iiLocalDiffusion resources: physical=%llu recommended=%llu available=%llu budget=%llu\n",
+                std::fprintf(stderr, "iiLocalDiffusion resources: physical=%llu recommended=%llu available=%llu budget=%llu policy=%s\n",
                     static_cast<unsigned long long>(limits.physical), static_cast<unsigned long long>(limits.recommended),
-                    static_cast<unsigned long long>(limits.available), static_cast<unsigned long long>(budget));
+                    static_cast<unsigned long long>(limits.available), static_cast<unsigned long long>(budget),
+                    IILD_NATIVE_CPU_VAE ? "ios-cpu-vae-headroom" : "automatic");
 #else
             budget = native_detail::memoryBudget({});
 #endif
@@ -237,10 +293,26 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
         sd_ctx_params_t contextParameters;
         sd_ctx_params_init(&contextParameters);
         contextParameters.model_path = model.c_str();
+        const auto vaePath = fallbackVae.path.string();
+        if (!vaePath.empty()) contextParameters.vae_path = vaePath.c_str();
+        contextParameters.embeddings = embeddings.data();
+        contextParameters.embedding_count = static_cast<uint32_t>(embeddings.size());
         contextParameters.n_threads = result.threads;
         contextParameters.enable_mmap = true;
-        // This API takes a checkpoint, not mutable LoRA merges. AUTO otherwise
-        // requests writable mappings even when no LoRA is present.
+#if IILD_NATIVE_CPU_VAE
+        // iOS Metal VAE decoding can lose command buffers during GPU recovery.
+        // Keep tiled decoding and its weights on CPU; other modules still use
+        // automatic compute placement (Metal on Apple). An explicit backend
+        // disables upstream auto-fit, so keep their weights reloadable from
+        // the mapped file instead of accumulating non-evictable GPU residency.
+        contextParameters.backend = "vae=cpu";
+        contextParameters.params_backend = "te=disk,diffusion=disk,vae=cpu";
+#endif
+        if (backend == NativeComputeBackend::Cpu) {
+            contextParameters.backend = "cpu";
+            contextParameters.params_backend = "cpu";
+        }
+        // Apply adapters at runtime and preserve read-only checkpoint mappings.
         contextParameters.lora_apply_mode = LORA_APPLY_AT_RUNTIME;
         contextParameters.flash_attn = true;
         contextParameters.diffusion_flash_attn = true;
@@ -260,21 +332,78 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
         if (timedOut()) throw std::runtime_error("Native image generation exceeded its time limit.");
         if (!context || !sd_ctx_supports_image_generation(context))
             throw std::runtime_error(callbacks.failure("This model could not be loaded by the native image engine."));
+        if (prepareOnly) {
+            if (native_detail::modelIdentity(request.modelPath) != sourceIdentity)
+                throw std::runtime_error("The local model changed during preparation. Try again.");
+            static const bool preparationCleanup = [] {
+                std::atexit([] { releaseNativeDiffusionCache(); });
+                return true;
+            }();
+            (void)preparationCleanup;
+            cacheUse.successful = true;
+            return result;
+        }
         callbacks.context = context;
         sd_img_gen_params_t parameters;
         sd_img_gen_params_init(&parameters);
         parameters.prompt = request.prompt.c_str();
-        // The pinned engine aligns UNet requests to VAE(8) * UNet(8).
-        // Make its internal canvas explicit, then center-crop the returned RGB
-        // to preserve our public 8-pixel output-size contract without rescaling.
-        parameters.width = (request.width + 63) / 64 * 64;
-        parameters.height = (request.height + 63) / 64 * 64;
+        const std::string family = sd_get_model_family(context);
+        auto selectedLoras = options.loras;
+        if (selectedLoras.empty() && options.defaultModifiers) {
+            const auto canonicalFamily = native_detail::canonicalLoraFamily(family);
+            for (const auto &fallback : defaults.loras)
+                if (std::find(fallback.families.begin(), fallback.families.end(), canonicalFamily) != fallback.families.end())
+                    selectedLoras.push_back({fallback.path, fallback.scale});
+        }
+        std::vector<std::string> loraPaths;
+        for (const auto &lora : selectedLoras) loraPaths.push_back(lora.path.string());
+        std::vector<sd_lora_t> loras;
+        for (std::size_t i = 0; i < selectedLoras.size(); ++i)
+            loras.push_back({false, selectedLoras[i].strength, loraPaths[i].c_str()});
+        parameters.loras = loras.data();
+        parameters.lora_count = static_cast<uint32_t>(loras.size());
+        std::vector<std::string> negativeTokens;
+        for (const auto &embedding : defaults.embeddings)
+            if (family == "sdxl-base" || (family == "sd15" && embedding.sd15))
+                negativeTokens.push_back(embedding.token);
+        const auto negativePrompt = native_detail::appendNegativeTokens(options.negativePrompt, negativeTokens);
+        parameters.negative_prompt = negativePrompt.c_str();
+        if (std::getenv("IILD_NATIVE_DIAGNOSTICS"))
+            std::fprintf(stderr, "iiLocalDiffusion defaults: family=%s negative_embeddings=%zu loras=%zu fallback=%d\n",
+                family.c_str(), negativeTokens.size(), loras.size(),
+                options.loras.empty() && !selectedLoras.empty());
+        // Public dimensions describe the final image. The engine aligns the
+        // half-size base to its model grid, decodes it, resizes with Lanczos,
+        // VAE-encodes it, then runs a real second diffusion pass.
+        parameters.width = request.width / 2;
+        parameters.height = request.height / 2;
+        parameters.hires.enabled = true;
+        parameters.hires.upscaler = SD_HIRES_UPSCALER_LANCZOS;
+        parameters.hires.scale = 2.0f;
+        parameters.hires.target_width = (request.width + 63) / 64 * 64;
+        parameters.hires.target_height = (request.height + 63) / 64 * 64;
+        parameters.hires.denoising_strength = 0.35f;
+        // Native hires.steps counts active refinement steps, unlike the full
+        // Diffusers schedule. Never allow a small request to skip denoising.
+        parameters.hires.steps = std::max(1, int(static_cast<float>(request.steps) * parameters.hires.denoising_strength));
+        if (std::getenv("IILD_NATIVE_DIAGNOSTICS"))
+            std::fprintf(stderr, "iiLocalDiffusion Hires: requested=%dx%d base=%dx%d final-canvas=%dx%d lanczos strength=0.35 steps=%d\n",
+                request.width, request.height, parameters.width, parameters.height,
+                parameters.hires.target_width, parameters.hires.target_height, parameters.hires.steps);
         parameters.seed = request.seed;
         parameters.batch_count = 1;
         parameters.sample_params.sample_steps = request.steps;
         parameters.sample_params.sample_method = sd_get_default_sample_method(context);
         parameters.sample_params.scheduler = sd_get_default_scheduler(context, parameters.sample_params.sample_method);
-        parameters.vae_tiling_params.enabled = true;
+        const auto vaePolicy = native_detail::vaeDecodePolicy(family,
+            parameters.hires.target_width, parameters.hires.target_height, budget);
+        parameters.vae_tiling_params.enabled = vaePolicy.tiled;
+        parameters.vae_tiling_params.tile_size_x = parameters.vae_tiling_params.tile_size_y = vaePolicy.tile;
+        parameters.vae_tiling_params.target_overlap = vaePolicy.overlap;
+        if (std::getenv("IILD_NATIVE_DIAGNOSTICS"))
+            std::fprintf(stderr, "iiLocalDiffusion VAE policy: adaptive-sdxl-v1 family=%s mount=%s tile=%d tiled=%d overlap=%.2f\n",
+                family.c_str(), vaePath.empty() ? "embedded" : "family-fallback", vaePolicy.tile,
+                vaePolicy.tiled, vaePolicy.overlap);
         struct Images {
             sd_image_t *data = nullptr;
             int count = 0;
@@ -291,10 +420,10 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
         if (!ok || !images.data || images.count != 1 || !images.data[0].data || images.data[0].channel != 3)
             throw std::runtime_error(callbacks.failure("The native engine did not return a complete RGB image."));
         const auto &decoded = images.data[0];
-        if (decoded.width != static_cast<unsigned>(parameters.width)
-            || decoded.height != static_cast<unsigned>(parameters.height))
+        if (decoded.width != static_cast<unsigned>(parameters.hires.target_width)
+            || decoded.height != static_cast<unsigned>(parameters.hires.target_height))
             throw std::runtime_error("The native engine returned an unexpected image size: expected "
-                + std::to_string(parameters.width) + "x" + std::to_string(parameters.height)
+                + std::to_string(parameters.hires.target_width) + "x" + std::to_string(parameters.hires.target_height)
                 + ", received " + std::to_string(decoded.width) + "x" + std::to_string(decoded.height) + ".");
         result.width = request.width;
         result.height = request.height;
@@ -312,6 +441,13 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
         if (native_detail::modelIdentity(request.modelPath) != sourceIdentity
             || native_detail::modelIdentity(effectiveModel) != effectiveIdentity)
             throw std::runtime_error("The local model changed during generation. Try again.");
+        auto finalModifierIdentity = options.defaultModifiers
+            ? native_detail::loadGenerationDefaults(options.resourceDirectory).identity : std::string{};
+        if (!cache.missingVaeFamily.empty())
+            finalModifierIdentity += native_detail::loadFallbackVae(options.resourceDirectory, cache.missingVaeFamily).identity;
+        for (const auto &lora : options.loras) finalModifierIdentity += ':' + native_detail::modelIdentity(lora.path);
+        if (finalModifierIdentity != modifierIdentity)
+            throw std::runtime_error("Generation defaults or LoRA changed during generation. Try again.");
         // Lazy backends register process-exit destructors during inference,
         // after new_sd_ctx. Register our cleanup only after that first complete
         // inference so retained GPU weights are destroyed before the registries.
@@ -333,5 +469,33 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
         else result.error = error.what();
     }
     return result;
+}
+
+NativeGenerationResult generateNativeImageWithOptions(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control)
+{
+    return nativeImage(request, options, cancelled, progress, control, false);
+}
+
+NativeGenerationResult generateNativeImageWithBackend(const NativeGenerationRequest &request,
+    NativeComputeBackend backend, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control)
+{
+    return nativeImage(request, {}, cancelled, progress, control, false, backend);
+}
+
+NativeGenerationResult generateNativeImageWithOptions(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, NativeComputeBackend backend, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control)
+{
+    return nativeImage(request, options, cancelled, progress, control, false, backend);
+}
+
+NativeGenerationResult prepareNativeImageModel(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress)
+{
+    return nativeImage(request, options, cancelled, progress, {}, true);
 }
 }

@@ -1,0 +1,33 @@
+--- a/src/model_manager.cpp
++++ b/src/model_manager.cpp
+@@ -37,7 +37,7 @@
+     return lora.is_high_noise ? "|high_noise|" + lora.path : lora.path;
+ }
+ 
+-static bool backend_supports_host_buffer(ggml_backend_t backend) {
++static bool backend_supports_cpu_buffer(ggml_backend_t backend) {
+     if (backend == nullptr) {
+         return false;
+     }
+@@ -48,9 +48,9 @@
+     if (dev == nullptr) {
+         return false;
+     }
+-    ggml_backend_dev_props props;
+-    ggml_backend_dev_get_props(dev, &props);
+-    return props.caps.buffer_from_host_ptr;
++    // Host-pointer import does not mean ordinary CPU buffers are executable.
++    // Metal requires its own mapped/shared buffer wrapper around that storage.
++    return ggml_backend_dev_supports_buft(dev, ggml_backend_cpu_buffer_type());
+ }
+ 
+ static bool device_supports_param_op(ggml_backend_dev_t device,
+@@ -754,7 +754,7 @@
+     }
+     return sd_backend_is_cpu(state.compute_backend) ||
+            sd_backend_is_cpu(state.params_backend) ||
+-           backend_supports_host_buffer(state.compute_backend);
++           backend_supports_cpu_buffer(state.compute_backend);
+ }
+ 
+ bool ModelManager::alloc_params_buffers(const std::vector<TensorState*>& states,

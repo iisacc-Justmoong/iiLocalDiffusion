@@ -8,6 +8,49 @@ worker writes no queue, cache database or Society state. No additional library
 dependency is introduced: this uses Python's standard library and the existing
 Diffusers/PyTorch installation.
 
+기본 로컬 이미지 요청의 너비·높이는 최종 결과이다. 네이티브 및 프리셋 이미지 경로는
+각 변을 절반으로 줄여 생성한 뒤 Hires fix로 목표 크기에 도달한다. 사전 준비는 여전히
+샘플링하지 않는다. 프리셋의 Hires 파이프라인 변환은 공유 가중치·offload 훅을 이동하므로
+배치 캐시를 무효화하고, 다음 요청에서 로드된 모델을 재사용하여 실행 위치를 다시 준비한다.
+미리보기는 두 단계의 denoising audit와 함께 실행하며 하나의 연속 파일 번호를 사용한다.
+각 단계의 스텝 번호는 해당 스케줄을 따르고, 최종 산출물은 보정 완료 후 게시한다.
+
+### Complete Anima checkpoints
+
+`--backend local` recognizes Anima's LLM cross-attention adapter tensor signature
+before classifying standalone VAE files. Complete checkpoints containing the
+denoiser, text encoder and VAE run through `native_image.py` and the installed
+`NativeImageBridge` C ABI in this same worker process. Diffusers routes for other
+families remain unchanged. No ComfyUI server or new dependency is introduced.
+The pinned native stable-diffusion.cpp implementation supplies Anima inference;
+the bridge contains no model mathematics.
+
+Foreground preparation validates and retains a native context without encoding
+or sampling. Weights are placed lazily on first use, so residency reports
+`device: native-auto`, `offload: managed`, and `gpu_resident: false`; `ready`
+means the context is prepared. Sequential jobs reuse this context, including
+changes to prompt, seed and image extent. Worker teardown, failure or switching
+to another model releases its native owner. Model/result hashes and atomic batch
+publication follow the same standalone output contract. `generation.json` reports
+`backend: native`, model identity, original dimensions, per-image seed and native
+cache/load/generation measurements. The embedded VAE is preserved.
+`--work-dir/request.json` and `--print-config` contain replayable native arguments
+only; they do not require a Diffusers model-selection object or preset defaults.
+The desktop bridge does not inherit the C++ request's 15-minute wall-clock
+default. It uses the native API's maximum budget, preserving the existing
+desktop worker's long-generation behavior and process cancellation. A separate
+C bridge caller may set `timeout_milliseconds` to a positive explicit limit;
+zero selects the maximum budget. The original C++ request's default is unchanged.
+
+This route accepts complete local Anima safetensors, prompt/negative prompt,
+8-pixel dimensions in 64–2048, steps/count in 1–1000, seed/seed stride, local LoRA
+and scale, default-modifier resources, lossless PNG/output controls, and
+`--device auto`. Explicit unsupported overrides (including `--vae`, Diffusers
+samplers, dtype and guidance overrides) fail before loading instead of being
+silently ignored. Denoising-stage progress is emitted as `IILD_NATIVE_PROGRESS`;
+native per-step latent previews are currently unavailable. A denoiser-only
+Anima is identified as such and reports its missing text encoder and VAE.
+
 ## Foreground preparation
 
 The SDK advertises `foreground-residency` in `IILD_READY.capabilities`. A client
@@ -139,7 +182,18 @@ leave some restored parameters unusable during a later placement change or
 MPS convolution. Gradient recording remains disabled without copying the model.
 See [PyTorch inference-mode constraints](https://docs.pytorch.org/docs/stable/generated/torch.autograd.grad_mode.inference_mode.html).
 
-Adapter, ControlNet, textual-inversion, external-tensor, CPU text-encoding,
+LoRA and textual-inversion image requests now retain their prepared modifiers.
+Their file identities, strength, token names, and encoder selections participate
+in the construction key; repeated jobs do not register the same tokens twice.
+See [bundled generation defaults](generation-defaults.md).
+
+The generic Diffusers image runner also registers LoRA before placement, stores
+the verified activation with its retained pipeline, and keys construction by
+adapter identity and scale. A scale/file change reloads; an unchanged request
+reuses the adapter. Generic media pipelines outside the retained image classes
+still load adapters through the common loader for each request.
+
+ControlNet, external-tensor, CPU text-encoding,
 and multi-stage animation/HiRes requests retain their existing pipeline
 initialization paths; they still reuse Python imports and unchanged model hashes.
 Other generic media pipelines likewise do not reuse a prepared pipeline yet.

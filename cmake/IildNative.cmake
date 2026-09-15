@@ -25,10 +25,12 @@ if(IILD_ENABLE_NATIVE_DIFFUSION)
         set(GGML_METAL_USE_BF16 OFF CACHE BOOL "" FORCE)
         set(CMAKE_POSITION_INDEPENDENT_CODE ON)
         FetchContent_MakeAvailable(iild_sdcpp)
+        # Match the pinned backend's public ggml_tensor layout in its consumers.
+        target_compile_definitions(stable-diffusion INTERFACE GGML_MAX_NAME=160)
         # Also apply with FETCHCONTENT_SOURCE_DIR_IILD_SDCPP (PATCH_COMMAND is
         # skipped for that override). Refuse drift instead of guessing a patch.
         find_package(Git REQUIRED)
-        foreach(patch_name native-progress-cancellation native-mapped-upload native-tensor-wakeup native-metal-shared-upload native-conversion-cancellation native-thread-safe-logging)
+        foreach(patch_name native-progress-cancellation native-mapped-upload native-tensor-wakeup native-metal-shared-upload native-conversion-cancellation native-thread-safe-logging native-model-family native-mapped-buffer-compatibility native-inplace-backend-compatibility native-metal-storage-ops native-vae-fallback native-cpu-flash-attention native-vae-decode-safety)
             set(native_patch "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/patches/${patch_name}.patch")
             set(native_source "${iild_sdcpp_SOURCE_DIR}")
             execute_process(COMMAND "${GIT_EXECUTABLE}" apply --reverse --check "${native_patch}"
@@ -51,6 +53,9 @@ if(IILD_ENABLE_NATIVE_DIFFUSION)
             DESTINATION "${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/licenses" RENAME ggml-LICENSE)
     endfunction()
     iild_add_native_backend()
+    # The pinned backend compiles ggml_tensor with a 160-byte name field.
+    # Consumers of its internal headers must use the same struct layout.
+    target_compile_definitions(stable-diffusion INTERFACE GGML_MAX_NAME=160)
     install(DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/../ThirdParty/NativeDiffusion/"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/licenses")
 endif()

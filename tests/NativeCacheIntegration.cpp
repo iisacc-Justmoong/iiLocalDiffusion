@@ -44,8 +44,9 @@ int main(int argc, char **argv) {
         }
         if (run == 0) {
             first = result.rgb;
-            const auto [minimum, maximum] = std::minmax_element(first.begin(), first.end());
-            if (*minimum == *maximum) return 8; // A flat image is not a useful model fixture.
+            // A uniform RGB color can have different channel values. Compare
+            // pixels rather than the minimum and maximum across all channels.
+            if (std::equal(first.begin() + 3, first.end(), first.begin())) return 8;
             if (argc == 3) {
                 if (std::filesystem::exists(argv[2])) {
                     std::ifstream input(argv[2], std::ios::binary);

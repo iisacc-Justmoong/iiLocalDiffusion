@@ -287,6 +287,23 @@ class GenericDiffusersTests(unittest.TestCase):
             generic.load_pipeline(self.args("--pipeline-inputs", '{"misspelled":1}'), diffusers, "dtype")
         diffusers.FakePipeline.from_pretrained.assert_not_called()
 
+    def test_missing_lora_loader_is_rejected_before_base_allocation(self):
+        diffusers = self.fake_diffusers()
+        adapter = self.directory / "style.safetensors"
+        adapter.write_bytes(b"local adapter identity")
+        with self.assertRaisesRegex(ValueError, "does not support verified LoRA loading"):
+            generic.load_pipeline(self.args("--lora", str(adapter)), diffusers, "float32")
+        diffusers.FakePipeline.from_pretrained.assert_not_called()
+
+    def test_explicit_null_components_in_local_index_reach_constructor(self):
+        diffusers = self.fake_diffusers()
+        diffusers.FakePipeline.__init__ = lambda self, text_encoder_3=None: None
+        self.index["text_encoder_3"] = [None, None]
+        (self.model / "model_index.json").write_text(json.dumps(self.index))
+        generic.load_pipeline(self.args(), diffusers, "float32")
+        self.assertIn("text_encoder_3", diffusers.FakePipeline.from_pretrained.call_args.kwargs)
+        self.assertIsNone(diffusers.FakePipeline.from_pretrained.call_args.kwargs["text_encoder_3"])
+
     def test_single_file_passes_explicit_local_config_and_refuses_pickle_extras(self):
         diffusers = self.fake_diffusers()
         path = self.directory / "model.safetensors"

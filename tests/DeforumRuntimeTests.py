@@ -112,12 +112,30 @@ class DeforumRuntimeTests(unittest.TestCase):
                 self.run_frames(pipeline=pipeline)
             self.assertEqual(self.saved, [])
 
-    def test_adapter_loss_is_detected_before_second_frame(self):
+    def test_adapter_loss_is_detected_before_first_frame(self):
         pipeline = FramePipeline([], width=32, height=32, active=())
         activation = SimpleNamespace(registered_components=["unet"], active_adapters=["iild_lora"])
         with self.assertRaisesRegex(RuntimeError, "lost active LoRA"):
             self.run_frames(pipeline=pipeline, activation=activation)
-        self.assertEqual(len(self.saved), 1)
+        self.assertEqual(len(self.saved), 0)
+
+    def test_adapter_state_is_checked_on_every_frame_including_after_conversion(self):
+        pipeline = FramePipeline([], width=32, height=32)
+        pipeline.unet.active_adapters = Mock(side_effect=lambda: ["iild_lora"] if len(pipeline.calls) < 3 else [])
+        activation = SimpleNamespace(registered_components=["unet"], active_adapters=["iild_lora"])
+        with self.assertRaisesRegex(RuntimeError, "Deforum frame lost active LoRA"):
+            self.run_frames(pipeline=pipeline, activation=activation)
+        self.assertEqual(len(self.saved), 2)
+
+    def test_each_family_records_generated_and_warp_only_adapter_usage(self):
+        for preset, component in (("sd15", "unet"), ("sdxl-base", "unet"), ("flux1-schnell", "transformer")):
+            with self.subTest(preset=preset):
+                pipeline = FramePipeline([], width=32, height=32)
+                setattr(pipeline, component, SimpleNamespace(active_adapters=lambda: ["iild_lora"]))
+                activation = SimpleNamespace(registered_components=[component], active_adapters=["iild_lora"])
+                _, frames = self.run_frames(preset=preset, pipeline=pipeline, activation=activation, strength="0:(0)")
+                self.assertEqual([frame["lora"]["applied"] for frame in frames], [True, False, False])
+                self.assertEqual(frames[0]["lora"]["registered_components"], [component])
 
     def test_sdxl_and_flux_keep_secondary_prompts(self):
         for preset in ("sdxl-base", "flux1-schnell"):

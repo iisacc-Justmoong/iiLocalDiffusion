@@ -4,3 +4,4 @@
 /reference/diffusers/.venv/
 /reference/diffusers/__pycache__/
 *.pyc
+/resources/vae/**/.cache/

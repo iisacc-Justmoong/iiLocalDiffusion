@@ -30,6 +30,7 @@ def resolve_configuration_directory(
     preset: PipelinePreset,
     cache_directory: Path,
     local_files_only: bool,
+    vae_override: bool = False,
 ) -> Path:
     if not selection.is_local:
         raise ValueError("Model configuration requires an explicit local directory.")
@@ -52,6 +53,8 @@ def resolve_configuration_directory(
         allowed[name] = (library, class_name)
         expected = [library, class_name]
         actual = index.get(name)
+        if name == "vae" and vae_override and actual in (None, [None, None]):
+            continue
         if name == "scheduler" and isinstance(actual, list) and len(actual) == 2:
             if actual[0] == "diffusers" and compatible_scheduler_class(preset, actual[1]):
                 allowed[name] = tuple(actual)
@@ -234,6 +237,7 @@ def load_generation_pipeline(
     vae_file: LocalWeightFile | None,
     load_arguments: Mapping[str, Any],
     component_classes: Mapping[str, Any],
+    *, vae_selection=None, vae_status=None,
 ) -> tuple[Any, dict[str, Any]]:
     if not selection.is_local or (config_selection is not None and not config_selection.is_local):
         raise ValueError("Generation requires local model and configuration paths.")
@@ -247,7 +251,7 @@ def load_generation_pipeline(
             keys = read_weight_keys(Path(selection.single_file.path))
             kind = classify_model_weights(preset, keys)
             if kind == "checkpoint":
-                require_checkpoint_components(preset, keys, vae_file is not None)
+                require_checkpoint_components(preset, keys, vae_file is not None or vae_selection is not None)
             if config_selection is None:
                 raise ValueError("A single-file model requires a resolved configuration source.")
             configuration = config_selection
@@ -260,6 +264,7 @@ def load_generation_pipeline(
                 preset,
                 Path(load_arguments["cache_dir"]),
                 load_arguments["local_files_only"],
+                vae_override=vae_file is not None or vae_selection is not None,
             )
         if vae_file is not None:
             overrides["vae"] = load_single_component(
@@ -269,6 +274,11 @@ def load_generation_pipeline(
                 "vae",
                 load_arguments,
             )
+            validate_vae_contract(overrides["vae"], preset)
+        elif vae_selection is not None:
+            from types import SimpleNamespace
+            from vae_defaults import load_selected_vae
+            overrides["vae"] = load_selected_vae(vae_selection, SimpleNamespace(**component_classes), load_arguments["dtype"])
             validate_vae_contract(overrides["vae"], preset)
 
         if kind == "checkpoint":
@@ -313,6 +323,11 @@ def load_generation_pipeline(
         origins = {name: "model" if name in embedded else "model_config" for name in origins}
     if vae_file is not None:
         origins["vae"] = "vae_override"
+    elif vae_selection is not None:
+        origins["vae"] = "vae_fallback" if vae_status == "fallback" else "model_config"
+
+    from vae_defaults import verify_vae_selection, vae_metadata
+    verify_vae_selection(vae_selection)
 
     return pipeline, {
         "weights_role": kind,
@@ -320,4 +335,5 @@ def load_generation_pipeline(
         "configuration_directory": None if config_directory is None else str(config_directory),
         "component_sources": origins,
         "vae_override": None if vae_file is None else weight_file_metadata(vae_file),
+        "vae": vae_metadata(vae_selection, vae_status or ("explicit" if vae_file else "model")),
     }

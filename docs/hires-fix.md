@@ -1,12 +1,27 @@
 # Hires Fix: repeated image refinement
 
-The independent Python preset generator supports optional Hires Fix for
+기본 이미지 해상도는 최종 출력 크기이다. 네이티브 API, Python 프리셋·단일 체크포인트,
+관리형 ComfyUI 이미지 경로는 1024×1024 요청을 512×512 1차 생성과 Hires 보정으로 완성한다.
+Python에서는 SD/SDXL 8픽셀, FLUX 16픽셀 등 모델 배수에 맞게 절반 크기를 반올림한다.
+최종 크기는 요청값을 유지하며, 작은 스텝 요청도 실제 보정이 최소 한 번 실행되도록
+생략된 보정 스케줄을 보완한다. 기본 Lanczos·강도 0.35에는 새 의존성이 필요하지 않다.
+`--hires-save-base`로 두 크기의 PNG와 실행 정보를 확인할 수 있다.
+
+Python의 `--no-hires-fix`는 명시적인 단일 단계 실행이다. `--hires-scale` 또는
+`--hires-width/height`를 직접 지정하면 기존 확대 체인을 선택하여 `--width/height`를
+기준 이미지 크기로 해석한다. 이 크기 재정의가 없으면 `--hires-passes`를 늘려도
+최종 목표 크기에서 보정을 반복한다(1–1000회). 설정 내보내기는 최종 요청 크기를
+보존하므로 재실행 때 다시 절반으로 축소되지 않는다. 애니메이션·원격 생성·직접 지정한
+범용 파이프라인 및 원시 ComfyUI 워크플로는 각 경로의 명시적 크기 계약을 따른다.
+
+The independent Python preset generator supports Hires Fix for
 the SD1/SDXL/FLUX families and their named derivatives, each
 with or without a compatible ControlNet. Model/checkpoint selection, VAE,
 LoRA, learned Textual Inversion tokens, batch generation, precomputed
 embeddings, CPU prompt encoding, and
-device/offload policies compose across the base and refinement passes. Omitting
-`--hires-fix` retains single-stage generation.
+device/offload policies compose across the base and refinement passes.
+
+## Explicit resize overrides
 
 Hires Fix first generates at `--width` / `--height`, resizes the resulting
 RGB images, and then performs image-to-image diffusion at the resized size.
@@ -38,9 +53,7 @@ active refinement steps per pass. Runtime scheduler metadata records what ran.
 The preset options below are available through the CLI, JSON `--config`, and Python
 `resolve_request()`, with the same precedence and validation as other
 [generation parameters](generation-parameters.md). JSON keys use snake_case.
-When Hires Fix is disabled, dependent options remain inactive/null; they do
-not silently enable an additional pass. Explicit dependent settings require
-`--hires-fix`.
+When explicitly disabled, dependent options remain inactive/null and cannot be supplied.
 
 For a disabled JSON starter, use `"hires_fix": false` and `null` for every
 dependent value, including `hires_passes` and `hires_save_base`. An explicit
@@ -49,13 +62,13 @@ setting and therefore still requires Hires Fix.
 
 | Argument | Default when enabled / behavior |
 |---|---|
-| `--hires-fix` / `--no-hires-fix` | Disabled; enable base generation followed by refinement explicitly |
+| `--hires-fix` / `--no-hires-fix` | Enabled for still images; half-size base then requested target; explicit disable selects a single pass |
 | `--hires-passes` | 1; positive integer number of refinement passes after the base image; null when disabled |
-| `--hires-scale` | 2 when no explicit first-refinement dimension is given; finite factor greater than 1 applied at every pass |
+| `--hires-scale` | Null: requested target policy; an explicit factor greater than 1 selects the legacy per-pass scale chain |
 | `--hires-width`, `--hires-height` | First-refinement dimensions; infer an omitted axis from the base aspect ratio, then repeat the first pass's per-axis factors |
 | `--hires-upscaler` | `lanczos`; choices `nearest`, `bilinear`, `bicubic`, `lanczos` |
 | `--hires-denoising-strength` / `--hires-strength` | 0.35; finite value with `0 < strength <= 1` |
-| `--hires-steps` | Inherit `--steps`; positive full schedule length, producing at least one active step under the family's img2img rule |
+| `--hires-steps` | Inherit `--steps`; default target mode raises an omitted schedule enough for one active step; explicit empty schedules fail |
 | `--hires-seed` | Inherit `--seed`; each refinement starts fresh per-image generators with the same seed and existing `--seed-stride` |
 | `--hires-guidance-scale` | Inherit `--guidance-scale`; the selected model's existing restrictions still apply |
 | `--hires-true-cfg-scale` | Inherit `--true-cfg-scale`; finite value at least 1, with values above 1 available only for FLUX |
@@ -281,15 +294,28 @@ and PyTorch provide VAE encoding, noise, img2img scheduling and neural
 execution, with Accelerate retaining ownership of offload hooks. No new
 package, learned upscaler weights, or custom tensor/kernel implementation is
 introduced for repeated passes. The managed backend reuses its existing
-ComfyUI image resize, VAE and sampler nodes. This interface does not expose arbitrary external img2img
-inputs, latent-space upscaling, SDXL Refiner assembly, or a full native C++
-generation pipeline.
+ComfyUI image resize, VAE and sampler nodes. Native C++ uses the pinned engine's
+Lanczos Hires implementation; see [native generation](native-image-generation.md).
+This interface does not expose arbitrary external img2img inputs, latent-space upscaling or SDXL Refiner assembly.
 
 The upstream contracts are described by the
 [Diffusers image-to-image guide](https://github.com/huggingface/diffusers/blob/main/docs/source/en/using-diffusers/img2img.md)
 and [Pillow resize API](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize).
 
 ## Repeat validation
+
+현재 기본 경로의 오프라인 실행 검증은 다음 명령으로 재실행한다. 첫 명령은 작은
+무작위 SD1/SDXL 모델로 두 단계의 실제 디노이징, 비정사각형 크기, 미리보기,
+연속 요청의 모델 재사용을 검사한다. 두 번째는 지정한 로컬 체크포인트와 빌드된
+C 브리지로 네이티브 생성을 실행한다. 결과와 JSON은 `build/half-resolution-*`에 남는다.
+
+```sh
+reference/diffusers/.venv/bin/python tests/HalfResolutionSmoke.py
+IILD_NATIVE_DIAGNOSTICS=1 reference/diffusers/.venv/bin/python tests/HalfResolutionSmoke.py \
+  --native-model /absolute/path/model.gguf
+```
+
+아래 기록은 명시적 확대 옵션을 사용한 기존 반복 체인의 검증이다.
 
 The repeated path was executed with three refinements for SD1.5, SDXL and
 FLUX, each with and without ControlNet. The ControlNet cases also retain LoRA,
