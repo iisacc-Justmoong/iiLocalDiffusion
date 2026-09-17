@@ -53,6 +53,10 @@ def resolve_arguments(args):
                              + ". Provide a complete local --model-config with companion weights.")
     if args.prediction_type == "auto" and inspection.get("prediction_type") in ("epsilon", "v_prediction"):
         args.prediction_type = inspection["prediction_type"]
+    if inspection.get("zero_terminal_snr"):
+        args.scheduler_config = dict(args.scheduler_config)
+        args.scheduler_config.setdefault("rescale_betas_zero_snr", True)
+        args.scheduler_config.setdefault("timestep_spacing", "trailing")
     if args.output is not None and args.output_dir is not None:
         raise ValueError("Choose --output or --output-dir, not both.")
     if args.animation_mode != "none":

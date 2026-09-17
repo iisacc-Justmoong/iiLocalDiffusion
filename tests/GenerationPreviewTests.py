@@ -170,14 +170,24 @@ class GenerationPreviewTests(unittest.TestCase):
     def test_hires_reuses_preview_storage_and_preserves_both_denoising_audits(self):
         from hires import DenoisingAudit
         preview = None
+        events = []
         for width in (32, 64):
+            # Img2img keeps the full scheduler schedule but executes only the
+            # strength-selected tail. Its public num_timesteps is the pass size.
+            self.pipeline.scheduler.timesteps = torch.arange(10)
+            self.pipeline.num_timesteps = 10 if width == 32 else 3
             audit = DenoisingAudit(torch)
             arguments = {"callback_on_step_end": audit}
             preview = attach_preview(self.pipeline, arguments, self.directory / "preview", torch,
                                      width, width, preview=preview)
-            with contextlib.redirect_stdout(io.StringIO()):
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
                 arguments["callback_on_step_end"](self.pipeline, 0, 3, {"latents": torch.ones((1, 4, 8, 8))})
+            events.append(json.loads(captured.getvalue().removeprefix("IILD_PREVIEW ")))
             self.assertEqual(audit.metadata()["executed_steps"], 1)
+        self.assertEqual([event["step"] for event in events], [1, 1])
+        self.assertEqual([event["sequence"] for event in events], [1, 2])
+        self.assertEqual([event["total_steps"] for event in events], [10, 3])
         self.assertEqual(preview.width, 64)
         self.assertEqual(sorted(path.name for path in preview.directory.iterdir()),
                          ["step-000001.png", "step-000002.png"])

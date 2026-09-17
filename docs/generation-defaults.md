@@ -87,6 +87,8 @@ SD1/2/SD3의 정상 내장 VAE는 검증 후 사용한다. 이 계열의 VAE가 
 
 `VaeDefaultsTests`, `NativeVaeFallbackTests`, `NativeVaeConfigTests`, `NativeResultTests`와 설치 소비자 검사는 누락·내장 우선순위·계열별 잠재 공간·외부 VAE 불완전·설정 불일치·리소스 변경·네이티브 이름 변환·재배치한 패키지 해시를 검증한다. `tests/FamilyVaeDiffusersSmoke.py` 및 `tests/QwenVaeDiffusersSmoke.py`는 작은 무작위 디노이저와 합성 조건을 사용해 실제 학습된 기본 VAE로 64×64 RGB를 생성하고, 생략/명시 실행의 이미지 SHA-256 일치를 검사한다. 이는 전체 학습된 디노이저의 이미지 품질 검증과 별개이다. `NativeVaeFallbackTests ... --decode`는 SDXL·Qwen·FLUX.1·FLUX.2·Anima·Z-Image의 실제 네이티브 VAE 디코딩을 검사한다. `NativeVaeFallbackTests --inspect /absolute/model.safetensors`는 실제 입력 파일의 모델 계열·VAE 계열·상태를 출력한다(0: 지원 범위 밖, 1: 정상 내장, 2: 누락, 3: 구조 불일치).
 
+리소스 저장소가 아직 동기화되지 않은 경우에는 디렉터리·명세의 일반 파일 여부와 크기를 먼저 검사한다. 빈 디렉터리 또는 누락된 `generation-defaults.json`을 `file_size()`에 바로 전달하지 않는다. 필수 VAE 누락 오류에는 `qwen-image` 같은 필요한 계열과 리소스 설치·동기화 안내를 포함한다. `defaultModifiers=false`인 Anima 통합본의 정상 내장 VAE 경로는 리소스 명세를 요구하지 않는다. `NativeVaeConfigTests`는 누락 폴더·빈 폴더·명세 대신 디렉터리가 있는 경우를, `NativeResultTests`와 `NativeMobileResultTests`는 Anima 통합본 성공·외부 VAE 누락 시 추론 전 실패를 검사한다.
+
 재다운로드는 다음 명령을 사용한다. 실행 시 자동 다운로드하지 않으며 패키지를 준비할 때만 수행한다.
 
 ```sh
@@ -123,3 +125,12 @@ reference/diffusers/.venv/bin/python scripts/prepare_generation_defaults.py --ch
 기본값 회귀 검사는 `GenerationDefaultsTests`, `LongClipConditioningTests`, `NativeResultTests`에 포함한다. `DefaultModifierDiffusersSmoke.py`는 실제 기본 임베딩과 작은 무작위 CLIP/UNet을 사용해 모든 토큰 전달 및 마지막 벡터가 조건·denoiser 출력을 바꾸는지 검사한다. 이 검사는 학습된 모델의 이미지 품질 평가와 구분한다.
 
 기존 의존성을 재사용한다: [Diffusers Textual Inversion](https://huggingface.co/docs/diffusers/en/using-diffusers/textual_inversion_inference), [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp). 각 가중치의 원래 라이선스는 SDK 코드 라이선스와 별개이다.
+
+## Transformers의 flat CLIP LoRA 호환
+
+Transformers의 flat `CLIPTextModel`에는 `text_model` 하위 객체가 없지만 기존 SDXL LoRA에는 `text_encoder.text_model.encoder.*` 텐서와 alpha 키가 남아 있다. 이 조합은 Diffusers의 rank 검색 결과를 비워 `IndexError: list index out of range`로 로딩을 중단했다. SDK의 `lora_encoder_compatibility`는 해당 파이프라인의 로딩 호출 안에서만 텐서와 alpha의 `text_model` 접두사를 제거한다. 인코더 트리·가중치 값·alpha·LoRA 강도는 바꾸지 않으며, 여전히 중첩 구조인 `text_encoder_2`는 유지한다. 키 충돌은 오류로 처리하고 실패해도 로더를 복원한다. `EncoderCompatibilityTests`는 두 구조·alpha 보존·충돌·예외 복원을 검사한다. 실제 기본 LoRA의 메모리 절약형 SDXL 모듈 로딩 검증은 `build/quickgenerate-lora-meta-fixed.log`에 기록한다.
+## 체크포인트 예측 방식과 프리뷰 단계
+
+독립 SDXL 체크포인트는 JSON 메타데이터 없이 빈 `v_pred`와 `ztsnr` 텐서로 예측 방식을 표시할 수 있다. 로더는 검증한 텐서 헤더에서 `v_pred`를 읽어 v-prediction을 선택하고, `ztsnr`가 있으면 zero terminal SNR와 마지막 타임스텝에서 시작하는 trailing 간격을 적용한다. 충돌하는 예측 메타데이터는 거부하고 사용자가 명시한 스케줄러 설정은 유지한다. 파일명으로 예측 방식을 추측하지 않는다. 표시는 [ComfyUI SDXL 로더](https://github.com/Comfy-Org/ComfyUI/blob/master/comfy/supported_models.py), 노이즈 일정은 [Diffusers 스케줄러 안내](https://huggingface.co/docs/diffusers/main/en/using-diffusers/scheduler_features)를 따른다.
+
+Diffusers와 네이티브 프리뷰 이벤트 모두 계속 증가하는 `sequence`를 포함한다. `step`과 `total_steps`는 현재 기본 생성 또는 Hires 보정 구간의 단계이며, 보정 구간에서 `step`이 1로 돌아가도 프리뷰를 버리지 않는다. Img2img의 scheduler에는 전체 일정이 남아 있을 수 있으므로 `total_steps`는 파이프라인의 실제 `num_timesteps`를 우선한다. 기본 10스텝과 strength로 선택한 보정 3스텝을 구분하여 모든 프레임을 수신한다.

@@ -427,7 +427,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         foreach(model_compatibility_test IN ITEMS
                 CivitaiCatalogTests ModelFamilyTests GenericDiffusersTests
                 ComfyUIRuntimeTests GenerationRouterTests RuntimeCompatibilityTests
-                DownloadedModelTests CheckpointConversionTests ModelMergeTests ModelMergeLoraTests ComfyUIImageWorkflowTests
+                DownloadedModelTests CheckpointConversionTests ModelMergeTests ModelMergeLoraTests ModelMergeCompatibilityTests UnifiedModelMergeTests UnifiedImageTests ComfyUIImageWorkflowTests
                 LocalImageTests SetupComfyUITests)
             add_test(NAME ${model_compatibility_test}
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${model_compatibility_test}.py")

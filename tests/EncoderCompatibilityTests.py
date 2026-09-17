@@ -9,11 +9,49 @@ from unittest.mock import Mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
-from encoder_compatibility import clip_skip_compatibility
+from encoder_compatibility import clip_skip_compatibility, lora_encoder_compatibility
 import presets
 
 
 class EncoderCompatibilityTests(unittest.TestCase):
+    def test_lora_keys_and_alpha_follow_flat_clip_without_changing_other_components(self):
+        load = Mock()
+        pipeline = SimpleNamespace(load_lora_into_text_encoder=load)
+        flat = SimpleNamespace(encoder=object(), embeddings=object())
+        nested = SimpleNamespace(text_model=object())
+        tensor = object()
+        state = {"text_encoder.text_model.encoder.layers.0.self_attn.q_proj.lora_B.weight": tensor,
+                 "text_encoder_2.text_model.encoder.layers.0.self_attn.q_proj.lora_B.weight": tensor}
+        alphas = {"text_encoder.text_model.encoder.layers.0.self_attn.q_proj.alpha": 16}
+        with lora_encoder_compatibility(pipeline):
+            pipeline.load_lora_into_text_encoder(state, network_alphas=alphas, text_encoder=flat,
+                                                 prefix="text_encoder", adapter_name="test")
+            converted = load.call_args.args[0]
+            self.assertIs(converted["text_encoder.encoder.layers.0.self_attn.q_proj.lora_B.weight"], tensor)
+            self.assertIn("text_encoder_2.text_model.encoder.layers.0.self_attn.q_proj.lora_B.weight", converted)
+            self.assertEqual(load.call_args.kwargs["network_alphas"],
+                             {"text_encoder.encoder.layers.0.self_attn.q_proj.alpha": 16})
+            pipeline.load_lora_into_text_encoder(state, text_encoder=nested, prefix="text_encoder_2")
+            self.assertIs(load.call_args.args[0], state)
+        self.assertIs(pipeline.load_lora_into_text_encoder, load)
+        self.assertIn("text_encoder.text_model.encoder.layers.0.self_attn.q_proj.lora_B.weight", state)
+        self.assertFalse(hasattr(flat, "text_model"))
+
+    def test_lora_loader_restores_after_failure_and_rejects_name_collisions(self):
+        class Pipeline:
+            def load_lora_into_text_encoder(self, *args, **kwargs):
+                raise RuntimeError("adapter load failed")
+        pipeline = Pipeline()
+        with self.assertRaisesRegex(RuntimeError, "adapter load failed"):
+            with lora_encoder_compatibility(pipeline):
+                pipeline.load_lora_into_text_encoder({})
+        self.assertNotIn("load_lora_into_text_encoder", vars(pipeline))
+        with self.assertRaisesRegex(ValueError, "conflicting"):
+            with lora_encoder_compatibility(pipeline):
+                pipeline.load_lora_into_text_encoder({"text_encoder.text_model.encoder.x": 1, "text_encoder.encoder.x": 2},
+                    text_encoder=SimpleNamespace(encoder=object(), embeddings=object()), prefix="text_encoder")
+        self.assertNotIn("load_lora_into_text_encoder", vars(pipeline))
+
     def test_flat_clip_exposes_only_the_existing_norm_during_the_call(self):
         norm = Mock()
         encoder = SimpleNamespace(final_layer_norm=norm)

@@ -15,6 +15,11 @@ int iild_native_available_v1(void) { return iiLocalDiffusion::nativeDiffusionAva
 iild_native_result_v1 *iild_native_generate_v1(const iild_native_request_v1 *input,
     iild_native_progress_v1 callback, void *user)
 {
+    return iild_native_generate_with_preview_v1(input, callback, nullptr, user);
+}
+iild_native_result_v1 *iild_native_generate_with_preview_v1(const iild_native_request_v1 *input,
+    iild_native_progress_v1 callback, iild_native_preview_v1 previewCallback, void *user)
+{
     try {
         auto result = std::make_unique<iild_native_result_v1>();
         try {
@@ -46,7 +51,11 @@ iild_native_result_v1 *iild_native_generate_v1(const iild_native_request_v1 *inp
             };
             result->image = input->prepare_only
                 ? iiLocalDiffusion::prepareNativeImageModel(request, options, cancelled, progress)
-                : iiLocalDiffusion::generateNativeImageWithOptions(request, options, cancelled, progress);
+                : iiLocalDiffusion::generateNativeImageWithPreview(request, options, iiLocalDiffusion::NativeComputeBackend::Automatic,
+                    cancelled, progress, previewCallback ? iiLocalDiffusion::NativePreviewCallback([&](const auto &frame) {
+                        if (previewCallback(frame.sequence, frame.step, frame.total, frame.width, frame.height,
+                            frame.rgb.data(), frame.rgb.size(), user)) cancelled = true;
+                    }) : iiLocalDiffusion::NativePreviewCallback{});
         } catch (const std::exception &error) { result->image.error = error.what(); }
         const auto &value = result->image;
         const std::unique_ptr<json_object, decltype(&json_object_put)> json(json_object_new_object(), json_object_put);

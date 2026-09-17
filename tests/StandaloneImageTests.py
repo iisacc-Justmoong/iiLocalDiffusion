@@ -92,6 +92,23 @@ class StandaloneImageTests(unittest.TestCase):
         self.assertEqual(args.config_selection.source, str(config))
         self.assertEqual(args.prediction_type, "v_prediction")
 
+    def test_marker_only_vpred_checkpoint_configures_both_prediction_and_noise_schedule(self):
+        model = self.safetensors({
+            "model.diffusion_model.input_blocks.0.0.weight": [1, 4, 1, 1],
+            "model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight": [1, 2048],
+            "first_stage_model.encoder.conv_in.weight": [1],
+            "conditioner.embedders.0.transformer.text_model.embeddings.position_embedding.weight": [1],
+            "v_pred": [0], "ztsnr": [0],
+        })
+        _, args = standalone_image.resolve_arguments(standalone_image.build_parser().parse_args(
+            ["--model", str(model)]))
+        self.assertEqual(args.prediction_type, "v_prediction")
+        self.assertEqual(args.scheduler_config["rescale_betas_zero_snr"], True)
+        self.assertEqual(args.scheduler_config["timestep_spacing"], "trailing")
+        _, explicit = standalone_image.resolve_arguments(standalone_image.build_parser().parse_args(
+            ["--model", str(model), "--scheduler-config", '{"timestep_spacing":"linspace"}']))
+        self.assertEqual(explicit.scheduler_config["timestep_spacing"], "linspace")
+
     def test_bundled_resources_match_manifest_and_contain_no_weights(self):
         manifest = json.loads((checkpoint_config.CONFIGS / "manifest.json").read_text())
         for family, record in manifest["families"].items():

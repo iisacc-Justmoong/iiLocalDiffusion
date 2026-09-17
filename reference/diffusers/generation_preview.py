@@ -72,8 +72,11 @@ class DenoisingPreview:
         name = f"step-{self.sequence + 1:06d}.png"
         write_png(image, self.directory / name, compress_level=1, optimize=False, overwrite=False)
         self.sequence += 1
+        # Img2img retains the full scheduler schedule while denoising only its
+        # strength-selected tail. Report the actual pass, not the full schedule.
+        total_steps = getattr(pipeline, "num_timesteps", None) or len(pipeline.scheduler.timesteps)
         print("IILD_PREVIEW " + json.dumps({"schema": "iild-preview-v1", "step": step + 1,
-              "total_steps": len(pipeline.scheduler.timesteps), "image": name}), flush=True)
+              "total_steps": total_steps, "sequence": self.sequence, "image": name}), flush=True)
         return values
 
 

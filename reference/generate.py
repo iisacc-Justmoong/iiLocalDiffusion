@@ -101,6 +101,13 @@ def select_backend(args, remaining: list[str]) -> str:
         if args.backend == "preset" and base is not None and base["preset"] is None:
             raise ValueError("This model family requires the diffusers or comfyui backend.")
         return args.backend
+    unified_path = option_value(remaining, "--model-path") or option_value(remaining, "--model") or config.get("model")
+    if unified_path:
+        index = Path(unified_path).expanduser() / "model_index.json"
+        if index.is_file() and index.stat().st_size <= 1024 * 1024:
+            package = json.loads(index.read_text(encoding="utf-8"))
+            if isinstance(package, dict) and package.get("schema") == "iild-unified-model-v1":
+                return "unified"
     if config.get("backend") == "video":
         return temporal()
     if ("--list-camera-motions" in flags
@@ -155,7 +162,7 @@ def select_backend(args, remaining: list[str]) -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False, add_help=False)
     parser.add_argument("--base-model", default=None)
-    parser.add_argument("--backend", choices=("auto", "local", "preset", "diffusers", "comfyui", "comfyui-local", "deforum", "interpolator", "video"), default="auto")
+    parser.add_argument("--backend", choices=("auto", "local", "preset", "diffusers", "comfyui", "comfyui-local", "deforum", "interpolator", "video", "unified"), default="auto")
     parser.add_argument("--list-base-models", action="store_true")
     parser.add_argument("--check-runtime", action="store_true")
     parser.add_argument("--inspect-model", action="store_true")
@@ -198,7 +205,7 @@ def main(argv=None) -> int:
               "--worker                           Serve sequential NDJSON requests with memory caches and foreground-residency\n"
               "--inspect-model --model PATH        Inspect a local model and its Civitai metadata\n"
               "--base-model NAME                  Select a Civitai base identity\n"
-              "--backend auto|local|preset|diffusers|comfyui|comfyui-local|deforum|interpolator|video\n\n"
+              "--backend auto|local|preset|diffusers|comfyui|comfyui-local|deforum|interpolator|video|unified\n\n"
               "Local checkpoints use standalone Diffusers/PyTorch; ComfyUI is optional.\n"
               "--backend comfyui-local            Explicit opt-in to the legacy managed ComfyUI runtime\n\n"
               "--backend video                    Generate LTX video, then interpolate its frames\n"
@@ -217,6 +224,7 @@ def main(argv=None) -> int:
               "--fps is the final rate; --interpolation-factor controls source-frame spacing.\n\n"
               "Auto routes existing local weight files through the local image runtime, and\n"
               "complete model_index.json directories or --model-config through Diffusers.\n"
+              "Unified .iildmodel objects use the native ordered image-refinement cascade.\n"
               "Explicit backends, pipelines and workflows retain their contracts.\n"
               "Image presets remain subject to the animation FPS/GIF policy.\n\n"
               "Remaining arguments go to the selected backend. For full backend help:\n"
@@ -242,11 +250,11 @@ def main(argv=None) -> int:
         remaining = [*remaining, "--animation-mode", mode]
         backend = "preset"
     from inference_session import is_preparing
-    if is_preparing() and backend not in ("local", "preset", "diffusers"):
+    if is_preparing() and backend not in ("local", "preset", "diffusers", "unified"):
         parser.exit(2, "Foreground preparation requires a local image pipeline.\n")
     module = importlib.import_module({"preset": "generate", "diffusers": "generate_any", "video": "generate_video",
                                       "comfyui": "comfyui_runtime", "comfyui-local": "local_image",
-                                      "local": "standalone_image"}[backend])
+                                      "local": "standalone_image", "unified": "unified_image"}[backend])
     if backend == "preset":
         # Preserve the original CLI entry point and Python API.
         previous = sys.argv

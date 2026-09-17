@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
 
-from model_merge_files import inspect_merge_model, validate_package_assets, validate_shard_indexes
+from model_merge_files import inspect_merge_model, open_merge_weights, validate_package_assets
 from model_merge_lora import is_lora_key, prepare_lora
 from model_merge_lora_targets import lora_target_aliases
 from model_merge_options import MergeRequest, build_parser, resolve_merge_request, resolve_merge_weights
@@ -22,35 +22,28 @@ _BUFFER_DTYPES = frozenset({"BOOL", "U8", "U16", "U32", "U64", "I8", "I16", "I32
 _ARCHITECTURE_HINTS = ("modelspec.architecture", "modelspec.implementation", "modelspec.prediction_type")
 
 
-def _open_models(models, stack, safe_open):
+def _open_models(models, stack, safe_open, *, compatible=True):
     readers = []
     layouts = []
     kinds = []
     known_hints = {}
+    prediction_markers = None
     for model in models:
-        opened = {}
-        layout = {}
-        for name, weight in sorted(model.weights.items()):
-            try:
-                reader = stack.enter_context(safe_open(weight.resolved_file, framework="pt", device="cpu"))
-            except Exception as error:
-                raise ValueError(f"Cannot read safetensors merge input {weight.path}: {error}") from error
-            opened[name] = reader
-            component = str(PurePosixPath(name).parent) if model.root.is_dir() else "."
-            if not reader.keys():
-                raise ValueError(f"Weight file contains no tensor keys: {weight.path}")
-            for key in reader.keys():
-                address = (component, key)
-                if address in layout:
-                    raise ValueError(f"Duplicate tensor keys/weight variants in model: {address}")
-                layout[address] = name
-        if not layout:
-            raise ValueError(f"Model contains no tensor keys: {model.root}")
+        opened, layout = open_merge_weights(model, stack, safe_open)
         kind = "lora" if any(is_lora_key(key) for _, key in layout) else "checkpoint"
         if not layouts and kind != "checkpoint":
             raise ValueError("Base model must be a full checkpoint, not a LoRA adapter.")
         if kind == "checkpoint":
-            if model.root.is_dir() != models[0].root.is_dir():
+            markers = frozenset(key for component, key in layout if component == "." and key in ("v_pred", "ztsnr"))
+            for key in markers if compatible else ():
+                shape = opened[layout[(".", key)]].get_slice(key).get_shape()
+                if shape != [0]:
+                    raise ValueError(f"Prediction marker {key} must be an empty tensor: {model.root}")
+            if compatible and prediction_markers is not None and markers != prediction_markers:
+                raise ValueError("Prediction settings differ (v_pred / ztsnr). These are sampling markers, not merge weights. "
+                                 "Use --mode unified with an .iildmodel output to retain each model's prediction settings.")
+            prediction_markers = markers
+            if compatible and model.root.is_dir() != models[0].root.is_dir():
                 raise ValueError("All checkpoints must use the same format: single files or Diffusers directories.")
             if model.root.is_dir() and "model_index.json" not in model.assets:
                 raise ValueError("A full checkpoint directory requires model_index.json.")
@@ -60,20 +53,22 @@ def _open_models(models, stack, safe_open):
                     value = (reader.metadata() or {}).get(hint)
                     if value:
                         identity = (component, hint)
-                        if identity in known_hints and value != known_hints[identity]:
+                        if compatible and identity in known_hints and value != known_hints[identity]:
                             raise ValueError(f"Model architecture metadata differs for {hint}: {model.root}")
                         known_hints[identity] = value
         elif "model_index.json" in model.assets:
             raise ValueError("LoRA material must be an adapter export, not a pipeline with embedded adapter keys.")
-        if layouts and kind == "checkpoint" and layout.keys() != layouts[0].keys():
+        if compatible and layouts and kind == "checkpoint" and layout.keys() != layouts[0].keys():
             missing = sorted(layouts[0].keys() - layout.keys())[:5]
             extra = sorted(layout.keys() - layouts[0].keys())[:5]
-            raise ValueError(f"Model tensor keys differ from the base: missing={missing}, extra={extra}; {model.root}")
-        validate_shard_indexes(model, layout)
+            raise ValueError(f"Model tensor keys differ from the base: missing={missing}, extra={extra}; {model.root}. "
+                             "Use --mode unified for different architectures.")
         readers.append(opened)
         layouts.append(layout)
         kinds.append(kind)
     checkpoint_indices = [index for index, kind in enumerate(kinds) if kind == "checkpoint"]
+    if not compatible:
+        return readers, layouts, kinds
     validate_package_assets([models[index] for index in checkpoint_indices])
     for address in layouts[0]:
         slices = [readers[index][layouts[index][address]].get_slice(address[1]) for index in checkpoint_indices]
@@ -134,6 +129,10 @@ def _execute_merge(request: MergeRequest) -> dict:
         serializer = importlib.import_module("safetensors.torch")
     except ImportError as error:
         raise RuntimeError("Model merging requires the existing Torch and safetensors environment.") from error
+    inspect_merge_request(request)
+    if request.mode == "unified":
+        from model_merge_unified import execute_unified
+        return execute_unified(request)
     models = [inspect_merge_model(source, request.cache_dir) for source in request.models]
     with ExitStack() as stack, torch.no_grad():
         readers, layouts, kinds = _open_models(models, stack, safetensors.safe_open)
@@ -230,18 +229,47 @@ def merge_models(
     mode: str = "weighted-sum",
     output: str | Path | None = None,
     cache_dir: str | Path | None = None,
+    compatibility_models: Sequence[str | Path] | None = None,
+    compatibility_strength: float = 0.35,
 ) -> dict:
     """Merge checkpoints and/or LoRAs; base and first material are required.
 
     Weighted sum: (1 - sum(checkpoint weights)) * A + checkpoint sum + LoRA deltas.
     Weighted difference: A - checkpoint sum - LoRA deltas.
-    Single files produce safetensors; Diffusers directories retain the base's
-    configuration and shard layout. Returns output hashes and source provenance.
+    Weight modes preserve the base format and tensor layout. Unified mode builds
+    an ordered image-refinement package with checkpoint strengths in [0,1].
+    Returns output hashes and source provenance.
     See docs/model-merging.md for defaults, compatibility and memory requirements.
     """
     return _execute_merge(resolve_merge_request(
         base_model, additional_model, additional_models=additional_models, weights=weights,
-        mode=mode, output=output, cache_dir=cache_dir))
+        mode=mode, output=output, cache_dir=cache_dir,
+        compatibility_models=compatibility_models, compatibility_strength=compatibility_strength))
+
+
+def inspect_merge_request(request: MergeRequest) -> dict:
+    """Fail on structural conflicts before hashing gigabytes of checkpoint data."""
+    import safetensors
+    models = [inspect_merge_model(source, request.cache_dir, hash_content=False) for source in request.models]
+    with ExitStack() as stack:
+        readers, layouts, kinds = _open_models(models, stack, safetensors.safe_open, compatible=request.mode != "unified")
+        request = resolve_merge_weights(request, kinds[1:])
+        if request.mode == "unified":
+            from model_merge_unified import plan_stages
+            stages = plan_stages(request, models, readers, layouts, kinds, stack)
+        else:
+            stages = []
+            if "lora" in kinds:
+                import torch
+                aliases = lora_target_aliases(layouts[0], readers[0])
+                for index, kind in enumerate(kinds):
+                    if kind == "lora":
+                        prepare_lora(models[index], readers[index], aliases, readers[0], layouts[0], models[0], torch)
+        return {**request.as_dict(), "inspection": "structure-only", "kinds": kinds, "stages": stages,
+                "resolved_sources": [str(model.root) for model in models],
+                "data_validation": ("source hashes and finite arithmetic are checked when building; copied members preserve source bytes"
+                                    if request.mode == "unified" else
+                                    "finite values and source hashes are checked when building the output")}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -250,8 +278,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         request = resolve_merge_request(args.base_model, args.additional_models[0],
             additional_models=args.additional_models[1:], weights=args.weights, mode=args.mode,
-            output=args.output, cache_dir=args.cache_dir)
-        result = request.as_dict() if args.print_config else _execute_merge(request)
+            output=args.output, cache_dir=args.cache_dir,
+            compatibility_models=args.compatibility_models, compatibility_strength=args.compatibility_strength)
+        result = request.as_dict() if args.print_config else inspect_merge_request(request) if args.inspect else _execute_merge(request)
     except (ValueError, TypeError, OSError, RuntimeError) as error:
         parser.exit(2, f"Model merge failed: {error}\n")
     print(json.dumps(result, indent=2))

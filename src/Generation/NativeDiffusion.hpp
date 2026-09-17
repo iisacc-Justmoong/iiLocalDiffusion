@@ -11,6 +11,7 @@
 
 namespace iiLocalDiffusion {
 struct NativeGenerationRequest {
+    // A checkpoint file or an iild-unified-model-v1 package directory.
     std::filesystem::path modelPath;
     std::string prompt;
     // Final output size. Base inference uses half of each axis before Hires fix.
@@ -23,13 +24,26 @@ struct NativeGenerationRequest {
     // GGUF derivative here, preserving VAE F16 and the original checkpoint.
     std::filesystem::path q8CacheDirectory;
 };
-enum class NativeGenerationStage { Waiting, Loading, Encoding, Denoising, Decoding, Preparing };
+enum class NativeGenerationStage { Waiting, Loading, Encoding, Denoising, Decoding, Preparing, Computing };
 struct NativeGenerationProgress {
     NativeGenerationStage stage;
     int step = 0;
     int total = 0;
 };
+// Computing reports cumulative completed CPU graph batches (total is unknown,
+// zero). It supplements the current phase without replacing denoising steps.
 using NativeProgressCallback = std::function<void(const NativeGenerationProgress &)>;
+// Owned RGB projection of the actual denoised latent, without a VAE decode.
+// Sequence spans the base and Hires passes; step/total identify the current pass.
+struct NativeGenerationPreview {
+    std::vector<std::uint8_t> rgb;
+    int width = 0;
+    int height = 0;
+    int sequence = 0;
+    int step = 0;
+    int total = 0;
+};
+using NativePreviewCallback = std::function<void(const NativeGenerationPreview &)>;
 struct NativeGenerationResult {
     std::vector<std::uint8_t> rgb;
     int width = 0;
@@ -106,4 +120,9 @@ IILD_EXPORT NativeGenerationResult generateNativeImageWithOptions(const NativeGe
 IILD_EXPORT NativeGenerationResult prepareNativeImageModel(const NativeGenerationRequest &request,
     const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress = {});
+// Opt-in preview entry point preserves all existing request/result layouts.
+IILD_EXPORT NativeGenerationResult generateNativeImageWithPreview(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, NativeComputeBackend backend, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const NativePreviewCallback &preview,
+    const std::shared_ptr<NativeExecutionControl> &control = {});
 }

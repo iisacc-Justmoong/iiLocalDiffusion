@@ -36,9 +36,9 @@ class MergeModelFiles:
             verify_weight_file(value, "merge input")
 
 
-def _identity(path: Path) -> LocalWeightFile:
+def _identity(path: Path, hash_content: bool = True) -> LocalWeightFile:
     before = file_signature(path)
-    digest = cached_model_sha256(path)
+    digest = cached_model_sha256(path) if hash_content else ""
     if before != file_signature(path):
         raise RuntimeError(f"Input changed while inspecting it: {path}")
     return LocalWeightFile(str(path), before[0], digest, before[3])
@@ -61,19 +61,19 @@ def _files(root: Path) -> dict[str, Path]:
     return result
 
 
-def inspect_merge_model(source: Path, cache: Path) -> MergeModelFiles:
+def inspect_merge_model(source: Path, cache: Path, *, hash_content: bool = True) -> MergeModelFiles:
     if source.is_file():
-        original = _identity(source)
+        original = _identity(source, hash_content)
         converted = source
         if source.suffix.lower() in LEGACY_SUFFIXES:
             converted = Path(materialize_safetensors(source, cache)["converted_path"])
-        weight = resolve_weight_file(str(converted), "Merge input")
+        weight = resolve_weight_file(str(converted), "Merge input") if hash_content else _identity(converted, False)
         originals, assets = {source.name: original}, {}
         config = source.parent / "adapter_config.json"
         if source.stem == "adapter_model" and config.is_file():
-            assets[config.name] = originals[config.name] = _identity(config)
+            assets[config.name] = originals[config.name] = _identity(config, hash_content)
         return MergeModelFiles(source, {source.name: weight}, assets, originals)
-    originals = {name: _identity(path) for name, path in _files(source).items()}
+    originals = {name: _identity(path, hash_content) for name, path in _files(source).items()}
     weights = {}
     assets = {}
     for name, identity in originals.items():
@@ -87,6 +87,29 @@ def inspect_merge_model(source: Path, cache: Path) -> MergeModelFiles:
     if not weights:
         raise ValueError(f"No safetensors model weights found in {source}")
     return MergeModelFiles(source, weights, assets, originals)
+
+
+def open_merge_weights(model, stack, safe_open):
+    """Open validated tensor headers in the caller's lifetime, without loading weights."""
+    readers, layout = {}, {}
+    for name, weight in sorted(model.weights.items()):
+        try:
+            reader = stack.enter_context(safe_open(weight.resolved_file, framework="pt", device="cpu"))
+        except Exception as error:
+            raise ValueError(f"Cannot read safetensors merge input {weight.path}: {error}") from error
+        readers[name] = reader
+        component = str(PurePosixPath(name).parent) if model.root.is_dir() else "."
+        if not reader.keys():
+            raise ValueError(f"Weight file contains no tensor keys: {weight.path}")
+        for key in reader.keys():
+            address = (component, key)
+            if address in layout:
+                raise ValueError(f"Duplicate tensor keys/weight variants in model: {address}")
+            layout[address] = name
+    if not layout:
+        raise ValueError(f"Model contains no tensor keys: {model.root}")
+    validate_shard_indexes(model, layout)
+    return readers, layout
 
 
 def _config(value):
@@ -111,7 +134,7 @@ def _runtime_assets(model: MergeModelFiles) -> dict:
                 except (ValueError, UnicodeError) as error:
                     raise ValueError(f"Invalid model configuration: {asset.path}") from error
             else:
-                result[name] = asset.sha256
+                result[name] = asset.sha256 or cached_model_sha256(Path(asset.resolved_file))
     return result
 
 

@@ -408,6 +408,15 @@ def _inspect_downloaded_model(path, info_path=None):
         if prediction not in (None, "v_prediction"):
             raise ValueError("Conflicting prediction parameterization metadata")
         prediction = "v_prediction"
+    marker_vpred = architecture == "sdxl" and role == "checkpoint" and "v_pred" in shapes
+    if marker_vpred:
+        if prediction not in (None, "v_prediction"):
+            raise ValueError("Conflicting prediction parameterization metadata and v_pred tensor marker")
+        prediction = "v_prediction"
+        evidence.append("SDXL v_pred tensor marker declares v_prediction")
+    zero_terminal_snr = marker_vpred and "ztsnr" in shapes
+    if zero_terminal_snr:
+        evidence.append("SDXL ztsnr tensor marker declares zero terminal SNR")
     if prediction not in (None, "epsilon", "v_prediction", "sample", "flow_prediction"):
         raise ValueError(f"Unknown prediction parameterization: {prediction!r}")
     if record and record["name"] == "NoobAI" and prediction == "v_prediction":
@@ -434,5 +443,6 @@ def _inspect_downloaded_model(path, info_path=None):
             "preset": preset, "pipeline_class": pipeline, "architecture": architecture, "role": role,
             "confidence": confidence, "evidence": evidence, "model_info": resolved_info,
             "weights_role": weights_role, "available_components": components, "missing_components": missing,
-            "prediction_type": prediction, "task": task or (record.get("task") if record else "text-to-image"),
+            "prediction_type": prediction, "zero_terminal_snr": zero_terminal_snr,
+            "task": task or (record.get("task") if record else "text-to-image"),
             "role_guidance": _GUIDANCE.get(role, "This component needs its matching backend workflow and base model.")}

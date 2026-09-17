@@ -11,7 +11,7 @@ from pathlib import Path
 
 from checkpoint_conversion import LEGACY_SUFFIXES, SAFETENSORS_SUFFIXES
 
-MODES = ("weighted-sum", "weighted-difference")
+MODES = ("weighted-sum", "weighted-difference", "unified")
 DEFAULT_DIRECTORY = Path(__file__).resolve().parents[2] / "build/reference"
 
 
@@ -24,6 +24,8 @@ class MergeRequest:
     base_weight: float | None
     output: Path
     cache_dir: Path
+    compatibility_models: tuple[Path, ...] | None = None
+    compatibility_strength: float = 0.35
 
     @property
     def models(self) -> tuple[Path, ...]:
@@ -34,11 +36,17 @@ class MergeRequest:
             "base_model": str(self.base_model),
             "additional_models": [str(path) for path in self.additional_models],
             "mode": self.mode,
+            "weight_semantics": "checkpoint-refinement-strength/lora-delta-scale" if self.mode == "unified" else "tensor-coefficient",
             "weights": list(self.weights) if self.weights is not None else None,
             "base_weight": self.base_weight,
             "coefficient_resolution": "resolved" if self.base_weight is not None else "after-input-inspection",
             "output": str(self.output),
             "cache_dir": str(self.cache_dir),
+            "compatibility_models": ([str(path) for path in self.compatibility_models]
+                                     if self.compatibility_models is not None else None),
+            "compatibility_policy": ("nearby-checkpoints" if self.compatibility_models is None else "explicit-candidates")
+                                    if self.mode == "unified" else "strict-weight-compatibility",
+            "compatibility_strength": self.compatibility_strength,
         }
 
 
@@ -70,6 +78,8 @@ def resolve_merge_request(
     mode: str = "weighted-sum",
     output: str | Path | None = None,
     cache_dir: str | Path | None = None,
+    compatibility_models: Sequence[str | Path] | None = None,
+    compatibility_strength: float = 0.35,
 ) -> MergeRequest:
     """Validate paths and requested strengths without reading model tensors.
 
@@ -83,6 +93,18 @@ def resolve_merge_request(
         raise TypeError("additional_models must be a sequence of local model paths.")
     base = _model(base_model, base=True)
     additional = tuple(_model(value) for value in (additional_model, *additional_models))
+    if (isinstance(compatibility_strength, bool) or not isinstance(compatibility_strength, Real)
+            or not math.isfinite(compatibility_strength) or not 0 <= compatibility_strength <= 1):
+        raise ValueError("Compatibility refinement strength must be finite and in [0, 1].")
+    candidates = None
+    if compatibility_models is not None:
+        if mode != "unified":
+            raise ValueError("Compatibility checkpoints require --mode unified; weight arithmetic cannot bridge architectures.")
+        if isinstance(compatibility_models, (str, bytes, Path)) or not isinstance(compatibility_models, Sequence):
+            raise TypeError("compatibility_models must be a sequence of local checkpoint paths.")
+        candidates = tuple(dict.fromkeys(_model(value, base=True) for value in compatibility_models))
+        if any(path.is_dir() or path.suffix.lower() not in SAFETENSORS_SUFFIXES for path in candidates):
+            raise ValueError("Compatibility checkpoints must be single-file safetensors exports.")
     directory = base.is_dir()
     count = len(additional)
     if weights is None:
@@ -105,18 +127,22 @@ def resolve_merge_request(
     default_name = f"{base.stem if not directory else base.name}-{mode}"
     destination = _path(output, "Output") if output is not None else (
         DEFAULT_DIRECTORY / "merged" / (default_name if directory else default_name + ".safetensors"))
-    if not directory and destination.suffix.lower() not in SAFETENSORS_SUFFIXES:
+    if mode == "unified":
+        destination = _path(output, "Output") if output is not None else DEFAULT_DIRECTORY / "merged" / (default_name + ".iildmodel")
+        if destination.suffix.lower() != ".iildmodel":
+            raise ValueError("A unified model output must be a new .iildmodel directory.")
+    elif not directory and destination.suffix.lower() not in SAFETENSORS_SUFFIXES:
         raise ValueError("A merged checkpoint output must end in .safetensors or .safetensor.")
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"Merge output already exists; choose a new path: {destination}")
     cache = _path(cache_dir, "Conversion cache") if cache_dir is not None else DEFAULT_DIRECTORY / "model-merge-cache"
-    for source in (base, *additional):
+    for source in (base, *additional, *(candidates or ())):
         resolved = source.resolve()
         if destination.resolve() == resolved or (source.is_dir() and destination.resolve().is_relative_to(resolved)):
             raise ValueError("Merge output must not overlap or be inside an input model.")
         if source.is_dir() and cache.resolve().is_relative_to(resolved):
             raise ValueError("Conversion cache must not be inside an input model.")
-    return MergeRequest(base, additional, mode, values, None, destination, cache)
+    return MergeRequest(base, additional, mode, values, None, destination, cache, candidates, float(compatibility_strength))
 
 
 def resolve_merge_weights(request: MergeRequest, kinds: Sequence[str]) -> MergeRequest:
@@ -124,9 +150,11 @@ def resolve_merge_weights(request: MergeRequest, kinds: Sequence[str]) -> MergeR
     if len(kinds) != len(request.additional_models) or any(kind not in ("checkpoint", "lora") for kind in kinds):
         raise ValueError("Expected one checkpoint/LoRA kind per additional model.")
     count = kinds.count("checkpoint")
-    default = 1 / (count + 1) if request.mode == "weighted-sum" else 0.5
+    default = 0.35 if request.mode == "unified" else 1 / (count + 1) if request.mode == "weighted-sum" else 0.5
     values = request.weights or tuple(1.0 if kind == "lora" else default for kind in kinds)
     base_weight = 1.0
+    if request.mode == "unified" and any(value > 1 for value, kind in zip(values, kinds) if kind == "checkpoint"):
+        raise ValueError("Unified checkpoint refinement strengths must be in [0, 1]; LoRA strengths may exceed 1.")
     if request.mode == "weighted-sum":
         try:
             total = math.fsum(value for value, kind in zip(values, kinds) if kind == "checkpoint")
@@ -139,14 +167,22 @@ def resolve_merge_weights(request: MergeRequest, kinds: Sequence[str]) -> MergeR
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Merge local model weights with a weighted sum or subtraction.")
+    parser = argparse.ArgumentParser(description="Merge compatible model weights or build an ordered unified model cascade.")
     parser.add_argument("--base-model", required=True, help="Base checkpoint or Diffusers directory (A).")
     parser.add_argument("--additional-model", required=True, action="append", dest="additional_models",
                         help="Checkpoint or LoRA file/directory; repeat for more materials (at least one required).")
-    parser.add_argument("--mode", choices=MODES, default="weighted-sum")
+    parser.add_argument("--mode", choices=MODES, default="weighted-sum", help="Unified mode preserves independent architectures and refines images in order.")
     parser.add_argument("--weights", "--weight", nargs="+", type=float,
                         help="One strength for all materials, or one per material. Default LoRA strength: 1.")
     parser.add_argument("--output", help="New output file/directory; default: build/reference/merged/.")
     parser.add_argument("--cache-dir", help="Cache for existing safe legacy-checkpoint conversion.")
+    compatibility = parser.add_mutually_exclusive_group()
+    compatibility.add_argument("--compatibility-model", action="append", dest="compatibility_models",
+                               help="Local checkpoint candidate for otherwise unmatched LoRAs in unified mode; repeat as needed. Default: nearby checkpoint files.")
+    compatibility.add_argument("--no-auto-compatibility", action="store_const", const=[], dest="compatibility_models",
+                               help="Require every LoRA to match an explicitly supplied material checkpoint.")
+    parser.add_argument("--compatibility-strength", type=float, default=0.35,
+                        help="Image refinement strength of automatically inserted compatibility stages, in [0,1] (default: 0.35).")
     parser.add_argument("--print-config", action="store_true", help="Validate arguments without loading tensors.")
+    parser.add_argument("--inspect", action="store_true", help="Inspect structural compatibility and LoRA routing before hashing or writing output.")
     return parser

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import math
 from pathlib import Path
 from typing import Any
+from encoder_compatibility import lora_encoder_compatibility
 from weight_files import (LocalWeightFile, SAFETENSORS_SUFFIXES, cached_model_sha256,
                           checked_safetensors_path, resolve_weight_file, verify_weight_file)
 
@@ -199,12 +200,13 @@ def apply_lora(
         if selection.local_file is not None:
             with checked_safetensors_path(
                 selection.local_file, cache_directory / "single-file-aliases", "LoRA"
-            ) as path:
+            ) as path, lora_encoder_compatibility(pipeline):
                 load_arguments["weight_name"] = path.name
                 pipeline.load_lora_weights(str(path.parent), **load_arguments)
         else:
             _verify_local_lora_identity(selection)
-            pipeline.load_lora_weights(selection.source, **load_arguments)
+            with lora_encoder_compatibility(pipeline):
+                pipeline.load_lora_weights(selection.source, **load_arguments)
             _verify_local_lora_identity(selection)
         pipeline.set_adapters(LORA_ADAPTER_NAME, adapter_weights=selection.scale)
         adapters_by_component = pipeline.get_list_adapters()

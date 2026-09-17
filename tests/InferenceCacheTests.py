@@ -29,6 +29,16 @@ class InferenceCacheTests(unittest.TestCase):
         self.model.write_bytes(b"original")
         weight_files.clear_model_hash_cache()
 
+    def test_worker_hash_progress_reports_bytes_once_for_unchanged_model(self):
+        output = io.StringIO()
+        with patch.dict(os.environ, {"IILD_WORKER_PROGRESS": "1"}), patch("sys.stdout", output):
+            first = weight_files.resolve_weight_file(str(self.model), "--model")
+            weight_files.verify_weight_file(first, "model")
+        lines = output.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        event = json.loads(lines[0].removeprefix("IILD_MODEL_PROGRESS "))
+        self.assertEqual(event, {"schema": "iild-model-progress-v1", "completed_bytes": 8, "total_bytes": 8})
+
     def test_one_full_hash_across_resolution_loader_verification_and_next_request(self):
         with patch.object(weight_files, "file_sha256", wraps=weight_files.file_sha256) as digest:
             first = weight_files.resolve_weight_file(str(self.model), "--model")

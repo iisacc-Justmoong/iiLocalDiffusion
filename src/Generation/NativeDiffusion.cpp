@@ -3,6 +3,7 @@
 #include "NativeDiskCache.hpp"
 #include "NativeVaePolicy.hpp"
 #include "GenerationDefaults.hpp"
+#include "UnifiedModel.hpp"
 #include <cmath>
 #include <algorithm>
 #include <memory>
@@ -85,7 +86,8 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
 static NativeGenerationResult nativeImage(const NativeGenerationRequest &request,
     const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control,
-    bool prepareOnly, NativeComputeBackend backend = NativeComputeBackend::Automatic)
+    bool prepareOnly, NativeComputeBackend backend = NativeComputeBackend::Automatic,
+    const NativePreviewCallback &preview = {}, const NativeGenerationResult *initial = nullptr, float strength = 1.0f)
 {
     NativeGenerationResult result;
     const auto started = std::chrono::steady_clock::now();
@@ -135,8 +137,13 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             const std::atomic_bool &cancelled;
             const NativeProgressCallback &progress;
             const std::function<bool()> stopped;
+            const NativePreviewCallback &preview;
+            int previewSequence = 0;
+            int samplingTotal = 0;
             sd_ctx_t *context = nullptr;
             bool preparing = false;
+            unsigned graphNodes = 0;
+            int completedGraphBatches = 0;
             std::string error;
             std::mutex logMutex;
             bool stop() const { return stopped(); }
@@ -147,9 +154,26 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             ~Callbacks() {
                 sd_set_abort_callback(nullptr, nullptr);
                 sd_set_progress_stage_callback(nullptr, nullptr);
+                sd_set_backend_eval_callback(nullptr, nullptr);
+                sd_set_preview_callback(nullptr, PREVIEW_NONE, 1, false, false, nullptr);
                 sd_set_log_callback(nullptr, nullptr);
             }
-        } callbacks{cancelled, progress, stopped};
+        } callbacks{cancelled, progress, stopped, preview};
+        if (preview && !prepareOnly) {
+            sd_set_preview_callback([](int step, int count, sd_image_t *frames, bool noisy, void *opaque) {
+                auto &state = *static_cast<Callbacks *>(opaque);
+                if (state.stop() || noisy || count != 1 || !frames || step < 1 || step > state.samplingTotal) return;
+                const auto &frame = frames[0];
+                if (!frame.data || frame.channel != 3 || !frame.width || !frame.height
+                    || frame.width > 512 || frame.height > 512) return;
+                NativeGenerationPreview value;
+                value.width = static_cast<int>(frame.width); value.height = static_cast<int>(frame.height);
+                value.sequence = ++state.previewSequence;
+                value.step = step; value.total = state.samplingTotal;
+                value.rgb.assign(frame.data, frame.data + static_cast<std::size_t>(frame.width) * frame.height * 3);
+                state.preview(value);
+            }, PREVIEW_PROJ, 1, true, false, &callbacks);
+        }
         struct CacheUse {
             EngineCache &cache;
             std::uint64_t epoch;
@@ -175,6 +199,18 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         } priority;
 #endif
         sd_set_abort_callback([](void *opaque) { return static_cast<Callbacks *>(opaque)->stop(); }, &callbacks);
+        if (backend == NativeComputeBackend::Cpu) {
+            // A CPU denoising step can take longer than the OS stall budget.
+            // Observe completed graph batches, never a timer-based heartbeat.
+            // The upstream callback also gives pause/cancel a safe CPU boundary.
+            sd_set_backend_eval_callback([](ggml_tensor *, bool ask, void *opaque) {
+                auto &state = *static_cast<Callbacks *>(opaque);
+                if (ask) return ++state.graphNodes % 16 == 0;
+                ++state.completedGraphBatches;
+                if (state.progress) state.progress({NativeGenerationStage::Computing, state.completedGraphBatches, 0});
+                return !state.stop();
+            }, &callbacks);
+        }
         sd_set_log_callback([](sd_log_level_t level, const char *text, void *opaque) {
             auto &state = *static_cast<Callbacks *>(opaque);
             if (text && std::getenv("IILD_NATIVE_DIAGNOSTICS")) std::fputs(text, stderr);
@@ -190,6 +226,7 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         }, &callbacks);
         sd_set_progress_stage_callback([](sd_progress_stage_t stage, int step, int total, float, void *opaque) {
             auto &state = *static_cast<Callbacks *>(opaque);
+            if (stage == SD_PROGRESS_SAMPLE) state.samplingTotal = total;
             if (state.stop() && state.context) sd_cancel_generation(state.context, SD_CANCEL_ALL);
             if (state.progress) state.progress({state.preparing ? NativeGenerationStage::Preparing
                 : stage == SD_PROGRESS_SAMPLE ? NativeGenerationStage::Denoising
@@ -392,6 +429,15 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                 parameters.hires.target_width, parameters.hires.target_height, parameters.hires.steps);
         parameters.seed = request.seed;
         parameters.batch_count = 1;
+        if (initial) {
+            if (initial->rgb.size() != std::size_t(initial->width) * initial->height * 3
+                || initial->width != request.width || initial->height != request.height
+                || !std::isfinite(strength) || strength <= 0 || strength > 1)
+                throw std::runtime_error("Invalid unified model image bridge.");
+            parameters.init_image = {static_cast<uint32_t>(initial->width), static_cast<uint32_t>(initial->height),
+                                     3, const_cast<uint8_t *>(initial->rgb.data())};
+            parameters.strength = strength;
+        }
         parameters.sample_params.sample_steps = request.steps;
         parameters.sample_params.sample_method = sd_get_default_sample_method(context);
         parameters.sample_params.scheduler = sd_get_default_scheduler(context, parameters.sample_params.sample_method);
@@ -471,31 +517,94 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
     return result;
 }
 
+static NativeGenerationResult dispatchNativeImage(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control,
+    bool prepareOnly, NativeComputeBackend backend = NativeComputeBackend::Automatic,
+    const NativePreviewCallback &preview = {})
+{
+    std::error_code error;
+    if (!std::filesystem::is_directory(request.modelPath, error))
+        return nativeImage(request, options, cancelled, progress, control, prepareOnly, backend, preview);
+    NativeGenerationResult result;
+    try {
+        if (cancelled) { result.cancelled = true; return result; }
+        if (!options.loras.empty()) throw std::runtime_error("Add LoRAs to their compatible member when building the unified model.");
+        const auto model = native_detail::loadUnifiedModel(request.modelPath);
+        const auto started = std::chrono::steady_clock::now();
+        const auto pausedStart = control ? control->pausedDuration() : NativeExecutionControl::Clock::duration::zero();
+        double loadTime = 0, generationTime = 0, preparationTime = 0;
+        int previewSequence = 0;
+        for (std::size_t i = 0; i < model.stages.size(); ++i) {
+            if (cancelled || (control && !control->waitUntilRunnable(cancelled))) {
+                result.rgb.clear(); result.cancelled = true; return result;
+            }
+            const auto &stage = model.stages[i];
+            if (i && stage.strength == 0) continue;
+            auto member = request;
+            member.modelPath = stage.model;
+            const auto paused = control ? control->pausedDuration() - pausedStart : NativeExecutionControl::Clock::duration::zero();
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started - paused).count();
+            if (elapsed >= request.timeoutMilliseconds) throw std::runtime_error("Unified image generation exceeded its time limit.");
+            member.timeoutMilliseconds -= static_cast<int>(elapsed);
+            model.verify();
+            auto next = nativeImage(member, options, cancelled, progress, control, prepareOnly, backend,
+                preview ? NativePreviewCallback([&](const NativeGenerationPreview &frame) {
+                    auto unified = frame; unified.sequence = ++previewSequence; preview(unified);
+                }) : NativePreviewCallback{}, i ? &result : nullptr, stage.strength);
+            if (next.cancelled || !next.error.empty()) {
+                if (!next.error.empty()) next.error = "Unified stage " + std::to_string(i + 1) + ": " + next.error;
+                return next;
+            }
+            loadTime += next.modelLoadMilliseconds;
+            generationTime += next.generationMilliseconds;
+            preparationTime += next.preparationMilliseconds;
+            result = std::move(next);
+            // Foreground preparation retains the first context for the real run.
+            if (prepareOnly) break;
+        }
+        model.verify();
+        result.modelLoadMilliseconds = loadTime;
+        result.generationMilliseconds = generationTime;
+        result.preparationMilliseconds = preparationTime;
+    } catch (const std::exception &failure) {
+        result.rgb.clear(); result.error = failure.what();
+    }
+    return result;
+}
+
 NativeGenerationResult generateNativeImageWithOptions(const NativeGenerationRequest &request,
     const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control)
 {
-    return nativeImage(request, options, cancelled, progress, control, false);
+    return dispatchNativeImage(request, options, cancelled, progress, control, false);
 }
 
 NativeGenerationResult generateNativeImageWithBackend(const NativeGenerationRequest &request,
     NativeComputeBackend backend, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control)
 {
-    return nativeImage(request, {}, cancelled, progress, control, false, backend);
+    return dispatchNativeImage(request, {}, cancelled, progress, control, false, backend);
 }
 
 NativeGenerationResult generateNativeImageWithOptions(const NativeGenerationRequest &request,
     const NativeGenerationOptions &options, NativeComputeBackend backend, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control)
 {
-    return nativeImage(request, options, cancelled, progress, control, false, backend);
+    return dispatchNativeImage(request, options, cancelled, progress, control, false, backend);
 }
 
 NativeGenerationResult prepareNativeImageModel(const NativeGenerationRequest &request,
     const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress)
 {
-    return nativeImage(request, options, cancelled, progress, {}, true);
+    return dispatchNativeImage(request, options, cancelled, progress, {}, true);
+}
+NativeGenerationResult generateNativeImageWithPreview(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, NativeComputeBackend backend, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const NativePreviewCallback &preview,
+    const std::shared_ptr<NativeExecutionControl> &control)
+{
+    return dispatchNativeImage(request, options, cancelled, progress, control, false, backend, preview);
 }
 }

@@ -6,10 +6,12 @@ from contextlib import contextmanager
 from collections import OrderedDict
 from dataclasses import dataclass
 import hashlib
+import json
 import os
 from pathlib import Path
 import stat
 import tempfile
+import time
 from threading import RLock
 from typing import Iterator
 
@@ -31,9 +33,18 @@ class LocalWeightFile:
 
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
+    report = os.environ.get("IILD_WORKER_PROGRESS") == "1" and path.suffix.lower() in SAFETENSORS_SUFFIXES
+    total, completed, last = path.stat().st_size if report else 0, 0, 0.0
     with path.open("rb") as source:
         for block in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(block)
+            if report:
+                completed += len(block)
+                now = time.monotonic()
+                if completed == total or now - last >= 0.5:
+                    print("IILD_MODEL_PROGRESS " + json.dumps({"schema": "iild-model-progress-v1",
+                          "completed_bytes": completed, "total_bytes": total}), flush=True)
+                    last = now
     return digest.hexdigest()
 
 

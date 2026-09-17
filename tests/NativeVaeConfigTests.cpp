@@ -22,6 +22,28 @@ int main(int argc, char **argv) {
         if (argc != 3) return 1;
         const auto resources = std::filesystem::canonical(argv[1]);
         const auto directory = std::filesystem::absolute(argv[2]);
+        // A newly synced mobile container can have no resource manifest yet.
+        // This must identify the required resource, never expose file_size().
+        for (const auto *state : {"missing-directory", "empty-directory", "manifest-directory"}) {
+            const auto root = directory / state;
+            std::filesystem::remove_all(root);
+            if (std::string(state) != "missing-directory") std::filesystem::create_directories(root);
+            if (std::string(state) == "manifest-directory")
+                std::filesystem::create_directory(root / "generation-defaults.json");
+            for (bool vae : {false, true}) {
+                std::string error;
+                try {
+                    if (vae) iiLocalDiffusion::native_detail::loadFallbackVae(root, "qwen-image");
+                    else iiLocalDiffusion::native_detail::loadGenerationDefaults(root);
+                } catch (const std::filesystem::filesystem_error &) {
+                    throw std::runtime_error("Missing resources exposed a raw filesystem error");
+                } catch (const std::runtime_error &failure) { error = failure.what(); }
+                require(error.find("generation resources") != std::string::npos,
+                        "Missing resources must explain how to restore the package");
+                require(!vae || error.find("qwen-image") != std::string::npos,
+                        "Missing VAE resources must identify the model family");
+            }
+        }
         Json manifest(json_object_from_file((resources / "generation-defaults.json").string().c_str()), json_object_put);
         require(bool(manifest), "Cannot read installed VAE manifest");
         std::vector<json_object *> entries{get(manifest.get(), "fallback_vae")};

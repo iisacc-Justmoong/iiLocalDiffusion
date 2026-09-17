@@ -37,12 +37,35 @@ json_object *field(json_object *object, const char *name, json_type type) {
         throw std::runtime_error(std::string("Invalid generation-defaults field: ") + name);
     return value;
 }
+std::filesystem::path manifestRoot(const std::filesystem::path &directory, const std::string &purpose) {
+    const auto unavailable = [&] {
+        return std::runtime_error(purpose + " are unavailable. Add or sync the generation resources, then try again.");
+    };
+    std::error_code error;
+    std::filesystem::path root;
+    if (directory.empty()) {
+        try { root = generationResourceDirectory(); }
+        catch (const std::exception &) { throw unavailable(); }
+    } else root = std::filesystem::canonical(directory, error);
+    if (error || !std::filesystem::is_directory(root, error) || error) throw unavailable();
+    const auto manifest = root / "generation-defaults.json";
+    if (!std::filesystem::is_regular_file(manifest, error) || error) throw unavailable();
+    const auto resolved = std::filesystem::canonical(manifest, error);
+    if (error || resolved != manifest) throw unavailable();
+    const auto size = std::filesystem::file_size(manifest, error);
+    if (error) throw unavailable();
+    if (size > 1024 * 1024) throw std::runtime_error("Generation defaults manifest is too large.");
+    return root;
+}
 std::filesystem::path resourcePath(const std::filesystem::path &root, json_object *item) {
     const auto relative = std::filesystem::path(json_object_get_string(field(item, "file", json_type_string)));
     if (relative.empty() || relative.is_absolute()) throw std::runtime_error("Invalid default resource path.");
     for (const auto &part : relative)
         if (part == "..") throw std::runtime_error("A default resource escapes its package.");
-    const auto path = std::filesystem::canonical(root / relative);
+    std::error_code error;
+    const auto path = std::filesystem::canonical(root / relative, error);
+    if (error) throw std::runtime_error("A generation resource is unavailable: " + relative.generic_string()
+        + ". Add or sync the generation resources, then try again.");
     const auto inside = path.lexically_relative(root);
     if (inside.empty() || *inside.begin() == ".." || !std::filesystem::is_regular_file(path)
         || std::filesystem::file_size(path) != static_cast<std::uint64_t>(json_object_get_int64(field(item, "size", json_type_int))))
@@ -151,10 +174,8 @@ std::filesystem::path generationResourceDirectory() {
 }
 
 GenerationDefaults loadGenerationDefaults(const std::filesystem::path &directory) {
-    const auto root = directory.empty() ? generationResourceDirectory() : std::filesystem::canonical(directory);
+    const auto root = manifestRoot(directory, "Generation resources");
     const auto manifestPath = root / "generation-defaults.json";
-    if (std::filesystem::file_size(manifestPath) > 1024 * 1024)
-        throw std::runtime_error("Generation defaults manifest is too large.");
     const auto before = modelIdentity(manifestPath);
     std::unique_ptr<json_object, decltype(&json_object_put)> manifest(json_object_from_file(manifestPath.string().c_str()), json_object_put);
     if (!manifest || json_object_get_int(field(manifest.get(), "version", json_type_int)) != 1)
@@ -223,10 +244,8 @@ GenerationDefaults loadGenerationDefaults(const std::filesystem::path &directory
 }
 
 DefaultVae loadFallbackVae(const std::filesystem::path &directory, const std::string &family) {
-    const auto root = directory.empty() ? generationResourceDirectory() : std::filesystem::canonical(directory);
+    const auto root = manifestRoot(directory, "Required VAE resources for " + canonicalLoraFamily(family));
     const auto manifestPath = root / "generation-defaults.json";
-    if (std::filesystem::file_size(manifestPath) > 1024 * 1024)
-        throw std::runtime_error("Generation defaults manifest is too large.");
     const auto before = modelIdentity(manifestPath);
     std::unique_ptr<json_object, decltype(&json_object_put)> manifest(json_object_from_file(manifestPath.string().c_str()), json_object_put);
     if (!manifest || json_object_get_int(field(manifest.get(), "version", json_type_int)) != 1)

@@ -19,6 +19,23 @@ class NativeImageTests(unittest.TestCase):
     setUp = fixtures.DownloadedModelTests.setUp
     safetensors = fixtures.DownloadedModelTests.safetensors
 
+    @unittest.skipUnless(importlib.util.find_spec("PIL"), "Pillow is required")
+    def test_native_previews_survive_refinement_step_restart(self):
+        from PIL import Image
+        directory = self.directory / "native-preview"
+        writer = native_image.NativePreviewWriter(directory)
+        output = io.StringIO()
+        with patch("sys.stdout", output):
+            writer(10, 10, 2, 2, bytes((12, 34, 56)) * 4)
+            writer(1, 3, 2, 2, bytes((98, 76, 54)) * 4)
+        events = [json.loads(line.removeprefix("IILD_PREVIEW ")) for line in output.getvalue().splitlines()]
+        self.assertEqual([e["sequence"] for e in events], [1, 2])
+        self.assertEqual([e["total_steps"] for e in events], [10, 3])
+        self.assertEqual(Image.open(directory / events[0]["image"]).getpixel((0, 0)), (12, 34, 56))
+        self.assertEqual(Image.open(directory / events[1]["image"]).getpixel((0, 0)), (98, 76, 54))
+        with self.assertRaises(ValueError): writer(4, 3, 2, 2, b"bad")
+        with self.assertRaises(ValueError): native_image.NativePreviewWriter(directory)
+
     def model(self, **kwargs):
         return self.safetensors({
             "model.diffusion_model.net.llm_adapter.blocks.0.cross_attn.q_proj.weight": [2, 2],

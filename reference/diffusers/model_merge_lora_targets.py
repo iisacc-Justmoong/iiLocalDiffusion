@@ -62,8 +62,16 @@ def lora_target_aliases(layout, readers):
                     component_aliases("text_encoder", key[len(prefix):], target)
             if key.startswith("model.diffusion_model."):
                 component_aliases("unet", key.removeprefix("model.diffusion_model."), target)
+                add(_module(key.removeprefix("model.")), target)
+            # Anima/Cosmos exports use these equivalent backbone namespaces.
+            for prefix in ("model.diffusion_model.", "diffusion_model.", "net."):
+                local = _module(key[len(prefix):].removeprefix("net.")) if key.startswith(prefix) else ""
+                if local.startswith(("blocks.", "llm_adapter.", "x_embedder.", "final_layer.", "t_embedder.")):
+                    for alias in ("", "diffusion_model.", "model.diffusion_model.", "net.",
+                                  "model.diffusion_model.net.", "diffusion_model.net."):
+                        add(alias + local, target)
 
-    if any(key.startswith("model.diffusion_model.") for key in single_keys):
+    if any(key.startswith("model.diffusion_model.input_blocks.") for key in single_keys):
         # The pinned Diffusers converter only moves UNet values. Passing original
         # key strings builds an inverse map without loading an entire UNet/pipeline.
         from diffusers.loaders.single_file_utils import convert_ldm_unet_checkpoint

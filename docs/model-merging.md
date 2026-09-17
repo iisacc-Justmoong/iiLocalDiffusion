@@ -1,5 +1,135 @@
 # Local model merging
 
+## Different architectures: unified model objects
+
+`--mode unified --output NAME.iildmodel` builds a portable directory with
+`model_index.json`, source provenance, and independent checkpoint members.
+It is an **ordered image-refinement cascade**, not a single-network weight
+average or distillation. SD1/SD2/SDXL derivatives (including Illustrious, Pony,
+NAI and Noob), FLUX/Krea and Anima can share an object without pretending that
+their differently shaped weights, latent spaces or prediction conventions match.
+Actual inference still requires each member to be supported by the installed
+native backend and to contain its required text encoders and compatible VAE.
+Unknown families may be packaged; this is not proof of runtime support.
+Architecture identification is advisory: unrecognized hybrid signatures and
+marker storage conventions remain intact in independently copied members.
+
+The first checkpoint generates an image. Each subsequent checkpoint encodes
+that RGB image with its own VAE and refines it. Models run one at a time using
+the existing native context cache; no cross-family latent or tensor padding is
+performed. Order matters, execution costs add up, and visual quality must be
+evaluated on actual generations. Later stages retain the native half-size/Hires
+policy. Checkpoint weights in this explicit mode are refinement strengths in
+`[0,1]`, default `0.35`; zero skips that stage. LoRA strengths default to `1`.
+This mode has no weighted-subtraction interpretation.
+
+LoRAs are matched by **all** target names, shapes, rank and alpha contracts.
+Each adapter is fused into the nearest preceding compatible checkpoint, or the
+only later compatible checkpoint. Put an adapter immediately after its intended
+model. Equivalent Anima namespaces include `diffusion_model.*`, `net.*`,
+`model.diffusion_model.*`, and the complete export's `model.diffusion_model.net.*`.
+Ambiguous aliases and incompatible shapes remain errors.
+
+### LoRA compatibility objects
+
+When none of the requested checkpoints accepts a LoRA, unified mode now looks for
+a **real compatibility checkpoint** among direct sibling safetensors files in the
+requested checkpoints' folders. It checks every adapter target, shape, rank and
+alpha. It does not recurse into packages, scan the machine, download models or
+use filenames as evidence of compatibility. Invalid unrelated files are ignored.
+
+`LoraCompatibility.inspect(checkpoint, adapter)` exposes a reusable structural
+result (`compatible`, `architecture`, `target_count`, `embedded_components`,
+`reason`). `LoraCompatibilityBridge.discover(checkpoints)` lists local candidates;
+`LoraCompatibilityBridge.resolve(adapter, candidates)` selects one and returns an
+immutable bridge with `checkpoint`, `refinement_strength`, and `as_dict()`.
+These methods live in `model_merge_compatibility.py`; they do not load whole
+checkpoint tensors or compute checkpoint hashes. Legacy input inspection still
+uses the existing safe conversion when necessary.
+
+For Anima, a matching checkpoint with embedded text encoder and VAE takes
+precedence over matching denoiser-only exports. Component presence is structural
+evidence, not an inference certificate. If several equally suitable checkpoints
+remain, selection fails with their paths; add the desired checkpoint as an
+ordinary material, or pass `--compatibility-model PATH`. Repeat that option to
+provide a candidate pool in other folders. `--no-auto-compatibility` disables
+fallback. The corresponding Python argument is `compatibility_models`: `None`
+searches siblings, a sequence restricts candidates, and `[]` disables fallback.
+
+The selected checkpoint is fused with the LoRA and inserted at that adapter's
+position in the cascade. Further compatible adapters can reuse the same stage.
+The existing RGB handoff re-encodes the previous image with that checkpoint's own
+VAE; each network retains its own latent dimensions and prediction settings.
+Bridge refinement defaults to `0.35`; `--compatibility-strength` /
+`compatibility_strength` sets it in `[0,1]` independently of LoRA delta strength.
+Requested material indexes and weights remain unchanged; appended bridge sources
+receive separate provenance indexes and hashes. Inspection reports include
+`resolved_sources`; stages include `compatibility_bridge`, and completed reports
+include `compatibility_bridge_count`. The total remains limited to 64 stages.
+
+For example, SDXL + Noob + an Anima LoRA can automatically add a local compatible
+complete Anima checkpoint. The resulting object contains three independent
+networks. It is not a conversion of Anima weights into SDXL. A LoRA cannot recreate
+a missing base network: without a matching checkpoint the operation still fails,
+and weight-sum/difference modes remain strict. No arbitrary tensor resizing,
+partial adapter dropping, cross-family LoRA projection or retraining is claimed.
+
+```python
+from model_merge import merge_models
+from model_merge_compatibility import LoraCompatibility, LoraCompatibilityBridge
+
+compatibility = LoraCompatibility.inspect("/models/anima-complete.safetensors", "/models/style.safetensors")
+bridge = LoraCompatibilityBridge.resolve("/models/style.safetensors", ["/models/anima-complete.safetensors"])
+report = merge_models("/models/sdxl.safetensors", "/models/style.safetensors",
+                      mode="unified", compatibility_models=[bridge.checkpoint],
+                      compatibility_strength=0.35, output="/models/compatible.iildmodel")
+```
+
+```bash
+iild-merge --base-model /models/sdxl.safetensors \
+  --additional-model /models/noob-vpred.safetensors \
+  --additional-model /models/anima.safetensors \
+  --additional-model /models/anima-lora.safetensors \
+  --mode unified --weights 0.35 0.35 1 --output /models/combined.iildmodel
+iild-generate --model-path /models/combined.iildmodel --prompt 'a mountain lake' \
+  --output-dir /images/combined
+```
+
+The native C++ image entry points accept the package directory as `modelPath`;
+the CLI auto-selects the `unified` backend. Packages contain independent copies
+(APFS uses copy-on-write clones) and remain usable after the original paths move.
+The current cascade accepts single-file checkpoints and standard supported
+LoRAs; Diffusers checkpoint directories must first be exported. It does not
+recursively merge an existing unified object. Safetensors/legacy conversion and
+adapter restrictions below still apply. Cancellation, errors or a changed member
+discard intermediate images. The native loader confines member paths, validates
+sizes and verifies file identities throughout the run; the CLI also checks the
+recorded SHA-256 hashes with the SDK's unchanged-file hash cache.
+
+Members without adapters are preserved byte for byte, including any nonfinite
+values already present in their source. Packaging them does not certify their
+numerical health or replace values in layers that a runtime may not use. The
+report states this validation scope explicitly. Checkpoints with adapters pass
+through the normal finite-input/finite-output arithmetic checks before publication.
+
+`--inspect` performs structural checks and reports resolved strengths, architecture
+evidence and adapter routing before whole-checkpoint hashing or output creation.
+Legacy pickle inputs still require the existing safe conversion. Normal merges
+also preflight before hashing. `--print-config` retains its argument-only contract.
+Empty `v_pred`/`ztsnr` tensors are prediction markers, not trainable weights:
+matching markers are preserved, while differing markers require unified mode.
+Simply dropping them would change the interpretation of the resulting model.
+
+Validation: `ModelMergeCompatibilityTests.py` checks nested export names, public
+compatibility objects, automatic/explicit/disabled selection, ambiguity, shape
+rejection, source preservation, ordering, shared bridges and real delta arithmetic.
+`UnifiedModelMergeTests.py` checks real tensors, marker preservation,
+early failures, adapter routing, finite arithmetic, byte preservation and publication.
+`NativeResultTests` and `NativeMobileResultTests` execute the production cascade
+adapter against controlled engine results, checking RGB handoff, zero-strength
+skips, path confinement and cancellation. These fixtures do not certify image
+quality for every named model family.
+
 `iild-merge` and Python `merge_models()` combine local checkpoints and LoRAs.
 The **base model and first additional model are required**. Weights, further
 additional models, mode, output and conversion cache are optional. The base is a
@@ -125,7 +255,7 @@ versions, output hashes and tensor/buffer counts. The CLI prints this report.
 
 ## Formats and compatibility
 
-Full checkpoints must all use the base's storage format: single files or
+For the two weight-arithmetic modes, full checkpoints must all use the base's storage format: single files or
 Diffusers directories. LoRA files/directories can be mixed with either format:
 
 - `.safetensors` and `.safetensor` files are read with the existing safe loader.

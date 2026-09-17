@@ -35,6 +35,34 @@ class Request(C.Structure):
 
 
 Progress = C.CFUNCTYPE(C.c_int, C.c_int, C.c_int, C.c_int, C.c_void_p)
+Preview = C.CFUNCTYPE(C.c_int, C.c_int, C.c_int, C.c_int, C.c_int, C.c_int,
+                     C.c_void_p, C.c_size_t, C.c_void_p)
+
+
+class NativePreviewWriter:
+    """Publish bounded projections of actual engine latents across both passes."""
+    def __init__(self, directory):
+        self.directory = Path(directory).expanduser().absolute()
+        if self.directory.is_symlink() or self.directory.resolve() != self.directory:
+            raise ValueError("The preview directory must not be redirected.")
+        if self.directory.exists() and (not self.directory.is_dir() or any(self.directory.iterdir())):
+            raise ValueError("The preview directory must be empty.")
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.sequence = 0
+
+    def __call__(self, step, total, width, height, pixels):
+        if not (1 <= step <= total <= 10000 and 1 <= width <= 512 and 1 <= height <= 512
+                and len(pixels) == width * height * 3):
+            raise ValueError("Invalid native preview dimensions or progress.")
+        if self.directory.is_symlink() or self.directory.resolve() != self.directory:
+            raise RuntimeError("The preview directory was redirected during generation.")
+        from PIL import Image
+        image = Image.frombytes("RGB", (width, height), pixels)
+        name = f"step-{self.sequence + 1:06d}.png"
+        write_png(image, self.directory / name, compress_level=1, optimize=False, overwrite=False)
+        self.sequence += 1
+        print("IILD_PREVIEW " + json.dumps({"schema": "iild-preview-v1", "step": step,
+              "total_steps": total, "sequence": self.sequence, "image": name}), flush=True)
 
 
 def library_path():
@@ -60,6 +88,7 @@ class NativeEngine:
         declarations = {
             "available": ([], C.c_int),
             "generate": ([C.POINTER(Request), Progress, C.c_void_p], C.c_void_p),
+            "generate_with_preview": ([C.POINTER(Request), Progress, Preview, C.c_void_p], C.c_void_p),
             "metadata": ([C.c_void_p], C.c_char_p),
             "rgb": ([C.c_void_p, C.POINTER(C.c_size_t)], C.c_void_p),
             "free": ([C.c_void_p], None), "release": ([], None),
@@ -83,22 +112,36 @@ class NativeEngine:
         def progress(stage, step, total, _):
             now = time.monotonic()
             if args.progress and (stage != last[0] or stage == 3 or step == total or now - last[1] >= 0.2):
-                phases = ("waiting", "loading", "encoding", "denoising", "decoding", "preparing-model")
+                phases = ("waiting", "loading", "encoding", "denoising", "decoding", "preparing-model", "computing")
                 print("IILD_NATIVE_PROGRESS " + json.dumps({"schema": "iild-native-progress-v1",
                       "stage": phases[stage], "step": step, "total": total}), flush=True)
                 last[:] = [stage, now]
             return 0
         callback = Progress(progress)
+        preview_errors = []
+        writer = getattr(args, "_native_preview", None) if not prepare else None
+        def preview(sequence, step, total, width, height, pixels, size, _):
+            try:
+                if not pixels or not (1 <= width <= 512 and 1 <= height <= 512) or size != width * height * 3:
+                    raise ValueError("Invalid native preview buffer.")
+                writer(step, total, width, height, C.string_at(pixels, size))
+                return 0
+            except Exception as error:
+                preview_errors.append(error)
+                return 1
+        preview_callback = Preview(preview) if writer else Preview()
         adapters = (LoRA * len(args.native_loras))(*[
             LoRA(str(path).encode(), scale) for path, scale in args.native_loras])
         request = Request(C.sizeof(Request), args.model.encode(), args.prompt.encode(),
                           args.negative_prompt.encode(), str(args.generation_resources).encode() if args.generation_resources else None,
                           args.width, args.height, args.steps, seed, args.default_modifiers, prepare, 0,
                           adapters, len(adapters))
-        handle = self.generate(C.byref(request), callback, None)
+        handle = self.generate_with_preview(C.byref(request), callback, preview_callback, None)
         if not handle:
             raise RuntimeError("Native inference could not allocate a result.")
         try:
+            if preview_errors:
+                raise preview_errors[0]
             metadata = json.loads(self.metadata(handle))
             if metadata["error"] or metadata["cancelled"]:
                 raise RuntimeError(metadata["error"] or "Native image generation was cancelled.")
@@ -182,7 +225,7 @@ def run(_preset, args):
         record_execution("native-auto", "managed", args.model)
         return 0
     if args.preview_dir:
-        print("Native Anima reports generation stages; per-step latent previews are unavailable.", flush=True)
+        args._native_preview = NativePreviewWriter(args.preview_dir)
     paths = resolve_output_paths(args)
     for index, path in enumerate(paths):
         seed = args.seed + index * args.seed_stride

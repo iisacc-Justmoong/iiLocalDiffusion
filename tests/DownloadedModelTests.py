@@ -88,6 +88,18 @@ class DownloadedModelTests(unittest.TestCase):
                 self.assertEqual(found["weights_role"], "checkpoint")
                 self.assertEqual(found["missing_components"], [])
 
+    def test_sdxl_prediction_markers_work_without_metadata_or_filename_hints(self):
+        shapes = {"model.diffusion_model.input_blocks.0.0.weight": [1, 4, 1, 1],
+                  "model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight": [1, 2048],
+                  "v_pred": [0], "ztsnr": [0]}
+        found = downloaded_model.inspect_downloaded_model(self.safetensors(shapes))
+        self.assertEqual(found["prediction_type"], "v_prediction")
+        self.assertTrue(found["zero_terminal_snr"])
+        self.assertEqual(found["preset"], "sdxl")
+        with self.assertRaisesRegex(ValueError, "Conflicting prediction"):
+            downloaded_model.inspect_downloaded_model(self.safetensors(
+                shapes, {"prediction_type": "epsilon"}, name="conflict.safetensors"))
+
     def test_anima_denoiser_and_vae_remain_distinct(self):
         found = downloaded_model.inspect_downloaded_model(self.safetensors({
             "llm_adapter.blocks.0.cross_attn.q_proj.weight": [2, 2],

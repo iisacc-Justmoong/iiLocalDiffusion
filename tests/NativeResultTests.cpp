@@ -20,10 +20,15 @@ sd_progress_stage_cb_t progressCallback = nullptr;
 void *progressData = nullptr;
 sd_abort_cb_t abortCallback = nullptr;
 void *abortData = nullptr;
+sd_graph_eval_callback_t graphCallback = nullptr;
+void *graphData = nullptr;
+sd_preview_cb_t previewCallback = nullptr;
+void *previewData = nullptr;
 enum class Output { valid, failed, engineError, refinementFailed, wrongSize, wrongChannels, missing, multiple };
 Output output = Output::valid;
 int allocatedImages = 0;
 int generationCalls = 0;
+int imageBridgeCalls = 0;
 unsigned embeddingCount = 0;
 unsigned loraCount = 0;
 float loraStrength = 0;
@@ -49,6 +54,12 @@ extern "C" {
 void sd_set_log_callback(sd_log_cb_t callback, void *data) { logCallback = callback; logData = data; }
 void sd_set_progress_stage_callback(sd_progress_stage_cb_t callback, void *data) { progressCallback = callback; progressData = data; }
 void sd_set_abort_callback(sd_abort_cb_t callback, void *data) { abortCallback = callback; abortData = data; }
+void sd_set_backend_eval_callback(sd_graph_eval_callback_t callback, void *data) { graphCallback = callback; graphData = data; }
+void sd_set_preview_callback(sd_preview_cb_t callback, preview_t mode, int interval, bool denoised, bool noisy, void *data) {
+    if (callback) require(mode == PREVIEW_PROJ && interval == 1 && denoised && !noisy,
+        "Live previews must use real denoised latents without extra VAE work");
+    previewCallback = callback; previewData = data;
+}
 int32_t sd_get_num_physical_cores() { return 2; }
 void sd_ctx_params_init(sd_ctx_params_t *parameters) { *parameters = {}; parameters->auto_fit = true; }
 sd_ctx_t *new_sd_ctx(const sd_ctx_params_t *parameters) {
@@ -98,6 +109,14 @@ void sd_cancel_generation(sd_ctx_t *, sd_cancel_mode_t) {}
 bool convert_with_components(const char *, const char *, const char *, const char *, const char *,
     const char *, const char *, sd_type_t, const char *, bool, int) { return false; }
 bool generate_image(sd_ctx_t *, const sd_img_gen_params_t *parameters, sd_image_t **images, int *count) {
+    if (parameters->init_image.data) {
+        ++imageBridgeCalls;
+        require(parameters->init_image.channel == 3 && parameters->init_image.width == parameters->width * 2
+            && parameters->init_image.height == parameters->height * 2 && parameters->strength == 0.35f,
+            "A unified stage must receive decoded RGB and its own refinement strength");
+        require(parameters->init_image.data[3] == 1 && parameters->init_image.data[5] == 1,
+            "The unified bridge must carry the preceding image pixels");
+    }
     require(parameters->hires.enabled, "Every native image must run Hires fix");
     require(parameters->hires.upscaler == SD_HIRES_UPSCALER_LANCZOS
         && parameters->hires.denoising_strength == 0.35f,
@@ -132,12 +151,30 @@ bool generate_image(sd_ctx_t *, const sd_img_gen_params_t *parameters, sd_image_
         return false;
     }
     if (output == Output::missing) return true;
+    if (expectCpu) {
+        require(graphCallback, "CPU work must report progress within a slow denoising step");
+        for (int node = 0; node < 64; ++node)
+            if (graphCallback(nullptr, true, graphData) && !graphCallback(nullptr, false, graphData)) return false;
+    }
+    if (previewCallback) {
+        if (progressCallback) progressCallback(SD_PROGRESS_SAMPLE, 0, parameters->sample_params.sample_steps, 0, progressData);
+        std::array<uint8_t, 12> pixels{12, 34, 56, 78, 90, 12, 34, 56, 78, 90, 12, 34};
+        sd_image_t frame{2, 2, 3, pixels.data()};
+        previewCallback(1, 1, &frame, false, previewData);
+        pixels.fill(0); // Engine-owned storage dies after the callback.
+    }
     if (progressCallback) progressCallback(SD_PROGRESS_SAMPLE, parameters->sample_params.sample_steps,
                                            parameters->sample_params.sample_steps, 0, progressData);
     if (abortCallback && abortCallback(abortData)) return false;
     if (output == Output::refinementFailed) {
         if (logCallback) logCallback(SD_LOG_ERROR, "Hires refinement failed", logData);
         return false;
+    }
+    if (previewCallback) {
+        if (progressCallback) progressCallback(SD_PROGRESS_SAMPLE, 0, parameters->hires.steps, 0, progressData);
+        std::array<uint8_t, 12> pixels{98, 76, 54};
+        sd_image_t frame{2, 2, 3, pixels.data()};
+        previewCallback(1, 1, &frame, false, previewData);
     }
     if (progressCallback) progressCallback(SD_PROGRESS_SAMPLE, parameters->hires.steps,
                                            parameters->hires.steps, 0, progressData);
@@ -236,15 +273,36 @@ int main(int argc, char **argv) {
         }
         request.steps = 10;
         std::atomic_bool cancelled{false};
+        {
+            std::vector<NativeGenerationPreview> frames;
+            const auto result = generateNativeImageWithPreview(request, {}, NativeComputeBackend::Automatic,
+                cancelled, {}, [&](const auto &frame) { frames.push_back(frame); });
+            require(result.error.empty(), "Preview generation failed: " + result.error);
+            require(frames.size() == 2 && frames[0].sequence == 1 && frames[1].sequence == 2,
+                "Previews must span base and refinement passes");
+            require(frames[0].rgb[0] == 12 && frames[1].rgb[0] == 98 && frames[0].rgb.size() == 12,
+                "Preview storage must own the engine pixels");
+            require(frames[0].total == 10 && frames[1].total == 3 && frames[1].step == 1,
+                "Preview progress must describe its actual pass");
+            require(!previewCallback, "Dangling native preview callback");
+        }
         // A background CPU request must evict an automatic/GPU context, then
         // reuse only CPU residency until the caller changes backends again.
         releaseNativeDiffusionCache();
         for (int run = 0; run < 4; ++run) {
             expectCpu = run == 1 || run == 2;
+            int computed = 0;
             const auto result = generateNativeImageWithBackend(request,
                 expectCpu ? NativeComputeBackend::Cpu : NativeComputeBackend::Automatic,
-                cancelled, {}, {});
+                cancelled, [&](const auto &event) {
+                    if (event.stage == NativeGenerationStage::Computing) {
+                        require(event.step > computed && event.total == 0, "Invalid CPU work progress");
+                        computed = event.step;
+                    }
+                }, {});
             require(result.error.empty(), "Backend selection failed: " + result.error);
+            require(expectCpu ? computed > 0 : computed == 0, "CPU graph progress was lost or invented");
+            require(!graphCallback, "Dangling graph progress callback");
             require(result.modelCacheHit == (run == 2), "Backend change reused incompatible residency");
         }
         // width, height, horizontal crop origin, vertical crop origin.
@@ -283,6 +341,28 @@ int main(int argc, char **argv) {
         {
             NativeGenerationOptions options;
             options.defaultModifiers = false;
+            const auto previous = request.modelPath;
+            const auto emptyResources = directory / "society-resources-not-synced";
+            std::filesystem::create_directories(emptyResources);
+            options.resourceDirectory = emptyResources;
+            modelFamily = "anima";
+            for (bool needsVae : {false, true}) {
+                request.modelPath = directory / (needsVae ? "anima-denoiser.safetensors" : "anima-complete.safetensors");
+                { std::ofstream file(request.modelPath); file << "Anima C API fixture"; }
+                missingVae = needsVae;
+                const auto beforeCalls = generationCalls;
+                const auto result = generateNativeImageWithOptions(request, options, cancelled);
+                if (needsVae) {
+                    require(result.error.find("qwen-image") != std::string::npos
+                        && result.error.find("generation resources") != std::string::npos
+                        && result.error.find("filesystem error") == std::string::npos
+                        && generationCalls == beforeCalls,
+                        "A missing Anima VAE must identify the unsynced resources before inference");
+                } else require(result.error.empty() && selectedVae.empty(),
+                    "Complete Anima must generate with its embedded VAE and no resource manifest");
+            }
+            request.modelPath = previous;
+            options.resourceDirectory.clear();
             for (const auto &vaeFamily : {"qwen-image", "sdxl-base", "flux1", "flux2", "anima", "z-image"}) {
             const auto qwenModel = directory / (std::string(vaeFamily) + "-result-fixture.safetensors");
             { std::ofstream file(qwenModel); file << "Qwen C API fixture"; }
@@ -415,6 +495,44 @@ int main(int argc, char **argv) {
             cancelled = false;
         }
         request.width = request.height = 64;
+        {
+            const auto original = request.modelPath;
+            const auto package = std::filesystem::canonical(directory) / "cascade.iildmodel";
+            std::filesystem::create_directories(package);
+            for (const auto *name : {"a.safetensors", "b.safetensors"}) {
+                std::ofstream file(package / name); file << "C API fixture";
+            }
+            const auto writeManifest = [&](const std::string &second, double strength = 0.35) {
+                std::ofstream file(package / "model_index.json");
+                file << R"({"schema":"iild-unified-model-v1","_class_name":"IILDUnifiedCascade","composition":"ordered-image-refinement","stages":[)"
+                     << R"({"model":"a.safetensors","size_bytes":13,"strength":1},)"
+                     << "{\"model\":\"" << second << "\",\"size_bytes\":13,\"strength\":" << strength << "}]}";
+            };
+            writeManifest("b.safetensors");
+            request.modelPath = package;
+            NativeGenerationOptions options; options.defaultModifiers = false;
+            const auto before = generationCalls;
+            auto cascade = generateNativeImageWithOptions(request, options, cancelled);
+            require(cascade.error.empty() && cascade.rgb.size() == 64 * 64 * 3
+                && generationCalls == before + 2 && imageBridgeCalls == 1,
+                "Unified cascade did not execute both independent model contexts: " + cascade.error);
+            writeManifest("b.safetensors", 0);
+            cascade = generateNativeImageWithOptions(request, options, cancelled);
+            require(cascade.error.empty() && generationCalls == before + 3,
+                "A zero-strength member must not regenerate the image");
+            writeManifest("../result-fixture.safetensors");
+            cascade = generateNativeImageWithOptions(request, options, cancelled);
+            require(!cascade.error.empty() && cascade.rgb.empty() && generationCalls == before + 3,
+                "A redirected member must fail before executing any model");
+            writeManifest("b.safetensors");
+            int loads = 0;
+            cascade = generateNativeImageWithOptions(request, options, cancelled, [&](const auto &event) {
+                if (event.stage == NativeGenerationStage::Encoding && ++loads == 2) cancelled = true;
+            });
+            require(cascade.cancelled && cascade.rgb.empty(), "A cancelled cascade published an earlier stage as success");
+            cancelled = false;
+            request.modelPath = original;
+        }
         request.timeoutMilliseconds = 200;
         for (const bool cancelPaused : {false, true}) {
             cancelled = false;

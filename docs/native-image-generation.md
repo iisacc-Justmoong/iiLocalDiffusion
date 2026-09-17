@@ -183,3 +183,15 @@ denoiser-only Anima plus actual VAE-only files under misleading filenames.
 Applications may keep all weights in a storage owner's container. Pass its absolute resource directory in `NativeGenerationOptions::resourceDirectory` and use the `generateNativeImageWithOptions(request, options, backend, ...)` overload to retain explicit CPU background placement. This does not change global environment variables or copy resources into the application. When no optional style resources are installed, disable `defaultModifiers`; a valid embedded VAE remains usable. A required external VAE is still selected and validated from the explicitly supplied resource directory. Missing resources never switch to a different application's package.
 
 `NativeDiffusionTests` checks that explicit CPU placement preserves caller options, cancellation and invalid-model rejection without requiring package defaults. Existing API and structure layouts are unchanged.
+
+### CPU 작업 내부의 진행과 정지
+
+명시적 CPU backend는 upstream `sd_set_backend_eval_callback`으로 16개 노드마다 실제 연산 완료를 관측한다. `NativeGenerationStage::Computing`의 step은 완료된 그래프 배치의 누적 수이며 total=0은 전체 수가 아직 알려지지 않았음을 뜻한다. 기존 enum 값과 요청·결과 구조의 ABI는 유지한다. 소비자는 이 이벤트를 진행 보고와 비활동 제한 시간에 사용하되 denoising 스텝으로 표시하지 않는다. 이 경계에서 pause/cancel을 검사하고 작업 종료 시 전역 콜백을 제거한다. timer 기반의 가짜 진행 보고는 사용하지 않는다. NativeResultTests와 NativeMobileResultTests는 두 CPU 실행의 진행·캐시 재사용·콜백 해제를 검사한다.
+
+## 실제 latent 기반 라이브 프리뷰
+
+`generateNativeImageWithPreview`는 기존 요청·결과 구조와 함수 ABI를 유지하는 별도 진입점이다. 선택적 `NativePreviewCallback`은 실제 denoised latent의 RGB 투영을 전달하며 `PREVIEW_PROJ`를 사용해 매 단계 VAE 디코딩과 추가 모델 로딩을 피한다. 샘플링 데이터·난수·최종 이미지에는 영향을 주지 않는다. RGB를 소유하는 `NativeGenerationPreview`에는 최대 512×512 크기, 요청 전체의 sequence와 현재 pass의 step/total이 포함된다. Hires의 첫 단계에서도 sequence는 증가한다. 콜백은 작업 스레드에서 호출되며 엔진 전역 콜백은 실행 잠금 안에서 등록·해제한다.
+
+C 경계 `iild_native_generate_with_preview_v1`의 RGB 버퍼는 콜백이 반환할 때까지만 유효하다. Python worker는 이를 복사해 원자적 PNG와 `IILD_PREVIEW` 이벤트를 발행하며, prepare-only 호출은 프리뷰와 이미지를 만들지 않는다. 모델에 대응하는 엔진 투영이 없으면 프리뷰를 지어내지 않는다. 기존 Diffusers VAE 프리뷰 경로는 유지한다. `NativeResultTests`와 `NativeMobileResultTests`는 기본/보정 pass의 실제 테스트 픽셀·콜백 수명과 CPU/GPU 선택을 검사한다. `NativeImageTests`는 프리뷰 파일과 단계 리셋을 검사한다.
+
+데스크톱 worker에 `IILD_WORKER_PROGRESS=1`을 전달하면 최초 체크포인트 전체 해시 읽기가 `IILD_MODEL_PROGRESS`로 실제 읽은 바이트 수를 보고한다. 해시 캐시 적중 시 재읽기나 가상의 진행 이벤트를 만들지 않는다. `InferenceCacheTests`가 이 계약을 검증한다.
