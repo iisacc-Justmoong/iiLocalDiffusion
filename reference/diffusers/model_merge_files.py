@@ -112,6 +112,60 @@ def open_merge_weights(model, stack, safe_open):
     return readers, layout
 
 
+def _anima_tensor_names(layout):
+    names = {}
+    for component, key in layout:
+        if component != ".":
+            return None
+        local = key
+        for prefix in ("model.diffusion_model.", "diffusion_model."):
+            if local.startswith(prefix):
+                local = local[len(prefix):]
+                break
+        local = local.removeprefix("net.")
+        if not local.startswith(("blocks.", "llm_adapter.", "x_embedder.", "final_layer.",
+                                 "t_embedder.", "t_embedding_norm.")):
+            local = key  # Embedded encoders, VAE and prediction markers remain exact.
+        if local in names:
+            return None  # Never collapse two tensors onto the same target.
+        names[local] = (component, key)
+    return names if "llm_adapter.blocks.0.cross_attn.q_proj.weight" in names else None
+
+
+class _AlignedCheckpointReader:
+    """Read equivalent source keys through the base checkpoint's namespace."""
+    def __init__(self, reader, names):
+        self.reader, self.names = reader, names
+
+    def keys(self):
+        return list(self.names)
+
+    def metadata(self):
+        return self.reader.metadata()
+
+    def get_slice(self, key):
+        return self.reader.get_slice(self.names[key])
+
+    def get_tensor(self, key):
+        return self.reader.get_tensor(self.names[key])
+
+
+def align_anima_checkpoint(readers, layout, base_layout):
+    """Align only complete, unambiguous single-file Anima tensor inventories.
+
+    Shapes, dtypes and prediction settings still pass the ordinary merge checks;
+    this view changes neither source bytes nor the base output layout.
+    """
+    if len(readers) != 1 or layout.keys() == base_layout.keys():
+        return readers, layout
+    base, source = _anima_tensor_names(base_layout), _anima_tensor_names(layout)
+    if base is None or source is None or base.keys() != source.keys():
+        return readers, layout
+    name, reader = next(iter(readers.items()))
+    aliases = {address[1]: source[local][1] for local, address in base.items()}
+    return {name: _AlignedCheckpointReader(reader, aliases)}, {address: name for address in base_layout}
+
+
 def _config(value):
     if isinstance(value, dict):
         return {key: _config(item) for key, item in value.items() if key not in _IGNORED_CONFIG_KEYS}

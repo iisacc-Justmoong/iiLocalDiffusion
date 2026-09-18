@@ -1,5 +1,26 @@
 # Local model merging
 
+## Single Safetensors output
+
+The default `weighted-sum` and explicit `weighted-difference` modes write a new
+Safetensors file when the base is a single-file checkpoint. Inputs are retained
+at their original paths, and existing outputs are never replaced. Society uses
+these modes with a required, user-entered output model name; `.iildmodel` remains
+an explicit SDK cascade format rather than the Society merge result.
+
+Equivalent Anima checkpoint backbone namespaces (`model.diffusion_model.*`,
+`diffusion_model.*`, `net.*`, their optional nested `net.*`, and unwrapped names)
+are aligned in memory. Both inputs must contain the Anima LLM-adapter signature,
+with identical, unambiguous complete tensor inventories after prefix alignment.
+Shapes, dtypes, architecture metadata and prediction markers must still agree.
+Embedded encoder/VAE names remain exact; missing or extra components are errors.
+The output retains every base tensor name and dtype, with source hashes and the
+key policy recorded in Safetensors merge metadata. This does not convert different
+architectures or move, rename, rewrite or delete source files.
+
+Regression coverage includes both arithmetic modes with LoRA, namespace variants,
+base-name and source-byte preservation, and missing/extra/duplicate/shape rejection.
+
 ## Different architectures: unified model objects
 
 `--mode unified --output NAME.iildmodel` builds a portable directory with

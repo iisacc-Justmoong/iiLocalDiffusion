@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
 
-from model_merge_files import inspect_merge_model, open_merge_weights, validate_package_assets
+from model_merge_files import align_anima_checkpoint, inspect_merge_model, open_merge_weights, validate_package_assets
 from model_merge_lora import is_lora_key, prepare_lora
 from model_merge_lora_targets import lora_target_aliases
 from model_merge_options import MergeRequest, build_parser, resolve_merge_request, resolve_merge_weights
@@ -58,6 +58,8 @@ def _open_models(models, stack, safe_open, *, compatible=True):
                         known_hints[identity] = value
         elif "model_index.json" in model.assets:
             raise ValueError("LoRA material must be an adapter export, not a pipeline with embedded adapter keys.")
+        if compatible and layouts and kind == "checkpoint" and not model.root.is_dir():
+            opened, layout = align_anima_checkpoint(opened, layout, layouts[0])
         if compatible and layouts and kind == "checkpoint" and layout.keys() != layouts[0].keys():
             missing = sorted(layouts[0].keys() - layout.keys())[:5]
             extra = sorted(layout.keys() - layouts[0].keys())[:5]
@@ -162,6 +164,7 @@ def _execute_merge(request: MergeRequest) -> dict:
             "lora_target_count": len(loras),
             "lora_policy": "add-or-subtract-delta-after-checkpoint-blend",
             "tensor_count": len(layouts[0]),
+            "checkpoint_key_policy": "exact-or-equivalent-anima-namespace; preserve-base-names",
             "arithmetic": "cpu-fp32-or-fp64", "output_dtype": "base",
             "nonfloating_buffers": "require-equal-preserve-base",
             "runtime": {"torch": torch.__version__, "safetensors": safetensors.__version__},

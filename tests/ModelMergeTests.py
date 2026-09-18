@@ -186,6 +186,58 @@ class ModelMergeTensorTests(MergeWorkspace):
         self.merge(additional_models=[self.third], weights=[0.25, 0.5])
         self.assertEqual(self.load(self.output)["weight"].tolist(), [7, 9])
 
+    def test_equivalent_anima_namespaces_preserve_base_keys_and_all_sources(self):
+        torch = self.torch
+        key = "llm_adapter.blocks.0.cross_attn.q_proj.weight"
+        other = "t_embedding_norm.weight"
+        prefixes = ("model.diffusion_model.", "net.", "model.diffusion_model.net.", "diffusion_model.net.", "")
+        for index, prefix in enumerate(prefixes):
+            for mode in ("weighted-sum", "weighted-difference"):
+                with self.subTest(prefix=prefix, mode=mode):
+                    material_prefix = prefixes[(index + 1) % len(prefixes)]
+                    self.save({prefix + key: torch.full((2, 2), 2.), prefix + other: torch.full((2,), 4.)}, self.base)
+                    self.save({material_prefix + key: torch.full((2, 2), 6.), material_prefix + other: torch.full((2,), 8.)}, self.extra)
+                    self.save({prefix + key.removesuffix(".weight") + ".lora_A.weight": torch.ones((1, 2)),
+                               prefix + key.removesuffix(".weight") + ".lora_B.weight": torch.ones((2, 1))}, self.third)
+                    before = [p.read_bytes() for p in (self.base, self.extra, self.third)]
+                    output = self.directory / f"anima-{index}-{mode}.safetensors"
+                    request = resolve_merge_request(self.base, self.extra, additional_models=[self.third],
+                                                    mode=mode, weights=[0.25, 0.5], output=output)
+                    inspection = model_merge.inspect_merge_request(request)
+                    self.assertEqual(inspection["kinds"], ["checkpoint", "checkpoint", "lora"])
+                    self.assertFalse(output.exists())
+                    model_merge.merge_models(self.base, self.extra, additional_models=[self.third],
+                                              mode=mode, weights=[0.25, 0.5], output=output)
+                    actual = self.load(output)
+                    self.assertEqual(set(actual), {prefix + key, prefix + other})
+                    torch.testing.assert_close(actual[prefix + key], torch.full((2, 2), 3.5 if mode == "weighted-sum" else 0.))
+                    torch.testing.assert_close(actual[prefix + other], torch.full((2,), 5. if mode == "weighted-sum" else 2.))
+                    self.assertEqual(before, [p.read_bytes() for p in (self.base, self.extra, self.third)])
+
+    def test_anima_namespace_alignment_rejects_missing_extra_ambiguous_and_mismatched_tensors(self):
+        torch = self.torch
+        key = "llm_adapter.blocks.0.cross_attn.q_proj.weight"
+        other = "t_embedding_norm.weight"
+        self.save({"model.diffusion_model." + key: torch.ones((2, 2)),
+                   "model.diffusion_model." + other: torch.ones((2,))}, self.base)
+        valid = {"net." + key: torch.ones((2, 2)), "net." + other: torch.ones((2,))}
+        for extra in ({"net." + key: valid["net." + key]},
+                      {**valid, "unexpected.weight": torch.ones((2,))},
+                      {**valid, "model.diffusion_model." + key: torch.ones((2, 2))},
+                      {**valid, "net." + other: torch.ones((3,))}):
+            self.save(extra, self.extra)
+            before = [p.read_bytes() for p in (self.base, self.extra)]
+            with self.assertRaisesRegex(ValueError, "keys|shape"):
+                self.merge()
+            self.assertFalse(self.output.exists())
+            self.assertEqual(before, [p.read_bytes() for p in (self.base, self.extra)])
+        # Prefixes alone must not reclassify an unrelated network as Anima.
+        self.save({"model.diffusion_model.layer.weight": torch.ones((2, 2))}, self.base)
+        self.save({"net.layer.weight": torch.ones((2, 2))}, self.extra)
+        with self.assertRaisesRegex(ValueError, "keys"):
+            self.merge()
+        self.assertFalse(self.output.exists())
+
     def test_two_model_difference_and_multiple_weighted_subtractions(self):
         self.merge(mode="weighted-difference")
         self.assertEqual(self.load(self.output)["weight"].tolist(), [-1, 0])
