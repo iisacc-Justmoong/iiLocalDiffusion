@@ -2,6 +2,7 @@
 #include "Generation/NativeImageBridge.hpp"
 #include "Generation/NativeCachePolicy.hpp"
 #include <stable-diffusion.h>
+#include <zip.h>
 #include <array>
 #include <cstdlib>
 #include <fstream>
@@ -502,11 +503,12 @@ int main(int argc, char **argv) {
             for (const auto *name : {"a.safetensors", "b.safetensors"}) {
                 std::ofstream file(package / name); file << "C API fixture";
             }
-            const auto writeManifest = [&](const std::string &second, double strength = 0.35) {
+            const auto writeManifest = [&](const std::string &second, double strength = 0.35, const std::string &vae = "") {
                 std::ofstream file(package / "model_index.json");
-                file << R"({"schema":"iild-unified-model-v1","_class_name":"IILDUnifiedCascade","composition":"ordered-image-refinement","stages":[)"
+                file << R"({"schema":"iild-unified-model-v1","container":"zip-stored-v1","_class_name":"IILDUnifiedCascade","composition":"ordered-image-refinement","stages":[)"
                      << R"({"model":"a.safetensors","size_bytes":13,"strength":1},)"
-                     << "{\"model\":\"" << second << "\",\"size_bytes\":13,\"strength\":" << strength << "}]}";
+                     << "{\"model\":\"" << second << "\",\"size_bytes\":13,\"strength\":" << strength
+                     << (vae.empty() ? "" : ",\"vae\":\"" + vae + "\"") << "}]}";
             };
             writeManifest("b.safetensors");
             request.modelPath = package;
@@ -525,12 +527,42 @@ int main(int argc, char **argv) {
             require(!cascade.error.empty() && cascade.rgb.empty() && generationCalls == before + 3,
                 "A redirected member must fail before executing any model");
             writeManifest("b.safetensors");
+            const auto packaged = std::filesystem::canonical(directory) / "packaged.iildmodel";
+            if (auto *archive = zip_open(packaged.string().c_str(), 0, 'w')) {
+                for (const auto *name : {"a.safetensors", "b.safetensors", "model_index.json"}) {
+                    require(zip_entry_open(archive, name) == 0
+                        && zip_entry_fwrite(archive, (package / name).string().c_str()) == 0
+                        && zip_entry_close(archive) == 0, "Could not build packaged unified fixture");
+                }
+                zip_close(archive);
+            } else throw std::runtime_error("Could not open packaged unified fixture");
+            request.modelPath = packaged;
+            const auto packagedBefore = generationCalls;
+            cascade = generateNativeImageWithOptions(request, options, cancelled);
+            require(cascade.error.empty() && generationCalls == packagedBefore + 2,
+                "A packaged .iildmodel file did not execute as a unified cascade: " + cascade.error);
+            request.modelPath = package;
             int loads = 0;
             cascade = generateNativeImageWithOptions(request, options, cancelled, [&](const auto &event) {
                 if (event.stage == NativeGenerationStage::Encoding && ++loads == 2) cancelled = true;
             });
             require(cascade.cancelled && cascade.rgb.empty(), "A cancelled cascade published an earlier stage as success");
             cancelled = false;
+            writeManifest("b.safetensors", 0.35, "a.safetensors");
+            const auto validationBefore = vaeValidationCalls;
+            cascade = generateNativeImageWithOptions(request, options, cancelled);
+            require(cascade.error.empty() && selectedVae == (package / "a.safetensors").string()
+                && vaeValidationCalls > validationBefore,
+                "A package VAE must override an embedded VAE and be validated by the generation engine: "
+                + cascade.error + " selected=" + selectedVae);
+            validExternalVae = false;
+            writeManifest("b.safetensors", 0.35, "b.safetensors");
+            cascade = generateNativeImageWithOptions(request, options, cancelled);
+            require(!cascade.error.empty() && cascade.rgb.empty(), "An incompatible explicit VAE must report generation failure");
+            validExternalVae = true;
+            writeManifest("b.safetensors", 0.35, "../result-fixture.safetensors");
+            cascade = generateNativeImageWithOptions(request, options, cancelled);
+            require(!cascade.error.empty(), "An explicit VAE must stay inside its package");
             request.modelPath = original;
         }
         request.timeoutMilliseconds = 200;

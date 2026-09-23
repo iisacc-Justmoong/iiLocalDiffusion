@@ -9,7 +9,7 @@ import struct
 from types import SimpleNamespace
 
 from generation_defaults import checked_resource, read_defaults, canonical_lora_family
-from weight_files import LocalWeightFile, cached_model_sha256, resolve_weight_file, file_signature
+from weight_files import LocalWeightFile, model_content_sha256, resolve_weight_file, file_signature
 
 # RGB Qwen Image 1.x pipelines share the published 16-channel latent space.
 # Layered requires an RGBA VAE; similarly sized latents from other families are
@@ -51,7 +51,7 @@ class VaeSelection:
     class_name: str
     weight: LocalWeightFile
     config_path: str
-    config_sha256: str
+    config_sha256: str | None
 
 
 def single_file_has_vae(path):
@@ -77,7 +77,7 @@ def _select_directory(directory, expected_class, family):
         raise ValueError("VAE configuration is too large.")
     before = file_signature(config_path)
     config = json.loads(config_path.read_text())
-    digest = cached_model_sha256(config_path)
+    digest = model_content_sha256(config_path)
     if file_signature(config_path) != before:
         raise RuntimeError("VAE configuration changed while reading.")
     if not isinstance(config, dict) or config.get("_class_name") != expected_class:
@@ -157,8 +157,10 @@ def select_fallback_vae(family, directory=None):
     if relative.is_absolute() or ".." in relative.parts:
         raise ValueError("Bundled VAE configuration must use a relative package path.")
     config_path = (root / relative).resolve(strict=True)
-    if not config_path.is_relative_to(root) or config_path.stat().st_size != config["size"] \
-            or cached_model_sha256(config_path) != config["sha256"]:
+    if not config_path.is_relative_to(root):
+        raise ValueError("Bundled VAE configuration escapes its package.")
+    digest = model_content_sha256(config_path)
+    if digest is not None and (config_path.stat().st_size != config["size"] or digest != config["sha256"]):
         raise ValueError("Bundled VAE configuration differs from its manifest.")
     selection = _select_directory(Path(weight.path).parent, item["class_name"], family)
     if selection.config_path != str(config_path):
@@ -170,7 +172,7 @@ def verify_vae_selection(selection):
     if selection is None:
         return
     if (resolve_weight_file(selection.weight.path, "VAE") != selection.weight
-            or cached_model_sha256(Path(selection.config_path)) != selection.config_sha256):
+            or model_content_sha256(Path(selection.config_path)) != selection.config_sha256):
         raise RuntimeError("The selected VAE changed while loading or generating.")
 
 

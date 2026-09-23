@@ -93,7 +93,7 @@ endif()
 
 foreach(document IN ITEMS README.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md
         docs/generation-io-native.md docs/generation-composition.md docs/deforum-video.md docs/interpolator-video.md
-        docs/temporal-video.md docs/inference-worker.md docs/model-merging.md docs/generation-defaults.md docs/lora.md)
+        docs/temporal-video.md docs/inference-worker.md docs/model-conversion.md docs/model-merging.md docs/generation-defaults.md docs/lora.md)
     if(NOT EXISTS "${stage_directory}/${DOC_DIRECTORY}/${document}")
         message(FATAL_ERROR "The installed package is missing documentation: ${document}")
     endif()
@@ -119,7 +119,8 @@ if(PYTHON_REFERENCE_ENABLED)
     if(NOT EXISTS "${installed_launcher}")
         message(FATAL_ERROR "The installed generation launcher is missing")
     endif()
-    foreach(resource IN ITEMS generate.py merge.py setup_comfyui.py diffusers/generate.py
+    foreach(resource IN ITEMS generate.py merge.py convert.py setup_comfyui.py diffusers/generate.py
+            diffusers/dit_conversion.py
             diffusers/model_merge.py diffusers/model_merge_options.py diffusers/model_merge_files.py
             diffusers/model_merge_lora.py diffusers/model_merge_lora_targets.py
             diffusers/inference_session.py diffusers/inference_worker.py
@@ -160,6 +161,15 @@ if(PYTHON_REFERENCE_ENABLED)
         if(NOT merge_mode STREQUAL "weighted-difference" OR NOT merge_resolution STREQUAL "after-input-inspection"
            OR NOT merge_weight_type STREQUAL "NULL")
             message(FATAL_ERROR "Relocated merge configuration was not preserved: ${merge_output}")
+        endif()
+        set(installed_convert "${stage_directory}/${BIN_DIRECTORY}/iild-convert")
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}"
+                "${PYTHON_EXECUTABLE}" "${installed_convert}" --help
+            WORKING_DIRECTORY "${source_directory}"
+            RESULT_VARIABLE convert_result OUTPUT_VARIABLE convert_output ERROR_VARIABLE convert_error)
+        if(NOT convert_result EQUAL 0 OR NOT convert_output MATCHES "target-dit")
+            message(FATAL_ERROR "Relocated DiT converter launcher failed: ${convert_error}")
         endif()
         file(WRITE "${WORK_DIRECTORY}/worker-input.jsonl"
             "{\"schema\":\"iild-worker-request-v1\",\"id\":\"installed-probe\",\"arguments\":[\"--list-base-models\"]}\n")

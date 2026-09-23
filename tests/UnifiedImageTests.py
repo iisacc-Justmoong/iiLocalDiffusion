@@ -8,10 +8,13 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 import unified_image
+from iild_package import materialize_archive, write_archive
+from inference_session import InferenceSession
 from weight_files import file_sha256
 
 
@@ -48,12 +51,95 @@ class UnifiedImageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "hash differs"):
             unified_image.inspect_package(self.package, hashes=True)
 
+    def test_explicit_vae_is_local_nonempty_and_shared_between_stages(self):
+        vae = self.package / "decoder.safetensors"
+        vae.write_bytes(b"decoder fixture")
+        stage = self.manifest["stages"][0]
+        stage["vae"] = vae.name
+        self.write_manifest()
+        with patch.object(unified_image, "model_content_sha256", side_effect=AssertionError("Unexpected hash")):
+            unified_image.inspect_package(self.package)
+        for value in ("../outside", "/absolute", "missing", "", None):
+            stage["vae"] = value
+            self.write_manifest()
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                unified_image.inspect_package(self.package)
+        stage["vae"] = vae.name
+        vae.write_bytes(b"")
+        self.write_manifest()
+        with self.assertRaises(ValueError):
+            unified_image.inspect_package(self.package)
+
+    def test_architecture_scoped_vae_catalog_is_validated(self):
+        vae = self.package / "decoder.safetensors"
+        config = self.package / "decoder.json"
+        vae.write_bytes(b"decoder fixture")
+        config.write_text("{}")
+        self.manifest["vae_catalog"] = "vae_catalog.json"
+        self.manifest["vae_variants"] = [{"id": "sdxl-standard", "weights": vae.name, "config": config.name}]
+        self.manifest["stages"][0]["vae_variant"] = "sdxl-standard"
+        (self.package / "vae_catalog.json").write_text('{"schema":"iild-vae-catalog-v1"}')
+        self.write_manifest()
+        unified_image.inspect_package(self.package)
+        self.manifest["stages"][0]["vae_variant"] = "unknown"
+        self.write_manifest()
+        with self.assertRaisesRegex(ValueError, "unknown VAE variant"):
+            unified_image.inspect_package(self.package)
+
     def test_print_configuration_does_not_load_engine_or_publish(self):
         output = self.root / "images"
         with patch.object(unified_image, "NativeEngine", side_effect=AssertionError("Unexpected inference")), redirect_stdout(io.StringIO()) as stream:
             self.assertEqual(unified_image.main(["--model-path", str(self.package), "--output-dir", str(output), "--print-config"]), 0)
         self.assertEqual(json.loads(stream.getvalue())["backend"], "unified")
         self.assertFalse(output.exists())
+
+    def test_single_file_package_is_inspected_materialized_and_routed(self):
+        self.manifest["container"] = "zip-stored-v1"
+        self.write_manifest()
+        packaged = self.root / "packaged.iildmodel"
+        write_archive(self.package, packaged)
+        source, manifest = unified_image.inspect_package(packaged, hashes=True)
+        self.assertEqual(source, packaged)
+        self.assertEqual(manifest["container"], "zip-stored-v1")
+        materialized = materialize_archive(packaged, self.root / "cache")
+        self.assertEqual((materialized / self.member.name).read_bytes(), self.member.read_bytes())
+        output = self.root / "packaged-images"
+        with patch.object(unified_image, "NativeEngine", side_effect=AssertionError("Unexpected inference")), redirect_stdout(io.StringIO()) as stream:
+            self.assertEqual(unified_image.main(["--model-path", str(packaged), "--output-dir", str(output), "--print-config"]), 0)
+        self.assertEqual(json.loads(stream.getvalue())["model"], str(packaged))
+        spec = importlib.util.spec_from_file_location("packaged_router_fixture", ROOT / "reference/generate.py")
+        router = importlib.util.module_from_spec(spec); spec.loader.exec_module(router)
+        from types import SimpleNamespace
+        self.assertEqual(router.select_backend(SimpleNamespace(backend="auto", base_model=None),
+                         ["--model-path", str(packaged)]), "unified")
+
+    def test_single_file_package_rejects_compression_and_traversal(self):
+        for name, compression in (("compressed.iildmodel", zipfile.ZIP_DEFLATED),
+                                  ("redirected.iildmodel", zipfile.ZIP_STORED)):
+            packaged = self.root / name
+            with zipfile.ZipFile(packaged, "w", compression=compression) as archive:
+                archive.writestr("model_index.json", json.dumps(self.manifest))
+                archive.writestr("../member.safetensors" if "redirected" in name else self.member.name,
+                                 self.member.read_bytes())
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "unsupported|path"):
+                unified_image.inspect_package(packaged)
+
+    def test_foreground_retains_package_engine_and_reuses_it(self):
+        output = self.root / "prepared-images"
+        args = ["--model-path", str(self.package), "--output-dir", str(output)]
+        with InferenceSession() as session, patch.object(unified_image, "NativeEngine") as engine:
+            self.assertEqual(session.set_foreground(True, lambda: unified_image.main(args)), 0)
+            self.assertTrue(session.residency()["ready"])
+            self.assertEqual(session.residency()["model"], str(self.package))
+            self.assertEqual(session.set_foreground(True, lambda: unified_image.main(args)), 0)
+            engine.assert_called_once()
+            self.assertEqual(engine.return_value.image.call_count, 2)
+            self.assertTrue(engine.return_value.image.call_args.kwargs["prepare"])
+            self.assertFalse(output.exists())
+            self.member.write_bytes(b"x" * self.member.stat().st_size)
+            with self.assertRaisesRegex(ValueError, "hash differs"):
+                session.set_foreground(True, lambda: unified_image.main(args))
+            self.assertFalse(session.residency()["ready"])
 
     @unittest.skipUnless(importlib.util.find_spec("PIL"), "Pillow is required for image publication")
     def test_generation_publishes_complete_manifest_and_failure_publishes_no_images(self):

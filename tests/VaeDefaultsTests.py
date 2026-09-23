@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """VAE omission, embedded precedence and latent-family safety contracts."""
 import json
+import os
 from pathlib import Path
 import struct
 import sys
@@ -25,6 +26,16 @@ class VaeDefaultsTests(unittest.TestCase):
 
     def resolve(self):
         return resolve_vae_selection(self.args, self.index, self.root)
+
+    def test_metadata_mode_loads_fallback_without_checksum_scan(self):
+        with patch.dict(os.environ, {"IILD_MODEL_VALIDATION": "metadata"}), \
+                patch("weight_files.cached_model_sha256", side_effect=AssertionError("Full model hash")):
+            for name in ("QwenImagePipeline", "StableDiffusionXLPipeline", "FluxPipeline"):
+                self.index = {"_class_name": name}
+                selection, status = self.resolve()
+                self.assertEqual(status, "fallback")
+                self.assertIsNone(selection.weight.sha256)
+                verify_vae_selection(selection)
 
     def test_omission_loads_verified_official_qwen_vae(self):
         selection, status = self.resolve()

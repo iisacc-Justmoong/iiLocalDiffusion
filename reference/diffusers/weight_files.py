@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from collections import OrderedDict
 from dataclasses import dataclass
 import hashlib
@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import stat
+import sqlite3
+import sys
 import tempfile
 import time
 from threading import RLock
@@ -27,8 +29,9 @@ _hash_stats = {"model_hashes": 0, "model_hash_hits": 0, "model_bytes_hashed": 0}
 class LocalWeightFile:
     path: str
     resolved_file: str
-    sha256: str
+    sha256: str | None
     size_bytes: int
+    signature: tuple | None = None
 
 
 def file_sha256(path: Path) -> str:
@@ -36,10 +39,12 @@ def file_sha256(path: Path) -> str:
     report = os.environ.get("IILD_WORKER_PROGRESS") == "1" and path.suffix.lower() in SAFETENSORS_SUFFIXES
     total, completed, last = path.stat().st_size if report else 0, 0, 0.0
     with path.open("rb") as source:
-        for block in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(block)
+        buffer = bytearray(8 * 1024 * 1024)
+        view = memoryview(buffer)
+        while count := source.readinto(buffer):
+            digest.update(view[:count])
             if report:
-                completed += len(block)
+                completed += count
                 now = time.monotonic()
                 if completed == total or now - last >= 0.5:
                     print("IILD_MODEL_PROGRESS " + json.dumps({"schema": "iild-model-progress-v1",
@@ -79,8 +84,36 @@ def file_signature(path: Path) -> tuple:
     return (str(resolved), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, change_time)
 
 
+
+def _persistent_model_hash(signature: tuple, digest: str | None = None) -> str | None:
+    """Optional bounded local cache; never use publisher-supplied hashes as proof."""
+    configured = os.environ.get("IILD_MODEL_HASH_CACHE")
+    if configured == "off":
+        return None
+    root = (Path(os.environ["XDG_CACHE_HOME"]) if os.environ.get("XDG_CACHE_HOME") else
+            Path.home() / ("Library/Caches" if sys.platform == "darwin" else ".cache"))
+    path = Path(configured).expanduser() if configured else root / "iiLocalDiffusion/model-hashes.sqlite3"
+    identity = json.dumps(signature, separators=(",", ":"))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # A busy or unavailable cache must not delay generation or bypass hashing.
+        with closing(sqlite3.connect(path, timeout=0.05)) as database, database:
+            database.execute("CREATE TABLE IF NOT EXISTS hashes_v1 (path TEXT PRIMARY KEY, identity TEXT NOT NULL, digest TEXT NOT NULL, touched INTEGER NOT NULL)")
+            if digest is None:
+                row = database.execute("SELECT digest FROM hashes_v1 WHERE path=? AND identity=?", (signature[0], identity)).fetchone()
+                if row and isinstance(row[0], str) and len(row[0]) == 64 and all(c in "0123456789abcdef" for c in row[0]):
+                    return row[0]
+            else:
+                database.execute("INSERT OR REPLACE INTO hashes_v1 VALUES (?, ?, ?, ?)",
+                                 (signature[0], identity, digest, time.time_ns()))
+                database.execute("DELETE FROM hashes_v1 WHERE path NOT IN (SELECT path FROM hashes_v1 ORDER BY touched DESC LIMIT ?)", (_MODEL_HASH_LIMIT,))
+    except (OSError, sqlite3.Error):
+        pass
+    return None
+
+
 def cached_model_sha256(path: Path) -> str:
-    """Process-local bounded cache. Outputs continue to use uncached file_sha256."""
+    """Reuse verified digests across workers; outputs use uncached file_sha256."""
     with _hash_lock:
         before = file_signature(path)
         key = before[0]
@@ -90,11 +123,18 @@ def cached_model_sha256(path: Path) -> str:
             _hash_stats["model_hash_hits"] += 1
             return cached[1]
         _model_hashes.pop(key, None)
-        digest = file_sha256(path)
-        _hash_stats["model_hashes"] += 1
-        _hash_stats["model_bytes_hashed"] += before[3]
+        digest = _persistent_model_hash(before)
+        persisted = digest is not None
+        if not persisted:
+            digest = file_sha256(path)
+            _hash_stats["model_hashes"] += 1
+            _hash_stats["model_bytes_hashed"] += before[3]
+        else:
+            _hash_stats["model_hash_hits"] += 1
         if file_signature(path) != before:
             raise RuntimeError(f"Model input changed while hashing: {path}")
+        if not persisted:
+            _persistent_model_hash(before, digest)
         _model_hashes[key] = (before, digest)
         if len(_model_hashes) > _MODEL_HASH_LIMIT:
             _model_hashes.popitem(last=False)
@@ -112,6 +152,18 @@ def model_hash_statistics() -> dict[str, int]:
         return dict(_hash_stats)
 
 
+def metadata_model_validation() -> bool:
+    """Interactive generation checks paths and lets the actual loader read weights."""
+    return os.environ.get("IILD_MODEL_VALIDATION") == "metadata"
+
+
+def model_content_sha256(path: Path) -> str | None:
+    if metadata_model_validation():
+        file_signature(path)
+        return None
+    return cached_model_sha256(path)
+
+
 def resolve_weight_file(source: str, argument: str) -> LocalWeightFile:
     if not source:
         raise ValueError(f"{argument} must not be empty.")
@@ -124,8 +176,9 @@ def resolve_weight_file(source: str, argument: str) -> LocalWeightFile:
     return LocalWeightFile(
         path=str(path),
         resolved_file=str(resolved),
-        sha256=cached_model_sha256(resolved),
+        sha256=model_content_sha256(resolved),
         size_bytes=resolved.stat().st_size,
+        signature=file_signature(resolved) if metadata_model_validation() else None,
     )
 
 
@@ -136,7 +189,8 @@ def verify_weight_file(weight: LocalWeightFile, role: str) -> None:
             path.is_file()
             and str(path.resolve()) == weight.resolved_file
             and path.stat().st_size == weight.size_bytes
-            and cached_model_sha256(path) == weight.sha256
+            and (weight.signature is None or file_signature(path) == weight.signature)
+            and (weight.sha256 is None or cached_model_sha256(path) == weight.sha256)
         )
     except (OSError, ValueError):
         matches = False
@@ -172,6 +226,7 @@ def checked_safetensors_path(
 
 def weight_file_metadata(weight: LocalWeightFile) -> dict[str, object]:
     return {
+        **({"validation": "metadata"} if weight.sha256 is None else {}),
         "format": "safetensors",
         "path": weight.path,
         "resolved_file": weight.resolved_file,

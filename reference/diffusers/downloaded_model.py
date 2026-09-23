@@ -15,7 +15,7 @@ import struct
 
 from civitai_catalog import lookup_base_model
 from inference_session import cached_configuration
-from weight_files import cached_model_sha256
+from weight_files import model_content_sha256, metadata_model_validation
 
 
 MAX_HEADER_BYTES = 100_000_000
@@ -317,15 +317,16 @@ def _info(path, info_path):
     if "sha256" in info:
         hashes.append(info["sha256"])
     evidence = [f"Read model metadata: {selected.absolute()}"]
-    if hashes:
+    if hashes and not metadata_model_validation():
         if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", value) for value in hashes):
             raise ValueError("Model metadata contains an invalid SHA256")
-        digest = cached_model_sha256(path)
-        if digest not in {value.lower() for value in hashes}:
+        digest = model_content_sha256(path)
+        if digest is not None and digest not in {value.lower() for value in hashes}:
             raise ValueError("Model metadata SHA256 does not match the selected local file")
-        evidence.append(f"Matched Civitai SHA256: {digest}")
+        evidence.append(f"Matched Civitai SHA256: {digest}" if digest is not None
+                        else "Model checksum not checked; generation uses metadata validation")
     else:
-        evidence.append("Metadata has no SHA256; exact file identity is unverified")
+        evidence.append("Model content checksum is unverified")
     return info, str(selected.absolute()), evidence
 
 

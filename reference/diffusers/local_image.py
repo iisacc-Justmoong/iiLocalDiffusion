@@ -17,7 +17,7 @@ import uuid
 from comfyui_runtime import Client, run as run_workflow, write_json
 from generation_config import json_object
 from generation_seed import resolve_seed
-from weight_files import file_sha256
+from weight_files import file_sha256, model_content_sha256, file_signature
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE = ROOT / "build/reference/ComfyUI"
@@ -161,7 +161,8 @@ def stage_models(request, job):
             identities[name] = conversion
         else:
             path = original
-            identities[name] = {"path": str(path), "sha256": file_sha256(path), "size_bytes": path.stat().st_size}
+            identities[name] = {"path": str(path), "sha256": model_content_sha256(path), "size_bytes": path.stat().st_size,
+                                "signature": list(file_signature(path))}
         folder = (("checkpoints" if request["model_type"] == "checkpoint" else "diffusion_models") if name == "model"
                   else "diffusion_models" if name in ("model_negative", "decoder")
                   else "vae" if name == "vae" else "text_encoders")
@@ -184,7 +185,9 @@ def verify_identities(identities):
             {"path": identity["converted_path"], **identity["output"]}]
         for entry in entries:
             path = Path(entry["path"])
-            if path.stat().st_size != entry["size_bytes"] or file_sha256(path) != entry["sha256"]:
+            if (path.stat().st_size != entry["size_bytes"]
+                    or (entry.get("signature") is not None and file_signature(path) != tuple(entry["signature"]))
+                    or (entry["sha256"] is not None and file_sha256(path) != entry["sha256"])):
                 raise RuntimeError(f"Model file changed during generation: {path}")
 
 

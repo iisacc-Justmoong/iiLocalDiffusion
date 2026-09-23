@@ -4,6 +4,7 @@ Equivalent export namespaces are mapped by the existing target resolver. A
 different network is connected through the unified RGB cascade, never by
 reshaping, truncating or guessing unrelated weights.
 """
+import json
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -90,7 +91,22 @@ class LoraCompatibilityBridge:
         """Inspect only direct sibling safetensors, never a disk-wide search."""
         excluded = {Path(path).resolve() for path in exclude}
         found = {}
-        for directory in sorted({Path(path).parent for path in checkpoints}):
+        directories = {Path(path).parent for path in checkpoints}
+        # Wrapped checkpoints live one level below their category directory.
+        directories.update(path.parent for path in tuple(directories) if path.suffix.lower() == ".iildmodel")
+        configured = Path(__file__).resolve().parent.parent / "merge-compatibility.json"
+        if configured.is_file():
+            value = json.loads(configured.read_text())
+            candidates = value.get("checkpoints", [])
+            if not isinstance(candidates, list) or not all(isinstance(p, str) for p in candidates):
+                raise ValueError("merge-compatibility.json requires a checkpoints path list.")
+            for candidate in candidates:
+                path = Path(candidate).expanduser()
+                if not path.is_absolute():
+                    path = configured.parent / path
+                if path.is_file() and path.resolve() not in excluded:
+                    found.setdefault(path.resolve(), path)
+        for directory in sorted(directories):
             for path in sorted(directory.iterdir()):
                 if (not path.name.startswith(".") and not path.is_symlink() and path.is_file()
                         and path.suffix.lower() in SAFETENSORS_SUFFIXES and path.resolve() not in excluded):

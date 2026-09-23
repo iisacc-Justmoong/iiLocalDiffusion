@@ -25,6 +25,12 @@ and direct weighted subtraction of matching checkpoints or Diffusers packages,
 with one or more LoRAs as additional materials, including checkpoint/LoRA mixtures.
 LoRA deltas are fused into the output; originals and source/output provenance are preserved.
 
+[DiT-standard conversion](docs/model-conversion.md) is available through
+`iild-convert`. A user-selected Tsubaki checkpoint defines the executable output
+contract; SD 1.5, SDXL/Haruka/Hoshino/Illustrious, DiT/Tsubaki and Reference Pro
+sources are normalized to that contract so the resulting DiT checkpoints can be
+fed directly to `iild-merge`.
+
 iiLocalDiffusion is a C++ runtime for assembling local generative-model
 components and orchestrating inference. It does not implement tensor storage,
 matrix multiplication, convolution, attention kernels, or device command
@@ -208,6 +214,17 @@ successful inference. Illustrious, NoobAI (including a v-prediction preset),
 Pony, FLUX.1 dev and FLUX.1 Krea use the extended image oracle. Other built-in
 Diffusers pipelines and explicit local ComfyUI API workflows provide additional
 image, video, audio and 3D execution paths.
+
+Unified model merges publish one portable `.iildmodel` ZIP64 stored file rather
+than a directory. The same file is a Society catalog item, a native generation
+input, and—when it contains exactly one checkpoint stage without pending
+LoRAs—a weighted-merge input. Legacy directory packages remain read-compatible.
+
+Weighted merging also provides the explicit `--checkpoint-policy common-layer`
+escape hatch for experiments such as Flux/Krea with incompatible namespaces,
+shapes or INT8 storage. It projects foreign tensors onto the base layout and is
+guaranteed only to preserve the base file contract, not image quality or semantic
+equivalence. Strict compatibility remains available with `strict`.
 
 Downloaded SD 1.x and SDXL checkpoints automatically run in the SDK's
 Diffusers/PyTorch process with bundled offline configuration and tokenizers.

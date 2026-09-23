@@ -26,7 +26,7 @@ from lora import (add_lora_options, apply_lora, lora_metadata, resolve_lora_sele
                   validate_lora_activation, validate_lora_support, verify_lora_identity)
 from inference_session import (SchedulerConfiguration, cached_configuration, cached_pipeline,
                                cached_placement, is_preparing, record_device_placement, record_execution, verify_pipeline_sources)
-from weight_files import cached_model_sha256, file_sha256, file_signature
+from weight_files import model_content_sha256, file_sha256, file_signature
 from vae_defaults import resolve_vae_selection, load_selected_vae, verify_vae_selection, vae_metadata
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -310,12 +310,13 @@ def load_model_index(args: argparse.Namespace) -> tuple[dict[str, Any], Path | N
 
 def file_identity(path: Path, relative_to: Path | None = None, *, model_file: bool = False) -> dict[str, Any]:
     before = file_signature(path)
-    digest = cached_model_sha256(path) if model_file else file_sha256(path)
+    digest = model_content_sha256(path) if model_file else file_sha256(path)
     after = path.stat()
     if before != file_signature(path):
         raise RuntimeError(f"Input changed while hashing: {path}")
     return {"path": str(path.relative_to(relative_to)) if relative_to else str(path),
-            "resolved_path": str(path.resolve()), "size_bytes": after.st_size, "sha256": digest}
+            "resolved_path": str(path.resolve()), "size_bytes": after.st_size, "sha256": digest,
+            **({"validation": "metadata", "signature": list(before)} if digest is None else {})}
 
 
 def model_files(folder: Path) -> list[Path]:
@@ -344,7 +345,9 @@ def verify_identity(identity: dict[str, Any]) -> None:
         if not path.is_absolute():
             path = Path(identity["directory"]) / path
         if (not path.is_file() or str(path.resolve()) != entry["resolved_path"]
-                or path.stat().st_size != entry["size_bytes"] or cached_model_sha256(path) != entry["sha256"]):
+                or path.stat().st_size != entry["size_bytes"]
+                or (entry.get("signature") is not None and file_signature(path) != tuple(entry["signature"]))
+                or (entry["sha256"] is not None and model_content_sha256(path) != entry["sha256"])):
             raise RuntimeError(f"Model file changed while loading/generating: {path}")
 
 

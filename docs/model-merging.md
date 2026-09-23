@@ -1,12 +1,18 @@
 # Local model merging
 
+Heterogeneous SD 1.5, SDXL, DiT and editing checkpoints can first be normalized
+to one Tsubaki DiT tensor contract with `iild-convert`; see
+[DiT-standard model conversion](model-conversion.md). Converted outputs that use
+the same target template are ordinary compatible DiT checkpoints and can use the
+weight modes below. This is distinct from `unified`, which preserves independent
+architectures as an ordered image-space cascade.
+
 ## Single Safetensors output
 
 The default `weighted-sum` and explicit `weighted-difference` modes write a new
 Safetensors file when the base is a single-file checkpoint. Inputs are retained
-at their original paths, and existing outputs are never replaced. Society uses
-these modes with a required, user-entered output model name; `.iildmodel` remains
-an explicit SDK cascade format rather than the Society merge result.
+at their original paths, and existing outputs are never replaced. Society also supports the unified `.iildmodel` cascade format and requires a
+user-entered output model name.
 
 Equivalent Anima checkpoint backbone namespaces (`model.diffusion_model.*`,
 `diffusion_model.*`, `net.*`, their optional nested `net.*`, and unwrapped names)
@@ -18,13 +24,46 @@ The output retains every base tensor name and dtype, with source hashes and the
 key policy recorded in Safetensors merge metadata. This does not convert different
 architectures or move, rename, rewrite or delete source files.
 
-Regression coverage includes both arithmetic modes with LoRA, namespace variants,
-base-name and source-byte preservation, and missing/extra/duplicate/shape rejection.
+Strict-policy regression coverage includes both arithmetic modes with LoRA,
+namespace variants, base-name and source-byte preservation, and
+missing/extra/duplicate/shape rejection.
+
+### Cross-architecture common layer
+
+Strict weighted merging requires identical tensor inventories, shapes, prediction
+markers, runtime assets and architecture metadata. Flux2 and Krea2 do not satisfy
+that contract: Krea2 Turbo INT8 uses `blocks.*.attn.wq/wk/wv/wo` tensors plus
+`weight_scale`, while Flux checkpoints use a different transformer namespace and
+often different dimensions. This mismatch, rather than the arithmetic operation,
+was the reason they were rejected before output creation.
+
+`--checkpoint-policy common-layer` deliberately relaxes that contract. The base
+checkpoint remains the output format and executable tensor inventory. For each
+floating base tensor, the SDK first uses an exact source address and otherwise
+selects the foreign tensor with the closest component role, block depth, tensor
+kind and shape. INT8 values are converted to float and use an adjacent
+`weight_scale` when it can be broadcast. The selected values are flattened,
+cropped or zero-padded to the base shape before ordinary weighted arithmetic.
+Nonfloating buffers and base tensors with no source of the same kind preserve the
+base value. Foreign-only tensors are omitted because the output must remain a
+loadable base-format checkpoint.
+
+This policy is deterministic and designed to finish a user-requested experiment;
+it is not architecture conversion, distillation, or evidence of semantic layer
+equivalence. Image quality may be poor or nonsensical. Reports and embedded merge
+metadata set `checkpoint_policy: common-layer`, `semantic_equivalence: false`, and
+record exact/projected/preserved counts plus bounded mapping examples. Use
+`--checkpoint-policy strict` when incompatibility must stop the operation.
+Malformed or incomplete Safetensors, unreadable tensors, nonfinite inputs and
+arithmetic overflow still fail: the permissive policy does not fabricate bytes
+for a damaged file.
 
 ## Different architectures: unified model objects
 
-`--mode unified --output NAME.iildmodel` builds a portable directory with
-`model_index.json`, source provenance, and independent checkpoint members.
+`--mode unified --output NAME.iildmodel` builds one portable ZIP64 stored package
+file containing `model_index.json`, source provenance, and independent checkpoint
+members. Compression is deliberately disabled so large tensor members can be
+streamed and addressed without an additional decompression representation.
 It is an **ordered image-refinement cascade**, not a single-network weight
 average or distillation. SD1/SD2/SDXL derivatives (including Illustrious, Pony,
 NAI and Noob), FLUX/Krea and Anima can share an object without pretending that
@@ -37,19 +76,19 @@ marker storage conventions remain intact in independently copied members.
 
 The first checkpoint generates an image. Each subsequent checkpoint encodes
 that RGB image with its own VAE and refines it. Models run one at a time using
-the existing native context cache; no cross-family latent or tensor padding is
-performed. Order matters, execution costs add up, and visual quality must be
+the existing native context cache. Checkpoint stages retain independent latent
+spaces and tensor layouts; optional LoRA adaptation is described below. Order matters, execution costs add up, and visual quality must be
 evaluated on actual generations. Later stages retain the native half-size/Hires
 policy. Checkpoint weights in this explicit mode are refinement strengths in
 `[0,1]`, default `0.35`; zero skips that stage. LoRA strengths default to `1`.
 This mode has no weighted-subtraction interpretation.
 
-LoRAs are matched by **all** target names, shapes, rank and alpha contracts.
+Under the strict policy, LoRAs are matched by **all** target names, shapes, rank and alpha contracts.
 Each adapter is fused into the nearest preceding compatible checkpoint, or the
 only later compatible checkpoint. Put an adapter immediately after its intended
 model. Equivalent Anima namespaces include `diffusion_model.*`, `net.*`,
 `model.diffusion_model.*`, and the complete export's `model.diffusion_model.net.*`.
-Ambiguous aliases and incompatible shapes remain errors.
+Under the default strict policy, ambiguous aliases and incompatible shapes remain errors.
 
 ### LoRA compatibility objects
 
@@ -116,12 +155,18 @@ iild-generate --model-path /models/combined.iildmodel --prompt 'a mountain lake'
   --output-dir /images/combined
 ```
 
-The native C++ image entry points accept the package directory as `modelPath`;
-the CLI auto-selects the `unified` backend. Packages contain independent copies
-(APFS uses copy-on-write clones) and remain usable after the original paths move.
+The native C++ image entry points accept the `.iildmodel` package file as
+`modelPath`; the CLI auto-selects the `unified` backend. The loader rejects
+compressed, encrypted, duplicate, redirected and oversized entries, verifies the
+manifest contract, CRC, member sizes and published SHA-256 identities, and safely
+materializes a source-identity-scoped local cache. Packages contain independent copies
+and remain usable after the original paths move.
 The current cascade accepts single-file checkpoints and standard supported
 LoRAs; Diffusers checkpoint directories must first be exported. It does not
-recursively merge an existing unified object. Safetensors/legacy conversion and
+flatten a multi-stage unified object into one checkpoint; a valid single-stage
+`.iildmodel` without pending LoRAs is accepted whole as a weighted-merge base or
+material. Legacy directory-shaped `.iildmodel` objects remain readable for
+generation, but new unified merges always publish a single file. Safetensors/legacy conversion and
 adapter restrictions below still apply. Cancellation, errors or a changed member
 discard intermediate images. The native loader confines member paths, validates
 sizes and verifies file identities throughout the run; the CLI also checks the
@@ -147,8 +192,11 @@ rejection, source preservation, ordering, shared bridges and real delta arithmet
 `UnifiedModelMergeTests.py` checks real tensors, marker preservation,
 early failures, adapter routing, finite arithmetic, byte preservation and publication.
 `NativeResultTests` and `NativeMobileResultTests` execute the production cascade
-adapter against controlled engine results, checking RGB handoff, zero-strength
-skips, path confinement and cancellation. These fixtures do not certify image
+adapter against controlled engine results, checking packaged-file loading, RGB
+handoff, zero-strength skips, path confinement and cancellation.
+`UnifiedImageTests.py` additionally verifies stored-archive materialization,
+SHA-256 validation, automatic routing, and rejection of compression and traversal.
+These fixtures do not certify image
 quality for every named model family.
 
 `iild-merge` and Python `merge_models()` combine local checkpoints and LoRAs.
@@ -266,6 +314,14 @@ report = merge_models(
     weights=[0.2, 0.3],
     mode="weighted-difference",
     output="/models/subtracted.safetensors",
+)
+
+# Explicitly run an unstable cross-architecture projection.
+report = merge_models(
+    "/models/flux.safetensors",
+    "/models/krea-int8.safetensors",
+    checkpoint_policy="common-layer",
+    output="/models/flux-krea-experimental.safetensors",
 )
 ```
 
@@ -415,3 +471,95 @@ pass and official `merge_and_unload()` result for every model parameter, then
 run through SDK image generation. Reports and images are retained below
 `build/reference/model-merge-lora-smoke/`. It accepts the same installed entry-point
 overrides and runs entirely offline.
+
+### Foreground preparation of a packaged checkpoint
+
+A single-stage unified package can embed a complete checkpoint (including its
+original denoiser, text encoder and VAE) as one `model.safetensors` member. The
+manifest records its relative path, byte size and SHA-256; the package is one
+catalog object. The loader identifies `model_index.json`, not the directory suffix.
+
+Unified foreground preparation retains its NativeEngine in InferenceSession and
+records successful preparation, as the single-file backend does. The cache tracks
+the manifest and every member; changed members invalidate readiness. Repeated
+preparation reuses the engine and creates no output images. UnifiedImageTests covers
+readiness, reuse and same-size member replacement alongside package validation.
+
+## Installed Python and compatibility registry
+
+Installed launchers validate Python >= 3.10 before importing model modules. `IILD_PYTHON_EXECUTABLE` overrides `reference/runtime-python.json`, whose shape is `{"python":"/absolute/venv/bin/python"}`. Otherwise the bundled `.venv` or launcher interpreter is considered. Invalid or old environments produce actionable diagnostics instead of an annotation traceback.
+
+Unified bridge discovery also reads installation-local `reference/merge-compatibility.json`: `{"checkpoints":["/absolute/full-checkpoint.safetensors"]}`. Relative paths resolve from that registry directory. The registry augments nearby checkpoint discovery, including the category containing single-checkpoint wrappers. Explicit compatibility candidates override discovery. All targets/shapes are validated; missing, ambiguous or incompatible bases still fail. Inspection never downloads models or executes weight arithmetic. Different networks compose as sequential image refinement; normalization does not make arbitrary network tensors interchangeable.
+
+PythonLauncherTests verifies environment selection, explicit override, old-version rejection before entry import, and broken configuration. ModelMergeCompatibilityTests covers registered bridge discovery from wrapped inputs and output-free input inspection.
+
+### LoRA alias normalization
+
+LoRA projection pairs are normalized to the checkpoint's actual tensor address after shape, rank, alpha and orientation checks. Some exports include both SGM and Diffusers names for the same address. Identical projection tensors with identical dtype, scale and orientation are applied once. Distinct projection pairs are retained as additive deltas on that address, including each pair's own alpha/rank scale. No target is silently dropped or arbitrarily reshaped. Reports expose `lora_alias_policy` as `identical-projections-once; distinct-projections-additive`. Input inspection may read the duplicate LoRA projections to establish equality, but does not materialize full checkpoint tensors or produce a merged model.
+
+The LoRA regression suite verifies duplicate aliases apply once, distinct projections sum correctly, and different alpha values preserve their individual scaling, using tiny fixture tensors.
+
+## Synthetic cross-family LoRA adaptation
+
+`--lora-policy synthetic` (Python `lora_policy="synthetic"`) enables a deliberately
+untrained adapter conversion. Default `strict` retains existing compatibility checks.
+Exact compatible targets retain their normal calculation. An unmatched module is
+mapped deterministically to a floating matrix/convolution weight by component
+(denoiser/text/VAE), projection role, block/layer index, flattened shape distance,
+and finally lexical tensor address. If no same-component/role target exists, the
+next closest candidate is used and the remapping is reported. No new network
+layers are invented and every base tensor name, shape and dtype remains unchanged.
+
+After ordinary rank/alpha scaling, the source delta is flattened to output rows
+and input columns. Its top-left intersection is retained, excess rows/columns
+are cropped, and missing values are filled with **zero** before reshaping to the
+target tensor. This is deterministic, requires no downloads or training, and
+allocates only the current source/target delta, not a complete second model.
+Multiple distinct deltas mapped to one target are added with their requested
+strengths. This can magnify an update; begin with small strengths when evaluating
+visual quality. Malformed/unpaired factors, unsupported adapter variants and
+nonfinite arithmetic are still errors.
+
+In unified mode, exact compatible supplied checkpoints take precedence. An
+otherwise unmatched adapter is synthetically fused into the nearest preceding
+supplied checkpoint instead of inserting a compatibility checkpoint. The policy
+is forwarded to the member merge. Independent checkpoint architectures still use
+the existing RGB refinement cascade; this option does not convert whole networks.
+
+Inspection and output provenance record policy `role-depth-zero-pad-crop-v1`,
+source module, target tensor, original/target shapes, retained/zero-filled/cropped
+value counts and `semantic_equivalence: false`. Inspection is structural only;
+execution validates source hashes and finite values. Artificial zeros supply
+missing dimensions, not learned features, so successful arithmetic does not
+certify preservation of the original LoRA style or generated image quality.
+
+```sh
+iild-merge --base-model anima.safetensors --additional-model sdxl-style.safetensors \
+  --lora-policy synthetic --weights 0.1 --output adapted.safetensors --inspect
+# Remove --inspect to write a new output; existing files are never overwritten.
+```
+
+`ModelMergeSyntheticTests` verifies padding, cropping, subtraction, alpha/strength
+arithmetic, exact-name dimension mismatch, source preservation, deterministic
+inspection, malformed/nonfinite rejection, and actual unified member fusion.
+
+### Package-local VAE components
+
+An ordered cascade stage may specify `"vae": "vae/anima/model.safetensors"`.
+This optional relative path explicitly overrides the member checkpoint's embedded
+VAE; old packages retain embedded/fallback selection. Shared decoders are stored
+once and referenced by multiple stages. The package reader only checks containment,
+nonempty files and stat identity. Tensor compatibility is checked by the native
+engine when preparing/generating; failures identify the affected cascade stage.
+No decoder is averaged with another latent family. The decoded RGB image remains
+the boundary between stages. Source revisions, download hashes, licenses and
+family aliases should accompany collected components in `vae/catalog.json`.
+Adding a reserve decoder does not add a denoiser or make an unsupported model
+architecture executable. Civitai ecosystem names alone do not establish latent
+compatibility (for example, Illustrious XL and Illustrious Lumina are distinct).
+
+Decoder verification can run without a denoiser or GPU using
+`build/NativeVaeFallbackTests --decode-component <sd15|sd2|sd3|sdxl|anima|flux1|flux2> <weights.safetensors> <build/output-directory>`.
+It checks the real tensor mounting contract and executes a 64x64 RGB native CPU
+decode, rejecting missing tensors and nonfinite output. This is a decoder smoke
+test, not an image-quality assessment of the complete cascade.

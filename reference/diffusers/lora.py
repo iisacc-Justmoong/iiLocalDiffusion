@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 from typing import Any
 from encoder_compatibility import lora_encoder_compatibility
-from weight_files import (LocalWeightFile, SAFETENSORS_SUFFIXES, cached_model_sha256,
+from weight_files import (LocalWeightFile, SAFETENSORS_SUFFIXES, model_content_sha256,
                           checked_safetensors_path, resolve_weight_file, verify_weight_file)
 
 LORA_ADAPTER_NAME = "iild_lora"
@@ -167,7 +167,7 @@ def _verify_local_lora_identity(selection: LoraSelection) -> None:
     if (
         not path.is_file()
         or path.stat().st_size != selection.size_bytes
-        or cached_model_sha256(path) != selection.sha256
+        or model_content_sha256(path) != selection.sha256
     ):
         raise RuntimeError(
             f"Local LoRA changed after argument resolution: {path}"

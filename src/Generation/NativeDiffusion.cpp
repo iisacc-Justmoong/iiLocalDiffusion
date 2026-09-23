@@ -87,7 +87,8 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
     const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control,
     bool prepareOnly, NativeComputeBackend backend = NativeComputeBackend::Automatic,
-    const NativePreviewCallback &preview = {}, const NativeGenerationResult *initial = nullptr, float strength = 1.0f)
+    const NativePreviewCallback &preview = {}, const NativeGenerationResult *initial = nullptr, float strength = 1.0f,
+    const std::filesystem::path &explicitVae = {})
 {
     NativeGenerationResult result;
     const auto started = std::chrono::steady_clock::now();
@@ -282,16 +283,19 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         }
         // A required decoder remains enabled even when style modifiers are off.
         // Inspect the actual mounted file, including prepared GGUF caches.
-        const auto fallbackVae = !cache.missingVaeFamily.empty()
-            ? native_detail::loadFallbackVae(options.resourceDirectory, cache.missingVaeFamily) : native_detail::DefaultVae{};
+        const auto fallbackVae = !explicitVae.empty()
+            ? native_detail::DefaultVae{explicitVae, native_detail::modelIdentity(explicitVae)}
+            : !cache.missingVaeFamily.empty()
+                ? native_detail::loadFallbackVae(options.resourceDirectory, cache.missingVaeFamily) : native_detail::DefaultVae{};
         if (!fallbackVae.path.empty() && cache.validatedVaeIdentity != fallbackVae.identity) {
             if (!sd_model_validate_vae(model.c_str(), fallbackVae.path.string().c_str()))
-                throw std::runtime_error("The selected VAE does not match the " + cache.missingVaeFamily
+                throw std::runtime_error("The selected VAE does not match the " + std::string(cache.vaeInfo.vae_family)
                     + " tensor contract: " + fallbackVae.path.string());
             cache.validatedVaeIdentity = fallbackVae.identity;
             if (std::getenv("IILD_NATIVE_DIAGNOSTICS"))
-                std::fprintf(stderr, "iiLocalDiffusion VAE auto-mount-v2: model=%s family=%s source=fallback-validated path=%s\n",
-                    cache.vaeInfo.model_family, cache.vaeInfo.vae_family, fallbackVae.path.string().c_str());
+                std::fprintf(stderr, "iiLocalDiffusion VAE auto-mount-v2: model=%s family=%s source=%s path=%s\n",
+                    cache.vaeInfo.model_family, cache.vaeInfo.vae_family,
+                    explicitVae.empty() ? "fallback-validated" : "package-explicit", fallbackVae.path.string().c_str());
         }
         auto modifierIdentity = defaults.identity + fallbackVae.identity;
         for (const auto &lora : options.loras) modifierIdentity += ':' + native_detail::modelIdentity(lora.path);
@@ -489,7 +493,9 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             throw std::runtime_error("The local model changed during generation. Try again.");
         auto finalModifierIdentity = options.defaultModifiers
             ? native_detail::loadGenerationDefaults(options.resourceDirectory).identity : std::string{};
-        if (!cache.missingVaeFamily.empty())
+        if (!explicitVae.empty())
+            finalModifierIdentity += native_detail::modelIdentity(explicitVae);
+        else if (!cache.missingVaeFamily.empty())
             finalModifierIdentity += native_detail::loadFallbackVae(options.resourceDirectory, cache.missingVaeFamily).identity;
         for (const auto &lora : options.loras) finalModifierIdentity += ':' + native_detail::modelIdentity(lora.path);
         if (finalModifierIdentity != modifierIdentity)
@@ -524,7 +530,8 @@ static NativeGenerationResult dispatchNativeImage(const NativeGenerationRequest 
     const NativePreviewCallback &preview = {})
 {
     std::error_code error;
-    if (!std::filesystem::is_directory(request.modelPath, error))
+    if (!std::filesystem::is_directory(request.modelPath, error)
+        && !native_detail::isUnifiedModelPackage(request.modelPath))
         return nativeImage(request, options, cancelled, progress, control, prepareOnly, backend, preview);
     NativeGenerationResult result;
     try {
@@ -551,7 +558,7 @@ static NativeGenerationResult dispatchNativeImage(const NativeGenerationRequest 
             auto next = nativeImage(member, options, cancelled, progress, control, prepareOnly, backend,
                 preview ? NativePreviewCallback([&](const NativeGenerationPreview &frame) {
                     auto unified = frame; unified.sequence = ++previewSequence; preview(unified);
-                }) : NativePreviewCallback{}, i ? &result : nullptr, stage.strength);
+                }) : NativePreviewCallback{}, i ? &result : nullptr, stage.strength, stage.vae);
             if (next.cancelled || !next.error.empty()) {
                 if (!next.error.empty()) next.error = "Unified stage " + std::to_string(i + 1) + ": " + next.error;
                 return next;

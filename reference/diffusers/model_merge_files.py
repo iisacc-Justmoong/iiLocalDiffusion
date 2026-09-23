@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from checkpoint_conversion import LEGACY_SUFFIXES, materialize_safetensors
 from weight_files import (SAFETENSORS_SUFFIXES, LocalWeightFile, cached_model_sha256,
                           file_signature, resolve_weight_file, verify_weight_file)
+from iild_package import materialize_archive
 
 _IGNORED_CONFIG_KEYS = frozenset({"_name_or_path", "_diffusers_version", "transformers_version",
                                 "_commit_hash", "_use_default_values", "torch_dtype"})
@@ -25,7 +26,7 @@ class MergeModelFiles:
 
     def provenance(self) -> dict:
         return {"path": str(self.root), "format": ("diffusers" if "model_index.json" in self.assets else "adapter")
-                if self.root.is_dir() else "checkpoint",
+                if self.root.is_dir() else "iildmodel" if self.root.suffix.lower() == ".iildmodel" else "checkpoint",
                 "files": [{"name": name, "sha256": value.sha256, "size_bytes": value.size_bytes}
                           for name, value in sorted(self.originals.items())]}
 
@@ -64,6 +65,23 @@ def _files(root: Path) -> dict[str, Path]:
 def inspect_merge_model(source: Path, cache: Path, *, hash_content: bool = True) -> MergeModelFiles:
     if source.is_file():
         original = _identity(source, hash_content)
+        if source.suffix.lower() == ".iildmodel":
+            root = materialize_archive(source, cache / "iildmodel")
+            manifest = json.loads((root / "model_index.json").read_text(encoding="utf-8"))
+            stages = manifest.get("stages") if isinstance(manifest, dict) else None
+            if (not isinstance(manifest, dict) or manifest.get("schema") != "iild-unified-model-v1"
+                    or manifest.get("_class_name") != "IILDUnifiedCascade"
+                    or manifest.get("composition") != "ordered-image-refinement"
+                    or not isinstance(stages, list) or len(stages) != 1 or stages[0].get("strength") != 1
+                    or stages[0].get("loras")):
+                raise ValueError("Merge inputs require a single-stage .iildmodel package without pending LoRAs.")
+            relative = stages[0].get("model")
+            if not isinstance(relative, str):
+                raise ValueError("The .iildmodel package has no checkpoint member.")
+            member = root / relative
+            nested = inspect_merge_model(member, cache, hash_content=hash_content)
+            return MergeModelFiles(source, {source.name: next(iter(nested.weights.values()))}, {},
+                                   {source.name: original})
         converted = source
         if source.suffix.lower() in LEGACY_SUFFIXES:
             converted = Path(materialize_safetensors(source, cache)["converted_path"])

@@ -83,7 +83,7 @@ target_compile_definitions(iiLocalDiffusion PRIVATE
     IILD_BUILD_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources")
 target_link_libraries(iiLocalDiffusion PRIVATE ${CMAKE_DL_LIBS})
 if(IILD_ENABLE_NATIVE_DIFFUSION)
-    target_link_libraries(iiLocalDiffusion PRIVATE stable-diffusion)
+    target_link_libraries(iiLocalDiffusion PRIVATE stable-diffusion zip)
     if(APPLE)
         target_sources(iiLocalDiffusion PRIVATE src/Generation/NativeResources.mm)
         set_source_files_properties(src/Generation/NativeResources.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
@@ -121,7 +121,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
                 IILD_NATIVE_CPU_VAE=$<STREQUAL:${result_test},NativeMobileResultTests>
                 IILD_BUILD_LIBRARY_DIRECTORY="$<TARGET_FILE_DIR:${result_test}>"
                 IILD_BUILD_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources")
-            target_link_libraries(${result_test} PRIVATE Threads::Threads ${IILD_JSON_C_TARGET} ${CMAKE_DL_LIBS})
+            target_link_libraries(${result_test} PRIVATE Threads::Threads ${IILD_JSON_C_TARGET} zip ${CMAKE_DL_LIBS})
             add_test(NAME ${result_test} COMMAND ${result_test} "${CMAKE_CURRENT_BINARY_DIR}/${result_test}-contract")
         endforeach()
         add_executable(NativeVaeConfigTests tests/NativeVaeConfigTests.cpp src/Generation/GenerationDefaults.cpp)
@@ -410,7 +410,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         )
 
         foreach(generation_test IN ITEMS
-                GenerationOptionsTests GenerationOutputTests GenerationSeedTests GenerationPreviewTests InferenceCacheTests ModelPreparationCacheTests ForegroundInferenceTests
+                GenerationOptionsTests GenerationOutputTests GenerationSeedTests GenerationPreviewTests InferenceCacheTests MetadataValidationTests PersistentModelHashTests ModelPreparationCacheTests ForegroundInferenceTests
                 DeforumOptionsTests DeforumRuntimeTests DeforumMediaTests
                 InterpolatorOptionsTests InterpolatorRuntimeTests InterpolatorMediaTests
                 VideoOptionsTests VideoRuntimeTests VideoRoutingPolicyTests VideoInterpolationTests LocalGenerationTests StandaloneImageTests NativeImageTests
@@ -427,7 +427,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         foreach(model_compatibility_test IN ITEMS
                 CivitaiCatalogTests ModelFamilyTests GenericDiffusersTests
                 ComfyUIRuntimeTests GenerationRouterTests RuntimeCompatibilityTests
-                DownloadedModelTests CheckpointConversionTests ModelMergeTests ModelMergeLoraTests ModelMergeCompatibilityTests UnifiedModelMergeTests UnifiedImageTests ComfyUIImageWorkflowTests
+                DownloadedModelTests CheckpointConversionTests DiTConversionTests PythonLauncherTests ModelMergeTests ModelMergeLoraTests ModelMergeSyntheticTests ModelMergeCommonLayerTests ModelMergeCompatibilityTests UnifiedModelMergeTests UnifiedImageTests ComfyUIImageWorkflowTests
                 LocalImageTests SetupComfyUITests)
             add_test(NAME ${model_compatibility_test}
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${model_compatibility_test}.py")
@@ -509,14 +509,14 @@ if(IILD_INSTALL_PYTHON_REFERENCE)
     file(RELATIVE_PATH IILD_REFERENCE_FROM_BINDIR
         "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}"
         "${CMAKE_INSTALL_PREFIX}/${iild_reference_directory}")
-    foreach(iild_python_command IN ITEMS generate merge)
+    foreach(iild_python_command IN ITEMS generate merge convert)
         set(IILD_PYTHON_ENTRY "${iild_python_command}.py")
         configure_file(cmake/iild-python.py.in "${CMAKE_CURRENT_BINARY_DIR}/iild-${iild_python_command}" @ONLY)
         install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/iild-${iild_python_command}"
             DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
     endforeach()
     unset(IILD_PYTHON_ENTRY)
-    install(FILES reference/generate.py reference/merge.py reference/setup_comfyui.py
+    install(FILES reference/generate.py reference/merge.py reference/convert.py reference/setup_comfyui.py
         DESTINATION ${iild_reference_directory} COMPONENT Runtime)
     install(DIRECTORY reference/diffusers DESTINATION ${iild_reference_directory} COMPONENT Runtime
         FILES_MATCHING PATTERN "*.py" PATTERN "*.json" PATTERN "requirements*.txt" PATTERN "README.md"

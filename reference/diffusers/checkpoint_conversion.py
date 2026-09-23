@@ -19,7 +19,7 @@ import shutil
 import tempfile
 from typing import BinaryIO
 
-from weight_files import file_sha256
+from weight_files import file_sha256, model_content_sha256, file_signature
 
 
 LEGACY_SUFFIXES = (".ckpt", ".pt", ".pth", ".bin")
@@ -48,7 +48,8 @@ def _identity(path: Path) -> dict:
         raise ValueError(f"Checkpoint must be a nonempty regular file: {path}")
     resolved = path.resolve()
     before = resolved.stat()
-    digest = file_sha256(resolved)
+    signature = file_signature(resolved)
+    digest = model_content_sha256(resolved)
     after = resolved.stat()
     if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
         after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns
@@ -59,6 +60,7 @@ def _identity(path: Path) -> dict:
         "resolved_file": str(resolved),
         "sha256": digest,
         "size_bytes": after.st_size,
+        **({"validation": "metadata", "signature": list(signature)} if digest is None else {}),
     }
 
 
@@ -130,6 +132,7 @@ def _cached_result(directory: Path, original: dict, *, cache_hit: bool) -> dict:
                 or manifest["conversion_policy"] != CONVERSION_POLICY
                 or manifest["original"]["sha256"] != original["sha256"]
                 or manifest["original"]["size_bytes"] != original["size_bytes"]
+                or manifest["original"].get("signature") != original.get("signature")
                 or manifest["output"]["filename"] != output_path.name):
             raise ValueError("Conversion manifest does not match this source or conversion policy.")
         output = _identity(output_path)
@@ -180,7 +183,8 @@ def materialize_safetensors(path: str | Path, cache_dir: str | Path) -> dict:
     if not str(cache_dir).strip():
         raise ValueError("Conversion cache directory must not be empty.")
     cache = Path(cache_dir).expanduser().resolve()
-    directory = cache / f"v{CONVERSION_VERSION}-{original['sha256']}"
+    cache_key = original["sha256"] or "metadata-" + hashlib.sha256(json.dumps(original["signature"]).encode()).hexdigest()
+    directory = cache / f"v{CONVERSION_VERSION}-{cache_key}"
     if directory.exists() or directory.is_symlink():
         return _cached_result(directory, original, cache_hit=True)
     try:
@@ -193,7 +197,7 @@ def materialize_safetensors(path: str | Path, cache_dir: str | Path) -> dict:
     # The open descriptor pins the file being loaded. Hash it on both sides of
     # deserialization, and separately check that the caller's source still agrees.
     with Path(original["resolved_file"]).open("rb") as stream:
-        if _stream_sha256(stream) != original["sha256"]:
+        if original["sha256"] is not None and _stream_sha256(stream) != original["sha256"]:
             raise RuntimeError("Source checkpoint changed before weights-only loading.")
         try:
             loaded = torch.load(stream, map_location="cpu", weights_only=True)
@@ -202,7 +206,7 @@ def materialize_safetensors(path: str | Path, cache_dir: str | Path) -> dict:
                 "Weights-only checkpoint loading failed; unsafe pickle retry is disabled. "
                 "Use a tensor-only checkpoint or obtain safetensors from its publisher."
             ) from error
-        if _stream_sha256(stream) != original["sha256"]:
+        if original["sha256"] is not None and _stream_sha256(stream) != original["sha256"]:
             raise RuntimeError("Source checkpoint changed during weights-only loading.")
     tensors, wrapped = _tensor_state(loaded, torch)
     del loaded
@@ -212,14 +216,14 @@ def materialize_safetensors(path: str | Path, cache_dir: str | Path) -> dict:
     try:
         converted_path = temporary / "model.safetensors"
         safetensors_torch.save_file(tensors, str(converted_path), metadata={
-            "original_sha256": original["sha256"],
+            **({"original_sha256": original["sha256"]} if original["sha256"] is not None else {"source_validation": "metadata"}),
             "conversion": "iild-weights-only-v1",
         })
         if not converted_path.is_file() or converted_path.stat().st_size == 0:
             raise RuntimeError("Safetensors conversion did not produce a nonempty tensor file.")
         output = {
             "filename": "model.safetensors",
-            "sha256": file_sha256(converted_path),
+            "sha256": model_content_sha256(converted_path),
             "size_bytes": converted_path.stat().st_size,
         }
         manifest = {

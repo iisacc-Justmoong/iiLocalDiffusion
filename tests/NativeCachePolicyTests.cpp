@@ -50,6 +50,14 @@ int main(int argc, char **argv) {
     std::filesystem::last_write_time(replacement, time);
     std::filesystem::rename(replacement, model);
     if (written == modelIdentity(model)) return 6; // Different bytes, same size/mtime.
+#if defined(__unix__) || defined(__APPLE__)
+    setenv("IILD_MODEL_VALIDATION", "metadata", 1);
+    const auto fast = modelIdentity(model);
+    if (fast.find(":data=") != std::string::npos || fast != modelIdentity(model)) return 21;
+    std::filesystem::last_write_time(model, time + std::chrono::seconds(2));
+    if (fast == modelIdentity(model)) return 22;
+    unsetenv("IILD_MODEL_VALIDATION");
+#endif
     std::filesystem::remove(model);
     bool missingRejected = false;
     try { modelIdentity(model); } catch (...) { missingRejected = true; }

@@ -73,6 +73,10 @@ inline std::string modelIdentity(const std::filesystem::path &path) {
     static std::mutex mutex;
     static std::unordered_map<std::string, CachedIdentity> cache;
     const auto metadata = key.str();
+    // Interactive generation opts into stat-only validation. Keep strict content
+    // identities for offline tooling without reading multi-GB models on first use.
+    if (const auto *policy = std::getenv("IILD_MODEL_VALIDATION");
+        policy && std::string_view(policy) == "metadata") return metadata;
     {
         const std::lock_guard lock(mutex);
         const auto found = cache.find(name);

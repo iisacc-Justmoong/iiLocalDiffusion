@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 from model_merge import inspect_merge_request, main, merge_models
 from model_merge_options import resolve_merge_request
+from iild_package import materialize_archive
 
 
 @unittest.skipUnless(all(importlib.util.find_spec(m) for m in ("torch", "safetensors")), "Requires tensor runtime")
@@ -45,6 +46,24 @@ class ModelMergeCompatibilityTests(unittest.TestCase):
 
     def request(self, **options):
         return resolve_merge_request(self.base, self.lora, mode="unified", output=self.output, **options)
+
+    def test_registered_bridge_discovery_and_inspection_do_not_write_models(self):
+        import model_merge_compatibility as module
+        # The source location selects only the installation-local registry.
+        location = self.root / "reference/diffusers/model_merge_compatibility.py"
+        location.parent.mkdir(parents=True)
+        (location.parent.parent / "merge-compatibility.json").write_text(json.dumps({"checkpoints": [str(self.bridge)]}))
+        wrapped = self.root / "base.iildmodel"
+        wrapped.mkdir()
+        inner = wrapped / "model.safetensors"
+        inner.write_bytes(self.base.read_bytes())
+        with patch.object(module, "__file__", str(location)):
+            discovered = module.LoraCompatibilityBridge.discover([inner], exclude=[self.base])
+            self.assertIn(self.bridge, discovered)
+            report = inspect_merge_request(resolve_merge_request(inner, self.lora,
+                mode="unified", output=self.output))
+        self.assertEqual(report["stages"][-1]["compatibility_bridge"]["checkpoint"], str(self.bridge))
+        self.assertFalse(self.output.exists())
 
     def test_nested_anima_namespace_is_equivalent_for_direct_fusion(self):
         output = self.root / "fused.safetensors"
@@ -84,7 +103,8 @@ class ModelMergeCompatibilityTests(unittest.TestCase):
         self.assertEqual(stage["source_index"], 2)
         self.assertEqual(stage["strength"], 0.2)
         self.assertEqual(report["compatibility_bridge_count"], 1)
-        self.t.testing.assert_close(self.load(self.output / stage["model"])[self.key],
+        package = materialize_archive(self.output, self.root / "package-cache")
+        self.t.testing.assert_close(self.load(package / stage["model"])[self.key],
                                    self.t.tensor([[2., 3.], [3., 5.], [4., 7.]]))
         for path, original in before.items():
             self.assertEqual(path.read_bytes(), original)
@@ -100,7 +120,8 @@ class ModelMergeCompatibilityTests(unittest.TestCase):
         self.assertEqual(len(report["stages"]), 2)
         self.assertEqual(report["weights"], [0.5, 2.0])
         self.assertEqual(len(report["stages"][1]["loras"]), 2)
-        self.t.testing.assert_close(self.load(self.output / report["stages"][1]["model"])[self.key],
+        package = materialize_archive(self.output, self.root / "package-cache")
+        self.t.testing.assert_close(self.load(package / report["stages"][1]["model"])[self.key],
                                    1 + 2.5 * self.t.tensor([[1., 2.], [2., 4.], [3., 6.]]))
 
     def test_bridge_keeps_material_order_and_explicit_checkpoints_take_priority(self):
@@ -168,7 +189,8 @@ class ModelMergeCompatibilityTests(unittest.TestCase):
         report = merge_models(self.base, self.lora, mode="unified", weights=0, output=self.output)
         stage = report["stages"][1]
         self.assertEqual(stage["loras"][0]["strength"], 0)
-        self.t.testing.assert_close(self.load(self.output / stage["model"])[self.key], self.load(self.bridge)[self.key])
+        package = materialize_archive(self.output, self.root / "package-cache")
+        self.t.testing.assert_close(self.load(package / stage["model"])[self.key], self.load(self.bridge)[self.key])
 
     def test_discovery_does_not_recurse_into_packaged_members_or_follow_symlinks(self):
         candidate = self.root / "nested.iildmodel" / "members" / "model.safetensors"

@@ -1,7 +1,7 @@
 """Portable, ordered image-space composition of independent model architectures.
 
 The package is a cascade, never a fictitious cross-architecture weight average.
-Each LoRA is fused only into a checkpoint with matching targets and dimensions.
+Strict LoRAs require matching targets; synthetic policy explicitly adapts unmatched deltas.
 """
 from contextlib import ExitStack
 import ctypes
@@ -18,6 +18,7 @@ from model_merge_lora import prepare_lora
 from model_merge_lora_targets import lora_target_aliases
 from model_merge_options import resolve_merge_weights
 from weight_files import file_sha256
+from iild_package import CONTAINER, write_archive
 
 SCHEMA = "iild-unified-model-v1"
 
@@ -67,6 +68,14 @@ def plan_stages(request, models, readers, layouts, kinds, stack, *, hash_content
                 matches.append(checkpoint)
             except ValueError as error:
                 failures.append(str(error))
+        if not matches and request.lora_policy == "synthetic":
+            target = max((checkpoint for checkpoint in checkpoints if positions[checkpoint] < i), key=positions.get)
+            deltas = prepare_lora(models[i], readers[i], aliases[target], readers[target],
+                                  layouts[target], models[target], torch, policy="synthetic")
+            stage = next(stage for stage in stages if stage["source_index"] == target)
+            stage["loras"].append({"source_index": i, "strength": request.weights[i - 1],
+                                   "synthetic_adaptations": [delta.adaptation for delta in deltas if delta.adaptation]})
+            continue
         if not matches:
             if candidates is None:
                 candidates = LoraCompatibilityBridge.discover(
@@ -117,7 +126,7 @@ def execute_unified(request):
     from model_merge import _open_models, merge_models
     models = [inspect_merge_model(source, request.cache_dir) for source in request.models]
     with ExitStack() as stack:
-        readers, layouts, kinds = _open_models(models, stack, safetensors.safe_open, compatible=False)
+        readers, layouts, kinds, _ = _open_models(models, stack, safetensors.safe_open, compatible=False)
         request = resolve_merge_weights(request, kinds[1:])
         planned = plan_stages(request, models, readers, layouts, kinds, stack, hash_content=True)
         request.output.parent.mkdir(parents=True, exist_ok=True)
@@ -134,7 +143,8 @@ def execute_unified(request):
                     adapters = stage["loras"]
                     merged = merge_models(models[index].root, models[adapters[0]["source_index"]].root,
                                           additional_models=[models[a["source_index"]].root for a in adapters[1:]],
-                                          weights=[a["strength"] for a in adapters], output=target, cache_dir=request.cache_dir)
+                                          weights=[a["strength"] for a in adapters], output=target, cache_dir=request.cache_dir,
+                                          lora_policy=request.lora_policy)
                     digest = merged["output_files"][0]["sha256"]
                 else:
                     source = next(iter(models[index].weights.values()))
@@ -146,7 +156,7 @@ def execute_unified(request):
                 size = target.stat().st_size
                 stages.append({**stage, "model": relative, "sha256": digest, "size_bytes": size})
                 files.append({"name": relative, "sha256": digest, "size_bytes": size})
-            manifest = {"_class_name": "IILDUnifiedCascade", "schema": SCHEMA,
+            manifest = {"_class_name": "IILDUnifiedCascade", "schema": SCHEMA, "container": CONTAINER,
                         "composition": "ordered-image-refinement", "stages": stages}
             manifest_path = staging / "model_index.json"
             manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -158,7 +168,8 @@ def execute_unified(request):
                       "weights": list(request.weights), "base_weight": None, "merged_tensor_count": 0,
                       "tensor_validation": {"copied_members": "byte-preserved; numeric finiteness is not certified",
                                             "fused_members": "finite arithmetic inputs and outputs required"},
-                      "lora_routing": "nearest-preceding-compatible-checkpoint",
+                      "lora_routing": "nearest-preceding-compatible-checkpoint; synthetic-fallback-if-enabled",
+                      "lora_policy": request.lora_policy,
                       "compatibility_bridge_count": sum("compatibility_bridge" in stage for stage in stages),
                       "compatibility_policy": request.as_dict()["compatibility_policy"],
                       "note": "Independent models, sequential image refinement; not a single-network weight merge."}
@@ -167,5 +178,11 @@ def execute_unified(request):
                 model.verify()
             if request.output.exists() or request.output.is_symlink():
                 raise FileExistsError(f"Merge output already exists: {request.output}")
-            os.rename(staging, request.output)
+            archive = Path(temporary) / request.output.name
+            write_archive(staging, archive)
+            if request.output.exists() or request.output.is_symlink():
+                raise FileExistsError(f"Merge output already exists: {request.output}")
+            os.link(archive, request.output)
+            report["package"] = {"container": CONTAINER, "sha256": file_sha256(request.output),
+                                 "size_bytes": request.output.stat().st_size}
             return report

@@ -32,7 +32,7 @@ def checked_resource(root, item):
     if relative.is_absolute() or ".." in relative.parts or not path.resolve().is_relative_to(root.resolve()):
         raise ValueError("A generation-defaults resource escapes its package.")
     file = resolve_weight_file(str(path), "generation default")
-    if file.sha256 != item["sha256"] or file.size_bytes != item["size"]:
+    if (file.sha256 is not None and file.sha256 != item["sha256"]) or (file.sha256 is not None and file.size_bytes != item["size"]):
         raise ValueError(f"Bundled generation resource differs from its manifest: {path}")
     return file
 

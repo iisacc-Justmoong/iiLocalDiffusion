@@ -25,6 +25,11 @@ class InferenceCacheTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="inference-cache-")
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
+        hash_cache = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="hash-cache-")
+        self.addCleanup(hash_cache.cleanup)
+        cache_environment = patch.dict(os.environ, {"IILD_MODEL_HASH_CACHE": str(Path(hash_cache.name) / "hashes.sqlite3")})
+        cache_environment.start()
+        self.addCleanup(cache_environment.stop)
         self.model = self.directory / "model.safetensors"
         self.model.write_bytes(b"original")
         weight_files.clear_model_hash_cache()

@@ -1,5 +1,7 @@
 """Resolve adapter module names to actual checkpoint tensors without guessing suffixes."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 import json
 from pathlib import Path

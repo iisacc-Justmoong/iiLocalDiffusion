@@ -71,6 +71,7 @@ class LoraDelta:
     scale: float
     fan_in_fan_out: bool
     module: str
+    adaptation: dict | None = None
 
     def delta(self, torch, dtype):
         down = self.down[0].get_tensor(self.down[1]).to(dtype=dtype)
@@ -90,10 +91,17 @@ class LoraDelta:
             result = result.T
         if not torch.isfinite(result).all().item():
             raise ValueError(f"LoRA delta is not finite: {self.module}")
+        if self.adaptation:
+            from model_merge_synthetic import adapt_delta
+            result = adapt_delta(result, self.adaptation, torch)
         return result
 
 
-def prepare_lora(model, readers, aliases, base_readers, base_layout, base_model, torch):
+def prepare_lora(model, readers, aliases, base_readers, base_layout, base_model, torch, policy="strict"):
+    if policy not in ("strict", "synthetic"):
+        raise ValueError(f"Unknown LoRA adaptation policy: {policy}")
+    from model_merge_synthetic import SyntheticTargets, adaptation_report
+    synthetic_targets = SyntheticTargets(base_readers, base_layout) if policy == "synthetic" else None
     config = _config(model)
     pairs, alphas, adapter_names = {}, {}, set()
     for reader in readers.values():
@@ -126,23 +134,14 @@ def prepare_lora(model, readers, aliases, base_readers, base_layout, base_model,
                 raise ValueError(f"Unsupported LoRA tensor/variant (DoRA/LyCORIS or extra trained weights): {key}")
     if not pairs or len(adapter_names) > 1 or alphas.keys() - pairs.keys():
         raise ValueError("LoRA material has no projection pairs, mixed named adapters or unmatched alpha keys.")
-    deltas, used = [], set()
+    deltas = []
     for module, pair in pairs.items():
         if pair.keys() != {"down", "up"}:
             raise ValueError(f"LoRA requires paired down/up projections: {module}")
-        target = resolve_lora_target(module, aliases, base_model)
-        if any(prior.address == target.address and (prior.rows is None or target.rows is None
-               or max(prior.rows[0], target.rows[0]) < min(prior.rows[1], target.rows[1])) for prior in used):
-            raise ValueError(f"Multiple LoRA names resolve to overlapping base targets: {module}")
-        used.add(target)
         slices = [pair[side][0].get_slice(pair[side][1]) for side in ("down", "up")]
         shapes = [value.get_shape() for value in slices]
         down, up = shapes
-        base = base_readers[base_layout[target.address]].get_slice(target.address[1])
-        shape = base.get_shape()
-        if target.rows:
-            shape[0] = target.rows[1] - target.rows[0]
-        if (any(value.get_dtype() not in _FLOAT_DTYPES for value in (*slices, base))
+        if (any(value.get_dtype() not in _FLOAT_DTYPES for value in slices)
                 or len(down) not in (2, 3, 4, 5) or len(down) != len(up)
                 or any(n <= 0 for n in (*down, *up)) or down[0] != up[1]
                 or (len(up) > 2 and any(n != 1 for n in up[2:]))):
@@ -162,9 +161,45 @@ def prepare_lora(model, readers, aliases, base_readers, base_layout, base_model,
             if len(expected) != 2:
                 raise ValueError("fan_in_fan_out is supported only for linear LoRA targets.")
             expected.reverse()
+        remapped = False
+        try:
+            target = resolve_lora_target(module, aliases, base_model)
+        except ValueError:
+            if synthetic_targets is None:
+                raise
+            target = synthetic_targets.resolve(module, expected)
+            remapped = True
+        base = base_readers[base_layout[target.address]].get_slice(target.address[1])
+        shape = list(base.get_shape())
+        if base.get_dtype() not in _FLOAT_DTYPES or not 2 <= len(shape) <= 5:
+            raise ValueError(f"Unsupported LoRA target dtype/rank: {module}")
+        if target.rows:
+            shape[0] = target.rows[1] - target.rows[0]
         if target.transpose:
             expected.reverse()
-        if shape != expected:
+        if shape != expected and policy == "strict":
             raise ValueError(f"LoRA delta shape {expected} differs from base target {shape}: {module}")
-        deltas.append(LoraDelta(target, pair["down"], pair["up"], scaling, fan, module))
+        delta = LoraDelta(target, pair["down"], pair["up"], scaling, fan, module,
+                          adaptation_report(module, target, expected, shape, remapped)
+                          if remapped or shape != expected else None)
+        for prior in deltas:
+            overlap = prior.target.address == target.address and (prior.target.rows is None or target.rows is None
+                or max(prior.target.rows[0], target.rows[0]) < min(prior.target.rows[1], target.rows[1]))
+            if not overlap:
+                continue
+            # Some exports include both SGM and Diffusers aliases. Coalesce only
+            # equal projection pairs with identical scaling/orientation, so the
+            # same adapter is applied once. Distinct pairs remain separate
+            # additive deltas on that target, preserving every learned branch.
+            identical = prior.target == target and prior.scale == scaling and prior.fan_in_fan_out == fan and prior.adaptation == delta.adaptation
+            if identical:
+                for first, second in ((prior.down, delta.down), (prior.up, delta.up)):
+                    left, right = first[0].get_tensor(first[1]), second[0].get_tensor(second[1])
+                    if left.dtype != right.dtype or not torch.equal(left, right):
+                        identical = False
+                        break
+            if identical:
+                break
+        else:
+            deltas.append(delta)
     return deltas

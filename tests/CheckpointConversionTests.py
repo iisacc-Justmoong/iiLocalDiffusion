@@ -104,6 +104,22 @@ class CheckpointConversionTests(unittest.TestCase):
         self.importer.assert_not_called()
         self.assertFalse(self.cache.exists())
 
+    def test_metadata_mode_converts_and_reuses_without_checksum_passes(self):
+        source = self.checkpoint("model.ckpt", b"tensor fixture")
+        with patch.dict(os.environ, {"IILD_MODEL_VALIDATION": "metadata"}), \
+                patch.object(conversion, "_stream_sha256", side_effect=AssertionError("Full source hash")), \
+                patch.object(conversion, "file_sha256", side_effect=AssertionError("Full file hash")):
+            first = conversion.materialize_safetensors(source, self.cache)
+            second = conversion.materialize_safetensors(source, self.cache)
+            self.assertIsNone(first["original"]["sha256"])
+            self.assertIsNone(first["output"]["sha256"])
+            self.assertTrue(second["cache_hit"])
+            self.torch.load.assert_called_once()
+            self.assertTrue(self.torch.load.call_args.kwargs["weights_only"])
+            source.write_bytes(b"changed tensor fixture")
+            third = conversion.materialize_safetensors(source, self.cache)
+            self.assertNotEqual(first["converted_path"], third["converted_path"])
+
     def test_all_legacy_suffixes_load_cpu_weights_only_and_keep_source_unchanged(self):
         for suffix in conversion.LEGACY_SUFFIXES:
             with self.subTest(suffix=suffix):

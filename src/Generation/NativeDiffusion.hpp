@@ -11,7 +11,7 @@
 
 namespace iiLocalDiffusion {
 struct NativeGenerationRequest {
-    // A checkpoint file or an iild-unified-model-v1 package directory.
+    // A checkpoint file, packaged .iildmodel file, or legacy unified directory.
     std::filesystem::path modelPath;
     std::string prompt;
     // Final output size. Base inference uses half of each axis before Hires fix.

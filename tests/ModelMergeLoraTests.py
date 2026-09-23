@@ -284,6 +284,43 @@ class ModelMergeLoraTests(unittest.TestCase):
         self.torch.testing.assert_close(self.load(out / "unet/model.safetensors")[key],
                                        self.weight + self.up @ self.down)
 
+    @unittest.skipUnless(importlib.util.find_spec("diffusers"), "Requires SGM converters")
+    def test_identical_sgm_and_diffusers_aliases_apply_once(self):
+        from model_merge import inspect_merge_request
+        from model_merge_options import resolve_merge_request
+        base = self.root / "pipeline"
+        (base / "unet").mkdir(parents=True)
+        (base / "model_index.json").write_text('{}')
+        key = "down_blocks.1.attentions.0.transformer_blocks.0.attn1.to_q.weight"
+        self.save({key: self.weight}, str(base / "unet/model.safetensors"))
+        modules = ["lora_unet_down_blocks_1_attentions_0_transformer_blocks_0_attn1_to_q",
+                   "lora_unet_input_blocks_4_1_transformer_blocks_0_attn1_to_q"]
+        tensors = {}
+        for module in modules:
+            tensors.update({module + ".lora_down.weight": self.down.clone(),
+                            module + ".lora_up.weight": self.up.clone(),
+                            module + ".alpha": self.torch.tensor(2.)})
+        self.save(tensors, str(self.lora))
+        out = self.root / "pipeline-merged"
+        inspect_merge_request(resolve_merge_request(base, self.lora, output=out))
+        self.assertFalse(out.exists())
+        merge_models(base, self.lora, output=out)
+        self.torch.testing.assert_close(self.load(out / "unet/model.safetensors")[key],
+                                       self.weight + self.up @ self.down)
+        for suffix, replacement in ((".lora_up.weight", self.up + 1), (".alpha", self.torch.tensor(1.))):
+            changed = dict(tensors)
+            changed[modules[1] + suffix] = replacement
+            self.save(changed, str(self.lora))
+            output = self.root / ("distinct-up" if suffix == ".lora_up.weight" else "distinct-alpha")
+            inspect_merge_request(resolve_merge_request(base, self.lora, output=output))
+            self.assertFalse(output.exists())
+            report = merge_models(base, self.lora, output=output)
+            additional = (replacement @ self.down if suffix == ".lora_up.weight"
+                          else (self.up @ self.down) * 0.5)
+            self.torch.testing.assert_close(self.load(output / "unet/model.safetensors")[key],
+                                           self.weight + self.up @ self.down + additional)
+            self.assertEqual(report["lora_alias_policy"], "identical-projections-once; distinct-projections-additive")
+
     def test_peft_flattened_clip_names_and_fan_in_fan_out(self):
         base = self.root / "pipeline"
         (base / "text_encoder").mkdir(parents=True)

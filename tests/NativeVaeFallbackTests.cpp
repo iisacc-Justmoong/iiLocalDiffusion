@@ -110,6 +110,40 @@ void decode(const std::filesystem::path &model, const std::filesystem::path &wei
 
 int main(int argc, char **argv) {
     try {
+        if (argc == 5 && std::string(argv[1]) == "--decode-component") {
+            const std::string name = argv[2];
+            const std::vector<Family> components = {
+                {"sd15", "", VERSION_SD1, 4, {"model.diffusion_model.input_blocks.0.0.weight"}},
+                {"sd2", "", VERSION_SD2, 4, {"model.diffusion_model.input_blocks.0.0.weight"}},
+                {"sd3", "", VERSION_SD3, 16, {"model.diffusion_model.joint_blocks.0.weight"}},
+                {"sdxl", "", VERSION_SDXL, 4, {"model.diffusion_model.input_blocks.0.0.weight",
+                    "model.diffusion_model.middle_block.1.proj_in.weight", "conditioner.embedders.1.model.positional_embedding"}},
+                {"anima", "", VERSION_ANIMA, 16, {"model.diffusion_model.llm_adapter.blocks.0.cross_attn.q_proj.weight"}},
+                {"flux1", "", VERSION_FLUX, 16, {"model.diffusion_model.double_blocks.0.img_attn.qkv.weight"}},
+                {"flux2", "", VERSION_FLUX2_KLEIN, 128, {"model.diffusion_model.double_stream_modulation_img.lin.weight"}},
+            };
+            const auto found = std::find_if(components.begin(), components.end(), [&](const auto &item) { return item.name == name; });
+            require(found != components.end(), "Unknown component decode family");
+            const auto directory = std::filesystem::path(argv[4]);
+            std::filesystem::create_directories(directory);
+            const auto model = directory / "model.safetensors";
+            fixture(model, found->keys);
+            if (name == "sd15" || name == "sd2") {
+                const int channels = name == "sd15" ? 768 : 1024;
+                const auto bytes = channels * 4;
+                const std::string header = "{\"cond_stage_model.transformer.text_model.embeddings.token_embedding.weight\":{\"dtype\":\"F32\",\"shape\":[1,"
+                    + std::to_string(channels) + "],\"data_offsets\":[0," + std::to_string(bytes)
+                    + "]},\"model.diffusion_model.middle_block.1.proj_in.weight\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":["
+                    + std::to_string(bytes) + "," + std::to_string(bytes + 4) + "]}}";
+                std::ofstream file(model, std::ios::binary);
+                const std::uint64_t length = header.size();
+                file.write(reinterpret_cast<const char *>(&length), sizeof(length)); file << header;
+                file.seekp(8 + length + bytes + 3); file.put(0);
+            }
+            require(sd_model_validate_vae(model.string().c_str(), argv[3]), "Incompatible component VAE tensors");
+            decode(model, argv[3], *found);
+            return 0;
+        }
         if (argc == 3 && std::string(argv[1]) == "--inspect") {
             sd_model_vae_info_t info{};
             require(sd_model_inspect_vae(argv[2], &info), "Cannot inspect the model");

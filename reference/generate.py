@@ -103,7 +103,10 @@ def select_backend(args, remaining: list[str]) -> str:
         return args.backend
     unified_path = option_value(remaining, "--model-path") or option_value(remaining, "--model") or config.get("model")
     if unified_path:
-        index = Path(unified_path).expanduser() / "model_index.json"
+        selected = Path(unified_path).expanduser()
+        if selected.is_file() and selected.suffix.lower() == ".iildmodel":
+            return "unified"
+        index = selected / "model_index.json"
         if index.is_file() and index.stat().st_size <= 1024 * 1024:
             package = json.loads(index.read_text(encoding="utf-8"))
             if isinstance(package, dict) and package.get("schema") == "iild-unified-model-v1":

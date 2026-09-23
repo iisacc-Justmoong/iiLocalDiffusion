@@ -1,5 +1,6 @@
 """Real tensor regressions for cross-family composition and prediction markers."""
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -11,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 from model_merge import merge_models, inspect_merge_request
 from model_merge_options import resolve_merge_request
+from iild_package import materialize_archive, write_archive
 
 
 @unittest.skipUnless(importlib.util.find_spec("torch") and importlib.util.find_spec("safetensors"), "Requires the SDK tensor runtime")
@@ -54,12 +56,14 @@ class UnifiedModelMergeTests(unittest.TestCase):
         before = [p.read_bytes() for p in (self.base, self.anima, self.lora)]
         output = self.root / "combined.iildmodel"
         report = merge_models(self.base, self.anima, additional_models=[self.lora], mode="unified", output=output)
+        package = materialize_archive(output, self.root / "cache")
         self.assertEqual(report["composition"], "ordered-image-refinement")
         self.assertEqual(report["stages"][1]["loras"], [{"source_index": 2, "strength": 1.0}])
         self.assertEqual(report["stages"][1]["strength"], 0.35)
-        self.assertTrue(self.torch.equal(load_file(output / "members/001/model.safetensors")["model.diffusion_model.blocks.0.weight"], self.torch.full((3, 2), 2.0)))
+        self.assertTrue(output.is_file())
+        self.assertTrue(self.torch.equal(load_file(package / "members/001/model.safetensors")["model.diffusion_model.blocks.0.weight"], self.torch.full((3, 2), 2.0)))
         self.assertEqual([p.read_bytes() for p in (self.base, self.anima, self.lora)], before)
-        manifest = json.loads((output / "model_index.json").read_text())
+        manifest = json.loads((package / "model_index.json").read_text())
         self.assertEqual(manifest["schema"], "iild-unified-model-v1")
         self.assertEqual(len(manifest["stages"]), 2)
 
@@ -78,12 +82,32 @@ class UnifiedModelMergeTests(unittest.TestCase):
         self.assertEqual(len(report["stages"]), 2)
         self.assertFalse(request.output.exists())
 
+    def test_single_stage_packaged_file_is_a_weighted_merge_input(self):
+        staging = self.root / "single-package"
+        staging.mkdir()
+        member = staging / "model.safetensors"
+        member.write_bytes(self.base.read_bytes())
+        manifest = {"schema": "iild-unified-model-v1", "_class_name": "IILDUnifiedCascade",
+                    "container": "zip-stored-v1", "composition": "ordered-image-refinement",
+                    "stages": [{"model": member.name, "strength": 1, "size_bytes": member.stat().st_size,
+                                "sha256": hashlib.sha256(member.read_bytes()).hexdigest()}]}
+        (staging / "model_index.json").write_text(json.dumps(manifest))
+        package = self.root / "single.iildmodel"
+        write_archive(staging, package)
+        output = self.root / "remerged.safetensors"
+        report = merge_models(package, self.base, weights=0.5, output=output,
+                              cache_dir=self.root / "merge-cache")
+        self.assertTrue(output.is_file())
+        self.assertEqual(report["sources"][0]["format"], "iildmodel")
+        self.assertEqual(report["sources"][0]["path"], str(package))
+
     def test_unmodified_members_preserve_even_nonfinite_source_bytes(self):
         self.save({"bad.weight": self.torch.tensor([float("nan")])}, str(self.anima))
         output = self.root / "combined.iildmodel"
         before = self.anima.read_bytes()
         report = merge_models(self.base, self.anima, weights=0, mode="unified", output=output)
-        self.assertEqual((output / "members/001/model.safetensors").read_bytes(), before)
+        package = materialize_archive(output, self.root / "cache-nonfinite")
+        self.assertEqual((package / "members/001/model.safetensors").read_bytes(), before)
         self.assertIn("not certified", report["tensor_validation"]["copied_members"])
         self.assertEqual(self.anima.read_bytes(), before)
         with self.assertRaises(FileExistsError):
@@ -104,9 +128,10 @@ class UnifiedModelMergeTests(unittest.TestCase):
         output = self.root / "custom.iildmodel"
         before = self.anima.read_bytes()
         report = merge_models(self.base, self.anima, mode="unified", output=output)
+        package = materialize_archive(output, self.root / "cache-custom")
         self.assertEqual(report["stages"][1]["architecture"], "unknown")
         self.assertIn("architecture_note", report["stages"][1])
-        self.assertEqual((output / "members/001/model.safetensors").read_bytes(), before)
+        self.assertEqual((package / "members/001/model.safetensors").read_bytes(), before)
 
 
 if __name__ == "__main__":

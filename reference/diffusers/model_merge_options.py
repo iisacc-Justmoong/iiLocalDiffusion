@@ -26,6 +26,8 @@ class MergeRequest:
     cache_dir: Path
     compatibility_models: tuple[Path, ...] | None = None
     compatibility_strength: float = 0.35
+    lora_policy: str = "strict"
+    checkpoint_policy: str = "strict"
 
     @property
     def models(self) -> tuple[Path, ...]:
@@ -33,6 +35,8 @@ class MergeRequest:
 
     def as_dict(self) -> dict:
         return {
+            "lora_policy": self.lora_policy,
+            "checkpoint_policy": self.checkpoint_policy,
             "base_model": str(self.base_model),
             "additional_models": [str(path) for path in self.additional_models],
             "mode": self.mode,
@@ -45,7 +49,9 @@ class MergeRequest:
             "compatibility_models": ([str(path) for path in self.compatibility_models]
                                      if self.compatibility_models is not None else None),
             "compatibility_policy": ("nearby-checkpoints" if self.compatibility_models is None else "explicit-candidates")
-                                    if self.mode == "unified" else "strict-weight-compatibility",
+                                    if self.mode == "unified" else
+                                    ("base-layout-common-layer" if self.checkpoint_policy == "common-layer"
+                                     else "strict-weight-compatibility"),
             "compatibility_strength": self.compatibility_strength,
         }
 
@@ -64,8 +70,8 @@ def _model(value: str | Path, *, base: bool = False) -> Path:
                 or any(path.glob("*.safetensors")) or any(path.glob("*.safetensor")))):
             raise ValueError(f"A base directory requires model_index.json; an adapter directory requires LoRA weights: {path}")
     elif (not path.is_file() or path.stat().st_size == 0
-          or path.suffix.lower() not in (*SAFETENSORS_SUFFIXES, *LEGACY_SUFFIXES)):
-        raise ValueError(f"Model must be a nonempty safetensors/ckpt/pt/pth/bin file or Diffusers directory: {path}")
+          or path.suffix.lower() not in (*SAFETENSORS_SUFFIXES, *LEGACY_SUFFIXES, ".iildmodel")):
+        raise ValueError(f"Model must be a nonempty safetensors/ckpt/pt/pth/bin/.iildmodel file or Diffusers directory: {path}")
     return path
 
 
@@ -80,6 +86,8 @@ def resolve_merge_request(
     cache_dir: str | Path | None = None,
     compatibility_models: Sequence[str | Path] | None = None,
     compatibility_strength: float = 0.35,
+    lora_policy: str = "strict",
+    checkpoint_policy: str = "strict",
 ) -> MergeRequest:
     """Validate paths and requested strengths without reading model tensors.
 
@@ -87,6 +95,10 @@ def resolve_merge_request(
     Effective defaults and the base coefficient are resolved after checkpoint
     versus LoRA inspection. Inputs are never modified.
     """
+    if lora_policy not in ("strict", "synthetic"):
+        raise ValueError("LoRA policy must be strict or synthetic.")
+    if checkpoint_policy not in ("strict", "common-layer"):
+        raise ValueError("Checkpoint policy must be strict or common-layer.")
     if mode not in MODES:
         raise ValueError(f"Unknown merge mode {mode!r}; choose one of {MODES}.")
     if isinstance(additional_models, (str, bytes, Path)) or not isinstance(additional_models, Sequence):
@@ -130,7 +142,7 @@ def resolve_merge_request(
     if mode == "unified":
         destination = _path(output, "Output") if output is not None else DEFAULT_DIRECTORY / "merged" / (default_name + ".iildmodel")
         if destination.suffix.lower() != ".iildmodel":
-            raise ValueError("A unified model output must be a new .iildmodel directory.")
+            raise ValueError("A unified model output must be a new .iildmodel package file.")
     elif not directory and destination.suffix.lower() not in SAFETENSORS_SUFFIXES:
         raise ValueError("A merged checkpoint output must end in .safetensors or .safetensor.")
     if destination.exists() or destination.is_symlink():
@@ -142,7 +154,8 @@ def resolve_merge_request(
             raise ValueError("Merge output must not overlap or be inside an input model.")
         if source.is_dir() and cache.resolve().is_relative_to(resolved):
             raise ValueError("Conversion cache must not be inside an input model.")
-    return MergeRequest(base, additional, mode, values, None, destination, cache, candidates, float(compatibility_strength))
+    return MergeRequest(base, additional, mode, values, None, destination, cache, candidates,
+                        float(compatibility_strength), lora_policy, checkpoint_policy)
 
 
 def resolve_merge_weights(request: MergeRequest, kinds: Sequence[str]) -> MergeRequest:
@@ -183,6 +196,10 @@ def build_parser() -> argparse.ArgumentParser:
                                help="Require every LoRA to match an explicitly supplied material checkpoint.")
     parser.add_argument("--compatibility-strength", type=float, default=0.35,
                         help="Image refinement strength of automatically inserted compatibility stages, in [0,1] (default: 0.35).")
+    parser.add_argument("--lora-policy", choices=("strict", "synthetic"), default="strict",
+                        help="Synthetic maps unmatched LoRAs and zero-pads/crops deltas; learned effects are not preserved.")
+    parser.add_argument("--checkpoint-policy", choices=("strict", "common-layer"), default="strict",
+                        help="Common-layer projects foreign checkpoints onto the base tensor layout; output quality is not guaranteed.")
     parser.add_argument("--print-config", action="store_true", help="Validate arguments without loading tensors.")
     parser.add_argument("--inspect", action="store_true", help="Inspect structural compatibility and LoRA routing before hashing or writing output.")
     return parser
