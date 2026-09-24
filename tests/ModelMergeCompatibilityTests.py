@@ -1,4 +1,4 @@
-"""Architecture bridge regressions with real adapter arithmetic and publication."""
+"""Archived regressions for compatibility bridges superseded by base-scoped selection."""
 from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
@@ -17,6 +17,7 @@ from iild_package import materialize_archive
 
 
 @unittest.skipUnless(all(importlib.util.find_spec(m) for m in ("torch", "safetensors")), "Requires tensor runtime")
+@unittest.skip("Base-scoped selection excludes LoRAs that require another checkpoint bridge.")
 class ModelMergeCompatibilityTests(unittest.TestCase):
     def setUp(self):
         import torch

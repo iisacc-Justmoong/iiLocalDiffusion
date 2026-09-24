@@ -27,18 +27,53 @@ class UnifiedModelMergeTests(unittest.TestCase):
         self.base = self.root / "sdxl.safetensors"
         self.anima = self.root / "anima.safetensors"
         self.lora = self.root / "anima-lora.safetensors"
-        self.save({"unet.weight": torch.ones(2, 2)}, str(self.base))
-        self.save({"model.diffusion_model.blocks.0.weight": torch.ones(3, 2)}, str(self.anima))
+        self.save({"unet.weight": torch.ones(2, 2)}, str(self.base),
+                  metadata={"modelspec.architecture": "stable-diffusion-xl"})
+        self.save({"model.diffusion_model.blocks.0.weight": torch.ones(3, 2)}, str(self.anima),
+                  metadata={"modelspec.architecture": "anima"})
         self.save({"diffusion_model.blocks.0.lora_A.weight": torch.ones(1, 2),
-                   "diffusion_model.blocks.0.lora_B.weight": torch.ones(3, 1)}, str(self.lora))
+                   "diffusion_model.blocks.0.lora_B.weight": torch.ones(3, 1)}, str(self.lora),
+                  metadata={"modelspec.architecture": "anima"})
+
+    def compatible_checkpoint(self, name="sdxl-compatible.safetensors", value=2.0):
+        path = self.root / name
+        self.save({"unet.weight": self.torch.full((2, 2), value)}, str(path),
+                  metadata={"modelspec.architecture": "stable-diffusion-xl"})
+        return path
+
+    def compatible_lora(self):
+        path = self.root / "sdxl-lora.safetensors"
+        self.save({"unet.lora_A.weight": self.torch.ones(1, 2),
+                   "unet.lora_B.weight": self.torch.ones(2, 1)}, str(path),
+                  metadata={"modelspec.architecture": "stable-diffusion-xl"})
+        return path
+
+    def test_archive_output_is_verified_after_writing(self):
+        output = self.root / "verified.iildmodel"
+        report = merge_models(self.base, self.compatible_checkpoint(), output=output, mode="unified")
+        self.assertEqual(report["output_verification"]["status"], "passed")
+        self.assertEqual(report["output_verification"]["stage_count"], 2)
+        self.assertEqual(report["preflight"]["output_contract"], "independent-network-cascade")
+
+    def test_wrong_archive_member_is_never_published(self):
+        output = self.root / "wrong.iildmodel"
+        def corrupt(staging, destination):
+            self.save({"unet.weight": self.torch.zeros(2, 2)}, str(staging / "members/000/model.safetensors"))
+            write_archive(staging, destination)
+        with patch("model_merge_unified.write_archive", side_effect=corrupt):
+            with self.assertRaisesRegex(ValueError, "member.*(changed|hash)"):
+                merge_models(self.base, self.compatible_checkpoint(), output=output, mode="unified")
+        self.assertFalse(output.exists())
 
     def test_prediction_mismatch_is_detected_before_hashing(self):
         extra = self.root / "vpred.safetensors"
         self.save({"unet.weight": self.torch.ones(2, 2), "v_pred": self.torch.empty(0),
-                   "ztsnr": self.torch.empty(0)}, str(extra))
+                   "ztsnr": self.torch.empty(0)}, str(extra),
+                  metadata={"modelspec.architecture": "stable-diffusion-xl"})
         with patch("model_merge_files.cached_model_sha256", side_effect=AssertionError("Expensive hash before preflight")):
             with self.assertRaisesRegex(ValueError, "Prediction settings differ"):
-                merge_models(self.base, extra, output=self.root / "invalid.safetensors")
+                merge_models(self.base, extra, output=self.root / "invalid.safetensors",
+                             checkpoint_policy="strict")
         self.assertFalse((self.root / "invalid.safetensors").exists())
 
     def test_same_prediction_markers_are_preserved(self):
@@ -53,30 +88,34 @@ class UnifiedModelMergeTests(unittest.TestCase):
 
     def test_unified_preserves_families_and_fuses_lora_only_into_compatible_member(self):
         from safetensors.torch import load_file
-        before = [p.read_bytes() for p in (self.base, self.anima, self.lora)]
+        compatible = self.compatible_checkpoint()
+        lora = self.compatible_lora()
+        before = [p.read_bytes() for p in (self.base, compatible, self.anima, lora)]
         output = self.root / "combined.iildmodel"
-        report = merge_models(self.base, self.anima, additional_models=[self.lora], mode="unified", output=output)
+        report = merge_models(self.base, compatible, additional_models=[self.anima, lora], mode="unified", output=output)
         package = materialize_archive(output, self.root / "cache")
         self.assertEqual(report["composition"], "ordered-image-refinement")
         self.assertEqual(report["stages"][1]["loras"], [{"source_index": 2, "strength": 1.0}])
         self.assertEqual(report["stages"][1]["strength"], 0.35)
+        self.assertEqual(report["excluded_material_count"], 1)
+        self.assertEqual(report["excluded_sources"][0]["path"], str(self.anima))
         self.assertTrue(output.is_file())
-        self.assertTrue(self.torch.equal(load_file(package / "members/001/model.safetensors")["model.diffusion_model.blocks.0.weight"], self.torch.full((3, 2), 2.0)))
-        self.assertEqual([p.read_bytes() for p in (self.base, self.anima, self.lora)], before)
+        self.assertTrue(self.torch.equal(load_file(package / "members/001/model.safetensors")["unet.weight"], self.torch.full((2, 2), 3.0)))
+        self.assertEqual([p.read_bytes() for p in (self.base, compatible, self.anima, lora)], before)
         manifest = json.loads((package / "model_index.json").read_text())
         self.assertEqual(manifest["schema"], "iild-unified-model-v1")
         self.assertEqual(len(manifest["stages"]), 2)
 
     def test_unmatched_lora_and_invalid_strength_leave_no_output(self):
         output = self.root / "combined.iildmodel"
-        with self.assertRaisesRegex(ValueError, "no compatible checkpoint"):
+        with self.assertRaisesRegex(ValueError, "No merge material is compatible"):
             merge_models(self.base, self.lora, mode="unified", output=output, compatibility_models=[])
         with self.assertRaisesRegex(ValueError, "strengths must be"):
-            merge_models(self.base, self.anima, mode="unified", weights=1.1, output=output)
+            merge_models(self.base, self.compatible_checkpoint(), mode="unified", weights=1.1, output=output)
         self.assertFalse(output.exists())
 
     def test_inspection_does_not_hash_or_publish(self):
-        request = resolve_merge_request(self.base, self.anima, mode="unified", output=self.root / "result.iildmodel")
+        request = resolve_merge_request(self.base, self.compatible_checkpoint(), mode="unified", output=self.root / "result.iildmodel")
         with patch("model_merge_files.cached_model_sha256", side_effect=AssertionError("Unexpected hash")):
             report = inspect_merge_request(request)
         self.assertEqual(len(report["stages"]), 2)
@@ -102,22 +141,26 @@ class UnifiedModelMergeTests(unittest.TestCase):
         self.assertEqual(report["sources"][0]["path"], str(package))
 
     def test_unmodified_members_preserve_even_nonfinite_source_bytes(self):
-        self.save({"bad.weight": self.torch.tensor([float("nan")])}, str(self.anima))
+        compatible = self.compatible_checkpoint()
+        self.save({"unet.weight": self.torch.full((2, 2), float("nan"))}, str(compatible),
+                  metadata={"modelspec.architecture": "stable-diffusion-xl"})
         output = self.root / "combined.iildmodel"
-        before = self.anima.read_bytes()
-        report = merge_models(self.base, self.anima, weights=0, mode="unified", output=output)
+        before = compatible.read_bytes()
+        report = merge_models(self.base, compatible, weights=0, mode="unified", output=output)
         package = materialize_archive(output, self.root / "cache-nonfinite")
         self.assertEqual((package / "members/001/model.safetensors").read_bytes(), before)
         self.assertIn("not certified", report["tensor_validation"]["copied_members"])
-        self.assertEqual(self.anima.read_bytes(), before)
+        self.assertEqual(compatible.read_bytes(), before)
         with self.assertRaises(FileExistsError):
-            merge_models(self.base, self.anima, mode="unified", output=output)
+            merge_models(self.base, compatible, mode="unified", output=output)
 
     def test_nonfinite_arithmetic_still_fails_without_publication(self):
-        self.save({"model.diffusion_model.blocks.0.weight": self.torch.full((3, 2), float("nan"))}, str(self.anima))
+        compatible = self.compatible_checkpoint(value=float("nan"))
+        lora = self.compatible_lora()
         output = self.root / "combined.iildmodel"
         with self.assertRaisesRegex(ValueError, "finite"):
-            merge_models(self.base, self.anima, additional_models=[self.lora], mode="unified", output=output)
+            merge_models(self.base, compatible, additional_models=[lora], mode="unified", output=output,
+                         checkpoint_policy="strict")
         self.assertFalse(output.exists())
 
     def test_custom_architecture_and_marker_storage_are_preserved(self):
@@ -127,11 +170,10 @@ class UnifiedModelMergeTests(unittest.TestCase):
                    "v_pred": self.torch.tensor(1)}, str(self.anima))
         output = self.root / "custom.iildmodel"
         before = self.anima.read_bytes()
-        report = merge_models(self.base, self.anima, mode="unified", output=output)
-        package = materialize_archive(output, self.root / "cache-custom")
-        self.assertEqual(report["stages"][1]["architecture"], "unknown")
-        self.assertIn("architecture_note", report["stages"][1])
-        self.assertEqual((package / "members/001/model.safetensors").read_bytes(), before)
+        with self.assertRaisesRegex(ValueError, "No merge material is compatible"):
+            merge_models(self.base, self.anima, mode="unified", output=output)
+        self.assertFalse(output.exists())
+        self.assertEqual(self.anima.read_bytes(), before)
 
 
 if __name__ == "__main__":

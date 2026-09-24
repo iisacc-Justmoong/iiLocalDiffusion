@@ -123,8 +123,13 @@ def _copy(source, target):
 
 def execute_unified(request):
     import safetensors
-    from model_merge import _open_models, merge_models
-    models = [inspect_merge_model(source, request.cache_dir) for source in request.models]
+    import torch
+    from model_merge import _filter_compatible_materials, _open_models, merge_models, inspect_merge_request
+    from iild_package import inspect_archive
+    inspection = inspect_merge_request(request)
+    all_models = [inspect_merge_model(source, request.cache_dir) for source in request.models]
+    request, models, resource_compatibility, excluded_sources = _filter_compatible_materials(
+        request, all_models, safetensors.safe_open, torch)
     with ExitStack() as stack:
         readers, layouts, kinds, _ = _open_models(models, stack, safetensors.safe_open, compatible=False)
         request = resolve_merge_weights(request, kinds[1:])
@@ -144,8 +149,9 @@ def execute_unified(request):
                     merged = merge_models(models[index].root, models[adapters[0]["source_index"]].root,
                                           additional_models=[models[a["source_index"]].root for a in adapters[1:]],
                                           weights=[a["strength"] for a in adapters], output=target, cache_dir=request.cache_dir,
-                                          lora_policy=request.lora_policy)
+                                          lora_policy=request.lora_policy, checkpoint_policy=request.checkpoint_policy)
                     digest = merged["output_files"][0]["sha256"]
+                    stage = {**stage, "output_verification": merged["output_verification"]}
                 else:
                     source = next(iter(models[index].weights.values()))
                     _copy(source.resolved_file, target)
@@ -164,22 +170,33 @@ def execute_unified(request):
                           "size_bytes": manifest_path.stat().st_size})
             report = {"schema": "iild-model-merge-v1", "mode": "unified", "output": str(request.output),
                       "composition": manifest["composition"], "stages": stages, "output_files": files,
+                      "base_profile": inspection["base_profile"], "preflight": inspection["preflight"],
                       "sources": [{**model.provenance(), "kind": kind} for model, kind in zip(models, kinds)],
+                      "resource_compatibility": resource_compatibility,
+                      "excluded_sources": excluded_sources,
+                      "included_material_count": len(models) - 1,
+                      "excluded_material_count": len(excluded_sources),
                       "weights": list(request.weights), "base_weight": None, "merged_tensor_count": 0,
                       "tensor_validation": {"copied_members": "byte-preserved; numeric finiteness is not certified",
-                                            "fused_members": "finite arithmetic inputs and outputs required"},
+                                            "fused_members": "reopened tensors match computed finite output; common-layer repairs invalid inputs"},
                       "lora_routing": "nearest-preceding-compatible-checkpoint; synthetic-fallback-if-enabled",
                       "lora_policy": request.lora_policy,
                       "compatibility_bridge_count": sum("compatibility_bridge" in stage for stage in stages),
                       "compatibility_policy": request.as_dict()["compatibility_policy"],
                       "note": "Independent models, sequential image refinement; not a single-network weight merge."}
             (staging / "merge.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-            for model in models:
+            for model in all_models:
                 model.verify()
             if request.output.exists() or request.output.is_symlink():
                 raise FileExistsError(f"Merge output already exists: {request.output}")
             archive = Path(temporary) / request.output.name
             write_archive(staging, archive)
+            _, verified_manifest, _ = inspect_archive(archive, hashes=True)
+            if verified_manifest != manifest:
+                raise ValueError("Saved unified manifest differs from planned stages.")
+            report["output_verification"] = {"status": "passed", "method": "reopen-all-package-member-hashes",
+                                              "stage_count": len(stages), "quality_guaranteed": False,
+                                              "copied_values": "byte-preserved; not numerically repaired"}
             if request.output.exists() or request.output.is_symlink():
                 raise FileExistsError(f"Merge output already exists: {request.output}")
             os.link(archive, request.output)

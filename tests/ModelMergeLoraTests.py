@@ -154,7 +154,7 @@ class ModelMergeLoraTests(unittest.TestCase):
             with self.subTest(case=case):
                 self.save(state, str(self.lora))
                 with self.assertRaises((ValueError, RuntimeError)):
-                    self.merge(weights=0)
+                    self.merge(weights=0, checkpoint_policy="strict")
                 self.assertFalse(self.output.exists())
                 self.assertFalse(list(self.root.glob(".merged.safetensors-*")))
 
@@ -216,11 +216,11 @@ class ModelMergeLoraTests(unittest.TestCase):
             (base / component).mkdir()
             self.save({"layer.weight": self.weight}, str(base / component / "model.safetensors"))
         with self.assertRaisesRegex(ValueError, "ambiguous"):
-            merge_models(base, self.lora, output=self.root / "merged")
+            merge_models(base, self.lora, output=self.root / "merged", checkpoint_policy="strict")
         self.save({"unet.a_b.c.weight": self.weight, "unet.a.b_c.weight": self.weight.clone()}, str(self.base))
         self.adapter(target="lora_unet_a_b_c", style="kohya")
         with self.assertRaisesRegex(ValueError, "ambiguous"):
-            self.merge()
+            self.merge(checkpoint_policy="strict")
 
     def test_dtype_precision_and_overflow(self):
         t = self.torch
@@ -235,7 +235,7 @@ class ModelMergeLoraTests(unittest.TestCase):
         self.save({"layer.weight": self.weight.half()}, str(self.base))
         self.adapter()
         with self.assertRaisesRegex(ValueError, "overflow"):
-            self.merge(weights=1e8)
+            self.merge(weights=1e8, checkpoint_policy="strict")
         self.assertFalse(self.output.exists())
 
     def test_peft_sidecar_is_used_and_verified_before_publication(self):
@@ -307,6 +307,15 @@ class ModelMergeLoraTests(unittest.TestCase):
         merge_models(base, self.lora, output=out)
         self.torch.testing.assert_close(self.load(out / "unet/model.safetensors")[key],
                                        self.weight + self.up @ self.down)
+        fp8 = {name: tensor.to(self.torch.float8_e4m3fn) if name.endswith(".weight") else tensor
+               for name, tensor in tensors.items()}
+        self.save(fp8, str(self.lora))
+        fp8_output = self.root / "fp8-aliases"
+        fp8_report = merge_models(base, self.lora, output=fp8_output)
+        self.assertEqual(fp8_report["included_material_count"], 1)
+        self.torch.testing.assert_close(self.load(fp8_output / "unet/model.safetensors")[key],
+                                       self.weight + self.up.to(self.torch.float8_e4m3fn).float()
+                                       @ self.down.to(self.torch.float8_e4m3fn).float())
         for suffix, replacement in ((".lora_up.weight", self.up + 1), (".alpha", self.torch.tensor(1.))):
             changed = dict(tensors)
             changed[modules[1] + suffix] = replacement

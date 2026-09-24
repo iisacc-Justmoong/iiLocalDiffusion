@@ -27,7 +27,12 @@ class MergeRequest:
     compatibility_models: tuple[Path, ...] | None = None
     compatibility_strength: float = 0.35
     lora_policy: str = "strict"
-    checkpoint_policy: str = "strict"
+    checkpoint_policy: str = "common-layer"
+    weight_normalization: dict | None = None
+
+    @property
+    def automatic_repair(self) -> bool:
+        return self.checkpoint_policy == "common-layer" and self.mode != "unified"
 
     @property
     def models(self) -> tuple[Path, ...]:
@@ -43,6 +48,8 @@ class MergeRequest:
             "weight_semantics": "checkpoint-refinement-strength/lora-delta-scale" if self.mode == "unified" else "tensor-coefficient",
             "weights": list(self.weights) if self.weights is not None else None,
             "base_weight": self.base_weight,
+            "weight_normalization": self.weight_normalization,
+            "repair_policy": "best-effort-v1" if self.automatic_repair else "strict",
             "coefficient_resolution": "resolved" if self.base_weight is not None else "after-input-inspection",
             "output": str(self.output),
             "cache_dir": str(self.cache_dir),
@@ -62,8 +69,12 @@ def _path(value: str | Path, role: str) -> Path:
     return Path(value).expanduser().absolute()
 
 
-def _model(value: str | Path, *, base: bool = False) -> Path:
+def _model(value: str | Path, *, base: bool = False, allow_unusable=False) -> Path:
     path = _path(value, "Model")
+    if allow_unusable and not base:
+        # Selected local materials may become empty, unreadable or disappear.
+        # Their failures are reported by inspection, not hidden by argument parsing.
+        return path
     if path.is_dir():
         if not (path / "model_index.json").is_file() and (base or not (
                 (path / "adapter_config.json").is_file()
@@ -87,7 +98,7 @@ def resolve_merge_request(
     compatibility_models: Sequence[str | Path] | None = None,
     compatibility_strength: float = 0.35,
     lora_policy: str = "strict",
-    checkpoint_policy: str = "strict",
+    checkpoint_policy: str = "common-layer",
 ) -> MergeRequest:
     """Validate paths and requested strengths without reading model tensors.
 
@@ -104,7 +115,8 @@ def resolve_merge_request(
     if isinstance(additional_models, (str, bytes, Path)) or not isinstance(additional_models, Sequence):
         raise TypeError("additional_models must be a sequence of local model paths.")
     base = _model(base_model, base=True)
-    additional = tuple(_model(value) for value in (additional_model, *additional_models))
+    additional = tuple(_model(value, allow_unusable=checkpoint_policy == "common-layer" and mode != "unified")
+                       for value in (additional_model, *additional_models))
     if (isinstance(compatibility_strength, bool) or not isinstance(compatibility_strength, Real)
             or not math.isfinite(compatibility_strength) or not 0 <= compatibility_strength <= 1):
         raise ValueError("Compatibility refinement strength must be finite and in [0, 1].")
@@ -118,6 +130,7 @@ def resolve_merge_request(
         if any(path.is_dir() or path.suffix.lower() not in SAFETENSORS_SUFFIXES for path in candidates):
             raise ValueError("Compatibility checkpoints must be single-file safetensors exports.")
     directory = base.is_dir()
+    package_directory = directory and base.suffix.lower() == ".iildmodel"
     count = len(additional)
     if weights is None:
         values = None
@@ -136,13 +149,16 @@ def resolve_merge_request(
                or not math.isfinite(value) or value < 0 for value in values):
             raise ValueError("Each weight must be a finite nonnegative number, not a boolean.")
     values = tuple(float(value) for value in values) if values is not None else None
-    default_name = f"{base.stem if not directory else base.name}-{mode}"
+    default_name = f"{base.stem if not directory else base.name.removesuffix('.iildmodel')}-{mode}"
     destination = _path(output, "Output") if output is not None else (
-        DEFAULT_DIRECTORY / "merged" / (default_name if directory else default_name + ".safetensors"))
+        DEFAULT_DIRECTORY / "merged" / (default_name + ".iildmodel" if package_directory
+                                          else default_name if directory else default_name + ".safetensors"))
     if mode == "unified":
         destination = _path(output, "Output") if output is not None else DEFAULT_DIRECTORY / "merged" / (default_name + ".iildmodel")
         if destination.suffix.lower() != ".iildmodel":
             raise ValueError("A unified model output must be a new .iildmodel package file.")
+    elif package_directory and destination.suffix.lower() != ".iildmodel":
+        raise ValueError("A weighted legacy .iildmodel package output must end in .iildmodel.")
     elif not directory and destination.suffix.lower() not in SAFETENSORS_SUFFIXES:
         raise ValueError("A merged checkpoint output must end in .safetensors or .safetensor.")
     if destination.exists() or destination.is_symlink():
@@ -166,17 +182,26 @@ def resolve_merge_weights(request: MergeRequest, kinds: Sequence[str]) -> MergeR
     default = 0.35 if request.mode == "unified" else 1 / (count + 1) if request.mode == "weighted-sum" else 0.5
     values = request.weights or tuple(1.0 if kind == "lora" else default for kind in kinds)
     base_weight = 1.0
+    normalization = None
     if request.mode == "unified" and any(value > 1 for value, kind in zip(values, kinds) if kind == "checkpoint"):
         raise ValueError("Unified checkpoint refinement strengths must be in [0, 1]; LoRA strengths may exceed 1.")
     if request.mode == "weighted-sum":
         try:
             total = math.fsum(value for value, kind in zip(values, kinds) if kind == "checkpoint")
-        except OverflowError as error:
-            raise ValueError("The sum of additional checkpoint weights must be <= 1.") from error
+        except OverflowError:
+            total = math.inf
         if total > 1.0 + 1e-12:
-            raise ValueError("The sum of additional checkpoint weights must be <= 1.")
+            if not request.automatic_repair:
+                raise ValueError("The sum of additional checkpoint weights must be <= 1.")
+            largest = max(value for value, kind in zip(values, kinds) if kind == "checkpoint")
+            denominator = math.fsum(value / largest for value, kind in zip(values, kinds) if kind == "checkpoint")
+            normalized = tuple(value / largest / denominator if kind == "checkpoint" else value
+                               for value, kind in zip(values, kinds))
+            normalization = {"policy": "checkpoint-ratios-total-one", "requested_weights": list(values),
+                             "effective_weights": list(normalized)}
+            values, total = normalized, 1.0
         base_weight = max(0.0, 1.0 - total)
-    return replace(request, weights=values, base_weight=base_weight)
+    return replace(request, weights=values, base_weight=base_weight, weight_normalization=normalization)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -197,9 +222,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--compatibility-strength", type=float, default=0.35,
                         help="Image refinement strength of automatically inserted compatibility stages, in [0,1] (default: 0.35).")
     parser.add_argument("--lora-policy", choices=("strict", "synthetic"), default="strict",
-                        help="Synthetic maps unmatched LoRAs and zero-pads/crops deltas; learned effects are not preserved.")
-    parser.add_argument("--checkpoint-policy", choices=("strict", "common-layer"), default="strict",
-                        help="Common-layer projects foreign checkpoints onto the base tensor layout; output quality is not guaranteed.")
+                        help="Applied only after base compatibility selection; unmatched LoRAs are excluded before either policy runs.")
+    parser.add_argument("--checkpoint-policy", choices=("strict", "common-layer"), default="common-layer",
+                        help="Within the base ecosystem, common-layer automatically resamples differing tensor coordinates onto the base layout (default); strict requires an exact layout.")
     parser.add_argument("--print-config", action="store_true", help="Validate arguments without loading tensors.")
     parser.add_argument("--inspect", action="store_true", help="Inspect structural compatibility and LoRA routing before hashing or writing output.")
     return parser

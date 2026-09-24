@@ -90,7 +90,7 @@ class ModelMergeOptionsTests(MergeWorkspace):
             with self.subTest(weights=weights), self.assertRaises((TypeError, ValueError)):
                 resolve_merge_request(self.base, self.extra, weights=weights)
         with self.assertRaisesRegex(ValueError, "sum.*1"):
-            self.checkpoint_request(self.base, self.extra, additional_models=[self.third], weights=[0.6, 0.6])
+            self.checkpoint_request(self.base, self.extra, additional_models=[self.third], weights=[0.6, 0.6], checkpoint_policy="strict")
         with self.assertRaisesRegex(ValueError, "mode"):
             resolve_merge_request(self.base, self.extra, mode="add-difference")
         with self.assertRaises((TypeError, ValueError)):
@@ -99,10 +99,10 @@ class ModelMergeOptionsTests(MergeWorkspace):
     def test_missing_empty_and_remote_sources_fail(self):
         for source in ("", "https://example.com/model.safetensors", self.directory / "missing.safetensors"):
             with self.subTest(source=source), self.assertRaises((ValueError, FileNotFoundError)):
-                resolve_merge_request(self.base, source)
+                resolve_merge_request(self.base, source, checkpoint_policy="strict")
         self.extra.write_bytes(b"")
         with self.assertRaises(ValueError):
-            resolve_merge_request(self.base, self.extra)
+            resolve_merge_request(self.base, self.extra, checkpoint_policy="strict")
 
     def test_output_cannot_replace_an_input_or_existing_target(self):
         for output in (self.base, self.extra):
@@ -228,14 +228,14 @@ class ModelMergeTensorTests(MergeWorkspace):
             self.save(extra, self.extra)
             before = [p.read_bytes() for p in (self.base, self.extra)]
             with self.assertRaisesRegex(ValueError, "keys|shape"):
-                self.merge()
+                self.merge(checkpoint_policy="strict")
             self.assertFalse(self.output.exists())
             self.assertEqual(before, [p.read_bytes() for p in (self.base, self.extra)])
         # Prefixes alone must not reclassify an unrelated network as Anima.
         self.save({"model.diffusion_model.layer.weight": torch.ones((2, 2))}, self.base)
         self.save({"net.layer.weight": torch.ones((2, 2))}, self.extra)
         with self.assertRaisesRegex(ValueError, "keys"):
-            self.merge()
+            self.merge(checkpoint_policy="strict")
         self.assertFalse(self.output.exists())
 
     def test_two_model_difference_and_multiple_weighted_subtractions(self):
@@ -282,7 +282,7 @@ class ModelMergeTensorTests(MergeWorkspace):
                       {"weight": self.torch.ones(3)}):
             self.save(state, str(self.extra))
             with self.assertRaisesRegex(ValueError, "keys|shape"):
-                self.merge()
+                self.merge(checkpoint_policy="strict")
             self.assertFalse(self.output.exists())
 
     def test_incompatible_nonfloating_buffers_fail(self):
@@ -293,25 +293,25 @@ class ModelMergeTensorTests(MergeWorkspace):
             self.write(self.base, [1], ids=base)
             self.write(self.extra, [1], ids=extra)
             with self.assertRaisesRegex(ValueError, "dtype|buffer"):
-                self.merge()
+                self.merge(checkpoint_policy="strict")
             self.assertFalse(self.output.exists())
 
-    def test_nonfinite_inputs_and_cast_overflow_are_rejected(self):
+    def test_strict_nonfinite_inputs_and_cast_overflow_are_rejected(self):
         for value in (math.nan, math.inf, -math.inf):
             self.write(self.extra, [value, 1])
             with self.assertRaisesRegex(ValueError, "finite"):
-                self.merge()
+                self.merge(checkpoint_policy="strict")
             self.assertFalse(self.output.exists())
         self.write(self.base, [60000], self.torch.float16)
         self.write(self.extra, [-60000], self.torch.float16)
         with self.assertRaisesRegex(ValueError, "finite|overflow"):
-            self.merge(mode="weighted-difference", weights=1)
+            self.merge(mode="weighted-difference", weights=1, checkpoint_policy="strict")
         self.assertFalse(self.output.exists())
 
     def test_corrupt_safetensors_fail_without_publication(self):
         self.extra.write_bytes(b"not safetensors")
         with self.assertRaises(ValueError):
-            self.merge()
+            self.merge(checkpoint_policy="strict")
         self.assertFalse(self.output.exists())
 
     def test_singular_suffix_and_legacy_tensor_checkpoints_reuse_safe_conversion(self):
@@ -325,21 +325,23 @@ class ModelMergeTensorTests(MergeWorkspace):
         self.merge(cache_dir=self.directory / "cache")
         self.assertEqual(self.load(self.output)["weight"].tolist(), [4, 6])
 
-    def test_empty_and_quantized_float_formats_are_rejected(self):
+    def test_empty_checkpoint_is_rejected_and_float8_checkpoint_merges(self):
         self.save({}, str(self.extra))
         with self.assertRaisesRegex(ValueError, "keys"):
-            self.merge()
+            self.merge(checkpoint_policy="strict")
         self.write(self.base, [1, 2], self.torch.float8_e4m3fn)
-        self.write(self.extra, [1, 2], self.torch.float8_e4m3fn)
-        with self.assertRaisesRegex(ValueError, "dtype"):
-            self.merge()
-        self.assertFalse(self.output.exists())
+        self.write(self.extra, [3, 4], self.torch.float8_e4m3fn)
+        report = self.merge()
+        tensor = self.load(self.output)["weight"]
+        self.assertEqual(tensor.dtype, self.torch.float8_e4m3fn)
+        self.torch.testing.assert_close(tensor.float(), self.torch.tensor([2.0, 3.0]))
+        self.assertEqual(report["changed_tensor_count"], 1)
 
     def test_conflicting_explicit_architecture_metadata_is_rejected(self):
         for path, architecture in ((self.base, "stable-diffusion-v1"), (self.extra, "stable-diffusion-xl")):
             self.save({"weight": self.torch.ones(2)}, str(path), metadata={"modelspec.architecture": architecture})
         with self.assertRaisesRegex(ValueError, "architecture"):
-            self.merge()
+            self.merge(checkpoint_policy="strict")
         self.assertFalse(self.output.exists())
 
     def test_failed_write_cleans_temporary_files_and_preserves_sources(self):
@@ -405,13 +407,47 @@ class ModelMergeTensorTests(MergeWorkspace):
         manifest = json.loads((output / "merge.json").read_text())
         self.assertEqual(manifest["weights"], [0.5])
 
+    def test_legacy_iildmodel_directory_keeps_package_suffix_and_refreshes_stage_identity(self):
+        import hashlib
+        base = self.directory / "legacy.iildmodel"
+        member = base / "members/000/model.safetensors"
+        member.parent.mkdir(parents=True)
+        self.save({"weight": self.torch.full((2,), 2.0)}, str(member),
+                  metadata={"modelspec.architecture": "stable-diffusion-xl"})
+        original = member.read_bytes()
+        (base / "model_index.json").write_text(json.dumps({
+            "_class_name": "IILDUnifiedCascade", "schema": "iild-unified-model-v1",
+            "composition": "ordered-image-refinement", "stages": [{
+                "model": "members/000/model.safetensors", "strength": 1.0,
+                "loras": [], "sha256": hashlib.sha256(original).hexdigest(),
+                "size_bytes": len(original),
+            }],
+        }))
+        extra = self.directory / "extra-for-package.safetensors"
+        self.save({"weight": self.torch.full((2,), 6.0)}, str(extra),
+                  metadata={"modelspec.architecture": "stable-diffusion-xl"})
+        output = self.directory / "weighted.iildmodel"
+        report = model_merge.merge_models(base, extra, output=output,
+                                          checkpoint_policy="common-layer")
+        merged = output / "members/000/model.safetensors"
+        self.torch.testing.assert_close(self.load(merged)["weight"], self.torch.full((2,), 4.0))
+        self.assertEqual(report["merged_tensor_count"], 1)
+        self.assertEqual(report["changed_tensor_count"], 1)
+        manifest = json.loads((output / "model_index.json").read_text())
+        stage = manifest["stages"][0]
+        self.assertEqual(stage["size_bytes"], merged.stat().st_size)
+        self.assertEqual(stage["sha256"], hashlib.sha256(merged.read_bytes()).hexdigest())
+        with self.assertRaisesRegex(ValueError, "must end in .iildmodel"):
+            model_merge.merge_models(base, extra, output=self.directory / "wrong.safetensors",
+                                     checkpoint_policy="common-layer")
+
     def test_package_configuration_or_tokenizer_mismatch_fails(self):
         base = self.package("base-package", 2)
         extra = self.package("extra-package", 6)
         (extra / "unet/config.json").write_text('{"sample_size":16,"in_channels":3}')
         output = self.directory / "merged-package"
         with self.assertRaisesRegex(ValueError, "configuration|assets"):
-            model_merge.merge_models(base, extra, output=output)
+            model_merge.merge_models(base, extra, output=output, checkpoint_policy="strict")
         self.assertFalse(output.exists())
 
     def test_package_allows_runtime_version_and_dtype_metadata_differences(self):
@@ -442,7 +478,8 @@ class ModelMergeTensorTests(MergeWorkspace):
             (root / "tokenizer").mkdir()
             (root / "tokenizer/merges.txt").write_text(content)
         with self.assertRaisesRegex(ValueError, "tokenizer"):
-            model_merge.merge_models(base, extra, output=self.directory / "merged-package")
+            model_merge.merge_models(base, extra, output=self.directory / "merged-package",
+                                     checkpoint_policy="strict")
 
     def test_package_refuses_duplicate_variants_other_weights_and_missing_components(self):
         base = self.package("base-package", 2)
@@ -450,15 +487,15 @@ class ModelMergeTensorTests(MergeWorkspace):
         variant = extra / "unet/diffusion_pytorch_model.fp16.safetensors"
         self.save({"weight": self.torch.ones(2)}, str(variant))
         with self.assertRaisesRegex(ValueError, "Duplicate"):
-            model_merge.merge_models(base, extra, output=self.directory / "merged-package")
+            model_merge.merge_models(base, extra, output=self.directory / "merged-package", checkpoint_policy="strict")
         variant.unlink()
         (extra / "unet/pytorch_model.bin").write_bytes(b"ambiguous variant")
         with self.assertRaisesRegex(ValueError, "only safetensors"):
-            model_merge.merge_models(base, extra, output=self.directory / "merged-package")
+            model_merge.merge_models(base, extra, output=self.directory / "merged-package", checkpoint_policy="strict")
         (extra / "unet/pytorch_model.bin").unlink()
         (extra / "unet").rename(extra / "different_component")
         with self.assertRaisesRegex(ValueError, "configuration|keys"):
-            model_merge.merge_models(base, extra, output=self.directory / "merged-package")
+            model_merge.merge_models(base, extra, output=self.directory / "merged-package", checkpoint_policy="strict")
 
     def test_package_asset_mutation_and_file_addition_abort_publication(self):
         base = self.package("base-package", 2)

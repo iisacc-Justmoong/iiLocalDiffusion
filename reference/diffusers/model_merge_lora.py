@@ -12,7 +12,7 @@ from model_merge_lora_targets import LoraTarget, normalize_module, resolve_lora_
 _PAIR = re.compile(r"^(.*)\.(lora_A|lora_B)(?:\.([^.]+))?\.weight$")
 _LEGACY_PAIR = re.compile(r"^(.*)\.(lora_down|lora_up|lora\.down|lora\.up|lora_linear_layer\.down|lora_linear_layer\.up)\.weight$")
 _PROCESSOR_PAIR = re.compile(r"^(.*_lora)\.(down|up)\.weight$")
-_FLOAT_DTYPES = {"F16", "BF16", "F32", "F64"}
+_FLOAT_DTYPES = {"F8_E4M3", "F8_E5M2", "F16", "BF16", "F32", "F64"}
 
 
 def is_lora_key(key):
@@ -73,9 +73,13 @@ class LoraDelta:
     module: str
     adaptation: dict | None = None
 
-    def delta(self, torch, dtype):
+    def delta(self, torch, dtype, *, repair=False, normalization=None, source_index=None):
         down = self.down[0].get_tensor(self.down[1]).to(dtype=dtype)
         up = self.up[0].get_tensor(self.up[1]).to(dtype=dtype)
+        if repair:
+            from model_merge_tensor import zero_nonfinite
+            down = zero_nonfinite(torch, down, normalization, self.target.address, "lora_nonfinite_values", source_index=source_index)
+            up = zero_nonfinite(torch, up, normalization, self.target.address, "lora_nonfinite_values", source_index=source_index)
         if not torch.isfinite(down).all().item() or not torch.isfinite(up).all().item():
             raise ValueError(f"LoRA tensors must be finite: {self.module}")
         if down.ndim == 2:
@@ -89,6 +93,8 @@ class LoraDelta:
         result = result.mul(self.scale)
         if self.target.transpose:
             result = result.T
+        if repair:
+            result = zero_nonfinite(torch, result, normalization, self.target.address, "lora_delta_nonfinite_values", source_index=source_index)
         if not torch.isfinite(result).all().item():
             raise ValueError(f"LoRA delta is not finite: {self.module}")
         if self.adaptation:
@@ -195,7 +201,9 @@ def prepare_lora(model, readers, aliases, base_readers, base_layout, base_model,
             if identical:
                 for first, second in ((prior.down, delta.down), (prior.up, delta.up)):
                     left, right = first[0].get_tensor(first[1]), second[0].get_tensor(second[1])
-                    if left.dtype != right.dtype or not torch.equal(left, right):
+                    comparable_left = left.float() if "float8" in str(left.dtype) else left
+                    comparable_right = right.float() if "float8" in str(right.dtype) else right
+                    if left.dtype != right.dtype or not torch.equal(comparable_left, comparable_right):
                         identical = False
                         break
             if identical:

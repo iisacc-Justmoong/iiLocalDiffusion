@@ -1,11 +1,67 @@
 # Local model merging
 
+## Preflight and saved-output verification
+
+Inspection returns `base_profile`, per-resource `profile`, and `preflight`.
+Profiles identify ecosystems from header evidence and separately enumerate UNet,
+DiT, VAE, text-encoder and unclassified tensors (counts, shapes, dtypes and bounded
+examples). Unclassified tensors are not silently called a denoiser. Resources have
+`compatible`, `conditional` or `incompatible` status: an ecosystem match alone is
+not an exact structural match. `lora_targets` lists the base tensor and row range
+for every accepted projection; rejected adapters retain the actual target or
+configuration failure as their exclusion reason.
+
+Preflight explains retained/excluded resources, effective coefficients, projected
+tensor counts and numeric/quality risks. Weighted arithmetic preserves the base
+tensor contract, fitting eligible coordinates under `common-layer`. Unified is
+an independent sequential image-refinement package, **not** single-network
+conversion. Neither fitting nor successful validation certifies generated images.
+
+Before publishing a weighted output, every saved tensor is reopened and compared
+exactly with its computed value, shape and dtype. Floating outputs must be finite;
+the independently observed changed-tensor count must match the calculation.
+`output_verification` reports full coverage, not a sample. Unified output is
+reopened and all packaged checkpoint bytes are hashed against the planned members;
+LoRA-fused members also receive tensor verification. Copied Unified members remain
+byte-preserved and are not numerically repaired. Verification adds full-output
+read I/O and never modifies source models.
+
+Best-effort arithmetic preserves empty base tensors and omits contributions with
+empty/invalid quantization scales. Identical FP8 LoRA aliases are compared through
+FP32, avoiding unsupported storage-dtype comparison operators. An entirely
+unusable material set yields a clearly reported preserved or repaired base, not a
+claim that material weights were blended. Unreadable base structure, insufficient
+storage, process termination and failed output-integrity checks still stop
+publication; they cannot honestly be labeled successful merges.
+
 Heterogeneous SD 1.5, SDXL, DiT and editing checkpoints can first be normalized
 to one Tsubaki DiT tensor contract with `iild-convert`; see
 [DiT-standard model conversion](model-conversion.md). Converted outputs that use
 the same target template are ordinary compatible DiT checkpoints and can use the
 weight modes below. This is distinct from `unified`, which preserves independent
 architectures as an ordered image-space cascade.
+
+## Base-scoped compatibility selection
+
+Every merge now treats the selected base model as the compatibility boundary.
+Before resolving coefficients or writing output, the SDK identifies ecosystem
+evidence from model metadata and tensor structure. Checkpoints are retained when
+they share a base ecosystem (for example FLUX.2 and Krea 2, or SDXL and
+Illustrious), or when an unclassified checkpoint has an exact base tensor layout.
+LoRAs are retained only when their complete target set resolves against the base
+checkpoint under strict target and shape rules.
+
+Incompatible materials are omitted individually instead of aborting a partially
+valid request. A request with 20 materials can therefore merge 11 and report the
+other nine in `excluded_sources`, including the detected ecosystems and reason.
+Explicit weights follow their materials: excluded coefficients are removed and
+the weighted-sum base coefficient is recalculated from the retained checkpoints.
+In default common-layer arithmetic, unusable additional files are also omitted.
+If nothing can contribute, a base-only output is created and explicitly reported
+as `result_kind: base-fallback`, `no_effect: true`, not as an effective blend.
+Strict arithmetic and unified packaging still require an included material.
+Both inspection and completed reports expose `resource_compatibility`,
+`included_material_count`, and `excluded_material_count`.
 
 ## Single Safetensors output
 
@@ -37,37 +93,164 @@ that contract: Krea2 Turbo INT8 uses `blocks.*.attn.wq/wk/wv/wo` tensors plus
 often different dimensions. This mismatch, rather than the arithmetic operation,
 was the reason they were rejected before output creation.
 
-`--checkpoint-policy common-layer` deliberately relaxes that contract. The base
+After base-scoped ecosystem selection, `--checkpoint-policy common-layer` (the
+default) deliberately relaxes the tensor-layout contract *within that ecosystem*.
+The base
 checkpoint remains the output format and executable tensor inventory. For each
-floating base tensor, the SDK first uses an exact source address and otherwise
-selects the foreign tensor with the closest component role, block depth, tensor
-kind and shape. INT8 values are converted to float and use an adjacent
-`weight_scale` when it can be broadcast. The selected values are flattened,
-cropped or zero-padded to the base shape before ordinary weighted arithmetic.
-Nonfloating buffers and base tensors with no source of the same kind preserve the
-base value. Foreign-only tensors are omitted because the output must remain a
-loadable base-format checkpoint.
+learned base tensor, the SDK uses an exact address, a unique normalized name,
+then a same-component/same-role/same-kind source. Known wrapper prefixes
+(`module`, `_orig_mod`, `model.diffusion_model`, `diffusion_model`, `model`)
+and underscore separators are normalized. Block depths use relative positions
+within a role instead of raw block numbers. Package stages, text encoders,
+VAEs, denoisers, Q/K/V roles and bias/weight kinds have separate matching pools.
 
-This policy is deterministic and designed to finish a user-requested experiment;
+Policy `base-layout-normalize-project-flatten-v3` fits coordinates in this order:
+unchanged shape; reversed 2-D shape transposition; equal element-count reshape;
+rank-changing flatten/resample; otherwise axis-wise nearest sampling on
+normalized coordinates. Scalar targets select the first source coordinate;
+scalar sources expand. Shrinking axes precede expanding axes, and flattened
+indexes are built in chunks of at most 1,048,576 coordinates. Empty tensors and
+missing roles preserve the base rather than padding invented values.
+
+INT8/UINT8 and FP8 with an adjacent `weight_scale` or module `scale_weight` are
+dequantized before arithmetic. Optional `weight_zero_point` or
+`weight.zero_point` is subtracted first. Scales can be scalar, per-output-row,
+broadcastable, per-axis divisible blocks, or divisible contiguous flat blocks.
+A 1-D scale matching the leading dimension means an output-row scale, including
+square matrices. A quantized base is decoded, merged, then encoded with its own
+parameters. Integer storage is rounded and saturated to its range. FP8 indexing
+and finite checks use supported FP32 arithmetic; FP64 sources retain precision.
+Base scale/zero-point tensors are not averaged.
+
+Scheduler coordinates such as `denoiser.sigmas`, prediction markers, running
+statistics, ordinary integer/bool buffers and unmapped tensors retain base
+values even when the source also contains them. In a sum, a missing material's
+share returns to the base **for that tensor**; in a difference it contributes
+zero. Previously, a missing tensor's base substitute incorrectly subtracted
+part of the base. Zero-contribution tensors are counted as preserved rather
+than merged. Foreign-only tensors are omitted; output names, shapes and storage
+dtypes always follow the base.
+
+This policy is deterministic and designed to finish a user-requested experiment
+between ecosystem-compatible implementations such as FLUX.2 and Krea 2;
 it is not architecture conversion, distillation, or evidence of semantic layer
 equivalence. Image quality may be poor or nonsensical. Reports and embedded merge
 metadata set `checkpoint_policy: common-layer`, `semantic_equivalence: false`, and
-record exact/projected/preserved counts plus bounded mapping examples. Use
-`--checkpoint-policy strict` when incompatibility must stop the operation.
-Malformed or incomplete Safetensors, unreadable tensors, nonfinite inputs and
-arithmetic overflow still fail: the permissive policy does not fabricate bytes
-for a damaged file.
+record exact/projected/preserved counts, `transform_counts`, bounded examples,
+dequantization counts and runtime-preservation reasons. Invalid quantizers
+(empty/nonfinite/nonpositive scales or indivisible blocks) preserve only the
+affected base tensor and attach a reason. `numeric_normalization` records base
+quantizer failures and requantized tensors. Header inspection cannot guarantee
+the runtime validity of scale values, which it does not load. Use
+`--checkpoint-policy strict` when any layout mismatch must stop the operation.
+For a common-layer checkpoint material, NaN and positive/negative infinity are
+treated as missing **coordinates**, not a reason to abort the whole merge.
+After dequantization and shape projection, an invalid coordinate uses the base
+value in a weighted sum and zero in a weighted difference. Finite coordinates
+and all other materials still contribute normally. If the whole material tensor
+is invalid and no other contribution applies, the base tensor is copied exactly
+and is not counted as merged. Original files are never sanitized in place.
 
-## Different architectures: unified model objects
+Reports and embedded metadata declare `nonfinite_material_policy` and record
+`numeric_normalization.nonfinite_material_values`, `nonfinite_material_tensors`,
+and up to 64 `nonfinite_material_examples`. Each example identifies the recipe's
+source index, source/target tensor, NaN/+Inf/-Inf counts, replacement rule, and
+up to eight coordinates in the **projected base** shape. Counts therefore refer
+to coordinates repaired for arithmetic, not necessarily raw source elements.
+Inspection remains header-only and does not certify finite tensor values.
+
+### Best-effort numerical recovery
+
+Default common-layer weighted arithmetic declares `repair_policy: best-effort-v1`.
+Nonfinite base values, including preserved floating state, become zero before
+arithmetic. Nonfinite LoRA factors become zero before contraction; any remaining
+nonfinite delta coordinates become zero. A failed LoRA contraction is omitted
+with a reason, keeping the other deltas and checkpoints. Additional checkpoint
+coordinates still use the sanitized base for sums and zero for differences.
+
+Output NaNs fall back to the sanitized base coordinate. Infinite or out-of-range
+results saturate to the finite range of the base storage dtype before casting,
+including FP8 and FP16. This is deterministic loss containment, not recovery of
+the original learned values. Inputs are never rewritten.
+
+Empty, absent, malformed or incomplete **additional** resources are excluded;
+unreadable additional tensors have neutral contributions. All-excluded requests
+produce the base layout. If only base numerical repairs changed values, the
+report uses `result_kind: repaired-base`; if no values changed it uses
+`base-fallback` and `no_effect: true`. `numeric_normalization` records counts such
+as `base_nonfinite_values`, `lora_nonfinite_values`,
+`lora_delta_nonfinite_values`, `output_nonfinite_values`, `output_clipped_values`,
+`skipped_lora_deltas` and `unreadable_material_tensors`, plus at most 64
+`repair_events` with addresses, source indexes where applicable, and reasons.
+
+The base must still expose a readable, nonempty tensor inventory: a missing or
+truncated base cannot define an output contract. Source mutation, output
+collisions, write failures, unavailable dependencies and allocation failures
+remain real failures. Strict policy retains numerical rejection and does not
+enable these repairs. Unified members copied without arithmetic retain their
+original bytes; their contents are not globally sanitized by this policy.
+
+### Predictable problems and regression coverage
+
+| Condition | Common-layer treatment |
+| --- | --- |
+| Missing key or different export prefix | Normalize names, then same-role mapping; preserve if unavailable |
+| Different block counts | Relative block depth with deterministic tie-breaking |
+| Transposed matrix / equal element counts | Transpose / reshape before approximate resampling |
+| Different rank, kernel, width or scalar layout | Flattened or axis-normalized nearest resampling |
+| Empty tensor or prediction marker | Preserve base bytes and shape |
+| Missing scheduler or differing state values | Preserve base state in both arithmetic modes |
+| Mixed FP8/FP16/BF16/FP32/FP64 | Supported accumulation dtype; retain base storage dtype |
+| Scaled INT8/UINT8/FP8 and zero points | Dequantize, merge, re-encode in the base quantizer |
+| Invalid quantizer | Preserve that tensor and attach a runtime reason |
+| Missing material in a difference | Zero contribution rather than subtracting the base |
+| Projection memory spike | Chunk flat indexes; shrink axes before expanding |
+| Unrelated components or package stages | No cross-component fallback |
+| NaN/Inf checkpoint material coordinates | Sum: use base; difference: use zero; retain finite coordinates and report repairs |
+| Nonfinite base or LoRA factors/deltas | Zero-fill bad coordinates; omit failed LoRA contractions with reasons |
+| Floating output overflow / output NaN | Saturate to finite dtype range / use sanitized base coordinate |
+| Empty, absent, corrupt or incomplete additional resource | Exclude that resource; keep other contributions |
+| No effective material remains | Publish explicit base-fallback or repaired-base output, without claiming an effective blend |
+| Checkpoint sum coefficients above one | Preserve their ratios and normalize to total one; leave LoRA coefficients unchanged |
+| Unreadable base, source mutation, concurrent output, storage/allocation failure | Retain integrity checks and no-clobber publication; fail honestly |
+
+Regression coverage includes a 64-pair scalar/1-D/2-D/3-D/4-D shape matrix,
+chunk boundaries, quantized bases/materials, invalid scales, FP64 precision,
+missing-key differences, and exact expected numerical outputs.
+`tests/verify_model_merge_samples.py BASE MATERIAL` writes full-header planning
+and bounded real-tensor evidence into `build/real-merge-*`. It compares up to 64
+learned tensors against independent weighted-sum arithmetic and checks the
+reported missing scheduler without rewriting original files.
+
+`tests/verify_model_merge_nonfinite.py --base BASE --material MATERIAL` replays
+the reported CLIP layer-11 `mlp.fc1.weight` failure against the installed CLI.
+Repeat `--material` to cover several real exports. It tests both arithmetic
+modes with the original nonfinite tensor and a finite layer-10 probe, checks
+that the repaired output is finite and the probe still changes, and writes
+reports/sample artifacts into `build/nonfinite-real-*`. Unit coverage also
+includes partial NaN/+Inf/-Inf masks, wholly-invalid tensors, multiple materials,
+shape projection, FP8 storage, and bounded coordinate diagnostics.
+Use `--repair-base` with a real nonfinite base and a finite material to replay
+base zero-filling through the same installed CLI and independent output oracle.
+
+Limits: reshaping is not learned neuron alignment. Fused QKV packing and opaque
+or packed INT4/architecture-specific quantizers need dedicated decoders; they are
+not generally reconstructed. Unknown components may be preserved. Explicit
+coefficient normalization is reported separately from coordinate projection.
+Whole output shards still
+occupy memory during serialization, so chunked projection is not a full
+out-of-core serializer. Retaining the base inventory does not prove that an
+inference backend can load the output or that generated images are useful.
+
+## Unified model objects
 
 `--mode unified --output NAME.iildmodel` builds one portable ZIP64 stored package
 file containing `model_index.json`, source provenance, and independent checkpoint
 members. Compression is deliberately disabled so large tensor members can be
 streamed and addressed without an additional decompression representation.
 It is an **ordered image-refinement cascade**, not a single-network weight
-average or distillation. SD1/SD2/SDXL derivatives (including Illustrious, Pony,
-NAI and Noob), FLUX/Krea and Anima can share an object without pretending that
-their differently shaped weights, latent spaces or prediction conventions match.
+average or distillation. Base-scoped selection still applies: only checkpoints
+in the base ecosystem and LoRAs targeting the base enter the new package.
 Actual inference still requires each member to be supported by the installed
 native backend and to contain its required text encoders and compatible VAE.
 Unknown families may be packaged; this is not proof of runtime support.
@@ -90,7 +273,12 @@ model. Equivalent Anima namespaces include `diffusion_model.*`, `net.*`,
 `model.diffusion_model.*`, and the complete export's `model.diffusion_model.net.*`.
 Under the default strict policy, ambiguous aliases and incompatible shapes remain errors.
 
-### LoRA compatibility objects
+### Legacy LoRA compatibility objects
+
+The bridge API remains available for direct inspection, but the merge entry
+point no longer discovers or inserts a foreign checkpoint to rescue an unmatched
+LoRA. Base-scoped selection excludes that whole adapter first. The details below
+describe the retained legacy API, not current merge routing.
 
 When none of the requested checkpoints accepts a LoRA, unified mode now looks for
 a **real compatibility checkpoint** among direct sibling safetensors files in the
@@ -238,12 +426,16 @@ different ranks. Their deltas are accumulated on the same checkpoint blend.
 
 Supply one weight to broadcast to all additional materials, or exactly one per
 additional model in the same order. Values must be finite nonnegative numbers.
-In sum mode, only full-checkpoint weights must total at most `1`; their remainder
-belongs to the base. LoRA strengths and difference weights may exceed `1`.
+In sum mode, the remainder of full-checkpoint weights belongs to the base.
+Common-layer totals above `1` are proportionally normalized to `1`, with base
+weight zero; `weight_normalization` records requested and effective coefficients.
+This calculation remains stable even if adding the requested weights overflows.
+Strict sum mode requires the checkpoint total to be at most `1`.
+LoRA strengths and difference weights may exceed `1` and are not normalized.
 Boolean, negative, NaN/infinite and mismatched weight lists fail before tensor
 loading; the checkpoint total is checked after material classification.
-A zero weight still validates the input
-model's structure and data.
+A zero weight still inspects the input structure; common-layer checkpoint
+arithmetic skips reading zero-weight material values.
 
 ## CLI
 
@@ -316,7 +508,7 @@ report = merge_models(
     output="/models/subtracted.safetensors",
 )
 
-# Explicitly run an unstable cross-architecture projection.
+# Map a compatible ecosystem variant onto the base layout.
 report = merge_models(
     "/models/flux.safetensors",
     "/models/krea-int8.safetensors",
@@ -355,19 +547,34 @@ Diffusers directories. LoRA files/directories can be mixed with either format:
   prediction settings or tokenizers require compatible inputs before merging.
   Packages with pickle, GGUF, ONNX or other weight formats must first be prepared
   as a single safetensors variant. Duplicate tensor keys/variants are rejected.
+- A legacy directory-shaped `.iildmodel` remains a package during weighted
+  arithmetic and therefore requires an `.iildmodel` output path. Every member
+  is rewritten with the requested arithmetic, stage SHA-256 and byte sizes are
+  refreshed in `model_index.json`, and the package is published atomically as a
+  directory. Equal or nearly equal disk size is expected because base tensor
+  names, shapes and dtypes are preserved; `changed_tensor_count` and output
+  hashes, rather than file size, prove whether numeric values changed.
+- Float8 checkpoint tensors are promoted to the normal Float32 accumulation
+  dtype for finite-value checks and weighted arithmetic, then converted back to
+  the base checkpoint's Float8 storage dtype. This permits mixed FP8/INT8
+  common-layer projection without invoking PyTorch operations that are not
+  implemented directly for Float8 tensors.
 
-No checkpoint tensor key is silently skipped or remapped. Integer and boolean buffers must
-have identical dtype, shape and values and are copied from the base. Floating
-inputs support FP16, BF16, FP32 and FP64, including mixed input precision; output
-keeps each base tensor's dtype. FP16/BF16 accumulate in FP32; FP64 inputs use FP64.
-Input NaN/infinity and output overflow fail the merge. Quantized, complex and
-FP8 tensor arithmetic is not supported.
+Under `--checkpoint-policy strict`, integer/bool buffers must have identical
+dtype, shape and values and are copied from the base. Floating inputs support
+FP8, FP16, BF16, FP32 and FP64, including mixed precision; output keeps the base
+dtype. FP8/FP16/BF16 accumulate in FP32; FP64 inputs retain FP64. Strict rejects
+nonfinite materials and does not dequantize scaled integer storage. The default
+common-layer policy instead uses the reported mapping, quantization and
+nonfinite-coordinate fallback described above. Both policies retain source
+integrity checks and reject complex weights. Strict rejects floating output
+overflow; common-layer saturates it and records the repair.
 
 Compatibility checks establish structural/configuration consistency, not visual
 quality or that independently trained checkpoints share a useful weight space.
 Explicit `modelspec.architecture`, `modelspec.implementation` and
 `modelspec.prediction_type` header hints must agree within matching components
-when present.
+when present under the strict policy.
 Single files do not carry complete tokenizer/scheduler configuration; callers
 must supply checkpoints from a compatible family. The result can be passed to
 the existing `iild-generate --model-path` workflow with its usual family/config
@@ -403,7 +610,9 @@ key mapping (the standard two-residual-layers-per-block layout). SD 1.x/XL's fir
 CLIP and SD 2.x/XL OpenCLIP names are supported, including packed Q/K/V row updates
 and transposed OpenCLIP text projections. The base layout is retained in output.
 Ambiguous flattened names, unknown targets, incompatible shapes, incomplete
-pairs, nonfinite values and unsupported tensors fail; no adapter key is ignored.
+pairs and unsupported tensors exclude that whole adapter during compatibility
+selection (or fail if strict selection has no usable material). Numeric LoRA
+NaN/Inf values use the common-layer recovery above; strict arithmetic rejects them.
 SGM/Kohya block names can also target Diffusers UNet packages, using their
 `unet/config.json` `layers_per_block` and the pinned adapter name converters.
 
@@ -485,7 +694,7 @@ the manifest and every member; changed members invalidate readiness. Repeated
 preparation reuses the engine and creates no output images. UnifiedImageTests covers
 readiness, reuse and same-size member replacement alongside package validation.
 
-## Installed Python and compatibility registry
+## Installed Python and legacy compatibility registry
 
 Installed launchers validate Python >= 3.10 before importing model modules. `IILD_PYTHON_EXECUTABLE` overrides `reference/runtime-python.json`, whose shape is `{"python":"/absolute/venv/bin/python"}`. Otherwise the bundled `.venv` or launcher interpreter is considered. Invalid or old environments produce actionable diagnostics instead of an annotation traceback.
 
@@ -499,7 +708,12 @@ LoRA projection pairs are normalized to the checkpoint's actual tensor address a
 
 The LoRA regression suite verifies duplicate aliases apply once, distinct projections sum correctly, and different alpha values preserve their individual scaling, using tiny fixture tensors.
 
-## Synthetic cross-family LoRA adaptation
+## Legacy synthetic cross-family LoRA adaptation
+
+The option is accepted for command/API compatibility, but merge preflight now
+requires strict base targets and excludes an unmatched LoRA before this legacy
+adapter can run. It cannot override base-scoped ecosystem selection. The
+algorithm below remains documented for direct legacy-module consumers.
 
 `--lora-policy synthetic` (Python `lora_policy="synthetic"`) enables a deliberately
 untrained adapter conversion. Default `strict` retains existing compatibility checks.
@@ -563,3 +777,8 @@ Decoder verification can run without a denoiser or GPU using
 It checks the real tensor mounting contract and executes a 64x64 RGB native CPU
 decode, rejecting missing tensors and nonfinite output. This is a decoder smoke
 test, not an image-quality assessment of the complete cascade.
+
+The DiT conversion regression explicitly selects `checkpoint_policy="strict"`
+when asserting that different template hashes are rejected. The default
+common-layer policy is an experimental projection and does not impose that
+strict metadata identity contract.

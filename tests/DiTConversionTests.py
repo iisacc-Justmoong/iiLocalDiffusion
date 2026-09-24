@@ -136,7 +136,7 @@ class DiTConversionTests(unittest.TestCase):
             self.assertEqual(reader.metadata()["iild.dit.template_sha256"],
                              first_report["target_template_sha256"])
 
-    def test_merge_rejects_converted_models_from_different_dit_templates(self):
+    def test_strict_merge_rejects_converted_models_from_different_dit_templates(self):
         source = self.source("sd15", self.root / "sd15.safetensors")
         first = self.root / "first.safetensors"
         second = self.root / "second.safetensors"
@@ -147,7 +147,8 @@ class DiTConversionTests(unittest.TestCase):
         self.save(state, alternate, metadata={"modelspec.architecture": "TsubakiDiT"})
         convert_to_dit(source, alternate, second)
         with self.assertRaisesRegex(ValueError, "architecture metadata differs.*template_sha256"):
-            merge_models(first, second, output=self.root / "must-not-exist.safetensors")
+            merge_models(first, second, checkpoint_policy="strict",
+                         output=self.root / "must-not-exist.safetensors")
 
     def test_nonfinite_unknown_and_existing_output_fail_without_publication(self):
         source = self.source("sd15", self.root / "source.safetensors")

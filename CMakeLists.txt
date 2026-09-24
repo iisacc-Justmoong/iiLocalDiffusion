@@ -262,11 +262,12 @@ if(IILD_BUILD_TOOLS)
 endif()
 
 if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
-    if(UNIX)
-        add_test(NAME iiLocalDiffusion.InstallScript
-            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallScriptTest.sh")
-    endif()
     find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
+    if(UNIX AND Python3_Interpreter_FOUND)
+        add_test(NAME iiLocalDiffusion.InstallScript
+            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${Python3_EXECUTABLE}"
+                bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallScriptTest.sh")
+    endif()
 
     add_executable(ModelManifestTests
         tests/ModelManifestTests.cpp

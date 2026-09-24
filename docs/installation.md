@@ -19,7 +19,9 @@ The final generation check supplies the repository's SD 1.5 metadata fixture
 as an explicit model source and prints the HiRes configuration. It does not
 load weights or generate an image. The installer contract test uses stubbed
 native build commands and the real relocated Python launcher to check this
-last step, including an installation path containing spaces.
+last step, including an installation path containing spaces. It uses the Python
+3.10+ interpreter selected by CMake for the relocated launcher, rather than an
+older system `python3` that may appear first on PATH.
 Its reference-source walk prunes `.venv`, `__pycache__` and `.git` before
 descending into them, so an existing model runtime does not inflate the
 installer check or its temporary package.

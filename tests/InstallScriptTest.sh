@@ -43,7 +43,7 @@ cat > "${smoke_prefix}/bin/iild-run" <<'MOCK'
 [[ "$#" == 1 && "$1" == --help ]]
 MOCK
 chmod +x "${work}/bin/ctest" "${smoke_prefix}/bin/iild-run"
-python3 - "${source_root}" "${smoke_prefix}" <<'PY'
+"${IILD_PYTHON_EXECUTABLE:-python3}" - "${source_root}" "${smoke_prefix}" <<'PY'
 from pathlib import Path
 import os
 import shutil

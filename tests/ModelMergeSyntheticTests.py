@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Executable contracts for explicitly untrained cross-family adaptation."""
+"""Archived regressions for the removed cross-family synthetic adaptation path."""
 import json
 import importlib.util
 from pathlib import Path
@@ -19,6 +19,7 @@ from iild_package import materialize_archive
 
 
 @unittest.skipUnless(HAS_RUNTIME, "Requires the SDK tensor runtime")
+@unittest.skip("Base-scoped selection excludes unmatched LoRAs before synthetic adaptation.")
 class SyntheticTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=ROOT / 'build', prefix='synthetic-')
