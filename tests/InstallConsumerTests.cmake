@@ -41,13 +41,15 @@ string(JSON default_embedding_count LENGTH "${defaults_manifest}" negative_embed
 if(NOT default_embedding_count EQUAL 7)
     message(FATAL_ERROR "Installed package must include seven default negative embeddings")
 endif()
-foreach(index RANGE 0 9)
-    if(index EQUAL 9)
+string(JSON fallback_count LENGTH "${defaults_manifest}" fallback_loras)
+if(NOT fallback_count EQUAL 0)
+    message(FATAL_ERROR "Installed defaults must not automatically load a LoRA")
+endif()
+foreach(index RANGE 0 8)
+    if(index EQUAL 8)
         string(JSON item GET "${defaults_manifest}" fallback_vae config)
-    elseif(index EQUAL 8)
-        string(JSON item GET "${defaults_manifest}" fallback_vae)
     elseif(index EQUAL 7)
-        string(JSON item GET "${defaults_manifest}" fallback_lora)
+        string(JSON item GET "${defaults_manifest}" fallback_vae)
     else()
         string(JSON item GET "${defaults_manifest}" negative_embeddings ${index})
     endif()
@@ -91,7 +93,7 @@ if(MLX_BACKEND STREQUAL "metal" AND NOT EXISTS "${stage_directory}/lib/mlx.metal
     message(FATAL_ERROR "The installed Metal runtime is missing mlx.metallib")
 endif()
 
-foreach(document IN ITEMS README.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md
+foreach(document IN ITEMS README.md docs/krea2.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md
         docs/generation-io-native.md docs/generation-composition.md docs/deforum-video.md docs/interpolator-video.md
         docs/temporal-video.md docs/inference-worker.md docs/model-conversion.md docs/model-merging.md docs/generation-defaults.md docs/lora.md)
     if(NOT EXISTS "${stage_directory}/${DOC_DIRECTORY}/${document}")

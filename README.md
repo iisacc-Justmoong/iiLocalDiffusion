@@ -2,9 +2,9 @@
 
 Qwen Image RGB·SDXL·FLUX.1·FLUX.2 모델에서 VAE 인자를 생략하고 모델에도 VAE가 없으면, 네이티브와 Diffusers 로더가 [계열별 VAE 폴백](docs/generation-defaults.md#vae-자동-폴백)을 자동 사용한다. 원본 가중치·설정·배포 라이선스 및 출처를 번들에 포함한다. 내장 VAE와 명시적 선택을 우선하며, 서로 다른 잠재 공간의 VAE를 혼용하지 않으며 RGBA Layered는 제외한다.
 
-Image generation uses [bundled negative embeddings and a fallback LoRA](docs/generation-defaults.md).
-SDXL automatically loads all seven negative embeddings and `addDetailAesthetic_v20_32` at strength 1.0;
-an explicit LoRA replaces the fallback. Native and Python generators share the installed resource manifest.
+Image generation uses [bundled negative embeddings](docs/generation-defaults.md).
+SDXL automatically loads all seven negative embeddings; no LoRA is selected automatically.
+Explicit LoRAs remain supported. Native and Python generators share the installed resource manifest.
 
 LoRA loading also covers generic SD2/SD3/FLUX and other built-in Diffusers image
 pipelines with compatible adapter loaders, plus SD/SDXL/FLUX Deforum frames.
@@ -13,6 +13,14 @@ Family-specific defaults, activation checks, and examples are described in
 SDXL base; other architectures use their own compatible adapters.
 
 App consumers can also use [in-process native image inference](docs/native-image-generation.md), including iOS builds with `IILD_ENABLE_NATIVE_DIFFUSION=ON`.
+
+See [architecture-aware backend routing](docs/backend-routing.md) for SD1/2/XL/3,
+FLUX.1/Krea, FLUX.2/Klein, Z-Image, Qwen Image, Chroma, Krea 2 and Anima,
+split checkpoint components, native APIs and unified output publication.
+
+The [iisacc Krea 2 ecosystem contract](docs/krea2.md) separates Raw/Turbo defaults,
+FP32/BF16 reference execution, compatible VAE/text conditioning, reproducible
+flow schedules, and the additive native V3 sampling API.
 
 App consumers can use [resident inference sessions](docs/inference-worker.md)
 through `iild-generate --worker` to reuse Python initialization, unchanged model

@@ -142,12 +142,13 @@ def select_backend(args, remaining: list[str]) -> str:
     if flags & {"--model-config", "--audio-sample-rate", "--video-layout",
                 "--tensor-outputs", "--generation-architecture"}:
         return "diffusers"
-    if (flags & {"--model-info", "--components", "--model-type", "--decoder", "--model-negative",
+    if (value("engine") is not None or value("components") is not None
+            or flags & {"--engine", "--model-info", "--components", "--model-type", "--decoder", "--model-negative",
                  "--embedded-guidance", "--sampling-shift", "--zsnr",
                  "--sampler", "--startup-timeout"}
             or any(flag.startswith(("--runtime-", "--text-encoder")) for flag in flags)):
         return "local"
-    model = option_value(remaining, "--model-path") or option_value(remaining, "--model")
+    model = option_value(remaining, "--model-path") or option_value(remaining, "--model") or config.get("model")
     if model:
         local_path = Path(model).expanduser()
         if local_path.is_file():
@@ -169,11 +170,21 @@ def main(argv=None) -> int:
     parser.add_argument("--list-base-models", action="store_true")
     parser.add_argument("--check-runtime", action="store_true")
     parser.add_argument("--inspect-model", action="store_true")
+    parser.add_argument("--list-backends", action="store_true", help="List architecture contracts without loading inference runtimes")
     tokens = list(sys.argv[1:] if argv is None else argv)
     if tokens == ["--worker"]:
         from inference_worker import serve
         return serve(main)
     args, remaining = parser.parse_known_args(tokens)
+    if args.list_backends:
+        from backend_registry import PROFILES
+        print(json.dumps({"schema": "iild-backends-v1", "native_image": {
+            name: {"components": ["vae", *values[0]], "vae_family": values[1], "formats": ["safetensors", "gguf"]}
+            for name, values in PROFILES.items()}, "pipeline_packages": {
+                "backend": "diffusers", "configuration": "model_index.json",
+                "outputs": ["image", "video", "audio", "tensor"],
+                "capability": "determined by the installed built-in pipeline and its input/output contract"}}, indent=2))
+        return 0
     if args.list_base_models:
         print(json.dumps({"source": CATALOG_SOURCE, "base_models": list_base_models()}, indent=2))
         return 0
@@ -196,7 +207,16 @@ def main(argv=None) -> int:
             interpreter = legacy_inspection_python(model, remaining)
             if interpreter is not None:
                 return subprocess.call([str(interpreter), str(Path(__file__).absolute()), *tokens])
-            report = inspect_downloaded_model(model, option_value(remaining, "--model-info"))
+            if Path(model).expanduser().is_dir():
+                from backend_registry import inspect_pipeline_package
+                report = inspect_pipeline_package(model)
+            else:
+                report = inspect_downloaded_model(model, option_value(remaining, "--model-info"))
+            component_json = option_value(remaining, "--components")
+            if component_json is not None:
+                from backend_registry import plan_native
+                from generation_config import json_object
+                report["backend_plan"] = plan_native(report, json_object(component_json))
         except (ValueError, OSError) as error:
             parser.exit(2, str(error) + "\n")
         print(json.dumps(report, indent=2, allow_nan=False))
@@ -204,12 +224,13 @@ def main(argv=None) -> int:
     if tokens in ([], ["--help"], ["-h"]):
         print(__doc__ + "\n\n"
               "--list-base-models                 List the pinned Civitai compatibility catalog\n"
+              "--list-backends                    List native architecture and pipeline output contracts\n"
               "--check-runtime                    Audit installed pipelines without downloading weights\n"
               "--worker                           Serve sequential NDJSON requests with memory caches and foreground-residency\n"
               "--inspect-model --model PATH        Inspect a local model and its Civitai metadata\n"
               "--base-model NAME                  Select a Civitai base identity\n"
               "--backend auto|local|preset|diffusers|comfyui|comfyui-local|deforum|interpolator|video|unified\n\n"
-              "Local checkpoints use standalone Diffusers/PyTorch; ComfyUI is optional.\n"
+              "Local checkpoints select native or Diffusers inference by architecture; ComfyUI is optional.\n"
               "--backend comfyui-local            Explicit opt-in to the legacy managed ComfyUI runtime\n\n"
               "--backend video                    Generate LTX video, then interpolate its frames\n"
               "--backend deforum                  Generate a Deforum 2D MP4/GIF animation\n"

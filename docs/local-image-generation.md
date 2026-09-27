@@ -1,7 +1,9 @@
 # Standalone local image generation
 
-`iild-generate --model-path /models/checkpoint.safetensors` executes Diffusers and
-PyTorch in the SDK Python process. No ComfyUI source, interpreter, HTTP server,
+`iild-generate --model-path /models/checkpoint.safetensors` selects the native
+engine or Diffusers/PyTorch in the SDK Python process by architecture. See
+[backend routing](backend-routing.md) for FLUX.2, Z-Image, Krea 2, SD3 and split
+text encoder/VAE weights. No ComfyUI source, interpreter, HTTP server,
 workflow, custom nodes or ComfyUI cache is needed. Dreamscapes uses this same
 `--backend local` route.
 
@@ -114,3 +116,7 @@ integrity, model-family and missing-component rejection, uppercase suffixes,
 image-animation configuration reuse and failed-output preservation. Build and
 installed-runtime inference evidence for this change is recorded in
 `build/standalone-validation/` and described in `standalone-validation.md`.
+
+### SDXL color-preserving HiRes configuration
+
+An external, SDXL-compatible single VAE can be supplied with `--vae /local/vae.safetensors`. The same component is retained for base decoding and HiRes encoding/decoding. For SDXL-family presets the default HiRes strength is 0.25 and the full schedule is extended to retain at least 10 effective denoising steps. An explicit HiRes schedule is never lengthened. `--hires-save-base` saves the first-pass image for direct verification; VAE finiteness alone is not a color reconstruction test.

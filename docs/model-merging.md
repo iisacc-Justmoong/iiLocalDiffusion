@@ -41,9 +41,43 @@ the same target template are ordinary compatible DiT checkpoints and can use the
 weight modes below. This is distinct from `unified`, which preserves independent
 architectures as an ordered image-space cascade.
 
-## Base-scoped compatibility selection
+## Forced base-layout fitting
 
-Every merge now treats the selected base model as the compatibility boundary.
+`--checkpoint-policy base-layout` makes the base tensor names, shapes and dtypes
+the sole weighted-output contract. Society selects this policy for weighted sum
+and difference. Readable materials are not excluded for ecosystem or coordinate
+mismatches. The SDK CLI default remains `common-layer`; Unified remains a separate
+model cascade with its existing selection rules.
+
+Checkpoint mapping tries exact names, normalized names, and role/depth matches,
+then deterministically selects the nearest available source even across component
+roles. Coordinates are transposed, reshaped or nearest-resampled to the base.
+When no learned source coordinate exists, a learned base tensor receives a zero
+material tensor. Sum includes that zero with the requested coefficient; difference
+subtracts zero. Base schedules, empty tensors, integer state and quantization
+auxiliaries remain base-defined. Numeric repair and saved-output verification apply.
+
+The policy enables synthetic LoRA target selection and crop/zero-pad fitting.
+If a mixed checkpoint/adapter or unsupported adapter cannot be interpreted as a
+standard LoRA, its readable tensors are projected as checkpoint coordinates;
+`resource_compatibility[].raw_tensor_projection` records this explicitly. Such
+materials consume checkpoint coefficients, rather than a LoRA delta coefficient.
+Ordinary LoRAs retain delta semantics. All included checkpoint weights participate
+in the existing sum normalization, which can make the base coefficient zero.
+
+Reports mark accepted forced materials `conditional`, retain ecosystem evidence,
+and record `base-layout-force-fit-zero-fill-v1`, `forced_source_tensors`,
+`normalized_name_tensors`, `shape_changed_tensors`, `zero_filled_tensors` and
+`zero_fill_targets`. This deterministic coordinate fitting is untrained and does
+not establish semantic compatibility or image quality. Broken or missing files
+remain explicitly excluded; unreadable bases and failed saved-output verification
+still fail. `ModelMergeBaseLayoutTests` checks cross-family inclusion, independent
+arithmetic, LoRA crop/pad, mixed adapters, missing coordinates, determinism,
+original preservation and the unchanged common-layer boundary.
+
+## Base-scoped compatibility selection (common-layer, strict and Unified)
+
+Except for the explicit `base-layout` weighted policy, merges treat the selected base model as the compatibility boundary.
 Before resolving coefficients or writing output, the SDK identifies ecosystem
 evidence from model metadata and tensor structure. Checkpoints are retained when
 they share a base ecosystem (for example FLUX.2 and Krea 2, or SDXL and
@@ -708,12 +742,12 @@ LoRA projection pairs are normalized to the checkpoint's actual tensor address a
 
 The LoRA regression suite verifies duplicate aliases apply once, distinct projections sum correctly, and different alpha values preserve their individual scaling, using tiny fixture tensors.
 
-## Legacy synthetic cross-family LoRA adaptation
+## Synthetic cross-family LoRA adaptation
 
-The option is accepted for command/API compatibility, but merge preflight now
-requires strict base targets and excludes an unmatched LoRA before this legacy
-adapter can run. It cannot override base-scoped ecosystem selection. The
-algorithm below remains documented for direct legacy-module consumers.
+Under common-layer and strict checkpoint policies, preflight requires strict
+base targets and excludes an unmatched LoRA before this adapter can run.
+The `base-layout` weighted policy overrides that selection and enables the
+following deterministic adapter.
 
 `--lora-policy synthetic` (Python `lora_policy="synthetic"`) enables a deliberately
 untrained adapter conversion. Default `strict` retains existing compatibility checks.

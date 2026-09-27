@@ -88,7 +88,8 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
     const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control,
     bool prepareOnly, NativeComputeBackend backend = NativeComputeBackend::Automatic,
     const NativePreviewCallback &preview = {}, const NativeGenerationResult *initial = nullptr, float strength = 1.0f,
-    const std::filesystem::path &explicitVae = {})
+    const std::filesystem::path &explicitVae = {}, const NativeModelComponents *components = nullptr,
+    const NativeSamplingControls *sampling = nullptr)
 {
     NativeGenerationResult result;
     const auto started = std::chrono::steady_clock::now();
@@ -112,6 +113,39 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             throw std::runtime_error("Invalid native image generation parameters.");
         if (options.negativePrompt.size() > 128000 || options.negativePrompt.find('\0') != std::string::npos)
             throw std::runtime_error("Invalid native negative prompt.");
+        if (sampling) {
+            if (sampling->sampler < NativeSampler::Automatic || sampling->sampler > NativeSampler::Heun
+                || (sampling->flowShift != std::numeric_limits<float>::infinity()
+                    && (!std::isfinite(sampling->flowShift) || sampling->flowShift < 0 || sampling->flowShift > 4)))
+                throw std::runtime_error("Invalid native sampler or flow shift.");
+            const auto &sigmas = sampling->customSigmas;
+            if (!sigmas.empty()) {
+                if (sigmas.size() != std::size_t(request.steps + 1) || sigmas.back() != 0)
+                    throw std::runtime_error("Native custom sigmas require steps + 1 entries ending in zero.");
+                for (std::size_t i = 0; i < sigmas.size(); ++i)
+                    if (!std::isfinite(sigmas[i]) || sigmas[i] < 0 || (i && sigmas[i - 1] <= sigmas[i]))
+                        throw std::runtime_error("Native custom sigmas must be finite and strictly descending.");
+            }
+        }
+        std::string componentIdentity;
+        const auto identifyComponents = [&]() {
+            std::string identity;
+            if (components) for (const auto *path : {&components->clipL, &components->clipG, &components->t5xxl, &components->llm, &components->vae}) {
+                identity += '|';
+                if (path->empty()) continue;
+                if (!path->is_absolute() || !std::filesystem::is_regular_file(*path)
+                    || std::filesystem::canonical(*path) != *path)
+                    throw std::runtime_error("Choose canonical local component weight files.");
+                identity += native_detail::modelIdentity(*path);
+            }
+            return identity;
+        };
+        if (components && (!std::isfinite(components->guidanceScale) || components->guidanceScale < 0
+            || !std::isfinite(components->distilledGuidance) || components->distilledGuidance < 0))
+            throw std::runtime_error("Invalid native guidance parameters.");
+        componentIdentity = identifyComponents();
+        if (components && (components->prediction < NativePrediction::Automatic || components->prediction > NativePrediction::VPrediction))
+            throw std::runtime_error("Invalid native prediction type.");
         for (const auto &lora : options.loras)
             if (!lora.path.is_absolute() || !std::filesystem::is_regular_file(lora.path)
                 || std::filesystem::canonical(lora.path) != lora.path || !std::isfinite(lora.strength))
@@ -288,7 +322,11 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             : !cache.missingVaeFamily.empty()
                 ? native_detail::loadFallbackVae(options.resourceDirectory, cache.missingVaeFamily) : native_detail::DefaultVae{};
         if (!fallbackVae.path.empty() && cache.validatedVaeIdentity != fallbackVae.identity) {
-            if (!sd_model_validate_vae(model.c_str(), fallbackVae.path.string().c_str()))
+            // Newer engine families (for example Krea 2) have no SDK auto-mount
+            // contract. Their explicitly supplied VAE is validated as part of
+            // new_sd_ctx's full tensor assembly; never invent a fallback family.
+            if (cache.vaeInfo.state != SD_VAE_UNSUPPORTED
+                && !sd_model_validate_vae(model.c_str(), fallbackVae.path.string().c_str()))
                 throw std::runtime_error("The selected VAE does not match the " + std::string(cache.vaeInfo.vae_family)
                     + " tensor contract: " + fallbackVae.path.string());
             cache.validatedVaeIdentity = fallbackVae.identity;
@@ -299,7 +337,8 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         }
         auto modifierIdentity = defaults.identity + fallbackVae.identity;
         for (const auto &lora : options.loras) modifierIdentity += ':' + native_detail::modelIdentity(lora.path);
-        const auto identity = sourceIdentity + ':' + effectiveIdentity + ':' + modifierIdentity
+        const auto identity = sourceIdentity + ':' + effectiveIdentity + ':' + modifierIdentity + ':' + componentIdentity
+            + (components ? ":prediction=" + std::to_string(static_cast<int>(components->prediction)) : "")
             + (backend == NativeComputeBackend::Cpu ? ":cpu" : ":automatic");
         if (cache.identity != identity) {
             if (cache.context && std::getenv("IILD_NATIVE_DIAGNOSTICS"))
@@ -334,6 +373,16 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         sd_ctx_params_t contextParameters;
         sd_ctx_params_init(&contextParameters);
         contextParameters.model_path = model.c_str();
+        if (components && components->prediction != NativePrediction::Automatic)
+            contextParameters.prediction = components->prediction == NativePrediction::Epsilon ? EPS_PRED : V_PRED;
+        const auto clipL = components ? components->clipL.string() : std::string{};
+        const auto clipG = components ? components->clipG.string() : std::string{};
+        const auto t5 = components ? components->t5xxl.string() : std::string{};
+        const auto llm = components ? components->llm.string() : std::string{};
+        if (!clipL.empty()) contextParameters.clip_l_path = clipL.c_str();
+        if (!clipG.empty()) contextParameters.clip_g_path = clipG.c_str();
+        if (!t5.empty()) contextParameters.t5xxl_path = t5.c_str();
+        if (!llm.empty()) contextParameters.llm_path = llm.c_str();
         const auto vaePath = fallbackVae.path.string();
         if (!vaePath.empty()) contextParameters.vae_path = vaePath.c_str();
         contextParameters.embeddings = embeddings.data();
@@ -427,6 +476,15 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         // Native hires.steps counts active refinement steps, unlike the full
         // Diffusers schedule. Never allow a small request to skip denoising.
         parameters.hires.steps = std::max(1, int(static_cast<float>(request.steps) * parameters.hires.denoising_strength));
+        if (components) {
+            parameters.sample_params.guidance.txt_cfg = components->guidanceScale;
+            parameters.sample_params.guidance.distilled_guidance = components->distilledGuidance;
+            parameters.hires.enabled = components->hires;
+            if (!components->hires) {
+                parameters.width = parameters.hires.target_width;
+                parameters.height = parameters.hires.target_height;
+            }
+        }
         if (std::getenv("IILD_NATIVE_DIAGNOSTICS"))
             std::fprintf(stderr, "iiLocalDiffusion Hires: requested=%dx%d base=%dx%d final-canvas=%dx%d lanczos strength=0.35 steps=%d\n",
                 request.width, request.height, parameters.width, parameters.height,
@@ -444,7 +502,16 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         }
         parameters.sample_params.sample_steps = request.steps;
         parameters.sample_params.sample_method = sd_get_default_sample_method(context);
+        if (sampling && sampling->sampler != NativeSampler::Automatic)
+            parameters.sample_params.sample_method = sampling->sampler == NativeSampler::Euler ? EULER_SAMPLE_METHOD : HEUN_SAMPLE_METHOD;
         parameters.sample_params.scheduler = sd_get_default_scheduler(context, parameters.sample_params.sample_method);
+        // Keep request-owned schedule storage alive and writable for the engine.
+        auto customSigmas = sampling ? sampling->customSigmas : std::vector<float>{};
+        if (sampling) {
+            parameters.sample_params.flow_shift = sampling->flowShift;
+            parameters.sample_params.custom_sigmas = customSigmas.empty() ? nullptr : customSigmas.data();
+            parameters.sample_params.custom_sigmas_count = static_cast<int>(customSigmas.size());
+        }
         const auto vaePolicy = native_detail::vaeDecodePolicy(family,
             parameters.hires.target_width, parameters.hires.target_height, budget);
         parameters.vae_tiling_params.enabled = vaePolicy.tiled;
@@ -489,7 +556,8 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                         rowBytes, result.rgb.data() + y * rowBytes);
         // A sync client may atomically replace the source during generation.
         if (native_detail::modelIdentity(request.modelPath) != sourceIdentity
-            || native_detail::modelIdentity(effectiveModel) != effectiveIdentity)
+            || native_detail::modelIdentity(effectiveModel) != effectiveIdentity
+            || identifyComponents() != componentIdentity)
             throw std::runtime_error("The local model changed during generation. Try again.");
         auto finalModifierIdentity = options.defaultModifiers
             ? native_detail::loadGenerationDefaults(options.resourceDirectory).identity : std::string{};
@@ -613,5 +681,23 @@ NativeGenerationResult generateNativeImageWithPreview(const NativeGenerationRequ
     const std::shared_ptr<NativeExecutionControl> &control)
 {
     return dispatchNativeImage(request, options, cancelled, progress, control, false, backend, preview);
+}
+NativeGenerationResult generateNativeImageWithComponents(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const NativeModelComponents &components,
+    NativeComputeBackend backend, const std::atomic_bool &cancelled, bool prepareOnly,
+    const NativeProgressCallback &progress, const NativePreviewCallback &preview,
+    const std::shared_ptr<NativeExecutionControl> &control)
+{
+    return nativeImage(request, options, cancelled, progress, control, prepareOnly, backend,
+                       preview, nullptr, 1.0f, components.vae, &components);
+}
+NativeGenerationResult generateNativeImageWithSampling(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const NativeModelComponents &components,
+    const NativeSamplingControls &sampling, NativeComputeBackend backend,
+    const std::atomic_bool &cancelled, bool prepareOnly, const NativeProgressCallback &progress,
+    const NativePreviewCallback &preview, const std::shared_ptr<NativeExecutionControl> &control)
+{
+    return nativeImage(request, options, cancelled, progress, control, prepareOnly, backend,
+                       preview, nullptr, 1.0f, components.vae, &components, &sampling);
 }
 }

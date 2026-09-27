@@ -13,7 +13,7 @@ import shutil
 import tempfile
 
 from model_merge_files import align_anima_checkpoint, inspect_merge_model, open_merge_weights, validate_package_assets
-from model_merge_common import project_checkpoint, preserves_base_tensor, POLICY
+from model_merge_common import project_checkpoint, preserves_base_tensor, POLICY, FORCED_POLICY
 from model_merge_tensor import (QuantizationError, decode_tensor, repair_nonfinite_material,
                                 record_numeric_repair, zero_nonfinite, safe_storage)
 from model_merge_ecosystem import exact_layout_compatible, identify_ecosystem
@@ -42,7 +42,7 @@ def _equal(torch, left, right):
     return torch.equal(left, right)
 
 
-def _open_models(models, stack, safe_open, *, compatible=True, checkpoint_policy="common-layer"):
+def _open_models(models, stack, safe_open, *, compatible=True, checkpoint_policy="common-layer", material_kinds=None):
     readers = []
     layouts = []
     kinds = []
@@ -52,6 +52,8 @@ def _open_models(models, stack, safe_open, *, compatible=True, checkpoint_policy
     for model in models:
         opened, layout = open_merge_weights(model, stack, safe_open)
         kind = "lora" if any(is_lora_key(key) for _, key in layout) else "checkpoint"
+        if layouts and material_kinds is not None:
+            kind = material_kinds[len(layouts) - 1]
         if not layouts and kind != "checkpoint":
             raise ValueError("Base model must be a full checkpoint, not a LoRA adapter.")
         if kind == "checkpoint":
@@ -66,7 +68,7 @@ def _open_models(models, stack, safe_open, *, compatible=True, checkpoint_policy
             prediction_markers = markers
             if compatible and checkpoint_policy == "strict" and model.root.is_dir() != models[0].root.is_dir():
                 raise ValueError("All checkpoints must use the same format: single files or Diffusers directories.")
-            if model.root.is_dir() and "model_index.json" not in model.assets:
+            if model.root.is_dir() and "model_index.json" not in model.assets and not (layouts and checkpoint_policy == "base-layout"):
                 raise ValueError("A full checkpoint directory requires model_index.json.")
             for name, reader in opened.items():
                 component = str(PurePosixPath(name).parent) if model.root.is_dir() else "."
@@ -80,9 +82,9 @@ def _open_models(models, stack, safe_open, *, compatible=True, checkpoint_policy
         elif "model_index.json" in model.assets:
             raise ValueError("LoRA material must be an adapter export, not a pipeline with embedded adapter keys.")
         if compatible and layouts and kind == "checkpoint":
-            if checkpoint_policy == "common-layer":
+            if checkpoint_policy in ("common-layer", "base-layout"):
                 opened, layout, common_layers[len(layouts)] = project_checkpoint(
-                    opened, layout, readers[0], layouts[0])
+                    opened, layout, readers[0], layouts[0], force=checkpoint_policy == "base-layout")
             elif not model.root.is_dir():
                 opened, layout = align_anima_checkpoint(opened, layout, layouts[0])
         if compatible and checkpoint_policy == "strict" and layouts and kind == "checkpoint" and layout.keys() != layouts[0].keys():
@@ -96,7 +98,7 @@ def _open_models(models, stack, safe_open, *, compatible=True, checkpoint_policy
     checkpoint_indices = [index for index, kind in enumerate(kinds) if kind == "checkpoint"]
     if not compatible:
         return readers, layouts, kinds, common_layers
-    if checkpoint_policy == "common-layer":
+    if checkpoint_policy in ("common-layer", "base-layout"):
         return readers, layouts, kinds, common_layers
     validate_package_assets([models[index] for index in checkpoint_indices])
     for address in layouts[0]:
@@ -130,7 +132,7 @@ def _inspect_requested_models(request, torch, *, hash_content=True):
 def _filter_compatible_materials(request, models, safe_open, torch, failures=None):
     """Keep only materials that can be applied to the selected base model.
 
-    Ecosystem metadata/tensor evidence is the primary checkpoint boundary. An
+    Unless base-layout is requested, ecosystem evidence is the checkpoint boundary. An
     otherwise unclassified checkpoint is accepted only when its entire tensor
     layout is an exact arithmetic match. LoRAs must resolve real targets in the
     base; synthetic projection is deliberately not a compatibility signal.
@@ -162,26 +164,36 @@ def _filter_compatible_materials(request, models, safe_open, torch, failures=Non
             compatible = False
             reason = ""
             targets = []
+            raw_projection = False
             if index in failures:
                 reason = f"Unusable material omitted: {failures[index]}"
-            elif kinds[index] == "checkpoint" and models[index].root.is_dir() and "model_index.json" not in models[index].assets:
+            elif not request.force_base_layout and kinds[index] == "checkpoint" and models[index].root.is_dir() and "model_index.json" not in models[index].assets:
                 reason = "Unusable material omitted: a checkpoint directory requires model_index.json."
-            elif kinds[index] == "lora" and "model_index.json" in models[index].assets:
+            elif not request.force_base_layout and kinds[index] == "lora" and "model_index.json" in models[index].assets:
                 reason = "Unusable material omitted: a pipeline with embedded adapter keys is not a LoRA export."
             elif kinds[index] == "lora":
                 try:
                     deltas = prepare_lora(models[index], readers[index], aliases, readers[0], layouts[0],
-                                          models[0], torch, policy="strict")
+                                          models[0], torch, policy="synthetic" if request.force_base_layout else "strict")
                     compatible = bool(deltas)
                     targets = [{"module": delta.module, "component": delta.target.address[0],
                                 "tensor": delta.target.address[1], "rows": delta.target.rows,
-                                "scale": delta.scale} for delta in deltas]
-                    reason = (f"{len(deltas)} LoRA target(s) match the base model."
+                                "scale": delta.scale, "adaptation": delta.adaptation} for delta in deltas]
+                    reason = (f"{len(deltas)} LoRA target(s) mapped to the base model."
                               if compatible else "The LoRA has no applicable target in the base model.")
                 except (ValueError, RuntimeError, OSError, ImportError) as error:
                     if isinstance(error, torch.OutOfMemoryError):
                         raise
                     reason = f"LoRA targets do not match the base model: {error}"
+                    if request.force_base_layout:
+                        # Mixed checkpoints/adapters and nonstandard adapters
+                        # still provide readable coordinates, not valid LoRA deltas.
+                        compatible, raw_projection = True, True
+                        kinds[index] = "checkpoint"
+                        reason = f"Raw tensor projection onto base layout; LoRA interpretation unavailable: {error}"
+            elif request.force_base_layout:
+                compatible = True
+                reason = "Fit material coordinates to the base layout regardless of ecosystem; zero-fill missing learned coordinates."
             elif shared:
                 compatible = True
                 reason = f"Shared model ecosystem: {', '.join(shared)}."
@@ -212,6 +224,11 @@ def _filter_compatible_materials(request, models, safe_open, torch, failures=Non
                 "lora_target_count": len(targets),
                 "numeric_values_checked": False,
             }
+            if request.force_base_layout:
+                entry["raw_tensor_projection"] = raw_projection
+                entry["semantic_equivalence"] = False
+                if compatible:
+                    entry["status"] = "conditional"
             compatibility.append(entry)
             if compatible:
                 included.append(index)
@@ -390,7 +407,8 @@ def _execute_merge(request: MergeRequest) -> dict:
         request, all_models, safetensors.safe_open, torch, failures)
     with ExitStack() as stack, torch.no_grad():
         readers, layouts, kinds, common_layers = _open_models(
-            models, stack, safetensors.safe_open, checkpoint_policy=request.checkpoint_policy)
+            models, stack, safetensors.safe_open, checkpoint_policy=request.checkpoint_policy,
+            material_kinds=[entry["kind"] for entry in resource_compatibility if entry["compatible"]])
         request = resolve_merge_weights(request, kinds[1:])
         checkpoint_indices = [index for index, kind in enumerate(kinds) if kind == "checkpoint"]
         loras, adapter_reports = {}, {}
@@ -427,12 +445,12 @@ def _execute_merge(request: MergeRequest) -> dict:
             "excluded_material_count": len(excluded_sources),
             "lora_alias_policy": "identical-projections-once; distinct-projections-additive",
             "tensor_count": len(layouts[0]),
-            "checkpoint_key_policy": (POLICY
+            "checkpoint_key_policy": (FORCED_POLICY if request.force_base_layout else POLICY
                                       if request.checkpoint_policy == "common-layer" else
                                       "exact-or-equivalent-anima-namespace; preserve-base-names"),
             "arithmetic": "cpu-fp32-or-fp64", "output_dtype": "base",
-            "nonfloating_buffers": "preserve-base; scaled-int8-weights-requantized" if request.checkpoint_policy == "common-layer" else "require-equal-preserve-base",
-            "nonfinite_material_policy": "base-for-sum;zero-for-difference" if request.checkpoint_policy == "common-layer" else "reject",
+            "nonfloating_buffers": "preserve-base; scaled-int8-weights-requantized" if request.automatic_repair else "require-equal-preserve-base",
+            "nonfinite_material_policy": "base-for-sum;zero-for-difference" if request.automatic_repair else "reject",
             "numeric_normalization": {"requantized_tensors": 0, "invalid_base_quantization_tensors": 0, "examples": [],
                                       "nonfinite_material_values": 0, "nonfinite_material_tensors": 0,
                                       "nonfinite_material_examples": []},
@@ -549,7 +567,8 @@ def inspect_merge_request(request: MergeRequest) -> dict:
     with ExitStack() as stack:
         readers, layouts, kinds, common_layers = _open_models(
             models, stack, safetensors.safe_open, compatible=request.mode != "unified",
-            checkpoint_policy=request.checkpoint_policy)
+            checkpoint_policy=request.checkpoint_policy,
+            material_kinds=[entry["kind"] for entry in resource_compatibility if entry["compatible"]])
         request = resolve_merge_weights(request, kinds[1:])
         adaptations = {}
         if request.mode == "unified":
@@ -578,7 +597,7 @@ def inspect_merge_request(request: MergeRequest) -> dict:
                 "data_validation": ("source hashes and finite arithmetic are checked when building; copied members preserve source bytes"
                                     if request.mode == "unified" else
                                     "best-effort arithmetic repairs nonfinite base/material/LoRA values and saturates output; unusable materials are omitted; source integrity remains required"
-                                    if request.checkpoint_policy == "common-layer" else
+                                    if request.automatic_repair else
                                     "finite values and source hashes are checked when building the output")}
 
 

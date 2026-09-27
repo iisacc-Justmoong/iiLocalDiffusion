@@ -60,10 +60,10 @@ class NativeImageTests(unittest.TestCase):
 
     def test_missing_components_and_unimplemented_overrides_are_rejected(self):
         incomplete = self.safetensors({"net.llm_adapter.blocks.0.cross_attn.q_proj.weight": [2, 2]})
-        with self.assertRaisesRegex(ValueError, "missing components: vae, text_encoder"):
+        with self.assertRaisesRegex(ValueError, "missing components: vae, llm"):
             standalone_image.resolve_arguments(self.values(incomplete))
-        for values in ({"vae": "different.safetensors"}, {"guidance_scale": 7.5},
-                       {"device": "cpu"}, {"base_model": "SD 1.5"},
+        for values in ({"vae": "different.safetensors"}, {"guidance_scale": -1},
+                       {"device": "cuda"}, {"base_model": "SD 1.5"},
                        {"width": 65}, {"num_images": 0}, {"seed": -1}):
             with self.subTest(values=values), self.assertRaises(ValueError):
                 standalone_image.resolve_arguments(self.values(**values))

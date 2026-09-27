@@ -32,7 +32,11 @@ class MergeRequest:
 
     @property
     def automatic_repair(self) -> bool:
-        return self.checkpoint_policy == "common-layer" and self.mode != "unified"
+        return self.checkpoint_policy in ("common-layer", "base-layout") and self.mode != "unified"
+
+    @property
+    def force_base_layout(self) -> bool:
+        return self.checkpoint_policy == "base-layout" and self.mode != "unified"
 
     @property
     def models(self) -> tuple[Path, ...]:
@@ -57,7 +61,8 @@ class MergeRequest:
                                      if self.compatibility_models is not None else None),
             "compatibility_policy": ("nearby-checkpoints" if self.compatibility_models is None else "explicit-candidates")
                                     if self.mode == "unified" else
-                                    ("base-layout-common-layer" if self.checkpoint_policy == "common-layer"
+                                    ("base-layout-force-fit" if self.force_base_layout else
+                                     "base-layout-common-layer" if self.checkpoint_policy == "common-layer"
                                      else "strict-weight-compatibility"),
             "compatibility_strength": self.compatibility_strength,
         }
@@ -108,14 +113,16 @@ def resolve_merge_request(
     """
     if lora_policy not in ("strict", "synthetic"):
         raise ValueError("LoRA policy must be strict or synthetic.")
-    if checkpoint_policy not in ("strict", "common-layer"):
-        raise ValueError("Checkpoint policy must be strict or common-layer.")
+    if checkpoint_policy not in ("strict", "common-layer", "base-layout"):
+        raise ValueError("Checkpoint policy must be strict, common-layer or base-layout.")
+    if checkpoint_policy == "base-layout" and mode != "unified":
+        lora_policy = "synthetic"
     if mode not in MODES:
         raise ValueError(f"Unknown merge mode {mode!r}; choose one of {MODES}.")
     if isinstance(additional_models, (str, bytes, Path)) or not isinstance(additional_models, Sequence):
         raise TypeError("additional_models must be a sequence of local model paths.")
     base = _model(base_model, base=True)
-    additional = tuple(_model(value, allow_unusable=checkpoint_policy == "common-layer" and mode != "unified")
+    additional = tuple(_model(value, allow_unusable=checkpoint_policy in ("common-layer", "base-layout") and mode != "unified")
                        for value in (additional_model, *additional_models))
     if (isinstance(compatibility_strength, bool) or not isinstance(compatibility_strength, Real)
             or not math.isfinite(compatibility_strength) or not 0 <= compatibility_strength <= 1):
@@ -222,9 +229,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--compatibility-strength", type=float, default=0.35,
                         help="Image refinement strength of automatically inserted compatibility stages, in [0,1] (default: 0.35).")
     parser.add_argument("--lora-policy", choices=("strict", "synthetic"), default="strict",
-                        help="Applied only after base compatibility selection; unmatched LoRAs are excluded before either policy runs.")
-    parser.add_argument("--checkpoint-policy", choices=("strict", "common-layer"), default="common-layer",
-                        help="Within the base ecosystem, common-layer automatically resamples differing tensor coordinates onto the base layout (default); strict requires an exact layout.")
+                        help="LoRA target handling; base-layout always enables deterministic synthetic adaptation.")
+    parser.add_argument("--checkpoint-policy", choices=("strict", "common-layer", "base-layout"), default="common-layer",
+                        help="common-layer fits within the base ecosystem; base-layout fits all readable materials, fills missing learned coordinates with zero, and preserves base runtime state; strict requires an exact layout.")
     parser.add_argument("--print-config", action="store_true", help="Validate arguments without loading tensors.")
     parser.add_argument("--inspect", action="store_true", help="Inspect structural compatibility and LoRA routing before hashing or writing output.")
     return parser

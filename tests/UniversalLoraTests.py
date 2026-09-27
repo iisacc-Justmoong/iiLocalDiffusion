@@ -81,13 +81,13 @@ class UniversalLoraTests(unittest.TestCase):
         self.assertIsNone(args.lora_selection)
         self.assertEqual(args.default_modifier_metadata["fallback_lora_status"], "not-configured-for-family")
 
-    def test_sdxl_fallback_is_shared_with_generic_images_and_editing(self):
+    def test_sdxl_images_and_editing_do_not_automatically_load_lora(self):
         for name in ("StableDiffusionXLPipeline", "StableDiffusionXLImg2ImgPipeline",
                      "StableDiffusionXLInpaintPipeline"):
             with self.subTest(pipeline=name):
                 args = self.args(name)
-                self.assertEqual(args.lora_selection.weight_name, "addDetailAesthetic_v20_32.safetensors")
-                self.assertEqual(args.lora_selection.scale, 1.0)
+                self.assertIsNone(args.lora_selection)
+                self.assertEqual(args.default_modifier_metadata["fallback_lora_status"], "not-configured-for-family")
 
     def test_explicit_lora_and_disabled_defaults_take_precedence(self):
         self.registry(["flux1"], 0.7)
@@ -110,8 +110,15 @@ class UniversalLoraTests(unittest.TestCase):
 
     def test_existing_single_fallback_manifest_remains_supported(self):
         from generation_defaults import fallback_loras
-        _, manifest = read_defaults()
-        self.assertEqual(fallback_loras(manifest), [manifest["fallback_lora"]])
+        manifest = self.registry(["sdxl-base"])
+        item = manifest.pop("fallback_loras")[0]
+        manifest["fallback_lora"] = item
+        self.assertEqual(fallback_loras(manifest), [item])
+
+    def test_empty_or_absent_fallback_registry_is_supported(self):
+        from generation_defaults import fallback_loras
+        self.assertEqual(fallback_loras({}), [])
+        self.assertEqual(fallback_loras({"fallback_loras": []}), [])
 
     def test_relative_registry_paths_cannot_escape_or_use_absolute_files(self):
         from generation_defaults import checked_resource

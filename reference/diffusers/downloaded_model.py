@@ -16,6 +16,7 @@ import struct
 from civitai_catalog import lookup_base_model
 from inference_session import cached_configuration
 from weight_files import model_content_sha256, metadata_model_validation
+from backend_registry import detect_transformer, embedded_slots, PROFILES, plan_native
 
 
 MAX_HEADER_BYTES = 100_000_000
@@ -45,6 +46,12 @@ _ROUTE = {
     "flux1-schnell": ("flux1-schnell-compatible", "FluxPipeline"),
     "flux1": (None, "FluxPipeline"),
     "sd3": (None, "StableDiffusion3Pipeline"),
+    "flux2": (None, "Flux2Pipeline"),
+    "flux2-klein": (None, "Flux2KleinPipeline"),
+    "z-image": (None, "ZImagePipeline"),
+    "qwen-image": (None, "QwenImagePipeline"),
+    "chroma": (None, "ChromaPipeline"),
+    "krea2": (None, "Krea2Pipeline"),
 }
 _GUIDANCE = {
     "lora": "Attach this adapter with --lora to a matching base checkpoint.",
@@ -254,6 +261,9 @@ def _tensor_identity(shapes):
     if any(key.removeprefix("net.") == "llm_adapter.blocks.0.cross_attn.q_proj.weight"
            and len(shape) == 2 for key, shape in normalized.items()):
         return "anima", "checkpoint", ["Anima LLM cross-attention adapter tensor signature"], None
+    transformer = detect_transformer(normalized)
+    if transformer:
+        return transformer, "checkpoint", [f"{transformer} transformer tensor signature"], None
     if any(k.startswith(("encoder.", "first_stage_model.encoder.", "vae.encoder.")) for k in keys) and any(
             k.startswith(("decoder.", "first_stage_model.decoder.", "vae.decoder.")) for k in keys) and not any(
             k.startswith(("input_blocks.", "down_blocks.", "double_blocks.", "joint_blocks.", "transformer_blocks.")) for k in normalized):
@@ -388,7 +398,9 @@ def _inspect_downloaded_model(path, info_path=None):
             raise ValueError("Civitai Flux dev metadata conflicts with absent guidance embeddings")
         if architecture == "flux1-dev" and record.get("preset") == "flux1-schnell-compatible":
             raise ValueError("Civitai Flux schnell metadata conflicts with guidance embeddings")
-    container_architecture = {"flux": "flux1", "sd1": "sd1", "sd2": "sd2", "sdxl": "sdxl", "sd3": "sd3"}.get(metadata.get("general.architecture"))
+    container_architecture = {"flux": "flux1", "sd1": "sd1", "sd2": "sd2", "sdxl": "sdxl", "sd3": "sd3",
+                              "flux2": "flux2", "flux2-klein": "flux2-klein", "z_image": "z-image",
+                              "z-image": "z-image", "qwen_image": "qwen-image"}.get(metadata.get("general.architecture"))
     if container_architecture and architecture:
         tensor_family = "flux1" if architecture.startswith("flux1") else architecture
         if tensor_family != container_architecture:
@@ -440,10 +452,14 @@ def _inspect_downloaded_model(path, info_path=None):
     missing = [component for component in ("vae", "text_encoder") if component not in components] if role == "checkpoint" else []
     weights_role = "denoiser" if role == "checkpoint" and missing else role
     confidence = "exact" if any(s.startswith("Matched Civitai SHA256:") for s in evidence) else "metadata" if record else "architecture" if architecture else "unknown"
-    return {"path": str(selected), "format": format_name, "base_model": record["name"] if record else None,
+    report = {"path": str(selected), "format": format_name, "base_model": record["name"] if record else None,
             "preset": preset, "pipeline_class": pipeline, "architecture": architecture, "role": role,
             "confidence": confidence, "evidence": evidence, "model_info": resolved_info,
             "weights_role": weights_role, "available_components": components, "missing_components": missing,
             "prediction_type": prediction, "zero_terminal_snr": zero_terminal_snr,
             "task": task or (record.get("task") if record else "text-to-image"),
-            "role_guidance": _GUIDANCE.get(role, "This component needs its matching backend workflow and base model.")}
+            "role_guidance": _GUIDANCE.get(role, "This component needs its matching backend workflow and base model."),
+            "component_slots": embedded_slots(shapes, architecture)}
+    if architecture in PROFILES and role == "checkpoint" and report["task"] == "text-to-image" and format_name in ("safetensors", "gguf"):
+        report["backend_plan"] = plan_native(report)
+    return report

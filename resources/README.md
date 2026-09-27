@@ -8,9 +8,9 @@ git lfs pull
 git lfs fsck
 ```
 
-`.gitattributes`가 리소스 확장자별 추적 규칙을 정의한다. LFS 포인터에는 각 원본의 SHA-256과 바이트 크기가 들어 있다. `generation-defaults.json`에 지정된 LoRA와 네거티브 임베딩은 이제 전역 이미지 생성 기본값이며 CMake 설치에 포함된다. SDXL에서는 임베딩 7개와 기본 강도 1.0의 폴백 LoRA를 사용한다. 자세한 우선순위와 소비자 배포는 [전역 기본값 문서](../docs/generation-defaults.md)에 있다.
+`.gitattributes`가 리소스 확장자별 추적 규칙을 정의한다. LFS 포인터에는 각 원본의 SHA-256과 바이트 크기가 들어 있다. `generation-defaults.json`에 지정된 LoRA와 네거티브 임베딩은 이제 전역 이미지 생성 기본값이며 CMake 설치에 포함된다. SDXL에서는 임베딩 7개를 사용하며 자동 LoRA는 적용하지 않는다. `fallback_loras`의 기본값은 빈 배열이다. 자세한 우선순위와 소비자 배포는 [전역 기본값 문서](../docs/generation-defaults.md)에 있다.
 
-다른 모델 계열의 LoRA 기본값은 `fallback_loras` 배열에 호환 파일·강도·계열·해시·크기를 등록한다. 기존 SDXL용 `fallback_lora` 항목과 함께 사용할 수 있다. 이미지와 Deforum, 네이티브 런타임이 동일한 계열 선택 규칙을 사용한다. SDXL 가중치의 계열 이름만 바꾸는 것은 변환이 아니며, 각 기반 모델에 맞는 실제 LoRA 파일이 필요하다.
+다른 모델 계열의 LoRA 기본값은 `fallback_loras` 배열에 호환 파일·강도·계열·해시·크기를 등록한다. 기존 단일 `fallback_lora` 형식도 지원하지만 번들에는 기본 LoRA를 등록하지 않는다. 이미지와 Deforum, 네이티브 런타임이 동일한 계열 선택 규칙을 사용한다. SDXL 가중치의 계열 이름만 바꾸는 것은 변환이 아니며, 각 기반 모델에 맞는 실제 LoRA 파일이 필요하다.
 
 `embeddings/`는 `.pt` 원본 3개를 텐서 전용 safetensors로 보존한 사본이다. 원본 변경 시 `scripts/prepare_generation_defaults.py`로 다시 만들고 `--check`로 벡터 동일성과 해시를 검증한다. 원본 `.pt` 파일도 계속 보존한다.
 

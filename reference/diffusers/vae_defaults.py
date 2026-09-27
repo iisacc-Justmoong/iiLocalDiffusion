@@ -21,7 +21,7 @@ QWEN_RGB_PIPELINES = frozenset({
 })
 
 VAE_PIPELINES = {
-    "qwen-image": QWEN_RGB_PIPELINES,
+    "qwen-image": QWEN_RGB_PIPELINES | frozenset({"Krea2Pipeline"}),
     "sdxl-base": frozenset({
         "StableDiffusionXLPipeline", "StableDiffusionXLImg2ImgPipeline", "StableDiffusionXLInpaintPipeline",
         "StableDiffusionXLInstructPix2PixPipeline", "StableDiffusionXLControlNetPipeline",

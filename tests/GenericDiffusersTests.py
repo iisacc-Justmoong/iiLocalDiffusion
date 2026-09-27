@@ -180,6 +180,23 @@ class GenericDiffusersTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-built-in"):
             generic.validate_components(self.fake_diffusers(), index)
 
+    def test_krea2_cli_schedule_and_variant_are_resolved(self):
+        (self.model / 'model_index.json').write_text(json.dumps({'_class_name': 'Krea2Pipeline', 'is_distilled': True}))
+        args = self.args('--sigmas', '[1,0.5,0.1]', '--krea2-mu', '0.8')
+        self.assertEqual(args.inputs['num_inference_steps'], 3)
+        self.assertEqual(args.inputs['sigmas'], [1, .5, .1])
+        self.assertEqual(args.krea2['variant'], 'turbo')
+        self.assertEqual(args.krea2['resolved_mu'], .8)
+        with self.assertRaises(ValueError): self.args('--krea2-variant', 'raw')
+
+    def test_krea2_layer_selection_is_configuration_not_a_component(self):
+        index = {"_class_name": "Krea2Pipeline", "text_encoder_select_layers": [0, 2, 5]}
+        self.assertEqual(generic.validate_model_index(index), index)
+        generic.validate_components(self.fake_diffusers(), index)
+        for value in ([True], [-1], [1.5], ["os", "system"], [], list(range(257))):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                generic.validate_model_index(dict(index, text_encoder_select_layers=value))
+
     def test_custom_local_component_code_is_not_executed(self):
         directory = self.model / "unet"
         directory.mkdir()

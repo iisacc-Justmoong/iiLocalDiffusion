@@ -16,8 +16,8 @@ an unsupported loader fails before base weights are allocated. No custom remote
 pipeline code or new inference dependency is introduced.
 
 Omitting `--lora` selects the matching family entry from the shared
-[generation defaults manifest](generation-defaults.md). The supplied
-`addDetailAesthetic_v20_32` is an SDXL adapter with default strength 1.0.
+[generation defaults manifest](generation-defaults.md). The shipped manifest has an empty fallback list, so omitting `--lora` adds no adapter.
+The retained `addDetailAesthetic_v20_32` asset can still be selected explicitly.
 Other families need their own compatible adapter; an SDXL LoRA does not become
 an SD2, SD3 or FLUX LoRA by changing its family label, keys or tensor dimensions.
 An explicit adapter replaces the fallback. `--no-default-modifiers` provides

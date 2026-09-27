@@ -69,6 +69,17 @@ class HiresOptionsTests(unittest.TestCase):
                 self.assertEqual(replay.hires_stage_sizes, args.hires_stage_sizes)
                 self.assertEqual((replay.hires_base_width, replay.hires_base_height), base)
 
+    def test_sdxl_default_refinement_has_ten_active_steps_at_low_strength(self):
+        base = base_arguments(presets.PRESETS["sdxl-base"])
+        base.steps = 10
+        args = resolved(preset=presets.PRESETS["sdxl-base"], base=base)
+        self.assertEqual(args.hires_denoising_strength, 0.25)
+        self.assertEqual(args.hires_steps, 40)
+        self.assertEqual(int(args.hires_steps * args.hires_denoising_strength), 10)
+        explicit = resolved("--hires-steps", "20", "--hires-strength", "0.35",
+                            preset=presets.PRESETS["sdxl-base"])
+        self.assertEqual((explicit.hires_steps, explicit.hires_denoising_strength), (20, 0.35))
+
     def test_default_repeated_refinement_keeps_requested_final_size(self):
         args = resolved("--hires-passes", "3")
         self.assertEqual(args.hires_stage_sizes, [[512, 512]] * 3)
@@ -103,8 +114,8 @@ class HiresOptionsTests(unittest.TestCase):
                 self.assertEqual(args.hires_passes, 1)
                 self.assertIsNone(args.hires_scale)
                 self.assertEqual(args.hires_upscaler, "lanczos")
-                self.assertEqual(args.hires_denoising_strength, 0.35)
-                self.assertEqual(args.hires_steps, preset.steps)
+                self.assertEqual(args.hires_denoising_strength, 0.25 if preset.family == "sdxl-base" else 0.35)
+                self.assertEqual(args.hires_steps, max(40, preset.steps) if preset.family == "sdxl-base" else preset.steps)
                 self.assertEqual(args.hires_seed, 42)
                 self.assertEqual(args.hires_guidance_scale, preset.guidance_scale)
                 self.assertEqual(args.hires_true_cfg_scale, 1.0)

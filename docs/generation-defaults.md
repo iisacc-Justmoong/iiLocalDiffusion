@@ -1,6 +1,6 @@
 # 전역 이미지 생성 기본값
 
-`resources/generation-defaults.json`이 네이티브 C++ 및 Stable Diffusion 계열 Python 생성 경로의 공통 기본값이다. SDXL 계열에서 LoRA를 따로 선택하지 않으면 `addDetailAesthetic_v20_32.safetensors`를 강도 **1.0**으로 실제 적재·활성화한다. 커스텀 LoRA를 지정하면 해당 LoRA가 기본 LoRA를 대체한다. 네거티브 문장은 아래 학습 임베딩 토큰과 합쳐지며, 빈 네거티브 문장에도 기본 임베딩이 적용된다. 재실행 가능한 JSON을 다시 읽어도 토큰을 중복 추가하지 않는다.
+`resources/generation-defaults.json`이 네이티브 C++ 및 Stable Diffusion 계열 Python 생성 경로의 공통 기본값이다. 번들 명세의 `fallback_loras`는 빈 배열이며, LoRA를 따로 선택하지 않으면 자동 적용하지 않는다. `addDetailAesthetic_v20_32.safetensors`의 자동 보정을 제거했다. 명시적으로 선택한 LoRA와 강도는 그대로 적용한다. 네거티브 문장은 아래 학습 임베딩 토큰과 합쳐지며, 빈 네거티브 문장에도 기본 임베딩이 적용된다. 재실행 가능한 JSON을 다시 읽어도 토큰을 중복 추가하지 않는다.
 
 | 원본 | 토큰 | 학습 벡터 수 | 인코더 |
 | --- | --- | --- | --- |
@@ -18,7 +18,7 @@
 
 ## 호출과 우선순위
 
-기존 단일 `fallback_lora` 항목을 유지하면서 `fallback_loras` 배열에 모델별 항목을 추가할 수 있다. 배열만 있는 명세도 지원한다. 각 항목은 `file`, `scale`, `families`, `sha256`, `size`를 가진다. 파일은 명세 디렉터리 안의 상대 경로이며 각 계열에는 기본값 하나만 지정한다. 같은 계열의 중복 지정, `*` 지정, 0 또는 비유한 기본 강도는 오류이다. 명시적으로 선택한 LoRA에는 비교용 강도 0을 허용한다.
+기존 단일 `fallback_lora` 항목을 유지하면서 `fallback_loras` 배열에 모델별 항목을 추가할 수 있다. 배열만 있는 명세도 지원한다. 배열이 비어 있거나 두 항목을 모두 생략하면 기본 LoRA가 없는 구성이다. 최대 64개 항목을 허용한다. 각 항목은 `file`, `scale`, `families`, `sha256`, `size`를 가진다. 파일은 명세 디렉터리 안의 상대 경로이며 각 계열에는 기본값 하나만 지정한다. 같은 계열의 중복 지정, `*` 지정, 0 또는 비유한 기본 강도는 오류이다. 명시적으로 선택한 LoRA에는 비교용 강도 0을 허용한다.
 
 | 계열 값 | 기본값 선택 기준 |
 | --- | --- |
@@ -32,7 +32,7 @@
 
 계열 선택은 가중치 호환성의 보증이 아니다. 같은 계열 안에서도 모델 크기·변형별 LoRA는 실제 로더의 구조 검증을 통과해야 한다. SD1/SD2의 인코더 설정이 없으면 임의로 SD1이라고 추정하지 않는다. Python의 `generation_defaults.fallback_lora_status`는 `selected`, `explicit-override`, `disabled`, `not-configured-for-family`를 구분한다. 호환 기본값이 없는 모델에 SDXL 파일을 대신 주입하지 않는다.
 
-현재 번들에는 SDXL에서 학습된 `addDetailAesthetic_v20_32` 하나가 있다. 이 파일을 SD/FLUX 전용 파일로 변환하거나 새로 학습한 것으로 취급하지 않는다. 다른 계열의 호환 LoRA를 명세에 등록하면 이미지 및 해당 프리셋의 Deforum에서 같은 기본값으로 사용한다. `--lora`를 직접 전달하는 경로도 동일하게 지원한다.
+번들에 보존된 SDXL용 `addDetailAesthetic_v20_32` 파일은 자동 선택하지 않는다. 필요한 경우 `--lora`로 명시적으로 선택할 수 있다. 다른 계열의 호환 LoRA를 명세에 등록하면 이미지 및 해당 프리셋의 Deforum에서 같은 기본값으로 사용한다. `--lora`를 직접 전달하는 경로도 동일하게 지원한다.
 
 기존 `generateNativeImage*` 함수는 새 기본값을 자동 사용한다. 기존 요청·결과 구조체의 ABI는 유지한다. 커스텀 네거티브 문장·LoRA·리소스 위치는 별도 옵션 진입점으로 전달한다.
 

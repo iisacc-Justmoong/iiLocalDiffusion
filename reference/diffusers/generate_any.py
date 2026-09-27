@@ -28,6 +28,7 @@ from inference_session import (SchedulerConfiguration, cached_configuration, cac
                                cached_placement, is_preparing, record_device_placement, record_execution, verify_pipeline_sources)
 from weight_files import model_content_sha256, file_sha256, file_signature
 from vae_defaults import resolve_vae_selection, load_selected_vae, verify_vae_selection, vae_metadata
+import krea2_contract
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CACHE = ROOT / "build/reference/huggingface"
@@ -65,10 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int)
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
+    parser.add_argument("--sigmas", type=read_json, help="Custom unshifted sigma array; Krea 2 validates its numerical contract")
     parser.add_argument("--steps", type=int)
     parser.add_argument("--guidance-scale", type=float)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps", "metal", "rocm"), default="auto")
     parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="float32")
+    krea2_contract.add_options(parser)
     parser.add_argument("--offload", choices=("none", "model", "sequential"), default="none")
     parser.add_argument("--local-files-only", action="store_true", default=True)
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
@@ -183,13 +186,14 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
     validate_input_descriptors(result.inputs)
     for option, key in (("prompt", "prompt"), ("negative_prompt", "negative_prompt"),
                         ("width", "width"), ("height", "height"),
-                        ("steps", "num_inference_steps"), ("guidance_scale", "guidance_scale")):
+                        ("steps", "num_inference_steps"), ("guidance_scale", "guidance_scale"), ("sigmas", "sigmas")):
         value = getattr(args, option)
         if value is not None:
             result.inputs[key] = value
     result.cache_dir = args.cache_dir.expanduser().absolute()
     result.output_dir = args.output_dir.expanduser().absolute()
     index, folder = load_model_index(result)
+    result.krea2 = krea2_contract.resolve(result, {**index, "_class_name": result.pipeline_class or index["_class_name"]})
     family = pipeline_lora_family(result.pipeline_class or index["_class_name"], folder)
     resolve_family_default_lora(family, result)
     result.lora_selection = resolve_lora_selection(result)
@@ -208,6 +212,7 @@ def configuration(args: argparse.Namespace) -> dict[str, Any]:
         "generation_defaults": args.default_modifier_metadata,
         "vae": vae_metadata(args.vae_selection, args.vae_status),
         "device": args.device, "dtype": args.dtype, "offload": args.offload,
+        "krea2": getattr(args, "krea2", None),
         "local_files_only": args.local_files_only, "cache_dir": str(args.cache_dir),
         "output_dir": str(args.output_dir), "audio_sample_rate": args.audio_sample_rate,
         "preview_dir": str(args.preview_dir) if args.preview_dir is not None else None,
@@ -219,6 +224,17 @@ def configuration(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def is_pipeline_configuration(index: dict[str, Any], name: str, value: Any) -> bool:
+    # Krea 2 stores a list of tapped text layers in model_index.json. It is
+    # configuration, not a [library, class] component to import.
+    if index.get("_class_name") != "Krea2Pipeline" or name != "text_encoder_select_layers":
+        return False
+    if value is not None and (not isinstance(value, (list, tuple)) or not 1 <= len(value) <= 256
+                              or any(type(layer) is not int or not 0 <= layer <= 1024 for layer in value)):
+        raise ValueError("Krea 2 text_encoder_select_layers must be a bounded list of nonnegative layer indices.")
+    return True
+
+
 def validate_model_index(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("model_index.json must contain an object.")
@@ -226,6 +242,8 @@ def validate_model_index(value: Any) -> dict[str, Any]:
     if not isinstance(name, str) or not IDENTIFIER.fullmatch(name):
         raise ValueError("model_index.json must identify a built-in pipeline class; custom pipeline scripts are unsupported.")
     for component, selection in value.items():
+        if is_pipeline_configuration(value, component, selection):
+            continue
         if component.startswith("_") or not isinstance(selection, (list, tuple)):
             continue
         if not IDENTIFIER.fullmatch(component) or len(selection) != 2:
@@ -288,6 +306,8 @@ def validate_base_model(label: str | None, pipeline_class: Any, diffusers: Any) 
 
 def validate_components(diffusers: Any, index: dict[str, Any], folder: Path | None = None) -> None:
     for name, value in index.items():
+        if is_pipeline_configuration(index, name, value):
+            continue
         if name.startswith("_") or not isinstance(value, (list, tuple)) or value == [None, None]:
             continue
         library, _ = value
@@ -387,6 +407,7 @@ def load_pipeline(args: argparse.Namespace, diffusers: Any, dtype: Any) -> tuple
         pipeline = pipeline_class.from_pretrained(str(folder), **kwargs)
     if pipeline.__class__ is not pipeline_class:
         raise RuntimeError(f"Requested {pipeline_class.__name__}, but loader instantiated {pipeline.__class__.__name__}.")
+    krea2_contract.validate_pipeline(pipeline, getattr(args, "krea2", None))
     verify_identity(identity)
     verify_vae_selection(selection)
     return pipeline, {"identity": identity, "index_class": index["_class_name"],
@@ -468,8 +489,9 @@ def prepared_pipeline(args, diffusers, dtype, device):
     verify_lora_identity(selection)
     vae = getattr(args, "vae_selection", None)
     verify_vae_selection(vae)
-    key = (("diffusers", pipeline_name, str(dtype), repr(selection), repr(vae))
-           if pipeline_name in ("StableDiffusionPipeline", "StableDiffusionXLPipeline", "FluxPipeline") else None)
+    key = (("diffusers", pipeline_name, str(dtype), repr(selection), repr(vae),
+            (getattr(args, "krea2", None) or {}).get("variant"))
+           if pipeline_name in ("StableDiffusionPipeline", "StableDiffusionXLPipeline", "FluxPipeline", "Krea2Pipeline") else None)
     if is_preparing() and key is None:
         raise ValueError("Foreground preparation requires a retained local image pipeline.")
     sources = [folder] + ([args.model] if args.source_kind == "single-file" else [])
@@ -763,7 +785,7 @@ def main(argv: list[str] | None = None) -> int:
             inputs["generator"] = torch.Generator(device="cpu").manual_seed(args.seed)
         attach_preview(pipeline, inputs, args.preview_dir, torch, inputs.get("width"), inputs.get("height"))
         # Retained offload weights must remain versioned across device changes.
-        with torch.no_grad():
+        with torch.no_grad(), krea2_contract.execution(pipeline, inputs, args.krea2, torch) as krea2_trace:
             result = pipeline(**inputs)
         validate_execution_device(pipeline, device)
         validate_lora_activation(pipeline, args.lora_activation)
@@ -778,6 +800,7 @@ def main(argv: list[str] | None = None) -> int:
             except importlib.metadata.PackageNotFoundError:
                 versions[package] = None
         report = {"schema_version": 1, "request": configuration(args), "model": model,
+                  "krea2_execution": krea2_trace,
                   "adapters": {"lora": lora_metadata(args.lora_selection, args.lora_activation)},
                   "input_files": input_files,
                   "runtime": {"packages": versions, "hardware": hardware, "pipeline_cache_hit": pipeline_cache_hit,

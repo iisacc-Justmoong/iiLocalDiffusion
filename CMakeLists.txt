@@ -130,6 +130,9 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_link_libraries(NativeVaeConfigTests PRIVATE ${IILD_JSON_C_TARGET} ${CMAKE_DL_LIBS})
         add_test(NAME NativeVaeConfigTests COMMAND NativeVaeConfigTests
             "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${CMAKE_CURRENT_BINARY_DIR}/native-vae-config-contract")
+        add_executable(NativeKrea2NamesTests tests/NativeKrea2NamesTests.cpp)
+        target_link_libraries(NativeKrea2NamesTests PRIVATE stable-diffusion)
+        add_test(NAME NativeKrea2NamesTests COMMAND NativeKrea2NamesTests)
         add_executable(NativeLoggingTests tests/NativeLoggingTests.cpp)
         target_link_libraries(NativeLoggingTests PRIVATE stable-diffusion)
         add_test(NAME NativeLoggingTests COMMAND NativeLoggingTests)
@@ -161,6 +164,9 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         add_executable(NativeMixedBackendTests tests/NativeMixedBackendTests.cpp)
         target_link_libraries(NativeMixedBackendTests PRIVATE stable-diffusion ggml-metal)
         add_test(NAME NativeMixedBackendStorage COMMAND NativeMixedBackendTests)
+        add_executable(NativeFp8MetalTests tests/NativeFp8MetalTests.cpp)
+        target_link_libraries(NativeFp8MetalTests PRIVATE stable-diffusion ggml-metal)
+        add_test(NAME NativeFp8MetalTests COMMAND NativeFp8MetalTests)
         add_executable(NativeLegacyMetalTests tests/NativeLegacyMetalTests.cpp)
         target_link_libraries(NativeLegacyMetalTests PRIVATE stable-diffusion ggml-metal)
         add_test(NAME NativeLegacyMetalStorage COMMAND NativeLegacyMetalTests)
@@ -426,9 +432,9 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
                 ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
         endforeach()
         foreach(model_compatibility_test IN ITEMS
-                CivitaiCatalogTests ModelFamilyTests GenericDiffusersTests
+                CivitaiCatalogTests ModelFamilyTests GenericDiffusersTests BackendRegistryTests Krea2ContractTests Krea2RuntimeTests
                 ComfyUIRuntimeTests GenerationRouterTests RuntimeCompatibilityTests
-                DownloadedModelTests CheckpointConversionTests DiTConversionTests PythonLauncherTests ModelMergeTests ModelMergeLoraTests ModelMergeSyntheticTests ModelMergeCommonLayerTests ModelMergeCompatibilityTests UnifiedModelMergeTests UnifiedImageTests ComfyUIImageWorkflowTests
+                DownloadedModelTests CheckpointConversionTests DiTConversionTests PythonLauncherTests ModelMergeTests ModelMergeLoraTests ModelMergeSyntheticTests ModelMergeCommonLayerTests ModelMergeBaseLayoutTests ModelMergeCompatibilityTests UnifiedModelMergeTests UnifiedImageTests ComfyUIImageWorkflowTests
                 LocalImageTests SetupComfyUITests)
             add_test(NAME ${model_compatibility_test}
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${model_compatibility_test}.py")

@@ -27,13 +27,15 @@ CPU 폴백에서도 메모리 절약형 연산을 유지해야 한다. 해상도
 그래프에 제곱 크기 중간 텐서가 생기지 않는지 검사한다. 네이티브 내부 헤더를 사용하는 소비자는
 고정 엔진과 동일한 `GGML_MAX_NAME=160`을 전달받아 텐서 구조체의 레이아웃을 일치시킨다.
 
-기존 호출도 [전역 네거티브 임베딩·폴백 LoRA](generation-defaults.md)를 자동 적용한다. SDXL은 임베딩 7개와 강도 1.0의 기본 LoRA를 사용하며, `generateNativeImageWithOptions()`는 커스텀 네거티브 문장·LoRA·리소스 위치를 받는다. 기존 요청/결과 구조체 ABI는 유지한다.
+기존 호출도 [전역 네거티브 임베딩·폴백 LoRA](generation-defaults.md)를 자동 적용한다. SDXL은 임베딩 7개를 사용하고 LoRA는 자동 적용하지 않으며, `generateNativeImageWithOptions()`는 커스텀 네거티브 문장·LoRA·리소스 위치를 받는다. 기존 요청/결과 구조체 ABI는 유지한다.
 
-기본 LoRA 선택은 SDXL에 고정하지 않는다. 엔진이 확인한 SD1/SD2/SD3/FLUX.1/FLUX.2/Qwen Image/Z Image 계열을 `fallback_lora` 또는 `fallback_loras` 명세와 대조한다. 명시적 `options.loras`가 있으면 기본값을 대체하며 각 LoRA의 강도를 그대로 엔진에 전달한다. 현재 번들의 LoRA는 SDXL용이므로 다른 계열에는 호환되는 별도 파일이 필요하다. `NativeResultTests`는 7개 계열의 기본값 전달·명시적 대체·중복 계열 거부를 실제 네이티브 어댑터와 C API 대역으로 검증한다.
+기본 LoRA 선택은 SDXL에 고정하지 않는다. 엔진이 확인한 SD1/SD2/SD3/FLUX.1/FLUX.2/Qwen Image/Z Image 계열을 `fallback_lora` 또는 `fallback_loras` 명세와 대조한다. 명시적 `options.loras`가 있으면 기본값을 대체하며 각 LoRA의 강도를 그대로 엔진에 전달한다. 번들 명세는 빈 기본 LoRA 목록을 사용하며, 사용자 명세에 등록할 때는 계열별 호환 파일이 필요하다. `NativeResultTests`는 7개 계열의 기본값 전달·명시적 대체·중복 계열 거부를 실제 네이티브 어댑터와 C API 대역으로 검증한다.
 
 ## 출력 크기와 오류 처리
 
-`NativeGenerationRequest.width/height`는 최종 출력 크기이다. 모든 생성 진입점과 C 브리지는 각 변을 절반으로 나눈 값을 1차 생성에 전달한다. 예를 들어 1024×1024 요청은 512×512 생성 → Lanczos 확대 → VAE 재인코딩 → 강도 0.35의 재확산 → 1024×1024 디코딩으로 실행한다. 고정 stable-diffusion.cpp의 내장 Hires 기능을 사용하므로 별도 모델·패키지·네트워크가 필요하지 않다. 기본 보정 요청 스텝은 `max(1, floor(steps * 0.35))`이며 실제 샘플러 콜백이 실행 스텝을 보고한다. 로딩만 하는 `prepareNativeImageModel`은 두 생성 단계를 실행하지 않는다.
+`NativeGenerationRequest.width/height`는 최종 출력 크기이다. 기존 생성 진입점과 V1 C 브리지는 각 변을 절반으로 나눈 값을 1차 생성에 전달한다. 예를 들어 1024×1024 요청은 512×512 생성 → Lanczos 확대 → VAE 재인코딩 → 강도 0.35의 재확산 → 1024×1024 디코딩으로 실행한다. 고정 stable-diffusion.cpp의 내장 Hires 기능을 사용하므로 별도 모델·패키지·네트워크가 필요하지 않다. 기본 보정 요청 스텝은 `max(1, floor(steps * 0.35))`이며 실제 샘플러 콜백이 실행 스텝을 보고한다. 로딩만 하는 `prepareNativeImageModel`은 두 생성 단계를 실행하지 않는다.
+
+구성요소별 로딩을 지원하는 `generateNativeImageWithComponents`와 V2 C 브리지는 `hires`를 명시적으로 받으며 기본은 단일 패스이다. CLIP·T5·LLM·VAE 경로, CFG와 내장 guidance를 개별 지정한다. 모델별 자동 판별, 분리 가중치, 출력 명세와 사용법은 [백엔드 라우팅](backend-routing.md)에 정리되어 있다.
 
 각 단계의 내부 캔버스는 엔진의 모델 배수에 맞게 올림된다. 따라서 1024×1368 요청의 1차 입력은 512×684이고 UNet 캔버스는 512×704이다. 최종 캔버스 1024×1408을 Hires로 완성한 후 상하 20픽셀씩 제거하여 정확히 1024×1368을 반환한다. 최소 64픽셀 요청 등에서는 내부 정렬 때문에 1차 캔버스가 수학적인 절반보다 클 수 있다. VAE 메모리 정책은 최종 캔버스를 기준으로 정한다. 최종 잘라내기 자체에는 추가 보간이 없다. 잘못된 크기·채널·개수·빈 결과, 보정 실패·취소·제한 시간 초과는 완성 이미지로 반환하지 않는다.
 

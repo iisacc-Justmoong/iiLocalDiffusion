@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -14,7 +15,8 @@ struct NativeGenerationRequest {
     // A checkpoint file, packaged .iildmodel file, or legacy unified directory.
     std::filesystem::path modelPath;
     std::string prompt;
-    // Final output size. Base inference uses half of each axis before Hires fix.
+    // Final output size. Legacy entry points use half size followed by Hires;
+    // the component-aware entry point makes Hires an explicit option.
     int width = 512;
     int height = 512;
     int steps = 20;
@@ -75,6 +77,35 @@ struct NativeGenerationOptions {
     bool defaultModifiers = true;
 };
 enum class NativeComputeBackend { Automatic, Cpu };
+enum class NativePrediction { Automatic, Epsilon, VPrediction };
+enum class NativeSampler { Automatic, Euler, Heun };
+// Separate control object preserves all existing public structure layouts.
+// customSigmas are native engine sigmas: steps + 1 values including terminal zero.
+struct NativeSamplingControls {
+    NativeSampler sampler = NativeSampler::Automatic;
+    float flowShift = std::numeric_limits<float>::infinity();
+    std::vector<float> customSigmas;
+};
+// Component-aware entry point; existing request/options and their ABI stay intact.
+// Empty paths select embedded weights. All supplied paths must be canonical files.
+struct NativeModelComponents {
+    std::filesystem::path clipL, clipG, t5xxl, llm, vae;
+    float guidanceScale = 1.0f;
+    float distilledGuidance = 3.5f;
+    bool hires = false;
+    NativePrediction prediction = NativePrediction::Automatic;
+};
+IILD_EXPORT NativeGenerationResult generateNativeImageWithComponents(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const NativeModelComponents &components,
+    NativeComputeBackend backend, const std::atomic_bool &cancelled, bool prepareOnly = false,
+    const NativeProgressCallback &progress = {}, const NativePreviewCallback &preview = {},
+    const std::shared_ptr<NativeExecutionControl> &control = {});
+IILD_EXPORT NativeGenerationResult generateNativeImageWithSampling(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const NativeModelComponents &components,
+    const NativeSamplingControls &sampling, NativeComputeBackend backend,
+    const std::atomic_bool &cancelled, bool prepareOnly = false,
+    const NativeProgressCallback &progress = {}, const NativePreviewCallback &preview = {},
+    const std::shared_ptr<NativeExecutionControl> &control = {});
 // Explicit CPU placement supports OS background tasks without GPU access.
 // Existing request/options layouts and entry points retain their ABI.
 IILD_EXPORT NativeGenerationResult generateNativeImageWithBackend(const NativeGenerationRequest &request,

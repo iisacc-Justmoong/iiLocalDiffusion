@@ -41,6 +41,12 @@ bool validExternalVae = true;
 int vaeValidationCalls = 0;
 bool expectCpu = false;
 std::string selectedVae;
+std::string selectedClipL, selectedClipG, selectedT5, selectedLlm;
+bool expectHires = true;
+float actualCfg = 0, actualDistilled = 0, actualFlowShift = 0;
+sample_method_t actualSampler{};
+std::vector<float> actualSigmas;
+prediction_t selectedPrediction = PREDICTION_COUNT;
 constexpr auto warning = "No valid VAE specified with --vae or --force-sdxl-vae-conv-scale flag set, using Conv2D scale 0.031";
 void require(bool condition, const std::string &message) {
     if (!condition) throw std::runtime_error(message);
@@ -88,6 +94,11 @@ sd_ctx_t *new_sd_ctx(const sd_ctx_params_t *parameters) {
     require(parameters->flash_attn && parameters->diffusion_flash_attn,
             "VAE placement must preserve denoiser attention settings");
     selectedVae = parameters->vae_path ? parameters->vae_path : "";
+    selectedClipL = parameters->clip_l_path ? parameters->clip_l_path : "";
+    selectedClipG = parameters->clip_g_path ? parameters->clip_g_path : "";
+    selectedT5 = parameters->t5xxl_path ? parameters->t5xxl_path : "";
+    selectedLlm = parameters->llm_path ? parameters->llm_path : "";
+    selectedPrediction = parameters->prediction;
     embeddingCount = parameters->embedding_count;
     for (unsigned i = 0; i < embeddingCount; ++i)
         require(std::filesystem::is_regular_file(parameters->embeddings[i].path), "Default embedding is not a file");
@@ -118,12 +129,21 @@ bool generate_image(sd_ctx_t *, const sd_img_gen_params_t *parameters, sd_image_
         require(parameters->init_image.data[3] == 1 && parameters->init_image.data[5] == 1,
             "The unified bridge must carry the preceding image pixels");
     }
-    require(parameters->hires.enabled, "Every native image must run Hires fix");
+    require(parameters->hires.enabled == expectHires, "Native image must honor its Hires contract");
+    actualFlowShift = parameters->sample_params.flow_shift;
+    actualSampler = parameters->sample_params.sample_method;
+    actualSigmas.clear();
+    if (parameters->sample_params.custom_sigmas_count)
+        actualSigmas.assign(parameters->sample_params.custom_sigmas,
+            parameters->sample_params.custom_sigmas + parameters->sample_params.custom_sigmas_count);
+    actualCfg = parameters->sample_params.guidance.txt_cfg;
+    actualDistilled = parameters->sample_params.guidance.distilled_guidance;
     require(parameters->hires.upscaler == SD_HIRES_UPSCALER_LANCZOS
         && parameters->hires.denoising_strength == 0.35f,
         "Hires fix must decode, upscale with Lanczos, and denoise at strength 0.35");
-    require(parameters->hires.target_width == (parameters->width * 2 + 63) / 64 * 64
-        && parameters->hires.target_height == (parameters->height * 2 + 63) / 64 * 64,
+    const int factor = expectHires ? 2 : 1;
+    require(parameters->hires.target_width == (parameters->width * factor + 63) / 64 * 64
+        && parameters->hires.target_height == (parameters->height * factor + 63) / 64 * 64,
         "The engine must receive half the requested axes and the aligned final target");
     require(parameters->hires.steps == std::max(1, int(parameters->sample_params.sample_steps * 0.35f)),
         "Even a one-step request must retain actual Hires denoising");
@@ -265,6 +285,87 @@ int main(int argc, char **argv) {
             require(cancelledResult && std::string(iild_native_metadata_v1(cancelledResult)).find("\"cancelled\":true") != std::string::npos,
                 "Native bridge cancellation was lost");
             iild_native_free_v1(cancelledResult);
+            {
+                iild_native_request_v2 split{};
+                split.size = sizeof(split); split.image = bridge;
+                split.clip_l = split.clip_g = split.t5xxl = split.llm = split.vae = path.c_str();
+                split.guidance_scale = 1.25f; split.distilled_guidance = 3.5f;
+                split.prediction = 2;
+                expectHires = false;
+                auto *image = iild_native_generate_v2(&split, nullptr, nullptr, nullptr);
+                require(image && std::string(iild_native_metadata_v1(image)).find("\"error\":\"\"") != std::string::npos,
+                    "Component-aware native generation failed");
+                require(selectedClipL == path && selectedClipG == path && selectedT5 == path
+                    && selectedLlm == path && selectedVae == path,
+                    "Split model component paths did not reach the native engine");
+                require(actualCfg == 1.25f && actualDistilled == 3.5f,
+                    "Family sampling settings did not reach the native engine");
+                require(selectedPrediction == V_PRED, "Explicit v_prediction was lost during context construction");
+                size_t size = 0;
+                require(iild_native_rgb_v1(image, &size) && size == 64 * 120 * 3,
+                    "V2 single pass must retain exact requested RGB dimensions");
+                iild_native_free_v1(image);
+                iild_native_request_v3 controlled{};
+                controlled.size = sizeof(controlled); controlled.image = split;
+                controlled.sampler = 2; controlled.flow_shift = .85f;
+                std::vector<float> sigmas;
+                for (int i = bridge.steps; i >= 0; --i) sigmas.push_back(float(i) / bridge.steps);
+                controlled.sigmas = sigmas.data(); controlled.sigma_count = sigmas.size();
+                image = iild_native_generate_v3(&controlled, nullptr, nullptr, nullptr);
+                require(image && std::string(iild_native_metadata_v1(image)).find("\"error\":\"\"") != std::string::npos,
+                    "V3 sampling request failed");
+                require(actualSampler == HEUN_SAMPLE_METHOD && actualFlowShift == .85f && actualSigmas == sigmas,
+                    "V3 sampler, shift or custom schedule did not reach the engine");
+                require(std::string(iild_native_metadata_v1(image)).find("\"model_cache_hit\":true") != std::string::npos,
+                    "Per-request scheduling should not reload model weights");
+                iild_native_free_v1(image);
+                // Krea V3 uses the same output contract as QuickGenerate:
+                // align the inference canvas, then preserve requested RGB size.
+                for (const auto &size : std::array<std::array<int, 2>, 5>{{
+                         {1024, 1024}, {1368, 1024}, {1024, 1368},
+                         {1824, 1024}, {1024, 1824}}}) {
+                    auto rectangular = controlled;
+                    rectangular.image.image.width = size[0];
+                    rectangular.image.image.height = size[1];
+                    image = iild_native_generate_v3(&rectangular, nullptr, nullptr, nullptr);
+                    require(image && std::string(iild_native_metadata_v1(image)).find("\"error\":\"\"") != std::string::npos,
+                        "V3 QuickGenerate rectangle failed");
+                    size_t bytes = 0;
+                    const auto *rgb = iild_native_rgb_v1(image, &bytes);
+                    require(rgb && bytes == size_t(size[0]) * size[1] * 3,
+                        "V3 must preserve QuickGenerate output dimensions");
+                    require(rgb[0] == ((size[0] + 63) / 64 * 64 - size[0]) / 2
+                         && rgb[1] == ((size[1] + 63) / 64 * 64 - size[1]) / 2,
+                        "V3 must center-crop without stretching RGB");
+                    iild_native_free_v1(image);
+                }
+                const int callsBeforeInvalid = generationCalls;
+                for (int failure = 0; failure < 5; ++failure) {
+                    auto invalid = controlled;
+                    if (failure == 0) invalid.sigmas = nullptr;
+                    if (failure == 1) invalid.sigma_count -= 1;
+                    if (failure == 2) invalid.flow_shift = std::numeric_limits<float>::quiet_NaN();
+                    if (failure == 3) invalid.sampler = 3;
+                    if (failure == 4) invalid.image.size = 0;
+                    image = iild_native_generate_v3(&invalid, nullptr, nullptr, nullptr);
+                    require(image && std::string(iild_native_metadata_v1(image)).find("\"error\":\"\"") == std::string::npos,
+                        "Invalid V3 controls were accepted");
+                    iild_native_free_v1(image);
+                }
+                require(generationCalls == callsBeforeInvalid, "Invalid V3 controls reached inference");
+                // Only the component binding changed: it must still invalidate residency.
+                split.llm = nullptr;
+                image = iild_native_generate_v2(&split, nullptr, nullptr, nullptr);
+                require(image && std::string(iild_native_metadata_v1(image)).find("\"model_cache_hit\":false") != std::string::npos,
+                    "Changed component binding reused the old context");
+                iild_native_free_v1(image);
+                split.size = 0;
+                image = iild_native_generate_v2(&split, nullptr, nullptr, nullptr);
+                require(image && std::string(iild_native_metadata_v1(image)).find("ABI version") != std::string::npos,
+                    "V2 accepted an invalid ABI size");
+                iild_native_free_v1(image);
+                expectHires = true;
+            }
             bridge.size = 0;
             auto *invalid = iild_native_generate_v1(&bridge, nullptr, nullptr);
             require(invalid && std::string(iild_native_metadata_v1(invalid)).find("ABI version") != std::string::npos,
@@ -318,10 +419,8 @@ int main(int argc, char **argv) {
                 decoded |= event.stage == NativeGenerationStage::Decoding;
             });
             require(result.error.empty(), "Completed image rejected: " + result.error);
-            require(embeddingCount == 7 && loraCount == 1 && loraStrength == 1,
-                    "Legacy native API omitted mandatory default modifiers");
-            require(loraPath.find("addDetailAesthetic_v20_32.safetensors") != std::string::npos,
-                    "Incorrect fallback LoRA");
+            require(embeddingCount == 7 && loraCount == 0,
+                    "Native defaults must keep negative embeddings without injecting a LoRA");
             for (const auto *token : {"iild_negative_color_balance", "iild_ndxl", "iild_negative_dynamics",
                     "iild_negative_xl", "iild_negative_hand", "iild_negative_face", "iild_negative_realisticvision"})
                 require(negativePrompt.find(token) != std::string::npos, "Missing default negative token");

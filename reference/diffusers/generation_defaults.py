@@ -56,8 +56,8 @@ def fallback_loras(manifest):
     if not isinstance(entries, list):
         raise ValueError("fallback_loras must be an array.")
     entries = ([manifest["fallback_lora"]] if "fallback_lora" in manifest else []) + entries
-    if not entries or len(entries) > 64:
-        raise ValueError("The defaults manifest requires 1..64 fallback LoRAs.")
+    if len(entries) > 64:
+        raise ValueError("The defaults manifest allows at most 64 fallback LoRAs.")
     seen = set()
     for item in entries:
         if not isinstance(item, dict):

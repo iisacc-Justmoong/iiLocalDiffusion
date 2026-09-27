@@ -1,0 +1,14 @@
+--- a/src/name_conversion.cpp
++++ b/src/name_conversion.cpp
+@@ -1487,6 +1487,11 @@
+         prefix_map["clip_g."] = "text_encoders.clip_g.transformer.";
+     }
+ 
++    // ComfyUI complete Krea2 checkpoints embed Qwen3-VL under its model name.
++    // Normalize before vision and generic LLM conversion, including quant scales.
++    if (sd_version_is_krea2(version)) {
++        prefix_map["text_encoders.qwen3vl_4b.transformer."] = "text_encoders.llm.";
++    }
+     replace_with_prefix_map(name, prefix_map);
+ 
+     if (sd_version_is_boogu_image(version) || sd_version_is_krea2(version) || sd_version_is_mage_flow(version) || sd_version_is_minimax_h3(version)) {

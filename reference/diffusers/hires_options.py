@@ -35,9 +35,9 @@ def add_hires_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--hires-upscaler", choices=HIRES_UPSCALERS, default=None,
                         help="Image interpolation before refinement (default with HiRes Fix: lanczos)")
     parser.add_argument("--hires-denoising-strength", "--hires-strength", type=float, default=None,
-                        help="Each refinement's denoising strength in (0,1] (default with HiRes Fix: 0.35)")
+                        help="Each refinement's denoising strength in (0,1] (SDXL: 0.25; other families: 0.35)")
     parser.add_argument("--hires-steps", type=int, default=None,
-                        help="Each refinement's schedule length; defaults to --steps, reduced by strength")
+                        help="Full refinement schedule length; SDXL defaults retain at least 10 active steps after strength; others inherit --steps")
     parser.add_argument("--hires-seed", type=int, default=None,
                         help="Each refinement's first image seed; defaults to --seed and reuses --seed-stride")
     parser.add_argument("--hires-guidance-scale", type=float, default=None,
@@ -199,16 +199,19 @@ def resolve_hires_options(preset: PipelinePreset, args: argparse.Namespace) -> N
             raise SystemExit(str(error)) from error
     args.hires_target_width, args.hires_target_height = args.hires_stage_sizes[-1]
 
-    strength = 0.35 if args.hires_denoising_strength is None else args.hires_denoising_strength
+    default_strength = 0.25 if preset.family == "sdxl-base" else 0.35
+    strength = default_strength if args.hires_denoising_strength is None else args.hires_denoising_strength
     _finite_number(strength, "hires_denoising_strength", lower=0, inclusive=False, upper=1)
     default_steps = args.steps
-    if args.hires_target_mode and args.hires_steps is None:
-        minimum_steps = 1 / strength
+    if args.hires_steps is None and (args.hires_target_mode or preset.family == "sdxl-base"):
+        # SDXL preserves the first image with low strength but must still have
+        # enough active updates; a ten-step full schedule previously kept only three.
+        minimum_steps = (10 if preset.family == "sdxl-base" else 1) / strength
         if not math.isfinite(minimum_steps):
             raise SystemExit("HiRes strength is too small to represent a non-empty schedule.")
         default_steps = max(default_steps, math.ceil(minimum_steps))
     defaults = {
-        "hires_upscaler": "lanczos", "hires_denoising_strength": 0.35,
+        "hires_upscaler": "lanczos", "hires_denoising_strength": default_strength,
         "hires_steps": default_steps, "hires_seed": args.seed,
         "hires_guidance_scale": args.guidance_scale, "hires_true_cfg_scale": args.true_cfg_scale,
         "hires_scheduler": "auto", "hires_scheduler_config": {}, "hires_save_base": False,

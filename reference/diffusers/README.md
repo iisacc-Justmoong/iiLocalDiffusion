@@ -235,8 +235,9 @@ contract; automatic learned negative embeddings remain on the preset,
 standalone and Deforum paths. Deforum verifies adapter activation for every
 generated frame and records `frames[].lora.applied`.
 
-SDXL defaults to the bundled `addDetailAesthetic_v20_32` LoRA at strength 1.0,
-with seven learned negative embeddings. An explicit LoRA replaces that fallback.
+SDXL automatically applies seven learned negative embeddings, but its bundled
+fallback LoRA list is empty. Adapters are applied only when explicitly selected
+or registered in a custom resource manifest.
 See [generation defaults](../../docs/generation-defaults.md) for family compatibility,
 long CLIP conditioning, installed assets, and explicit baseline comparisons.
 
@@ -497,3 +498,7 @@ tokenizer. Run
 use `--config video.example.json --print-config` to inspect a replayable request.
 See [the video contract](../../docs/temporal-video.md) for generation commands,
 output provenance and the distinction from the existing animation backends.
+
+### SDXL HiRes refinement budget
+
+SDXL-family HiRes defaults use strength 0.25 and a full schedule of at least `ceil(10 / strength)` steps, preserving at least ten actual img2img updates. The base step count remains unchanged. Explicit `--hires-steps` and `--hires-strength` remain authoritative; other model families retain their existing defaults. Use `--hires-save-base` when comparing color before and after refinement. An explicit `--vae` overrides embedded weights for both stages; do not average incompatible/reparameterized VAEs when preparing merged checkpoints.

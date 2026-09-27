@@ -217,8 +217,8 @@ GenerationDefaults loadGenerationDefaults(const std::filesystem::path &directory
         for (std::size_t i = 0; i < json_object_array_length(loraEntries); ++i)
             addLora(json_object_array_get_idx(loraEntries, i));
     }
-    if (result.loras.empty() || result.loras.size() > 64)
-        throw std::runtime_error("The defaults manifest requires 1..64 fallback LoRAs.");
+    if (result.loras.size() > 64)
+        throw std::runtime_error("The defaults manifest allows at most 64 fallback LoRAs.");
     auto *entries = field(manifest.get(), "negative_embeddings", json_type_array);
     const auto count = json_object_array_length(entries);
     if (count > 64) throw std::runtime_error("Invalid default embedding count.");

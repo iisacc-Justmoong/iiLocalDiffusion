@@ -11,6 +11,7 @@ from model_merge_tensor import (QuantizationError, decode_tensor, has_quantizati
 
 
 POLICY = "base-layout-normalize-project-flatten-v3"
+FORCED_POLICY = "base-layout-force-fit-zero-fill-v1"
 _FLOAT_DTYPES = frozenset({"F8_E4M3", "F8_E5M2", "F16", "BF16", "F32", "F64"})
 _QUANT_DTYPES = frozenset({"I8", "U8"})
 
@@ -45,7 +46,7 @@ def _identity(address):
 
 def _canonical(address):
     key = address[1].lower()
-    prefixes = ("module.", "_orig_mod.", "model.diffusion_model.", "diffusion_model.", "model.")
+    prefixes = ("module.", "_orig_mod.", "model.diffusion_model.", "diffusion_model.", "model.", "net.")
     while any(key.startswith(prefix) for prefix in prefixes):
         key = next(key[len(prefix):] for prefix in prefixes if key.startswith(prefix))
     return _identity(address)[0], key.replace("_", ".")
@@ -102,13 +103,16 @@ class CommonLayerReader:
         return self.base_readers[self.base_layout[self.addresses[key]]].get_slice(key)
 
     def contributes(self, key):
-        return self.mappings[self.addresses[key]] is not None
+        return (self.mappings[self.addresses[key]] is not None
+                or key in self.report.get("zero_fill_targets", ()))
 
     def get_tensor(self, key):
         import torch
         address = self.addresses[key]
         source_address = self.mappings[address]
         if source_address is None:
+            if key in self.report.get("zero_fill_targets", ()):
+                return torch.zeros(self.get_slice(key).get_shape(), dtype=torch.float32)
             return self.base_readers[self.base_layout[address]].get_tensor(key).clone().contiguous()
         try:
             value, scale, _ = decode_tensor(torch, self.source_readers, self.source_layout, source_address)
@@ -123,7 +127,7 @@ class CommonLayerReader:
         return project_tensor(torch, value, self.get_slice(key).get_shape())
 
 
-def project_checkpoint(source_readers, source_layout, base_readers, base_layout):
+def project_checkpoint(source_readers, source_layout, base_readers, base_layout, *, force=False):
     """Exact name, normalized name, then same-component/role depth mapping.
 
     Missing semantic roles are preserved, never filled with an unrelated VAE,
@@ -148,6 +152,8 @@ def project_checkpoint(source_readers, source_layout, base_readers, base_layout)
     source_depth, base_depth = _depth_coordinates(candidates), _depth_coordinates(base_items)
     mappings, details, transforms = {}, [], Counter()
     exact = projected = preserved = 0
+    zero_fill_targets = []
+    fallback_count = normalized_count = shape_changed_count = 0
     for address, filename in sorted(base_layout.items()):
         base = base_readers[filename].get_slice(address[1])
         shape, dtype, identity = base.get_shape(), base.get_dtype(), _identity(address)
@@ -169,9 +175,24 @@ def project_checkpoint(source_readers, source_layout, base_readers, base_layout)
                         abs(source_depth[item[0]] - base_depth[address]),
                         *_shape_distance(shape, item[1]), item[0]))[0]
                     selection = "semantic-normalized-depth"
+            if chosen is None and force and candidates:
+                # The base is the sole shape contract. Prefer component/role,
+                # then deterministically fit even unrelated material coordinates.
+                chosen = min(candidates, key=lambda item: (
+                    item[0][0] != address[0], item[3][0] != identity[0],
+                    item[3][1] != identity[1], item[3][3] != identity[3],
+                    *_shape_distance(shape, item[1]), item[0]))[0]
+                selection = "forced-nearest-source"
+                fallback_count += 1
+            if chosen is None and force:
+                zero_fill_targets.append(address[1])
+                selection = "zero-filled-no-source"
         mappings[address] = chosen
-        transform = projection_transform(source_items[chosen][1], shape) if chosen else "base-preserved"
+        transform = (projection_transform(source_items[chosen][1], shape) if chosen else
+                     "zero-fill" if selection == "zero-filled-no-source" else "base-preserved")
         transforms[transform] += 1
+        normalized_count += int(selection == "normalized-name" and transform == "identity")
+        shape_changed_count += int(chosen is not None and transform != "identity")
         if chosen is None:
             preserved += 1
         elif chosen == address and transform == "identity":
@@ -182,11 +203,16 @@ def project_checkpoint(source_readers, source_layout, base_readers, base_layout)
             details.append({"target": list(address), "source": list(chosen) if chosen else None,
                             "target_shape": list(shape), "source_shape": list(source_items[chosen][1]) if chosen else None,
                             "selection": selection, "transform": transform})
-    report = {"policy": POLICY, "synthetic": True, "semantic_equivalence": False,
+    report = {"policy": FORCED_POLICY if force else POLICY, "synthetic": True, "semantic_equivalence": False,
               "base_layout_tensors": len(base_layout), "source_tensors": len(source_layout),
               "exact_tensors": exact, "projected_tensors": projected, "base_preserved_tensors": preserved,
               "transform_counts": dict(transforms), "mapping_examples": details,
               "dequantized_tensors": 0, "runtime_preserved_tensors": 0, "runtime_events": []}
+    if force:
+        report.update(zero_fill_targets=zero_fill_targets, zero_filled_tensors=len(zero_fill_targets),
+                      forced_source_tensors=fallback_count, normalized_name_tensors=normalized_count,
+                      shape_changed_tensors=shape_changed_count,
+                      base_preserved_tensors=preserved - len(zero_fill_targets))
     projected_readers = {}
     for filename in sorted(set(base_layout.values())):
         addresses = [address for address, owner in base_layout.items() if owner == filename]

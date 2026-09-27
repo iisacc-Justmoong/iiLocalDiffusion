@@ -1,14 +1,6 @@
 {
   "version": 1,
-  "fallback_lora": {
-    "file": "addDetailAesthetic_v20_32.safetensors",
-    "scale": 1.0,
-    "families": [
-      "sdxl-base"
-    ],
-    "sha256": "0444f6834d0f7a2fe32236408828939663b8c6345543c2676be7321c89b08ac6",
-    "size": 271173804
-  },
+  "fallback_loras": [],
   "negative_embeddings": [
     {
       "file": "(negative_v2 Color_Balance_Calibration_0.8).safetensors",

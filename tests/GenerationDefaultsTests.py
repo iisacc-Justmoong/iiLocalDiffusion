@@ -12,7 +12,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 import generate
-from generation_defaults import append_default_tokens, checked_resource, read_defaults
+from generation_defaults import append_default_tokens, checked_resource, read_defaults, fallback_loras
 from generation_config import configuration_values
 
 
@@ -22,10 +22,10 @@ class GenerationDefaultsTests(unittest.TestCase):
                                          "flux1-schnell": "flux1-schnell-manifest"}[preset]
         return generate.resolve_request({"preset": preset, "model": str(model), **values})[1]
 
-    def test_sdxl_uses_all_seven_embeddings_and_full_strength_fallback(self):
+    def test_sdxl_keeps_all_seven_embeddings_without_automatic_lora(self):
         args = self.request()
-        self.assertTrue(args.lora_selection.weight_name.startswith("addDetailAesthetic_v20_32"))
-        self.assertEqual(args.lora_scale, 1.0)
+        self.assertIsNone(args.lora_selection)
+        self.assertEqual(args.default_modifier_metadata["fallback_lora_status"], "not-configured-for-family")
         self.assertEqual(len(args.text_embedding_selections), 7)
         for item in args.text_embedding_selections:
             self.assertIn(item.token, args.negative_prompt)
@@ -75,12 +75,12 @@ class GenerationDefaultsTests(unittest.TestCase):
 
     def test_all_manifest_identities_match_actual_files(self):
         root, manifest = read_defaults()
-        for item in [manifest["fallback_lora"], *manifest["negative_embeddings"]]:
+        for item in [*fallback_loras(manifest), *manifest["negative_embeddings"]]:
             file = checked_resource(root, item)
             self.assertEqual(file.sha256, item["sha256"])
         checked_resource(root, manifest["fallback_vae"])
         with self.assertRaisesRegex(ValueError, "differs"):
-            checked_resource(root, {**manifest["fallback_lora"], "sha256": "0" * 64})
+            checked_resource(root, {**manifest["negative_embeddings"][0], "sha256": "0" * 64})
 
     def test_token_deduplication_does_not_confuse_substrings(self):
         self.assertEqual(append_default_tokens("x_token_extra", ["x_token"]), "x_token_extra, x_token")

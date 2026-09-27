@@ -61,6 +61,8 @@ def preflight_summary(request, entries, common_layers, stages):
         risks.append("Unified is sequential image refinement with independent networks, not conversion into one network. Copied stages retain their original numeric values.")
     else:
         risks.append("Invalid values are repaired and unusable contributions are omitted. Equal output size does not mean unchanged weights.")
+        if request.force_base_layout:
+            risks.append("Base-layout fitting includes different ecosystems and synthetic LoRA targets. Missing learned coordinates use deterministic zero fill; runtime state follows the base. This does not certify image quality or learned equivalence.")
         if any(report["projected_tensors"] for report in common_layers.values()):
             risks.append("Coordinate fitting changes shapes or layer assignments. This approximation is not trained or semantically equivalent conversion.")
         if any(report["base_preserved_tensors"] for report in common_layers.values()):

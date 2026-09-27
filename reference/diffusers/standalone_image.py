@@ -10,7 +10,7 @@ import uuid
 import generate
 from checkpoint_config import inspect_checkpoint
 from downloaded_model import inspect_downloaded_model
-from generation_config import configuration_values
+from generation_config import configuration_values, json_object
 from inference_session import is_preparing
 from weight_files import file_sha256, verify_weight_file
 from presets import PRESETS
@@ -26,6 +26,12 @@ def build_parser():
     parser.add_argument("--work-dir", type=Path, help="Empty caller-owned directory for the resolved request")
     parser.add_argument("--model-info", type=Path, help="Optional Civitai metadata for the local checkpoint")
     parser.add_argument("--validate-only", action="store_true", help="Validate the offline model/configuration request without inference")
+    parser.add_argument("--engine", choices=("auto", "native", "diffusers"), default="auto", help="Local execution engine; auto selects by tensor architecture")
+    parser.add_argument("--components", type=json_object, default={}, help="Native split weights: vae, clip_l, clip_g, t5xxl, llm as local paths")
+    parser.add_argument("--embedded-guidance", type=float, help="Distilled guidance for native flow models (separate from CFG)")
+    from krea2_contract import add_options
+    add_options(parser)
+    parser.add_argument("--native-sampler", choices=("auto", "euler", "heun"), default="auto")
     # Accept previous desktop callers while removing the server cold-start requirement.
     parser.add_argument("--startup-timeout", type=float, help=argparse.SUPPRESS)
     return parser
@@ -37,9 +43,17 @@ def resolve_arguments(args):
     if args.output is not None and args.output_dir is not None:
         raise ValueError("Choose --output or --output-dir, not both.")
     inspection = inspect_downloaded_model(args.model, args.model_info)
-    if inspection.get("architecture") == "anima" and inspection.get("role") == "checkpoint":
+    from backend_registry import PROFILES
+    native = (args.engine == "native" or bool(args.components)
+              or (args.engine == "auto" and inspection.get("architecture") in PROFILES
+                  and inspection.get("architecture") not in ("sd1", "sdxl") and not args.model_config))
+    if native:
+        if args.engine == "diffusers":
+            raise ValueError("--components are native weight files; select --engine native.")
         from native_image import resolve_arguments as resolve_native
         return resolve_native(args, inspection)
+    if args.krea2_variant != 'auto' or args.krea2_mu is not None or args.native_sampler != 'auto':
+        raise ValueError('Krea 2 / native sampling controls require their matching backend.')
     selected, inspection = inspect_checkpoint(args.model, args.base_model, args.model_info)
     if "preset" not in getattr(args, "_provided", ()):
         args.preset = selected
@@ -62,6 +76,7 @@ def resolve_arguments(args):
     if args.animation_mode != "none":
         raise ValueError("Use --backend deforum or interpolator for checkpoint animation.")
     preset, resolved = generate.resolve_arguments(args)
+    resolved.engine = "diffusers"
     generate.validate_generation_arguments(preset, resolved)
     return preset, resolved
 
@@ -135,6 +150,9 @@ def main(argv=None):
             manifest = {"schema": "iild-standalone-image-v1", "status": "complete", "backend": getattr(args, "engine", "diffusers"),
                         "output_directory": str(output), "outputs": [report["output"] for report in reports],
                         "images": reports}
+            if getattr(args, "native_plan", None):
+                manifest["backend_plan"] = args.native_plan
+                manifest["architecture"] = args.architecture
             (stage / "generation.json").write_text(json.dumps(manifest, indent=2))
             if output.resolve() != output or output.is_symlink():
                 raise RuntimeError("The output directory was redirected during generation.")

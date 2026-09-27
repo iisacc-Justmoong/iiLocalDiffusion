@@ -10,15 +10,9 @@ struct iild_native_result_v1 {
     std::string metadata;
 };
 
-extern "C" {
-int iild_native_available_v1(void) { return iiLocalDiffusion::nativeDiffusionAvailable(); }
-iild_native_result_v1 *iild_native_generate_v1(const iild_native_request_v1 *input,
-    iild_native_progress_v1 callback, void *user)
-{
-    return iild_native_generate_with_preview_v1(input, callback, nullptr, user);
-}
-iild_native_result_v1 *iild_native_generate_with_preview_v1(const iild_native_request_v1 *input,
-    iild_native_progress_v1 callback, iild_native_preview_v1 previewCallback, void *user)
+static iild_native_result_v1 *generate(const iild_native_request_v1 *input,
+    iild_native_progress_v1 callback, iild_native_preview_v1 previewCallback, void *user,
+    const iild_native_request_v2 *extended = nullptr, const iild_native_request_v3 *controlled = nullptr)
 {
     try {
         auto result = std::make_unique<iild_native_result_v1>();
@@ -27,6 +21,9 @@ iild_native_result_v1 *iild_native_generate_with_preview_v1(const iild_native_re
                 || input->lora_count > 128 || (input->lora_count && !input->loras)
                 || input->timeout_milliseconds < 0)
                 throw std::invalid_argument("Invalid native bridge request or ABI version.");
+            if (extended && (extended->size != sizeof(*extended) || extended->hires < 0 || extended->hires > 1
+                             || extended->cpu < 0 || extended->cpu > 1 || extended->prediction < 0 || extended->prediction > 2))
+                throw std::invalid_argument("Invalid native V2 request or ABI version.");
             iiLocalDiffusion::NativeGenerationRequest request;
             request.modelPath = input->model;
             request.prompt = input->prompt;
@@ -49,13 +46,40 @@ iild_native_result_v1 *iild_native_generate_with_preview_v1(const iild_native_re
             const auto progress = [&](const iiLocalDiffusion::NativeGenerationProgress &event) {
                 if (callback && callback(static_cast<int>(event.stage), event.step, event.total, user)) cancelled = true;
             };
-            result->image = input->prepare_only
+            const iiLocalDiffusion::NativePreviewCallback preview = previewCallback ? iiLocalDiffusion::NativePreviewCallback([&](const auto &frame) {
+                if (previewCallback(frame.sequence, frame.step, frame.total, frame.width, frame.height,
+                    frame.rgb.data(), frame.rgb.size(), user)) cancelled = true;
+            }) : iiLocalDiffusion::NativePreviewCallback{};
+            if (extended) {
+                iiLocalDiffusion::NativeModelComponents components;
+                if (extended->clip_l) components.clipL = extended->clip_l;
+                if (extended->clip_g) components.clipG = extended->clip_g;
+                if (extended->t5xxl) components.t5xxl = extended->t5xxl;
+                if (extended->llm) components.llm = extended->llm;
+                if (extended->vae) components.vae = extended->vae;
+                components.guidanceScale = extended->guidance_scale;
+                components.distilledGuidance = extended->distilled_guidance;
+                components.hires = extended->hires != 0;
+                components.prediction = static_cast<iiLocalDiffusion::NativePrediction>(extended->prediction);
+                if (controlled) {
+                    if (controlled->sampler < 0 || controlled->sampler > 2 || controlled->sigma_count > 1001
+                        || (controlled->sigma_count && !controlled->sigmas))
+                        throw std::invalid_argument("Invalid native V3 sampling controls.");
+                    iiLocalDiffusion::NativeSamplingControls sampling;
+                    sampling.sampler = static_cast<iiLocalDiffusion::NativeSampler>(controlled->sampler);
+                    sampling.flowShift = controlled->flow_shift;
+                    if (controlled->sigma_count)
+                        sampling.customSigmas.assign(controlled->sigmas, controlled->sigmas + controlled->sigma_count);
+                    result->image = iiLocalDiffusion::generateNativeImageWithSampling(request, options, components, sampling,
+                        extended->cpu ? iiLocalDiffusion::NativeComputeBackend::Cpu : iiLocalDiffusion::NativeComputeBackend::Automatic,
+                        cancelled, input->prepare_only != 0, progress, preview);
+                } else result->image = iiLocalDiffusion::generateNativeImageWithComponents(request, options, components,
+                    extended->cpu ? iiLocalDiffusion::NativeComputeBackend::Cpu : iiLocalDiffusion::NativeComputeBackend::Automatic,
+                    cancelled, input->prepare_only != 0, progress, preview);
+            } else result->image = input->prepare_only
                 ? iiLocalDiffusion::prepareNativeImageModel(request, options, cancelled, progress)
                 : iiLocalDiffusion::generateNativeImageWithPreview(request, options, iiLocalDiffusion::NativeComputeBackend::Automatic,
-                    cancelled, progress, previewCallback ? iiLocalDiffusion::NativePreviewCallback([&](const auto &frame) {
-                        if (previewCallback(frame.sequence, frame.step, frame.total, frame.width, frame.height,
-                            frame.rgb.data(), frame.rgb.size(), user)) cancelled = true;
-                    }) : iiLocalDiffusion::NativePreviewCallback{});
+                    cancelled, progress, preview);
         } catch (const std::exception &error) { result->image.error = error.what(); }
         const auto &value = result->image;
         const std::unique_ptr<json_object, decltype(&json_object_put)> json(json_object_new_object(), json_object_put);
@@ -72,6 +96,25 @@ iild_native_result_v1 *iild_native_generate_with_preview_v1(const iild_native_re
         result->metadata = json_object_to_json_string_ext(json.get(), JSON_C_TO_STRING_PLAIN);
         return result.release();
     } catch (...) { return nullptr; } // No C++ exception may cross the C boundary.
+}
+extern "C" {
+int iild_native_available_v1(void) { return iiLocalDiffusion::nativeDiffusionAvailable(); }
+iild_native_result_v1 *iild_native_generate_v1(const iild_native_request_v1 *input,
+    iild_native_progress_v1 callback, void *user) { return generate(input, callback, nullptr, user); }
+iild_native_result_v1 *iild_native_generate_with_preview_v1(const iild_native_request_v1 *input,
+    iild_native_progress_v1 callback, iild_native_preview_v1 preview, void *user) {
+    return generate(input, callback, preview, user);
+}
+iild_native_result_v1 *iild_native_generate_v2(const iild_native_request_v2 *input,
+    iild_native_progress_v1 callback, iild_native_preview_v1 preview, void *user) {
+    // Check the outer size before dereferencing any trailing fields.
+    if (!input || input->size != sizeof(*input)) return generate(nullptr, callback, preview, user);
+    return generate(&input->image, callback, preview, user, input);
+}
+iild_native_result_v1 *iild_native_generate_v3(const iild_native_request_v3 *input,
+    iild_native_progress_v1 callback, iild_native_preview_v1 preview, void *user) {
+    if (!input || input->size != sizeof(*input)) return generate(nullptr, callback, preview, user);
+    return generate(&input->image.image, callback, preview, user, &input->image, input);
 }
 const char *iild_native_metadata_v1(const iild_native_result_v1 *result) {
     return result ? result->metadata.c_str() : nullptr;

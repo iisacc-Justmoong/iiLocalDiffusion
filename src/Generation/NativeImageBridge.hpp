@@ -33,6 +33,30 @@ typedef int (*iild_native_preview_v1)(int sequence, int step, int total, int wid
     const uint8_t *rgb, size_t size, void *user);
 typedef struct iild_native_result_v1 iild_native_result_v1;
 
+// V2 adds split-model components and family-specific sampling without changing V1.
+typedef struct iild_native_request_v2 {
+    size_t size;
+    iild_native_request_v1 image;
+    const char *clip_l, *clip_g, *t5xxl, *llm, *vae;
+    float guidance_scale, distilled_guidance;
+    int32_t hires, cpu;
+    // 0: engine automatic, 1: epsilon, 2: v_prediction.
+    int32_t prediction;
+} iild_native_request_v2;
+IILD_EXPORT iild_native_result_v1 *iild_native_generate_v2(const iild_native_request_v2 *,
+    iild_native_progress_v1, iild_native_preview_v1, void *user);
+// V3 adds explicit sampling; V1/V2 layouts and symbols are unchanged.
+typedef struct iild_native_request_v3 {
+    size_t size;
+    iild_native_request_v2 image;
+    int32_t sampler; // 0 automatic, 1 Euler, 2 Heun.
+    float flow_shift; // Positive infinity selects engine default.
+    const float *sigmas; // steps + 1 values, including terminal zero.
+    size_t sigma_count;
+} iild_native_request_v3;
+IILD_EXPORT iild_native_result_v1 *iild_native_generate_v3(const iild_native_request_v3 *,
+    iild_native_progress_v1, iild_native_preview_v1, void *user);
+
 IILD_EXPORT int iild_native_available_v1(void);
 IILD_EXPORT iild_native_result_v1 *iild_native_generate_v1(const iild_native_request_v1 *,
     iild_native_progress_v1, void *user);

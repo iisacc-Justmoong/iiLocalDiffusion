@@ -30,7 +30,7 @@ if(IILD_ENABLE_NATIVE_DIFFUSION)
         # Also apply with FETCHCONTENT_SOURCE_DIR_IILD_SDCPP (PATCH_COMMAND is
         # skipped for that override). Refuse drift instead of guessing a patch.
         find_package(Git REQUIRED)
-        foreach(patch_name native-progress-cancellation native-mapped-upload native-tensor-wakeup native-metal-shared-upload native-conversion-cancellation native-thread-safe-logging native-model-family native-mapped-buffer-compatibility native-inplace-backend-compatibility native-metal-storage-ops native-vae-fallback native-cpu-flash-attention native-vae-decode-safety)
+        foreach(patch_name native-progress-cancellation native-mapped-upload native-tensor-wakeup native-metal-shared-upload native-conversion-cancellation native-thread-safe-logging native-model-family native-mapped-buffer-compatibility native-inplace-backend-compatibility native-metal-storage-ops native-vae-fallback native-cpu-flash-attention native-vae-decode-safety native-krea2-embedded-encoder native-metal-fp8-capability)
             set(native_patch "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/patches/${patch_name}.patch")
             set(native_source "${iild_sdcpp_SOURCE_DIR}")
             execute_process(COMMAND "${GIT_EXECUTABLE}" apply --reverse --check "${native_patch}"
