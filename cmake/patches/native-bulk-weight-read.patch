@@ -1,0 +1,176 @@
+--- a/src/core/util.h
++++ b/src/core/util.h
+@@ -63,7 +63,7 @@
+     const uint8_t* data() const { return static_cast<uint8_t*>(data_); }
+     uint8_t* writable_data() { return static_cast<uint8_t*>(data_); }
+     size_t size() const { return size_; }
+-    bool copy_data(void* buf, size_t n, size_t offset) const;
++    virtual bool copy_data(void* buf, size_t n, size_t offset) const;
+ 
+ protected:
+     MmapWrapper(void* data, size_t size)
+--- a/src/core/util.cpp
++++ b/src/core/util.cpp
+@@ -2,6 +2,7 @@
+ #include "core/util.h"
+ #include <algorithm>
+ #include <cctype>
++#include <cerrno>
+ #include <cmath>
+ #include <codecvt>
+ #include <cstdarg>
+@@ -213,8 +214,29 @@
+ 
+ class MmapWrapperImpl : public MmapWrapper {
+ public:
+-    MmapWrapperImpl(void* data, size_t size, int fd)
+-        : MmapWrapper(data, size), fd_(fd) {}
++    MmapWrapperImpl(void* data, size_t size, int fd, bool writable)
++        : MmapWrapper(data, size), fd_(fd), writable_(writable) {}
++
++    bool copy_data(void* buf, size_t n, size_t offset) const override {
++        // Writable MAP_PRIVATE mappings may contain LoRA edits. Preserve those
++        // pages; reading the file descriptor would silently discard the edits.
++        if (writable_) return MmapWrapper::copy_data(buf, n, offset);
++        if (offset > size_ || n > size_ - offset) return false;
++        auto* destination = static_cast<uint8_t*>(buf);
++        while (n > 0) {
++            if (sd_should_abort()) return false;
++            // Large bounded reads avoid one filesystem operation per VM page on
++            // external/sparsebundle storage and need no intermediate host buffer.
++            const size_t chunk = std::min<size_t>(n, 8 * 1024 * 1024);
++            const ssize_t bytes = pread(fd_, destination, chunk, static_cast<off_t>(offset));
++            if (bytes < 0 && errno == EINTR) continue;
++            if (bytes <= 0) return false;
++            destination += bytes;
++            offset += static_cast<size_t>(bytes);
++            n -= static_cast<size_t>(bytes);
++        }
++        return true;
++    }
+ 
+     ~MmapWrapperImpl() override {
+ #ifdef __linux__
+@@ -238,6 +260,7 @@
+ 
+ private:
+     int fd_;
++    bool writable_;
+ };
+ 
+ std::unique_ptr<MmapWrapper> MmapWrapper::create(const std::string& filename, bool writable) {
+@@ -290,13 +313,13 @@
+     }
+ #endif
+ 
+-    return std::make_unique<MmapWrapperImpl>(mapped_data, file_size, file_descriptor);
++    return std::make_unique<MmapWrapperImpl>(mapped_data, file_size, file_descriptor, writable);
+ }
+ 
+ #endif
+ 
+ bool MmapWrapper::copy_data(void* buf, size_t n, size_t offset) const {
+-    if (offset >= size_ || n > (size_ - offset)) {
++    if (offset > size_ || n > (size_ - offset)) {
+         return false;
+     }
+     std::memcpy(buf, data() + offset, n);
+--- a/src/model_loader.h
++++ b/src/model_loader.h
+@@ -71,6 +71,8 @@
+     std::vector<MmapTensorStore> mmap_tensors(std::map<std::string, ggml_tensor*>& tensors,
+                                               std::set<std::string> ignore_tensors = {},
+                                               bool writable                        = true);
++    // handled is false for non-mapped tensors; false return means an I/O failure.
++    bool copy_mapped_tensor(const ggml_tensor* source, void* destination, bool& handled) const;
+     bool load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
+                       bool use_mmap                                    = false,
+                       const std::set<std::string>* target_tensor_names = nullptr,
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -919,6 +919,19 @@
+     return result;
+ }
+ 
++bool ModelLoader::copy_mapped_tensor(const ggml_tensor* source, void* destination, bool& handled) const {
++    handled = false;
++    for (const auto& file : file_data) {
++        if (!file.mmapped || source->buffer != file.mmbuffer.get()) continue;
++        handled = true;
++        const auto base = reinterpret_cast<uintptr_t>(file.mmapped->data());
++        const auto data = reinterpret_cast<uintptr_t>(source->data);
++        if (data < base || data - base > file.mmapped->size()) return false;
++        return file.mmapped->copy_data(destination, ggml_nbytes(source), data - base);
++    }
++    return true;
++}
++
+ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
+                                bool enable_mmap,
+                                const std::set<std::string>* target_tensor_names,
+@@ -988,6 +1001,10 @@
+                     file_path.c_str());
+ 
+         bool is_zip = fdata.is_zip;
++        if (!is_zip) {
++            std::stable_sort(tensors_to_process.begin(), tensors_to_process.end(),
++                [](const TensorStorage* a, const TensorStorage* b) { return a->offset < b->offset; });
++        }
+ 
+         std::shared_ptr<MmapWrapper> mmapped = fdata.mmapped;
+ 
+@@ -1150,9 +1167,13 @@
+                         shared_metal = ggml_backend_metal_buffer_is_shared(dst_tensor->buffer);
+ #endif
+                         if (shared_metal) {
+-                            // Shared Metal set_tensor is a CPU memcpy. Workers
+-                            // own disjoint tensors; no command queue is touched.
+-                            ggml_backend_tensor_set(dst_tensor, source, 0, ggml_nbytes(dst_tensor));
++                            // Shared Metal storage is CPU-addressable. Read into
++                            // the final allocation without faulting mapped pages
++                            // or allocating another tensor-sized upload buffer.
++                            if (!mmapped->copy_data(dst_tensor->data, ggml_nbytes(dst_tensor), tensor_storage.offset)) {
++                                failed = true;
++                                break;
++                            }
+                         } else {
+                             std::lock_guard<std::mutex> lock(backend_tensor_set_mutex);
+                             ggml_backend_tensor_set(dst_tensor, source, 0, ggml_nbytes(dst_tensor));
+--- a/src/model_manager.cpp
++++ b/src/model_manager.cpp
+@@ -8,6 +8,9 @@
+ 
+ #include "core/ggml_extend_backend.h"
+ #include "core/util.h"
++#ifdef IILD_NATIVE_METAL_SHARED_UPLOAD
++#include "ggml-metal.h"
++#endif
+ #include "model/adapter/lora.hpp"
+ 
+ static size_t aligned_offset(const void* buffer, size_t offset, size_t alignment) {
+@@ -514,7 +517,24 @@
+                 TensorState* state          = staged_tensor.first;
+                 ggml_tensor* managed_tensor = state->tensor;
+                 ggml_tensor* staging_tensor = staged_tensor.second;
+-                ggml_backend_tensor_copy(managed_tensor, staging_tensor);
++                bool copied = false;
++#ifdef IILD_NATIVE_METAL_SHARED_UPLOAD
++                if (ggml_backend_metal_buffer_is_shared(staging_tensor->buffer) &&
++                    !model_loader_.copy_mapped_tensor(managed_tensor, staging_tensor->data, copied)) {
++                    // Restore earlier swaps before freeing this incomplete block.
++                    for (auto& previous : staged_tensors) {
++                        if (previous.first == state) break;
++                        std::swap(previous.first->tensor->buffer, previous.second->buffer);
++                        std::swap(previous.first->tensor->data, previous.second->data);
++                        std::swap(previous.first->tensor->extra, previous.second->extra);
++                        previous.first->staged_to_compute_backend = false;
++                    }
++                    ggml_backend_buffer_free(compute_buffer);
++                    ggml_free(staging_ctx);
++                    return false;
++                }
++#endif
++                if (!copied) ggml_backend_tensor_copy(managed_tensor, staging_tensor);
+                 std::swap(managed_tensor->buffer, staging_tensor->buffer);
+                 std::swap(managed_tensor->data, staging_tensor->data);
+                 std::swap(managed_tensor->extra, staging_tensor->extra);

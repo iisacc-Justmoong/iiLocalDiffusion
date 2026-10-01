@@ -1,5 +1,6 @@
 #include "NativeImageBridge.hpp"
 #include "NativeDiffusion.hpp"
+#include "NativeTelemetry.hpp"
 #include <json-c/json.h>
 #include <memory>
 #include <limits>
@@ -15,6 +16,8 @@ static iild_native_result_v1 *generate(const iild_native_request_v1 *input,
     const iild_native_request_v2 *extended = nullptr, const iild_native_request_v3 *controlled = nullptr)
 {
     try {
+        iiLocalDiffusion::native_detail::lastNativeTrace().path.clear();
+        iiLocalDiffusion::native_detail::lastNativeTrace().elapsedMs = 0;
         auto result = std::make_unique<iild_native_result_v1>();
         try {
             if (!input || input->size != sizeof(*input) || !input->model || !input->prompt
@@ -61,24 +64,22 @@ static iild_native_result_v1 *generate(const iild_native_request_v1 *input,
                 components.distilledGuidance = extended->distilled_guidance;
                 components.hires = extended->hires != 0;
                 components.prediction = static_cast<iiLocalDiffusion::NativePrediction>(extended->prediction);
+                iiLocalDiffusion::NativeSamplingControls sampling;
                 if (controlled) {
                     if (controlled->sampler < 0 || controlled->sampler > 2 || controlled->sigma_count > 1001
                         || (controlled->sigma_count && !controlled->sigmas))
                         throw std::invalid_argument("Invalid native V3 sampling controls.");
-                    iiLocalDiffusion::NativeSamplingControls sampling;
                     sampling.sampler = static_cast<iiLocalDiffusion::NativeSampler>(controlled->sampler);
                     sampling.flowShift = controlled->flow_shift;
                     if (controlled->sigma_count)
                         sampling.customSigmas.assign(controlled->sigmas, controlled->sigmas + controlled->sigma_count);
-                    result->image = iiLocalDiffusion::generateNativeImageWithSampling(request, options, components, sampling,
-                        extended->cpu ? iiLocalDiffusion::NativeComputeBackend::Cpu : iiLocalDiffusion::NativeComputeBackend::Automatic,
-                        cancelled, input->prepare_only != 0, progress, preview);
-                } else result->image = iiLocalDiffusion::generateNativeImageWithComponents(request, options, components,
+                }
+                result->image = iiLocalDiffusion::generateNativeImageWithResidentWeights(request, options, components, sampling,
                     extended->cpu ? iiLocalDiffusion::NativeComputeBackend::Cpu : iiLocalDiffusion::NativeComputeBackend::Automatic,
                     cancelled, input->prepare_only != 0, progress, preview);
             } else result->image = input->prepare_only
-                ? iiLocalDiffusion::prepareNativeImageModel(request, options, cancelled, progress)
-                : iiLocalDiffusion::generateNativeImageWithPreview(request, options, iiLocalDiffusion::NativeComputeBackend::Automatic,
+                ? iiLocalDiffusion::prepareNativeImageModelWithResidentWeights(request, options, cancelled, progress)
+                : iiLocalDiffusion::generateNativeImageWithResidentWeights(request, options, iiLocalDiffusion::NativeComputeBackend::Automatic,
                     cancelled, progress, preview);
         } catch (const std::exception &error) { result->image.error = error.what(); }
         const auto &value = result->image;
@@ -93,6 +94,10 @@ static iild_native_result_v1 *generate(const iild_native_request_v1 *input,
         field("generation_ms", json_object_new_double(value.generationMilliseconds));
         field("memory_budget_bytes", json_object_new_uint64(value.memoryBudgetBytes));
         field("threads", json_object_new_int(value.threads));
+        field("weight_storage", json_object_new_string("anonymous"));
+        field("weight_lifetime", json_object_new_string("runtime"));
+        field("telemetry_path", json_object_new_string(iiLocalDiffusion::native_detail::lastNativeTrace().path.c_str()));
+        field("telemetry_elapsed_ms", json_object_new_double(iiLocalDiffusion::native_detail::lastNativeTrace().elapsedMs));
         result->metadata = json_object_to_json_string_ext(json.get(), JSON_C_TO_STRING_PLAIN);
         return result.release();
     } catch (...) { return nullptr; } // No C++ exception may cross the C boundary.

@@ -1,0 +1,33 @@
+diff --git a/src/core/util.cpp b/src/core/util.cpp
+--- a/src/core/util.cpp
++++ b/src/core/util.cpp
+@@ -103,2 +103,15 @@
++static std::shared_ptr<void> allocate_resident_source(size_t size) {
++    const size_t alignment = ggml_backend_buft_get_alignment(ggml_backend_cpu_buffer_type());
++    if (alignment == 0 || size > SIZE_MAX - (alignment - 1)) return {};
++    size_t space = size + alignment - 1;
++    const std::shared_ptr<void> allocation(std::malloc(space), std::free);
++    if (!allocation) return {};
++    void* aligned = allocation.get();
++    if (!std::align(alignment, size, aligned, space)) return {};
++    // Aliasing ownership keeps the raw allocation alive and frees its original
++    // address while exposing the backend-aligned anonymous model bytes.
++    return std::shared_ptr<void>(allocation, aligned);
++}
++
+ static std::unique_ptr<MmapWrapper> load_file_into_resident_memory(const std::string& filename, bool writable) {
+     auto& runtime = resident_source_runtime();
+@@ -116,5 +129,5 @@
+     const size_t size = static_cast<size_t>(end);
+-    void* memory = std::malloc(size);
+-    if (!memory) return nullptr;
+-    const std::shared_ptr<void> owner(memory, std::free);
++    const auto owner = allocate_resident_source(size);
++    if (!owner) return nullptr;
++    void* memory = owner.get();
+     input.seekg(0, std::ios::beg);
+@@ -143,3 +156,3 @@
+     // In-place LoRA edits must never contaminate the retained pristine source.
+-    const std::shared_ptr<void> copy(std::malloc(source.size), std::free);
++    const auto copy = allocate_resident_source(source.size);
+     if (!copy) return nullptr;

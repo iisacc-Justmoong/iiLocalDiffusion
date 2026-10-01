@@ -16,7 +16,7 @@ def serve(generate, stream=None):
     """Read one request at a time. EOF releases the model; no job is persisted."""
     stream = sys.stdin.buffer if stream is None else stream
     print('IILD_READY ' + json.dumps({"schema": "iild-worker-v1", "pid": os.getpid(),
-                                    "capabilities": ["foreground-residency"]}), flush=True)
+                                    "capabilities": ["foreground-residency", "runtime-residency", "explicit-release"]}), flush=True)
     with InferenceSession() as session:
         while line := stream.readline(MAX_REQUEST_BYTES + 1):
             started = time.monotonic()
@@ -33,12 +33,16 @@ def serve(generate, stream=None):
                 action = request.get("action", "generate")
                 arguments = request.get("arguments", [])
                 if (request.get("schema") != "iild-worker-request-v1"
-                        or action not in ("generate", "foreground")
+                        or action not in ("generate", "foreground", "release")
                         or not isinstance(arguments, list) or (action == "generate" and not arguments)
                         or any(not isinstance(token, str) or "\0" in token for token in arguments)
                         or any(token.split("=", 1)[0] == "--worker" for token in arguments)):
                     raise ValueError("Invalid worker request schema or arguments.")
-                if action == "foreground":
+                if action == "release":
+                    if arguments:
+                        raise ValueError("Explicit release cannot contain generation arguments.")
+                    session.release()
+                elif action == "foreground":
                     foreground = request.get("foreground")
                     if not isinstance(foreground, bool) or (not foreground and arguments):
                         raise ValueError("Foreground control requires a boolean; background control cannot contain arguments.")
@@ -47,7 +51,8 @@ def serve(generate, stream=None):
                     code = generate(arguments) or 0
                 if code:
                     raise RuntimeError(f"Inference returned exit code {code}.")
-                session.verify()
+                if action == "generate" or (action == "foreground" and arguments):
+                    session.verify()
             except SystemExit as failure:
                 code = failure.code if isinstance(failure.code, int) else 1
                 error = "" if code == 0 else str(failure)

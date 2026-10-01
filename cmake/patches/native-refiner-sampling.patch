@@ -1,0 +1,316 @@
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -536,6 +536,15 @@
+                            sd_image_t** images_out,
+                            int* num_images_out);
+ 
++// Borrowed contexts must remain alive for the entire call. No latent is decoded
++// or re-noised at the switch. Refiner applies to the final (Hires, if any) pass.
++SD_API bool sd_ctx_can_refine(const sd_ctx_t* base, const sd_ctx_t* refiner);
++SD_API bool generate_image_with_refiner(sd_ctx_t* base, sd_ctx_t* refiner,
++                                       float switch_at,
++                                       const sd_img_gen_params_t* params,
++                                       sd_image_t** images_out, int* num_images_out,
++                                       const char* negative_prompt_override);
++
+ enum sd_cancel_mode_t {
+     // Stop the current generation as soon as possible.
+     SD_CANCEL_ALL,
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -130,6 +130,9 @@
+     "Krea2",
+     "Mage Flow",
+     "ESRGAN",
++    "SDXL Refiner",
+ };
++static_assert(sizeof(model_version_to_str) / sizeof(*model_version_to_str) == VERSION_COUNT,
++              "Every model version must have a logging name");
+ 
+ const char* sampling_methods_str[] = {
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -2530,6 +2530,18 @@
+         return true;
+     }
+ 
++    struct RefinerPass {
++        StableDiffusionGGML* engine = nullptr; // Borrowed, caller-owned runtime.
++        SDCondition cond, uncond;
++        float switch_at = 1.f;
++        bool active(int step, size_t steps) const {
++            // Negative steps are predictor calls, positive steps are corrector
++            // calls for the SAME solver step. Never switch within a Heun pair.
++            const double base_steps = std::ceil(double(steps) * switch_at - 2.0 * std::numeric_limits<float>::epsilon() * steps);
++            return std::abs(double(step)) > base_steps;
++        }
++    };
++
+     sd::Tensor<float> sample(const std::shared_ptr<DiffusionModelRunner>& work_diffusion_model,
+                              bool inverse_noise_scaling,
+                              const sd::Tensor<float>& init_latent,
+@@ -2555,7 +2567,8 @@
+                              float frame_rate,
+                              const sd_cache_params_t* cache_params,
+                              bool preview_final_step,
+-                             const sd::Tensor<float>& video_positions = {}) {
++                             const sd::Tensor<float>& video_positions = {},
++                             const RefinerPass* refiner = nullptr) {
+         struct RunnerEndOnExit {
+             GGMLRunner* runner = nullptr;
+             ~RunnerEndOnExit() {
+@@ -2565,6 +2578,7 @@
+             }
+         };
+         RunnerEndOnExit sample_diffusion_runner_end{work_diffusion_model.get()};
++        RunnerEndOnExit refiner_runner_end{refiner ? refiner->engine->diffusion_model.get() : nullptr};
+ 
+         RunnerEndOnExit sample_control_runner_end{!control_image.empty() && control_net != nullptr ? control_net.get() : nullptr};
+ 
+@@ -2601,7 +2615,7 @@
+         }
+ 
+         sd_sample::SampleCacheRuntime cache_runtime = sd_sample::init_sample_cache_runtime(version,
+-                                                                                           cache_params,
++                                                                                           refiner ? nullptr : cache_params,
+                                                                                            denoiser.get(),
+                                                                                            sigmas);
+ 
+@@ -2652,7 +2666,23 @@
+                                                             : sampling_init_latent;
+         sd::Tensor<float> denoised                    = x_t;
+ 
+-        auto denoise = [&](const sd::Tensor<float>& x, float sigma, int step) -> sd::guidance::GuiderOutput {
++        auto denoise = [&, base_cond = &cond, base_uncond = &uncond,
++                        base_img_uncond = &img_uncond, base_control = &control_image,
++                        base_extensions = &generation_extensions](const sd::Tensor<float>& x, float sigma, int step) -> sd::guidance::GuiderOutput {
++            if (sd_should_abort() ||
++                (refiner && refiner->engine->get_cancel_flag() == SD_CANCEL_ALL)) return {};
++            const bool refining = refiner && refiner->active(step, steps);
++            auto* active_engine = refining ? refiner->engine : this;
++            const auto& active_model = refining ? active_engine->diffusion_model : work_diffusion_model;
++            const auto& cond = refining ? refiner->cond : *base_cond;
++            const auto& uncond = refining ? refiner->uncond : *base_uncond;
++            static const SDCondition empty_condition;
++            static const sd::Tensor<float> empty_control;
++            static const std::vector<std::shared_ptr<GenerationExtension>> empty_extensions;
++            const auto& img_uncond = refining ? empty_condition : *base_img_uncond;
++            const auto& control_image = refining ? empty_control : *base_control;
++            const auto& generation_extensions = refining ? empty_extensions : *base_extensions;
++
+             if (get_cancel_flag() == SD_CANCEL_ALL) {
+                 LOG_VERBOSE("cancelling generation");
+                 return {};
+@@ -2663,7 +2693,7 @@
+                 last_progress_us = ggml_time_us();
+             }
+ 
+-            std::vector<float> scaling = denoiser->get_scalings(sigma);
++            std::vector<float> scaling = active_engine->denoiser->get_scalings(sigma);
+             GGML_ASSERT(scaling.size() == 3);
+             float c_skip = scaling[0];
+             float c_out  = scaling[1];
+@@ -2676,7 +2706,7 @@
+                                                                           sd_get_preview_interval(),
+                                                                           preview_final_step);
+ 
+-            std::vector<float> base_timesteps_vec = prepare_sample_timesteps(sigma, shifted_timestep);
++            std::vector<float> base_timesteps_vec = active_engine->prepare_sample_timesteps(sigma, shifted_timestep);
+             std::vector<float> timesteps_vec      = base_timesteps_vec;
+             sd::Tensor<float> audio_timesteps_tensor;
+             if (sd_version_is_ltxav(version) && !denoise_mask.empty()) {
+@@ -2688,7 +2718,7 @@
+             const std::vector<float>& scaling_timesteps_vec = (sd_version_is_ltxav(version) && !denoise_mask.empty())
+                                                                   ? base_timesteps_vec
+                                                                   : timesteps_vec;
+-            adjust_sample_step_scalings(shifted_timestep, scaling_timesteps_vec, c_in, &c_skip, &c_out);
++            active_engine->adjust_sample_step_scalings(shifted_timestep, scaling_timesteps_vec, c_in, &c_skip, &c_out);
+ 
+             sd::Tensor<float> timesteps_tensor({static_cast<int64_t>(timesteps_vec.size())}, timesteps_vec);
+             sd::Tensor<float> guidance_tensor({1}, std::vector<float>{guidance.distilled_guidance});
+@@ -2761,7 +2791,7 @@
+                     }
+                     UNetDiffusionExtra unet_extra{nvf, &controls, control_strength};
+                     const auto& ip_tokens = use_uncond_ip ? ip_adapter_uncond_tokens : ip_adapter_tokens;
+-                    if (!ip_tokens.empty()) {
++                    if (!refining && !ip_tokens.empty()) {
+                         unet_extra.ip_context = &ip_tokens;
+                         unet_extra.ip_scale   = ip_adapter_strength;
+                     }
+@@ -2822,7 +2852,7 @@
+                     extension->before_diffusion(diffusion_params, step);
+                 }
+ 
+-                auto output_opt = work_diffusion_model->compute(n_threads, diffusion_params);
++                auto output_opt = active_model->compute(active_engine->n_threads, diffusion_params);
+                 if (output_opt.empty()) {
+                     LOG_ERROR("diffusion model compute failed");
+                     return sd::Tensor<float>();
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -3892,7 +3892,8 @@
+     if (sd_version_is_sd1(version)) info = {"sd15", "sd15", SD_VAE_MISSING};
+     else if (sd_version_is_sd2(version)) info = {"sd2", "sd2", SD_VAE_MISSING};
+     else if (sd_version_is_sd3(version)) info = {"sd3", "sd3", SD_VAE_MISSING};
+-    else if (sd_version_is_sdxl(version)) info = {"sdxl-base", "sdxl-base", SD_VAE_MISSING};
++    else if (sd_version_is_sdxl(version)) info = {
++        version == VERSION_SDXL_REFINER ? "sdxl-refiner" : "sdxl-base", "sdxl-base", SD_VAE_MISSING};
+     else switch (version) {
+         case VERSION_QWEN_IMAGE: info = {"qwen-image", "qwen-image", SD_VAE_MISSING}; break;
+         case VERSION_ANIMA: info = {"anima", "qwen-image", SD_VAE_MISSING}; break;
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -4103,6 +4103,7 @@
+ 
+ SD_API const char* sd_get_model_family(const sd_ctx_t* sd_ctx) {
+     if (sd_ctx == nullptr || sd_ctx->sd == nullptr) return "other";
++    if (sd_ctx->sd->version == VERSION_SDXL_REFINER) return "sdxl-refiner";
+     if (sd_version_is_sdxl(sd_ctx->sd->version)) return "sdxl-base";
+     if (sd_version_is_sd1(sd_ctx->sd->version)) return "sd15";
+     if (sd_version_is_sd2(sd_ctx->sd->version)) return "sd2";
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -5805,10 +5805,29 @@
+                               sigmas.end());
+ }
+ 
+-SD_API bool generate_image(sd_ctx_t* sd_ctx,
+-                           const sd_img_gen_params_t* sd_img_gen_params,
+-                           sd_image_t** images_out,
+-                           int* num_images_out) {
++SD_API bool sd_ctx_can_refine(const sd_ctx_t* base, const sd_ctx_t* refiner) {
++    if (!base || !refiner || !base->sd || !refiner->sd || base->sd == refiner->sd) return false;
++    const auto base_version = base->sd->version;
++    const bool supported_base = base_version == VERSION_SDXL || base_version == VERSION_SDXL_VEGA ||
++                                base_version == VERSION_SDXL_SSD1B;
++    if (!supported_base || refiner->sd->version != VERSION_SDXL_REFINER ||
++        !base->sd->diffusion_model || !refiner->sd->diffusion_model ||
++        !base->sd->cond_stage_model || !refiner->sd->cond_stage_model) return false;
++    // These denoisers share additive noise and the SDXL latent normalization.
++    // EDM/flow checkpoints do not have this contract.
++    const auto* base_denoiser = base->sd->denoiser.get();
++    const auto* refiner_denoiser = refiner->sd->denoiser.get();
++    return base_denoiser && refiner_denoiser &&
++           (typeid(*base_denoiser) == typeid(CompVisDenoiser) ||
++            typeid(*base_denoiser) == typeid(CompVisVDenoiser)) &&
++           typeid(*refiner_denoiser) == typeid(CompVisDenoiser);
++}
++
++static bool generate_image_impl(sd_ctx_t* sd_ctx,
++                                const sd_img_gen_params_t* sd_img_gen_params,
++                                sd_image_t** images_out, int* num_images_out,
++                                sd_ctx_t* refiner_ctx, float refiner_switch,
++                                const char* refiner_negative_prompt) {
+     if (images_out != nullptr) {
+         *images_out = nullptr;
+     }
+@@ -5819,6 +5838,13 @@
+         return false;
+     }
+ 
++    if (refiner_ctx && (!sd_ctx_can_refine(sd_ctx, refiner_ctx) ||
++                        !std::isfinite(refiner_switch) || refiner_switch < 0.f || refiner_switch > 1.f ||
++                        sd_img_gen_params->cache.mode != SD_CACHE_DISABLED)) {
++        LOG_ERROR("Refiner requires compatible SDXL contexts, a [0,1] switch and disabled cross-step cache");
++        return false;
++    }
++
+     // MiniMax-H3 is video-only. Its denoiser always splits the packed latent into a video and an
+     // audio half, and only generate_video ever computes the audio length, so reaching this
+     // function with an H3 checkpoint is guaranteed to die on
+@@ -5870,6 +5896,34 @@
+     }
+     ImageGenerationEmbeds embeds = std::move(*embeds_opt);
+ 
++    std::optional<StableDiffusionGGML::RefinerPass> refiner_pass;
++    if (refiner_ctx && refiner_switch < 1.f) {
++        auto* refiner = refiner_ctx->sd;
++        refiner->reset_cancel_flag();
++        if (sd_should_abort()) return false;
++        apply_circular_axes_to_diffusion(refiner_ctx, sd_img_gen_params->circular_x, sd_img_gen_params->circular_y);
++        ConditionerRunnerEndOnExit finish_refiner{refiner->cond_stage_model.get()};
++        refiner->cond_stage_model->prompt_weighting = sd_ctx->sd->cond_stage_model->prompt_weighting;
++        ConditionerParams conditioning;
++        conditioning.text = request.prompt;
++        conditioning.clip_skip = request.clip_skip;
++        const bool hires = request.hires.enabled && request.hires.target_width > 0;
++        conditioning.width = hires ? request.hires.target_width : request.width;
++        conditioning.height = hires ? request.hires.target_height : request.height;
++        refiner_pass.emplace();
++        refiner_pass->engine = refiner;
++        refiner_pass->switch_at = refiner_switch;
++        refiner_pass->cond = refiner->cond_stage_model->get_learned_condition(refiner->n_threads, conditioning);
++        if (refiner_pass->cond.c_crossattn.empty() || refiner_pass->cond.c_vector.empty()) return false;
++        if (request.use_uncond) {
++            conditioning.text = refiner_negative_prompt ? refiner_negative_prompt : request.negative_prompt;
++            conditioning.is_negative_prompt = true;
++            refiner_pass->uncond = refiner->cond_stage_model->get_learned_condition(refiner->n_threads, conditioning);
++            if (refiner_pass->uncond.c_crossattn.empty() || refiner_pass->uncond.c_vector.empty()) return false;
++        }
++        if (sd_should_abort()) return false;
++    }
++
+     std::vector<sd::Tensor<float>> final_latents;
+     int64_t denoise_start = ggml_time_ms();
+     for (int b = 0; b < request.batch_count; b++) {
+@@ -5917,7 +5971,9 @@
+                                                    0,
+                                                    static_cast<float>(request.fps),
+                                                    request.cache_params,
+-                                                   true);
++                                                   true, {},
++                                                   refiner_pass && !(request.hires.enabled && request.hires.target_width > 0)
++                                                       ? &*refiner_pass : nullptr);
+         int64_t sampling_end  = ggml_time_ms();
+         if (!x_0.empty()) {
+             LOG_INFO("sampling completed, taking %.2fs", (sampling_end - sampling_start) * 1.0f / 1000);
+@@ -6045,7 +6101,8 @@
+                                                             0,
+                                                             static_cast<float>(request.fps),
+                                                             request.cache_params,
+-                                                            false);
++                                                            false, {},
++                                                            refiner_pass ? &*refiner_pass : nullptr);
+             int64_t hires_sample_end   = ggml_time_ms();
+             if (!x_0.empty()) {
+                 LOG_INFO("hires sampling %d/%d completed, taking %.2fs",
+@@ -6068,6 +6125,9 @@
+         final_latents = std::move(hires_final_latents);
+     }
+ 
++    if (sd_should_abort() || sd_ctx->sd->get_cancel_flag() == SD_CANCEL_ALL ||
++        (refiner_pass && refiner_pass->engine->get_cancel_flag() == SD_CANCEL_ALL)) return false;
++
+     int num_images = 0;
+     auto result    = decode_image_outputs(sd_ctx, request, final_latents, &num_images);
+     if (result == nullptr) {
+@@ -6087,6 +6147,23 @@
+         free_sd_images(result, num_images);
+     }
+     return true;
++}
++
++SD_API bool generate_image(sd_ctx_t* base, const sd_img_gen_params_t* params,
++                           sd_image_t** images_out, int* num_images_out) {
++    return generate_image_impl(base, params, images_out, num_images_out, nullptr, 1.f, nullptr);
++}
++
++SD_API bool generate_image_with_refiner(sd_ctx_t* base, sd_ctx_t* refiner,
++                                       float switch_at, const sd_img_gen_params_t* params,
++                                       sd_image_t** images_out, int* num_images_out,
++                                       const char* negative_prompt_override) {
++    if (!refiner) {
++        if (images_out) *images_out = nullptr;
++        if (num_images_out) *num_images_out = 0;
++        return false;
++    }
++    return generate_image_impl(base, params, images_out, num_images_out, refiner, switch_at, negative_prompt_override);
+ }
+ 
+ static std::optional<ImageGenerationLatents> prepare_video_generation_latents(sd_ctx_t* sd_ctx,

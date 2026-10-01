@@ -1,0 +1,139 @@
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -239,4 +239,5 @@ typedef struct {
+     const char* rpc_servers;
+     const char* model_args;
+     bool disable_segmented_compute;  // Force monolithic graph execution even when automatic graph cutting would fit memory better
++    bool memory_resident_model;  // Copy model files into anonymous process memory before tensor loading
+ } sd_ctx_params_t;
+diff --git a/src/core/util.h b/src/core/util.h
+--- a/src/core/util.h
++++ b/src/core/util.h
+@@ -52,6 +52,6 @@ sd::Tensor<float> clip_preprocess(const sd::Tensor<float>& image, int target_width, int target_height);
+ 
+ class MmapWrapper {
+ public:
+-    static std::unique_ptr<MmapWrapper> create(const std::string& filename, bool writable = false);
++    static std::unique_ptr<MmapWrapper> create(const std::string& filename, bool writable = false, bool resident_memory = false);
+ 
+     virtual ~MmapWrapper() = default;
+diff --git a/src/core/util.cpp b/src/core/util.cpp
+--- a/src/core/util.cpp
++++ b/src/core/util.cpp
+@@ -20,3 +20,31 @@
+ #include "stable-diffusion.h"
+ 
++class ResidentMemoryMmapWrapper final : public MmapWrapper {
++public:
++    ResidentMemoryMmapWrapper(void* data, size_t size) : MmapWrapper(data, size) {}
++    ~ResidentMemoryMmapWrapper() override { std::free(data_); }
++};
++
++static std::unique_ptr<MmapWrapper> load_file_into_resident_memory(const std::string& filename) {
++    std::ifstream input(filename, std::ios::binary | std::ios::ate);
++    if (!input) return nullptr;
++    const auto end = static_cast<std::streamoff>(input.tellg());
++    if (end <= 0 || static_cast<uintmax_t>(end) > SIZE_MAX) return nullptr;
++    const size_t size = static_cast<size_t>(end);
++    void* memory = std::malloc(size);
++    if (!memory) return nullptr;
++    input.seekg(0, std::ios::beg);
++    size_t offset = 0;
++    while (offset < size) {
++        if (sd_should_abort()) { std::free(memory); return nullptr; }
++        const size_t chunk = std::min<size_t>(32 * 1024 * 1024, size - offset);
++        input.read(static_cast<char*>(memory) + offset, static_cast<std::streamsize>(chunk));
++        if (static_cast<size_t>(input.gcount()) != chunk) { std::free(memory); return nullptr; }
++        offset += chunk;
++    }
++    input.close();
++    LOG_INFO("copied model file into anonymous memory: %s (%zu bytes)", filename.c_str(), size);
++    return std::make_unique<ResidentMemoryMmapWrapper>(memory, size);
++}
++
+ bool ends_with(const std::string& str, const std::string& ending) {
+diff --git a/src/core/util.cpp b/src/core/util.cpp
+--- a/src/core/util.cpp
++++ b/src/core/util.cpp
+@@ -174,6 +174,7 @@ class MmapWrapperImpl : public MmapWrapper {
+     HANDLE hmapping_;
+ };
+ 
+-std::unique_ptr<MmapWrapper> MmapWrapper::create(const std::string& filename, bool writable) {
++std::unique_ptr<MmapWrapper> MmapWrapper::create(const std::string& filename, bool writable, bool resident_memory) {
++    if (resident_memory) return load_file_into_resident_memory(filename);
+     void* mapped_data = nullptr;
+     size_t file_size  = 0;
+@@ -246,7 +247,8 @@ class MmapWrapperImpl : public MmapWrapper {
+     bool writable_;
+ };
+ 
+-std::unique_ptr<MmapWrapper> MmapWrapper::create(const std::string& filename, bool writable) {
++std::unique_ptr<MmapWrapper> MmapWrapper::create(const std::string& filename, bool writable, bool resident_memory) {
++    if (resident_memory) return load_file_into_resident_memory(filename);
+     int file_descriptor = open(filename.c_str(), O_RDONLY);
+     if (file_descriptor == -1) {
+         return nullptr;
+diff --git a/src/model_loader.h b/src/model_loader.h
+--- a/src/model_loader.h
++++ b/src/model_loader.h
+@@ -37,5 +37,6 @@
+     String2TensorStorage tensor_storage_map;
+     std::map<std::string, std::string> metadata_;
+     int n_threads_;
++    bool resident_memory_ = false;
+ 
+     size_t add_file_path(const std::string& file_path);
+@@ -68,2 +68,3 @@
+     void set_n_threads(int n_threads);
++    void set_resident_memory(bool resident) { resident_memory_ = resident; }
+     void set_wtype_override(ggml_type wtype, std::string tensor_type_rules = "");
+diff --git a/src/model_loader.cpp b/src/model_loader.cpp
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -12,2 +12,3 @@
+ #include <regex>
++#include <stdexcept>
+ #include <set>
+@@ -808,19 +809,26 @@
+         fdata.tensors       = std::move(file_tensors);
+ 
+-        if (enable_mmap && !is_zip) {
++        if (resident_memory_ && is_zip) {
++            throw std::runtime_error("Memory-resident model loading does not support ZIP model weights.");
++        }
++        if ((enable_mmap || resident_memory_) && !is_zip) {
+             LOG_VERBOSE("using mmap for I/O");
+-            std::unique_ptr<MmapWrapper> mmapped = MmapWrapper::create(file_path, writable_mmap);
++            std::unique_ptr<MmapWrapper> mmapped = MmapWrapper::create(file_path, writable_mmap, resident_memory_);
+             if (mmapped) {
+                 uint8_t* mmap_data             = static_cast<uint8_t*>(mmapped->writable_data());
+                 ggml_backend_buffer_t buf_mmap = ggml_backend_cpu_buffer_from_ptr(mmap_data, mmapped->size());
+                 if (buf_mmap) {
+                     LOG_INFO("using mmap for '%s'", file_path.c_str());
+                     fdata.mmbuffer = std::shared_ptr<struct ggml_backend_buffer>(buf_mmap, ggml_backend_buffer_free);
++                } else if (resident_memory_) {
++                    throw std::runtime_error("Failed to create an in-memory model tensor buffer.");
+                 } else {
+                     LOG_WARN("mmap: failed to create backend buffer for file %s", fdata.path.c_str());
+                 }
+                 fdata.mmapped = std::shared_ptr<MmapWrapper>(std::move(mmapped));
++            } else if (resident_memory_) {
++                throw std::runtime_error("Failed to load model file into anonymous memory; disk-backed fallback is disabled.");
+             } else {
+                 LOG_WARN("failed to memory-map '%s' (falling back to read())", file_path.c_str());
+             }
+         }
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -915,2 +915,3 @@
+         ModelLoader& model_loader = model_manager->loader();
++        model_loader.set_resident_memory(sd_ctx_params->memory_resident_model);
+ 
+@@ -3580,3 +3581,4 @@ void sd_ctx_params_init(sd_ctx_params_t* sd_ctx_params) {
+     sd_ctx_params->disable_prefetch          = false;
+     sd_ctx_params->disable_segmented_compute = false;
++    sd_ctx_params->memory_resident_model     = false;
+     sd_ctx_params->eager_load                = false;

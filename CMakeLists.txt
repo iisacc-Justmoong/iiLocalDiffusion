@@ -59,6 +59,7 @@ endif()
 include(cmake/IildMlx.cmake)
 include(cmake/IildTorch.cmake)
 include(cmake/IildNative.cmake)
+include(cmake/IildPose.cmake)
 
 add_library(iiLocalDiffusion SHARED
     src/Compute/ComputeRuntime.cpp
@@ -69,12 +70,19 @@ add_library(iiLocalDiffusion SHARED
     src/Generation/GenerationIO.cpp
     src/Generation/NativeDiffusion.cpp
     src/Generation/NativeImageBridge.cpp
+    src/Generation/ImageWatermark.cpp
+    src/Generation/PoseProcessing.cpp
+    src/Generation/NativePose.cpp
     src/Generation/GenerationDefaults.cpp
     src/ModelManifest/DiffusionModelManifest.cpp
     src/ModelManifest/ModelManifest.cpp
     src/StableDiffusion/StableDiffusionModelManifest.cpp
 )
 add_library(iiLocalDiffusion::iiLocalDiffusion ALIAS iiLocalDiffusion)
+target_compile_definitions(iiLocalDiffusion PRIVATE IILD_HAS_POSE=$<BOOL:${IILD_ENABLE_POSE}>)
+if(IILD_ENABLE_POSE)
+    target_link_libraries(iiLocalDiffusion PRIVATE iild_pose_ort)
+endif()
 target_compile_definitions(iiLocalDiffusion PRIVATE
     IILD_HAS_NATIVE_DIFFUSION=$<BOOL:${IILD_ENABLE_NATIVE_DIFFUSION}>
     IILD_NATIVE_CPU_VAE=$<STREQUAL:${CMAKE_SYSTEM_NAME},iOS>)
@@ -92,6 +100,33 @@ if(IILD_ENABLE_NATIVE_DIFFUSION)
     endif()
 endif()
 if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(PoseProcessingTests tests/PoseProcessingTests.cpp src/Generation/PoseProcessing.cpp)
+    target_include_directories(PoseProcessingTests PRIVATE src)
+    target_compile_features(PoseProcessingTests PRIVATE cxx_std_23)
+    add_test(NAME PoseProcessingTests COMMAND PoseProcessingTests)
+    add_executable(NativePoseTests tests/NativePoseTests.cpp)
+    target_include_directories(NativePoseTests PRIVATE src)
+    target_link_libraries(NativePoseTests PRIVATE iiLocalDiffusion)
+    target_compile_features(NativePoseTests PRIVATE cxx_std_23)
+    add_test(NAME NativePoseTests COMMAND NativePoseTests "${CMAKE_CURRENT_BINARY_DIR}/native-pose-contract")
+    add_executable(NativePoseDisabledTests tests/NativePoseTests.cpp src/Generation/NativePose.cpp)
+    target_include_directories(NativePoseDisabledTests PRIVATE src)
+    target_compile_definitions(NativePoseDisabledTests PRIVATE IILD_HAS_POSE=0 iiLocalDiffusion_EXPORTS)
+    target_compile_features(NativePoseDisabledTests PRIVATE cxx_std_23)
+    target_link_libraries(NativePoseDisabledTests PRIVATE Threads::Threads)
+    add_test(NAME NativePoseDisabledTests COMMAND NativePoseDisabledTests "${CMAKE_CURRENT_BINARY_DIR}/native-pose-disabled-contract")
+    add_executable(ImageParametersTests tests/ImageParametersTests.cpp)
+    target_include_directories(ImageParametersTests PRIVATE src)
+    target_compile_features(ImageParametersTests PRIVATE cxx_std_23)
+    add_test(NAME ImageParametersTests COMMAND ImageParametersTests)
+    add_executable(ImageWatermarkTests tests/ImageWatermarkTests.cpp)
+    target_link_libraries(ImageWatermarkTests PRIVATE iiLocalDiffusion)
+    add_test(NAME ImageWatermarkTests COMMAND ImageWatermarkTests)
+    add_executable(NativeTelemetryTests tests/NativeTelemetryTests.cpp)
+    target_include_directories(NativeTelemetryTests PRIVATE src)
+    target_compile_features(NativeTelemetryTests PRIVATE cxx_std_23)
+    target_link_libraries(NativeTelemetryTests PRIVATE Threads::Threads ${IILD_JSON_C_TARGET})
+    add_test(NAME NativeTelemetryTests COMMAND NativeTelemetryTests "${CMAKE_CURRENT_BINARY_DIR}/telemetry-contract")
     add_executable(NativeDiffusionTests tests/NativeDiffusionTests.cpp)
     target_link_libraries(NativeDiffusionTests PRIVATE iiLocalDiffusion)
     add_test(NAME NativeDiffusionTests COMMAND NativeDiffusionTests "${CMAKE_CURRENT_BINARY_DIR}/native-contract")
@@ -116,7 +151,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
             add_executable(${result_test} tests/NativeResultTests.cpp src/Generation/NativeDiffusion.cpp src/Generation/NativeImageBridge.cpp src/Generation/GenerationDefaults.cpp)
             target_include_directories(${result_test} PRIVATE src
                 $<TARGET_PROPERTY:stable-diffusion,INTERFACE_INCLUDE_DIRECTORIES>)
-            target_compile_features(${result_test} PRIVATE cxx_std_20)
+            target_compile_features(${result_test} PRIVATE cxx_std_23)
             target_compile_definitions(${result_test} PRIVATE IILD_HAS_NATIVE_DIFFUSION=1 iiLocalDiffusion_EXPORTS
                 IILD_NATIVE_CPU_VAE=$<STREQUAL:${result_test},NativeMobileResultTests>
                 IILD_BUILD_LIBRARY_DIRECTORY="$<TARGET_FILE_DIR:${result_test}>"
@@ -130,6 +165,86 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_link_libraries(NativeVaeConfigTests PRIVATE ${IILD_JSON_C_TARGET} ${CMAKE_DL_LIBS})
         add_test(NAME NativeVaeConfigTests COMMAND NativeVaeConfigTests
             "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${CMAKE_CURRENT_BINARY_DIR}/native-vae-config-contract")
+        add_executable(NativeBulkReadTests tests/NativeBulkReadTests.cpp)
+        add_executable(NativeControlPreprocessingTests tests/NativeControlPreprocessingTests.cpp)
+        target_link_libraries(NativeControlPreprocessingTests PRIVATE stable-diffusion)
+        target_compile_features(NativeControlPreprocessingTests PRIVATE cxx_std_23)
+        add_test(NAME NativeControlPreprocessingTests COMMAND NativeControlPreprocessingTests)
+        add_executable(NativePixelUpscalerTests tests/NativePixelUpscalerTests.cpp)
+        get_target_property(iild_backend_source stable-diffusion SOURCE_DIR)
+        add_executable(NativeControlMaskTests tests/NativeControlMaskTests.cpp)
+        target_include_directories(NativeControlMaskTests PRIVATE "${iild_backend_source}/src"
+            $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
+        target_link_libraries(NativeControlMaskTests PRIVATE stable-diffusion)
+        target_compile_features(NativeControlMaskTests PRIVATE cxx_std_23)
+        add_test(NAME NativeControlMaskTests COMMAND NativeControlMaskTests)
+        add_executable(NativeMultiControlTests tests/NativeMultiControlTests.cpp)
+        target_include_directories(NativeMultiControlTests PRIVATE "${iild_backend_source}/src"
+            $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
+        target_link_libraries(NativeMultiControlTests PRIVATE stable-diffusion)
+        target_compile_features(NativeMultiControlTests PRIVATE cxx_std_23)
+        add_test(NAME NativeMultiControlTests COMMAND NativeMultiControlTests)
+        add_executable(NativeIPAdapterTests tests/NativeIPAdapterTests.cpp)
+        target_include_directories(NativeIPAdapterTests PRIVATE "${iild_backend_source}/src"
+            $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
+        target_link_libraries(NativeIPAdapterTests PRIVATE stable-diffusion)
+        target_compile_features(NativeIPAdapterTests PRIVATE cxx_std_23)
+        add_test(NAME NativeIPAdapterTests COMMAND NativeIPAdapterTests)
+        add_executable(NativeIPResourceTests tests/NativeIPResourceTests.cpp)
+        target_include_directories(NativeIPResourceTests PRIVATE "${iild_backend_source}/src"
+            $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
+        target_link_libraries(NativeIPResourceTests PRIVATE stable-diffusion)
+        target_compile_features(NativeIPResourceTests PRIVATE cxx_std_23)
+        add_test(NAME NativeIPResourceTests COMMAND NativeIPResourceTests "${CMAKE_CURRENT_BINARY_DIR}/native-ip-resource-contract")
+        add_executable(NativeRefinerTests tests/NativeRefinerTests.cpp)
+        target_include_directories(NativeRefinerTests PRIVATE "${iild_backend_source}/src"
+            $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
+        target_link_libraries(NativeRefinerTests PRIVATE stable-diffusion)
+        target_compile_features(NativeRefinerTests PRIVATE cxx_std_23)
+        add_test(NAME NativeRefinerTests COMMAND NativeRefinerTests)
+        add_executable(NativeRefinerSamplingTests tests/NativeRefinerSamplingTests.cpp)
+        target_include_directories(NativeRefinerSamplingTests PRIVATE "${iild_backend_source}/src"
+            $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
+        target_compile_definitions(NativeRefinerSamplingTests PRIVATE
+            $<TARGET_PROPERTY:stable-diffusion,COMPILE_DEFINITIONS>)
+        target_link_libraries(NativeRefinerSamplingTests PRIVATE stable-diffusion)
+        target_compile_features(NativeRefinerSamplingTests PRIVATE cxx_std_23)
+        add_test(NAME NativeRefinerSamplingTests COMMAND NativeRefinerSamplingTests)
+        add_executable(NativeDetailerTests tests/NativeDetailerTests.cpp)
+        target_include_directories(NativeDetailerTests PRIVATE "${iild_backend_source}/src"
+            $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
+        target_link_libraries(NativeDetailerTests PRIVATE stable-diffusion)
+        target_compile_features(NativeDetailerTests PRIVATE cxx_std_23)
+        add_test(NAME NativeDetailerTests COMMAND NativeDetailerTests "${CMAKE_CURRENT_BINARY_DIR}/native-detailer-contract")
+        add_executable(NativeLearnedUpscalerTests tests/NativeLearnedUpscalerTests.cpp)
+        target_include_directories(NativeLearnedUpscalerTests PRIVATE "${iild_backend_source}/src"
+            $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
+        target_link_libraries(NativeLearnedUpscalerTests PRIVATE stable-diffusion)
+        target_compile_features(NativeLearnedUpscalerTests PRIVATE cxx_std_23)
+        add_test(NAME NativeLearnedUpscalerTests COMMAND NativeLearnedUpscalerTests
+            "${CMAKE_CURRENT_BINARY_DIR}/native-learned-upscaler-contract")
+        add_executable(NativeFreeUTests tests/NativeFreeUTests.cpp)
+        target_include_directories(NativeFreeUTests PRIVATE "${iild_backend_source}/src"
+            $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
+        target_link_libraries(NativeFreeUTests PRIVATE stable-diffusion)
+        target_compile_features(NativeFreeUTests PRIVATE cxx_std_23)
+        add_test(NAME NativeFreeUTests COMMAND NativeFreeUTests)
+        target_include_directories(NativeControlPreprocessingTests PRIVATE "${iild_backend_source}/src"
+            $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
+        target_include_directories(NativePixelUpscalerTests PRIVATE "${iild_backend_source}/src")
+        target_link_libraries(NativePixelUpscalerTests PRIVATE stable-diffusion)
+        target_compile_features(NativePixelUpscalerTests PRIVATE cxx_std_23)
+        add_test(NAME NativePixelUpscalerTests COMMAND NativePixelUpscalerTests)
+        add_executable(NativeTextConditioningTests tests/NativeTextConditioningTests.cpp)
+        target_include_directories(NativeTextConditioningTests PRIVATE "${iild_backend_source}/src"
+            $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
+        target_link_libraries(NativeTextConditioningTests PRIVATE stable-diffusion)
+        target_compile_features(NativeTextConditioningTests PRIVATE cxx_std_23)
+        add_test(NAME NativeTextConditioningTests COMMAND NativeTextConditioningTests
+            "${CMAKE_CURRENT_BINARY_DIR}/native-text-conditioning-contract")
+        target_link_libraries(NativeBulkReadTests PRIVATE stable-diffusion)
+        target_compile_features(NativeBulkReadTests PRIVATE cxx_std_23)
+        add_test(NAME NativeBulkReadTests COMMAND NativeBulkReadTests "${CMAKE_CURRENT_BINARY_DIR}/native-bulk-read.bin")
         add_executable(NativeKrea2NamesTests tests/NativeKrea2NamesTests.cpp)
         target_link_libraries(NativeKrea2NamesTests PRIVATE stable-diffusion)
         add_test(NAME NativeKrea2NamesTests COMMAND NativeKrea2NamesTests)
@@ -151,6 +266,9 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         add_test(NAME NativePreparationTests COMMAND NativePreparationTests "${CMAKE_CURRENT_BINARY_DIR}/native-preparation-contract")
     endif()
     if(APPLE AND IILD_ENABLE_NATIVE_DIFFUSION)
+        add_executable(NativeWeightReadBenchmark tests/NativeWeightReadBenchmark.cpp)
+        target_link_libraries(NativeWeightReadBenchmark PRIVATE stable-diffusion ggml-metal)
+        target_compile_features(NativeWeightReadBenchmark PRIVATE cxx_std_23)
         add_executable(NativeMetalUploadTests tests/NativeMetalUploadTests.cpp)
         target_link_libraries(NativeMetalUploadTests PRIVATE stable-diffusion ggml-metal)
         add_test(NAME NativeMetalSharedUpload COMMAND NativeMetalUploadTests)
@@ -173,7 +291,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     endif()
 endif()
 
-target_compile_features(iiLocalDiffusion PUBLIC cxx_std_20)
+target_compile_features(iiLocalDiffusion PUBLIC cxx_std_20 PRIVATE cxx_std_23)
 set_target_properties(iiLocalDiffusion PROPERTIES
     CXX_EXTENSIONS OFF
     CXX_VISIBILITY_PRESET hidden
@@ -503,6 +621,7 @@ endif()
 
 install(FILES README.md THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime)
 install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime FILES_MATCHING PATTERN "*.md")
+install(FILES docs/licenses/DWPose.txt DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/licenses COMPONENT Runtime)
 install(FILES resources/generation-defaults.json resources/README.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources COMPONENT Runtime)
 install(DIRECTORY resources/ DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources
@@ -552,7 +671,7 @@ install(
 )
 
 install(
-    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/NativeExecutionControl.hpp src/Generation/NativeImageBridge.hpp
+    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/NativeExecutionControl.hpp src/Generation/NativeImageBridge.hpp src/Generation/ImageParameters.hpp src/Generation/ImageWatermark.hpp src/Generation/NativePose.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Generation
 )
 

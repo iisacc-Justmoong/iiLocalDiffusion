@@ -27,18 +27,25 @@ struct ResourceLimits {
 inline std::uint64_t memoryBudget(ResourceLimits limits, bool mobileCpuVae = false) {
     constexpr std::uint64_t MiB = 1024 * 1024;
     if (!limits.recommended) limits.recommended = limits.physical ? limits.physical / 2 : 2 * 1024 * MiB;
-    // Desktop keeps its existing working-set policy. iOS shares a much smaller
-    // pool with CPU VAE work, mapped input pages, UIKit and the GPU driver.
-    // Filling that pool can trigger GPU recovery even below Metal's recommendation.
+    // The engine reserves graph workspace inside this budget. Desktop leaves
+    // a fixed host margin instead of withholding another sixth of free memory.
+    // iOS still needs proportional headroom for its CPU VAE and GPU driver.
     auto budget = limits.recommended > 256 * MiB ? limits.recommended - 256 * MiB : 0;
     if (mobileCpuVae) budget = std::min(budget, limits.recommended / 5 * 3);
     if (limits.available || limits.availableKnown) {
         const auto reserve = mobileCpuVae
             ? std::max<std::uint64_t>(1536 * MiB, limits.available / 5 * 2)
-            : std::max<std::uint64_t>(768 * MiB, limits.available / 6);
+            : 1024 * MiB;
         budget = std::min(budget, limits.available > reserve ? limits.available - reserve : 0);
     }
     return budget / (256 * MiB) * (256 * MiB);
+}
+inline bool mayAttemptModelLoad(std::uint64_t memoryBudgetBytes, bool memoryResidentModel) {
+    constexpr std::uint64_t minimumManagedBudget = 512ull * 1024 * 1024;
+    // Anonymous resident pages may be compressed or swapped by the OS. Do not
+    // reject these loads using the GPU-placement budget; let allocation/loading
+    // report a real failure instead.
+    return memoryResidentModel || memoryBudgetBytes >= minimumManagedBudget;
 }
 // Diagnostic experiments may lower the managed GPU budget, never raise it
 // beyond the live resource policy. Invalid input leaves that policy intact.
@@ -49,7 +56,7 @@ inline std::uint64_t diagnosticMemoryCeiling(std::uint64_t budget, std::string_v
         mib < 512 || mib > UINT64_MAX / (1024 * 1024)) return budget;
     return std::min(budget, mib * 1024 * 1024);
 }
-inline std::string modelIdentity(const std::filesystem::path &path) {
+inline std::string modelMetadataIdentity(const std::filesystem::path &path) {
     const auto name = path.string();
     const auto bytes = std::filesystem::file_size(path);
     std::ostringstream key;
@@ -67,16 +74,22 @@ inline std::string modelIdentity(const std::filesystem::path &path) {
     key << ':' << info.st_ctim.tv_sec << ':' << info.st_ctim.tv_nsec;
 #endif
 #endif
+    return key.str();
+}
+inline std::string modelIdentity(const std::filesystem::path &path) {
+    const auto name = path.string();
+    const auto bytes = std::filesystem::file_size(path);
+    const auto metadata = modelMetadataIdentity(path);
     // Metadata tells us when to re-read, not whether model bytes changed.
     // iOS data-protection attributes can change ctime during inference.
     struct CachedIdentity { std::string metadata; std::string content; };
     static std::mutex mutex;
     static std::unordered_map<std::string, CachedIdentity> cache;
-    const auto metadata = key.str();
-    // Interactive generation opts into stat-only validation. Keep strict content
-    // identities for offline tooling without reading multi-GB models on first use.
+    // Generation references files by metadata by default; do not scan a large
+    // checkpoint before loading its tensors. Offline integrity tools can request
+    // content identity explicitly. Unknown policies retain strict validation.
     if (const auto *policy = std::getenv("IILD_MODEL_VALIDATION");
-        policy && std::string_view(policy) == "metadata") return metadata;
+        !policy || std::string_view(policy) == "metadata") return metadata;
     {
         const std::lock_guard lock(mutex);
         const auto found = cache.find(name);

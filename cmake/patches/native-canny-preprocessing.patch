@@ -1,0 +1,152 @@
+diff --git a/src/runtime/preprocessing.hpp b/src/runtime/preprocessing.hpp
+--- a/src/runtime/preprocessing.hpp
++++ b/src/runtime/preprocessing.hpp
+@@ -217,78 +217,72 @@
+ static inline sd::Tensor<float> non_max_supression(const sd::Tensor<float>& G, const sd::Tensor<float>& D) {
+-    GGML_ASSERT(G.shape() == D.shape());
+-    sd::Tensor<float> result = sd::Tensor<float>::zeros(G.shape());
+-    for (int64_t iy = 1; iy < result.shape()[1] - 1; ++iy) {
+-        for (int64_t ix = 1; ix < result.shape()[0] - 1; ++ix) {
+-            float angle = preprocessing_get_4d(D, ix, iy, 0, 0) * 180.0f / M_PI_;
+-            angle       = angle < 0.0f ? angle + 180.0f : angle;
+-            float q     = 1.0f;
+-            float r     = 1.0f;
+-
+-            if ((0 >= angle && angle < 22.5f) || (157.5f >= angle && angle <= 180.0f)) {
+-                q = preprocessing_get_4d(G, ix, iy + 1, 0, 0);
+-                r = preprocessing_get_4d(G, ix, iy - 1, 0, 0);
+-            } else if (22.5f >= angle && angle < 67.5f) {
+-                q = preprocessing_get_4d(G, ix + 1, iy - 1, 0, 0);
+-                r = preprocessing_get_4d(G, ix - 1, iy + 1, 0, 0);
+-            } else if (67.5f >= angle && angle < 112.5f) {
+-                q = preprocessing_get_4d(G, ix + 1, iy, 0, 0);
+-                r = preprocessing_get_4d(G, ix - 1, iy, 0, 0);
+-            } else if (112.5f >= angle && angle < 157.5f) {
+-                q = preprocessing_get_4d(G, ix - 1, iy - 1, 0, 0);
+-                r = preprocessing_get_4d(G, ix + 1, iy + 1, 0, 0);
+-            }
+-
+-            float cur = preprocessing_get_4d(G, ix, iy, 0, 0);
+-            preprocessing_set_4d(result, (cur >= q && cur >= r) ? cur : 0.0f, ix, iy, 0, 0);
+-        }
+-    }
+-    return result;
+-}
+-
+-static inline void threshold_hystersis(sd::Tensor<float>* img, float high_threshold, float low_threshold, float weak, float strong) {
+-    GGML_ASSERT(img != nullptr);
+-    if (img->empty()) {
+-        return;
+-    }
+-    float max_value = -std::numeric_limits<float>::infinity();
+-    for (int64_t i = 0; i < img->numel(); ++i) {
+-        max_value = std::max(max_value, (*img)[i]);
+-    }
+-
+-    float ht = max_value * high_threshold;
+-    float lt = ht * low_threshold;
+-    for (int64_t i = 0; i < img->numel(); ++i) {
+-        float img_v = (*img)[i];
+-        if (img_v >= ht) {
+-            (*img)[i] = strong;
+-        } else if (img_v <= ht && img_v >= lt) {
+-            (*img)[i] = weak;
+-        }
+-    }
+-
+-    for (int64_t iy = 0; iy < img->shape()[1]; ++iy) {
+-        for (int64_t ix = 0; ix < img->shape()[0]; ++ix) {
+-            if (!(ix >= 3 && ix <= img->shape()[0] - 3 && iy >= 3 && iy <= img->shape()[1] - 3)) {
+-                preprocessing_set_4d(*img, 0.0f, ix, iy, 0, 0);
+-            }
+-        }
+-    }
+-
+-    for (int64_t iy = 1; iy < img->shape()[1] - 1; ++iy) {
+-        for (int64_t ix = 1; ix < img->shape()[0] - 1; ++ix) {
+-            float imd_v = preprocessing_get_4d(*img, ix, iy, 0, 0);
+-            if (imd_v == weak) {
+-                bool has_strong_neighbor =
+-                    preprocessing_get_4d(*img, ix + 1, iy - 1, 0, 0) == strong ||
+-                    preprocessing_get_4d(*img, ix + 1, iy, 0, 0) == strong ||
+-                    preprocessing_get_4d(*img, ix, iy - 1, 0, 0) == strong ||
+-                    preprocessing_get_4d(*img, ix, iy + 1, 0, 0) == strong ||
+-                    preprocessing_get_4d(*img, ix - 1, iy - 1, 0, 0) == strong ||
+-                    preprocessing_get_4d(*img, ix - 1, iy, 0, 0) == strong;
+-                preprocessing_set_4d(*img, has_strong_neighbor ? strong : 0.0f, ix, iy, 0, 0);
+-            }
+-        }
+-    }
+-}
+-
++    GGML_ASSERT(G.shape() == D.shape());
++    sd::Tensor<float> result = sd::Tensor<float>::zeros(G.shape());
++    for (int64_t iy = 1; iy < result.shape()[1] - 1; ++iy) {
++        for (int64_t ix = 1; ix < result.shape()[0] - 1; ++ix) {
++            float angle = preprocessing_get_4d(D, ix, iy, 0, 0) * 180.0f / M_PI_;
++            angle       = angle < 0.0f ? angle + 180.0f : angle;
++            float q     = 1.0f;
++            float r     = 1.0f;
++
++            if ((0 <= angle && angle < 22.5f) || (157.5f <= angle && angle <= 180.0f)) {
++                q = preprocessing_get_4d(G, ix, iy + 1, 0, 0);
++                r = preprocessing_get_4d(G, ix, iy - 1, 0, 0);
++            } else if (22.5f <= angle && angle < 67.5f) {
++                q = preprocessing_get_4d(G, ix + 1, iy - 1, 0, 0);
++                r = preprocessing_get_4d(G, ix - 1, iy + 1, 0, 0);
++            } else if (67.5f <= angle && angle < 112.5f) {
++                q = preprocessing_get_4d(G, ix + 1, iy, 0, 0);
++                r = preprocessing_get_4d(G, ix - 1, iy, 0, 0);
++            } else if (112.5f <= angle && angle < 157.5f) {
++                q = preprocessing_get_4d(G, ix - 1, iy - 1, 0, 0);
++                r = preprocessing_get_4d(G, ix + 1, iy + 1, 0, 0);
++            }
++
++            float cur = preprocessing_get_4d(G, ix, iy, 0, 0);
++            preprocessing_set_4d(result, (cur >= q && cur >= r) ? cur : 0.0f, ix, iy, 0, 0);
++        }
++    }
++    return result;
++}
++
++static inline void threshold_hystersis(sd::Tensor<float>* img, float high_threshold, float low_threshold, float weak, float strong) {
++    GGML_ASSERT(img != nullptr);
++    if (img->empty()) return;
++    float max_value = 0.0f;
++    for (int64_t i = 0; i < img->numel(); ++i) max_value = std::max(max_value, (*img)[i]);
++    if (!(max_value > 0) || !std::isfinite(max_value)) {
++        std::fill(img->values().begin(), img->values().end(), 0.0f);
++        return;
++    }
++    const float ht = max_value * high_threshold;
++    const float lt = ht * low_threshold;
++    const int64_t width = img->shape()[0], height = img->shape()[1];
++    std::vector<std::pair<int64_t, int64_t>> pending;
++    for (int64_t y = 0; y < height; ++y) {
++        for (int64_t x = 0; x < width; ++x) {
++            const float value = preprocessing_get_4d(*img, x, y);
++            const bool interior = x >= 3 && x <= width - 3 && y >= 3 && y <= height - 3;
++            const float classified = !interior || value <= 0 || value < lt ? 0.0f
++                : value >= ht ? strong : weak;
++            preprocessing_set_4d(*img, classified, x, y);
++            if (classified == strong) pending.emplace_back(x, y);
++        }
++    }
++    // Follow all eight-connected weak edges, independent of raster scan order.
++    for (size_t i = 0; i < pending.size(); ++i) {
++        const auto [x, y] = pending[i];
++        for (int64_t dy = -1; dy <= 1; ++dy) {
++            for (int64_t dx = -1; dx <= 1; ++dx) {
++                const int64_t nx = x + dx, ny = y + dy;
++                if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
++                if (preprocessing_get_4d(*img, nx, ny) == weak) {
++                    preprocessing_set_4d(*img, strong, nx, ny);
++                    pending.emplace_back(nx, ny);
++                }
++            }
++        }
++    }
++    for (int64_t i = 0; i < img->numel(); ++i) if ((*img)[i] != strong) (*img)[i] = 0.0f;
++}
++
+ bool preprocess_canny(sd_image_t img, float high_threshold, float low_threshold, float weak, float strong, bool inverse) {

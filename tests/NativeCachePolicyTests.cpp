@@ -6,7 +6,7 @@ int main(int argc, char **argv) {
     using namespace iiLocalDiffusion::native_detail;
     if (argc != 2) return 1;
     constexpr auto GiB = 1024ull * 1024 * 1024;
-    // Preserve the desktop working-set policy. Low-memory budgets must never
+    // Preserve Metal limits and reserve host memory. Low-memory budgets must never
     // be rounded upward; the iOS shared-memory policy is tested separately.
     if (memoryBudget({8 * GiB, 5 * GiB, 6 * GiB}) != 4864ull * 1024 * 1024) return 2;
     if (memoryBudget({4 * GiB, 3 * GiB, 1536ull * 1024 * 1024}) > GiB) return 3;
@@ -19,6 +19,11 @@ int main(int argc, char **argv) {
     if (memoryBudget({4 * GiB, 3 * GiB, 1536ull * 1024 * 1024, true}, true) != 0) return 18;
     if (memoryBudget({8 * GiB, 5 * GiB, 2 * GiB, true}, true) != GiB / 2) return 19;
     if (memoryBudget({16 * GiB, 11 * GiB, 10 * GiB, true}, true) != 6 * GiB) return 20;
+    if (memoryBudget({32 * GiB, 24 * GiB, 16 * GiB, true}) != 15 * GiB) return 24;
+    if (memoryBudget({32 * GiB, 24 * GiB, 30 * GiB, true}) != 24 * GiB - GiB / 4) return 25;
+    if (mayAttemptModelLoad(0, false)) return 26;
+    if (!mayAttemptModelLoad(512 * 1024 * 1024, false)) return 27;
+    if (!mayAttemptModelLoad(0, true)) return 28;
     if (diagnosticMemoryCeiling(4 * GiB, "2048") != 2 * GiB) return 9;
     if (diagnosticMemoryCeiling(4 * GiB, "8192") != 4 * GiB) return 10;
     for (const auto invalid : {"", "0", "511", "oops", "2048oops", "18446744073709551615"})
@@ -27,6 +32,14 @@ int main(int argc, char **argv) {
     std::filesystem::create_directories(dir);
     const auto model = dir / "model.safetensors";
     { std::ofstream out(model); out << "original"; }
+    const auto metadataDefault = modelIdentity(model);
+    if (modelMetadataIdentity(model).find(":data=") != std::string::npos) return 24;
+    if (metadataDefault.find(":data=") != std::string::npos) return 23;
+#if defined(_WIN32)
+    _putenv_s("IILD_MODEL_VALIDATION", "content");
+#else
+    setenv("IILD_MODEL_VALIDATION", "content", 1);
+#endif
     const auto first = modelIdentity(model);
     if (first != modelIdentity(model)) return 5;
     const auto time = std::filesystem::last_write_time(model);

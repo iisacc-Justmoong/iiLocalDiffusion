@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 import DownloadedModelTests as fixtures
@@ -18,6 +18,20 @@ from inference_worker import serve
 class NativeImageTests(unittest.TestCase):
     setUp = fixtures.DownloadedModelTests.setUp
     safetensors = fixtures.DownloadedModelTests.safetensors
+
+    def test_adapter_collection_does_not_release_runtime_sources(self):
+        import gc
+        from inference_session import InferenceSession
+        library = Mock(_name="native-fixture")
+        library.iild_native_available_v1.return_value = 1
+        with patch.object(native_image, "library_path", return_value=Path("fixture")), \
+                patch.object(native_image.C, "CDLL", return_value=library):
+            with InferenceSession():
+                engine = native_image.NativeEngine()
+                del engine
+                gc.collect()
+                library.iild_native_release_v1.assert_not_called()
+            library.iild_native_release_v1.assert_called_once()
 
     @unittest.skipUnless(importlib.util.find_spec("PIL"), "Pillow is required")
     def test_native_previews_survive_refinement_step_restart(self):
@@ -35,6 +49,18 @@ class NativeImageTests(unittest.TestCase):
         self.assertEqual(Image.open(directory / events[1]["image"]).getpixel((0, 0)), (98, 76, 54))
         with self.assertRaises(ValueError): writer(4, 3, 2, 2, b"bad")
         with self.assertRaises(ValueError): native_image.NativePreviewWriter(directory)
+
+    def test_publication_trace_survives_failure_without_claiming_completion(self):
+        trace = self.directory / "trace.jsonl"
+        trace.write_text("")
+        performance = {"telemetry_path": str(trace), "telemetry_elapsed_ms": 2000}
+        with patch("sys.stdout", io.StringIO()), patch.object(native_image.time, "monotonic", return_value=3):
+            native_image.publication_event(performance, "publication-failed", 2, "disk full")
+        record = json.loads(trace.read_text())
+        self.assertEqual(record["event"], "publication-failed")
+        self.assertEqual(record["phase"], "postprocess")
+        self.assertEqual(record["elapsed_ms"], 3000)
+        self.assertEqual(record["detail"], "disk full")
 
     def model(self, **kwargs):
         return self.safetensors({
@@ -71,13 +97,15 @@ class NativeImageTests(unittest.TestCase):
     @unittest.skipUnless(importlib.util.find_spec("PIL"), "Pillow is required for real PNG validation")
     def test_worker_prepares_without_sampling_then_completes_ten_requests(self):
         from PIL import Image
-        models, prepared, seeds = [], [], []
+        models, prepared, seeds, events = [], [], [], []
         class Engine:
             def __init__(self): models.append(self)
             def image(self, args, seed, *, prepare=False):
                 if prepare:
                     prepared.append(True)
-                    return None, {}
+                    events.append("load")
+                    return None, {"weight_storage": "anonymous", "model_cache_hit": len(prepared) > 1}
+                events.append("generate")
                 seeds.append(seed)
                 return Image.new("RGB", (args.width, args.height), (seed, 80, 120)), {"model_cache_hit": True}
         model = self.model()
@@ -96,7 +124,8 @@ class NativeImageTests(unittest.TestCase):
         results = [json.loads(line.removeprefix("IILD_RESULT ")) for line in output.getvalue().splitlines() if line.startswith("IILD_RESULT ")]
         self.assertEqual(len(results), 11)
         self.assertTrue(all(result["ok"] for result in results), results)
-        self.assertEqual((len(models), len(prepared), seeds), (1, 1, list(range(10))))
+        self.assertEqual((len(models), len(prepared), seeds), (1, 11, list(range(10))))
+        self.assertEqual(events, ["load"] + ["load", "generate"] * 10)
         self.assertTrue(results[0]["residency"]["ready"])
         self.assertFalse(results[0]["residency"]["gpu_resident"])  # lazy placement, never claim all weights on GPU
         for index in range(10):
@@ -117,6 +146,8 @@ class NativeImageTests(unittest.TestCase):
         calls = []
         class Engine:
             def image(self, args, seed, **kwargs):
+                if kwargs.get("prepare"):
+                    return None, {"weight_storage": "anonymous"}
                 calls.append(seed)
                 if len(calls) == 2: raise RuntimeError("decoder failure")
                 return Image.new("RGB", (args.width, args.height)), {}
@@ -125,6 +156,21 @@ class NativeImageTests(unittest.TestCase):
             standalone_image.main(["--model", str(self.model()), "--width", "64", "--height", "120",
                                    "--num-images", "10", "--output-dir", str(output)])
         self.assertEqual(list(output.iterdir()), [])
+
+    def test_queue_refuses_generation_until_anonymous_preload_succeeds(self):
+        for metadata in ({}, {"weight_storage": "file-backed"}):
+            calls = []
+            class Engine:
+                def image(self, args, seed, *, prepare=False):
+                    calls.append(prepare)
+                    if not prepare:
+                        raise AssertionError("Inference started before resident preload")
+                    return None, metadata
+            with self.subTest(metadata=metadata), patch.object(native_image, "NativeEngine", Engine), \
+                 self.assertRaisesRegex(SystemExit, "anonymous memory"):
+                standalone_image.main(["--model", str(self.model()), "--width", "64", "--height", "120",
+                                       "--output-dir", str(self.directory / ("rejected-" + str(len(metadata))))])
+            self.assertEqual(calls, [True])
 
     def test_installed_library_is_resolved_from_its_own_prefix(self):
         prefix = self.directory / "installed"

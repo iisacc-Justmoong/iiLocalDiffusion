@@ -1,0 +1,388 @@
+diff --git a/src/model.h b/src/model.h
+--- a/src/model.h
++++ b/src/model.h
+@@ -58,6 +58,7 @@
+     VERSION_KREA2,
+     VERSION_MAGE_FLOW,
+     VERSION_ESRGAN,
++    VERSION_SDXL_REFINER,
+     VERSION_COUNT,
+ };
+ 
+@@ -76,7 +77,7 @@
+ }
+ 
+ static inline bool sd_version_is_sdxl(SDVersion version) {
+-    if (version == VERSION_SDXL || version == VERSION_SDXL_INPAINT || version == VERSION_SDXL_PIX2PIX || version == VERSION_SDXL_SSD1B || version == VERSION_SDXL_VEGA) {
++    if (version == VERSION_SDXL || version == VERSION_SDXL_INPAINT || version == VERSION_SDXL_PIX2PIX || version == VERSION_SDXL_SSD1B || version == VERSION_SDXL_VEGA || version == VERSION_SDXL_REFINER) {
+         return true;
+     }
+     return false;
+diff --git a/src/model_loader.cpp b/src/model_loader.cpp
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -395,5 +395,5 @@
+ SDVersion ModelLoader::get_sd_version() {
+-    TensorStorage token_embedding_weight, input_block_weight, context_ebedding_weight;
++    TensorStorage token_embedding_weight, input_block_weight, context_ebedding_weight, adm_weight;
+ 
+     bool has_multiple_encoders = false;
+     bool is_unet               = false;
+@@ -534,6 +534,8 @@
+         }
+         if (tensor_storage.name == "cond_stage_model.transformer.text_model.embeddings.token_embedding.weight" ||
+             tensor_storage.name == "cond_stage_model.model.token_embedding.weight" ||
++            tensor_storage.name == "text_encoder.text_model.embeddings.token_embedding.weight" ||
++            tensor_storage.name == "text_encoder_2.text_model.embeddings.token_embedding.weight" ||
+             tensor_storage.name == "text_model.embeddings.token_embedding.weight" ||
+             tensor_storage.name == "te.text_model.embeddings.token_embedding.weight" ||
+             tensor_storage.name == "conditioner.embedders.0.model.token_embedding.weight" ||
+@@ -546,6 +548,10 @@
+             tensor_storage.name == "unet.conv_in.weight") {
+             input_block_weight = tensor_storage;
+         }
++        if (tensor_storage.name == "model.diffusion_model.label_emb.0.0.weight" ||
++            tensor_storage.name == "unet.add_embedding.linear_1.weight") {
++            adm_weight = tensor_storage;
++        }
+         if (tensor_storage.name == "model.diffusion_model.txt_in.weight" || tensor_storage.name == "model.diffusion_model.context_embedder.weight") {
+             context_ebedding_weight = tensor_storage;
+         }
+@@ -559,6 +565,17 @@
+             return VERSION_WAN2_2_TI2V;
+         }
+         return VERSION_WAN2;
++    }
++    // Official SDXL Refiner: four-stage 384-channel UNet, 2560 ADM,
++    // one 1280-wide bigG encoder. Identify by architecture, never filename.
++    if (input_block_weight.ne[3] == 384 && adm_weight.ne[0] == 2560) {
++        if (input_block_weight.n_dims == 4 && input_block_weight.ne[2] == 4 &&
++            adm_weight.n_dims == 2 && adm_weight.ne[1] == 1536 &&
++            !has_multiple_encoders &&
++            (token_embedding_weight.n_dims == 0 || token_embedding_weight.ne[0] == 1280)) {
++            return VERSION_SDXL_REFINER;
++        }
++        return VERSION_COUNT;
+     }
+     bool is_inpaint = input_block_weight.ne[2] == 9;
+     bool is_ip2p    = input_block_weight.ne[2] == 8;
+diff --git a/src/name_conversion.cpp b/src/name_conversion.cpp
+--- a/src/name_conversion.cpp
++++ b/src/name_conversion.cpp
+@@ -886,6 +886,19 @@
+ std::string convert_diffusion_model_name(std::string name, std::string prefix, SDVersion version) {
+     if (sd_version_is_sd1(version) || sd_version_is_sd2(version)) {
+         name = convert_diffusers_unet_to_original_sd1(name);
++    } else if (version == VERSION_SDXL_REFINER) {
++        // Refiner has the SD1 four-stage block indices (attention at levels
++        // one and two only), plus the SDXL additional-conditioning MLP.
++        const std::vector<std::pair<std::string, std::string>> adm_names = {
++            {"label_emb.0.0.", "add_embedding.linear_1."},
++            {"label_emb.0.2.", "add_embedding.linear_2."},
++        };
++        for (const auto& item : adm_names) {
++            if (starts_with(name, item.second)) {
++                return item.first + name.substr(item.second.size());
++            }
++        }
++        name = convert_diffusers_unet_to_original_sd1(name);
+     } else if (sd_version_is_sdxl(version)) {
+         name = convert_diffusers_unet_to_original_sdxl(name);
+     } else if (sd_version_is_sd3(version)) {
+diff --git a/src/name_conversion.cpp b/src/name_conversion.cpp
+--- a/src/name_conversion.cpp
++++ b/src/name_conversion.cpp
+@@ -1481,6 +1481,14 @@
+     if (sd_version_is_unet(version)) {
+         prefix_map["clip_l."] = "cond_stage_model.transformer.";
+         prefix_map["clip_g."] = "cond_stage_model.1.transformer.";
++        if (version == VERSION_SDXL_REFINER) {
++            // Diffusers calls its sole bigG encoder text_encoder_2; native
++            // checkpoints put it in conditioner.embedders.0.
++            prefix_map["text_encoder_2."] = "cond_stage_model.transformer.";
++            prefix_map["text_encoder.2."] = "cond_stage_model.transformer.";
++            prefix_map["te2."] = "cond_stage_model.transformer.";
++            prefix_map["clip_g."] = "cond_stage_model.transformer.";
++        }
+     } else {
+         prefix_map["clip_l."] = "text_encoders.clip_l.transformer.";
+         prefix_map["clip_g."] = "text_encoders.clip_g.transformer.";
+diff --git a/src/model/diffusion/unet.hpp b/src/model/diffusion/unet.hpp
+--- a/src/model/diffusion/unet.hpp
++++ b/src/model/diffusion/unet.hpp
+@@ -46,6 +46,17 @@
+             config.num_head_channels     = 64;
+             config.num_heads             = -1;
+             config.use_linear_projection = true;
++        } else if (version == VERSION_SDXL_REFINER) {
++            config.model_channels        = 384;
++            config.time_embed_dim        = 1536;
++            config.context_dim           = 1280;
++            config.adm_in_channels       = 2560;
++            config.attention_resolutions = {4, 2};
++            config.channel_mult          = {1, 2, 4, 4};
++            config.transformer_depth     = {4, 4, 4, 4};
++            config.num_head_channels     = 64;
++            config.num_heads             = -1;
++            config.use_linear_projection = true;
+         } else if (sd_version_is_sdxl(version)) {
+             config.context_dim           = 2048;
+             config.attention_resolutions = {4, 2};
+diff --git a/src/conditioning/conditioner.hpp b/src/conditioning/conditioner.hpp
+--- a/src/conditioning/conditioner.hpp
++++ b/src/conditioning/conditioner.hpp
+@@ -133,6 +133,7 @@
+     const std::vector<sd::Tensor<float>>* ref_images                    = nullptr;  // for qwen image edit
+     const std::vector<MiniMaxH3PresentationItem>* minimax_h3_references = nullptr;
+     RefImageParams ref_image_params;
++    bool is_negative_prompt = false;  // Refiner aesthetic conditioning, independent of empty text.
+ };
+ 
+ struct Conditioner {
+@@ -189,6 +190,8 @@
+             text_model = std::make_shared<CLIPTextModelRunner>(backend, tensor_storage_map, "cond_stage_model.transformer.text_model", OPENAI_CLIP_VIT_L_14, true, force_clip_f32, weight_manager);
+         } else if (sd_version_is_sd2(version)) {
+             text_model = std::make_shared<CLIPTextModelRunner>(backend, tensor_storage_map, "cond_stage_model.transformer.text_model", OPEN_CLIP_VIT_H_14, true, force_clip_f32, weight_manager);
++        } else if (version == VERSION_SDXL_REFINER) {
++            text_model = std::make_shared<CLIPTextModelRunner>(backend, tensor_storage_map, "cond_stage_model.transformer.text_model", OPEN_CLIP_VIT_BIGG_14, false, force_clip_f32, weight_manager);
+         } else if (sd_version_is_sdxl(version)) {
+             text_model  = std::make_shared<CLIPTextModelRunner>(backend, tensor_storage_map, "cond_stage_model.transformer.text_model", OPENAI_CLIP_VIT_L_14, false, force_clip_f32, weight_manager);
+             text_model2 = std::make_shared<CLIPTextModelRunner>(backend, tensor_storage_map, "cond_stage_model.1.transformer.text_model", OPEN_CLIP_VIT_BIGG_14, false, force_clip_f32, weight_manager);
+@@ -197,56 +200,56 @@
+ 
+     void get_param_tensors(std::map<std::string, ggml_tensor*>& tensors) override {
+         text_model->get_param_tensors(tensors, "cond_stage_model.transformer.text_model");
+-        if (sd_version_is_sdxl(version)) {
++        if (text_model2) {
+             text_model2->get_param_tensors(tensors, "cond_stage_model.1.transformer.text_model");
+         }
+     }
+ 
+     void set_max_graph_vram_bytes(size_t max_vram_bytes) override {
+         text_model->set_max_graph_vram_bytes(max_vram_bytes);
+-        if (sd_version_is_sdxl(version)) {
++        if (text_model2) {
+             text_model2->set_max_graph_vram_bytes(max_vram_bytes);
+         }
+     }
+ 
+     void set_runtime_backends(const std::vector<ggml_backend_t>& backends) override {
+         text_model->set_runtime_backends(backends);
+-        if (sd_version_is_sdxl(version)) {
++        if (text_model2) {
+             text_model2->set_runtime_backends(backends);
+         }
+     }
+ 
+     void set_graph_cut_layer_split_enabled(bool enabled) override {
+         text_model->set_graph_cut_layer_split_enabled(enabled);
+-        if (sd_version_is_sdxl(version)) {
++        if (text_model2) {
+             text_model2->set_graph_cut_layer_split_enabled(enabled);
+         }
+     }
+ 
+     void set_graph_cut_layer_split_backend_vram_limits(const std::vector<size_t>& limits) override {
+         text_model->set_graph_cut_layer_split_backend_vram_limits(limits);
+-        if (sd_version_is_sdxl(version)) {
++        if (text_model2) {
+             text_model2->set_graph_cut_layer_split_backend_vram_limits(limits);
+         }
+     }
+ 
+     void set_flash_attention_enabled(bool enabled) override {
+         text_model->set_flash_attention_enabled(enabled);
+-        if (sd_version_is_sdxl(version)) {
++        if (text_model2) {
+             text_model2->set_flash_attention_enabled(enabled);
+         }
+     }
+ 
+     void set_weight_adapter(const std::shared_ptr<WeightAdapter>& adapter) override {
+         text_model->set_weight_adapter(adapter);
+-        if (sd_version_is_sdxl(version)) {
++        if (text_model2) {
+             text_model2->set_weight_adapter(adapter);
+         }
+     }
+ 
+     void runner_end() override {
+         text_model->runner_end();
+-        if (sd_version_is_sdxl(version)) {
++        if (text_model2) {
+             text_model2->runner_end();
+         }
+     }
+@@ -436,13 +439,39 @@
+         return {tokens, weights};
+     }
+ 
++    static sd::Tensor<float> sdxl_condition_vector(SDVersion version,
++                                                   const sd::Tensor<float>& pooled,
++                                                   int width, int height,
++                                                   bool is_negative_prompt) {
++        if (!sd_version_is_sdxl(version) || pooled.values().size() != 1280) return {};
++        const bool refiner = version == VERSION_SDXL_REFINER;
++        sd::Tensor<float> vec({refiner ? 2560 : 2816});
++        std::copy(pooled.values().begin(), pooled.values().end(), vec.values().begin());
++        size_t offset = pooled.values().size();
++        auto append = [&](const std::vector<float>& timesteps) {
++            sd::Tensor<float> embedding;
++            set_timestep_embedding(timesteps, &embedding, 256);
++            std::copy(embedding.values().begin(), embedding.values().end(),
++                      vec.values().begin() + static_cast<int64_t>(offset));
++            offset += embedding.values().size();
++        };
++        append({static_cast<float>(height), static_cast<float>(width)});
++        append({0.0f, 0.0f});
++        // Stability-AI's official Refiner demo uses 6.0 / 2.5 aesthetic scores.
++        if (refiner) append({is_negative_prompt ? 2.5f : 6.0f});
++        else append({static_cast<float>(height), static_cast<float>(width)});
++        GGML_ASSERT(offset == vec.values().size());
++        return vec;
++    }
++
+     SDCondition get_learned_condition_common(int n_threads,
+                                              std::vector<int>& tokens,
+                                              std::vector<float>& weights,
+                                              int clip_skip,
+                                              int width,
+                                              int height,
+-                                             bool zero_out_masked = false) {
++                                             bool zero_out_masked = false,
++                                             bool is_negative_prompt = false) {
+         int64_t t0 = ggml_time_ms();
+         sd::Tensor<float> hidden_states;  // [n_token, hidden_size] or [n_token, hidden_size + hidden_size2]
+         sd::Tensor<float> pooled;
+@@ -480,7 +509,7 @@
+ 
+             {
+                 auto chunk_hidden_states = text_model->compute(n_threads,
+-                                                               input_ids,
++                                                               version == VERSION_SDXL_REFINER ? input_ids2 : input_ids,
+                                                                num_custom_embeddings,
+                                                                token_embed_custom.data(),
+                                                                max_token_idx,
+@@ -488,7 +517,7 @@
+                                                                clip_skip,
+                                                                false);
+                 GGML_ASSERT(!chunk_hidden_states.empty());
+-                if (sd_version_is_sdxl(version)) {
++                if (text_model2) {
+                     auto chunk_hidden_states2 = text_model2->compute(n_threads,
+                                                                      input_ids2,
+                                                                      num_custom_embeddings,
+@@ -500,17 +529,19 @@
+                     GGML_ASSERT(!chunk_hidden_states2.empty());
+                     chunk_hidden_states = sd::ops::concat(chunk_hidden_states, chunk_hidden_states2, 0);
+ 
+-                    if (chunk_idx == 0) {
+-                        pooled = text_model2->compute(n_threads,
++                }
++                if (sd_version_is_sdxl(version) && chunk_idx == 0) {
++                        auto pooling_model = text_model2 ? text_model2 : text_model;
++                        auto& pooling_embeddings = text_model2 ? token_embed_custom2 : token_embed_custom;
++                        pooled = pooling_model->compute(n_threads,
+                                                       input_ids2,
+                                                       num_custom_embeddings,
+-                                                      token_embed_custom2.data(),
++                                                      pooling_embeddings.data(),
+                                                       max_token_idx,
+                                                       true,
+                                                       clip_skip,
+                                                       false);
+                         GGML_ASSERT(!pooled.empty());
+-                    }
+                 }
+                 int64_t t1 = ggml_time_ms();
+                 LOG_VERBOSE("computing condition graph completed, taking %" PRId64 " ms", t1 - t0);
+@@ -530,38 +561,20 @@
+ 
+         sd::Tensor<float> vec;
+         if (sd_version_is_sdxl(version)) {
+-            int out_dim         = 256;
+-            int adm_in_channels = 2816;
+-            GGML_ASSERT(!pooled.empty());
+-            vec = sd::Tensor<float>({adm_in_channels});
+-            vec.fill_(0.0f);
+-            size_t offset = 0;
+-            std::copy(pooled.values().begin(), pooled.values().end(), vec.values().begin());
+-            offset += pooled.values().size();
++            vec = sdxl_condition_vector(version, pooled, width, height, is_negative_prompt);
++            GGML_ASSERT(!vec.empty());
++        }
++        SDCondition result;
++        if (!hidden_states.empty()) {
++            result.c_crossattn = std::move(hidden_states);
++        }
+ 
+-            auto append_embedding = [&](const std::vector<float>& timesteps) {
+-                sd::Tensor<float> embedding;
+-                set_timestep_embedding(timesteps, &embedding, out_dim);
+-                std::copy(embedding.values().begin(), embedding.values().end(), vec.values().begin() + static_cast<int64_t>(offset));
+-                offset += embedding.values().size();
+-            };
++        if (!vec.empty()) {
++            result.c_vector = std::move(vec);
++        }
++        return result;
++    }
+ 
+-            append_embedding({static_cast<float>(height), static_cast<float>(width)});
+-            append_embedding({0.0f, 0.0f});
+-            append_embedding({static_cast<float>(height), static_cast<float>(width)});
+-            GGML_ASSERT(offset == vec.values().size());
+-        }
+-        SDCondition result;
+-        if (!hidden_states.empty()) {
+-            result.c_crossattn = std::move(hidden_states);
+-        }
+-
+-        if (!vec.empty()) {
+-            result.c_vector = std::move(vec);
+-        }
+-        return result;
+-    }
+-
+     SDCondition get_learned_condition(int n_threads,
+                                       const ConditionerParams& conditioner_params) override {
+         auto tokens_and_weights     = tokenize(conditioner_params.text, text_model->model.n_token, text_model->model.n_token, true);
+@@ -573,7 +586,8 @@
+                                             conditioner_params.clip_skip,
+                                             conditioner_params.width,
+                                             conditioner_params.height,
+-                                            conditioner_params.zero_out_masked);
++                                            conditioner_params.zero_out_masked,
++                                            conditioner_params.is_negative_prompt);
+     }
+ };
+ 
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -5454,10 +5454,12 @@
+         } else {
+             bool zero_out_masked = false;
+             if (sd_version_is_sdxl(sd_ctx->sd->version) &&
++                sd_ctx->sd->version != VERSION_SDXL_REFINER &&
+                 request->negative_prompt.empty() &&
+                 !sd_ctx->sd->is_using_edm_v_parameterization) {
+                 zero_out_masked = true;
+             }
++            condition_params.is_negative_prompt = true;
+             condition_params.text            = request->negative_prompt;
+             condition_params.zero_out_masked = zero_out_masked;
+             uncond                           = sd_ctx->sd->cond_stage_model->get_learned_condition(sd_ctx->sd->n_threads,
+@@ -5475,10 +5477,12 @@
+         } else {
+             bool zero_out_masked = false;
+             if (sd_version_is_sdxl(sd_ctx->sd->version) &&
++                sd_ctx->sd->version != VERSION_SDXL_REFINER &&
+                 request->negative_prompt.empty() &&
+                 !sd_ctx->sd->is_using_edm_v_parameterization) {
+                 zero_out_masked = true;
+             }
++            condition_params.is_negative_prompt = true;
+             condition_params.text            = request->negative_prompt;
+             condition_params.zero_out_masked = zero_out_masked;
+             std::vector<sd::Tensor<float>> empty_ref_images;

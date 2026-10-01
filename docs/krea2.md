@@ -151,3 +151,95 @@ each vertical edge). The resolution-dependent Raw mu uses the internal
 canvas token count. Reports record `output_size`, `canvas_size`, and
 `output_transform`; replay retains the original output dimensions.
 Diffusers package dimensions retain their separate 16px contract.
+
+## Native inference diagnostics
+
+Set `IILD_NATIVE_TELEMETRY_DIR` to a writable directory to retain one
+`inference-*.jsonl` trace per native invocation. Dreamscapes sets this to
+`Models/.society-runtime/iiLocalDiffusion/diagnostics` in its connected Society
+storage. These files survive temporary job cleanup and worker termination.
+The C bridge's result metadata includes `telemetry_path`, also retained in the
+Python image report. The trace records no prompt or image pixels; the model
+filename and engine diagnostic paths may appear.
+
+`iild-native-telemetry-v1` records model-load, text-encode, denoise, vae-decode,
+and postprocess boundaries, completed steps/total, elapsed and phase/step times.
+Loading a new weight segment is a `weight-load` operation **inside** its current
+phase; it must not relabel denoising as initial model loading. Each weight load
+records its start/end, elapsed time and bytes when the engine returns.
+CPU parameter staging into execution buffers is separately marked as
+`weight-transfer`, including its elapsed time and target backend. Five-second
+heartbeats preserve the last observed phase even when no callback completes.
+They are not progress. `step` counts completed steps: while step=3 is unchanged,
+the next step is still in flight. Durations are host wall time between engine
+boundaries, including waits and transfers, not GPU kernel profiling.
+
+`backend` is the resolved module runtime backend, obtained from the engine's
+actual runtime backend object (including warm-cache reuse). Its scope is
+`module-runtime-placement`; it does **not** assert that every operator executed
+on that device. Auto-fit storage decisions and relevant engine diagnostics are
+retained as evidence. Missing placement is `unobserved`, not an assumed Metal
+success. Op-level fallback/migration counts and GPU utilization are not measured.
+
+Memory fields distinguish process RSS, process lifetime peak RSS, current
+physical footprint and the sampled peak footprint for this invocation on Apple,
+plus system-wide swap usage when available. They are not exclusive model/GPU
+allocations and cannot alone establish thrashing. Missing platform measurements
+are omitted. Compare repeated process samples and storage I/O to determine the
+cause of a slow stage.
+
+`native-completed` means RGB generation/cropping finished, not publication.
+The Python worker continues the same trace through source validation and PNG
+saving (`publication-start`, `publication-failed`, `output-published`). The
+`performance.publication_ms` report measures that interval. A killed worker
+may have no terminal event; that is an interrupted/incomplete trace, never a
+successful image. Existing final-size/crop and checkpoint precision contracts
+are unchanged.
+
+Validation: `NativeTelemetryTests`, `NativeResultTests`, `NativeMobileResultTests`,
+`NativeImageTests`, and Dreamscapes' generation worker watchdog fixtures cover
+trace JSON, phase/weight-loading separation, actual placement labels, failures,
+publication, and heartbeat-only stalls. They do not benchmark a full pretrained
+1024px Krea2 generation.
+
+
+## Weight I/O and desktop resource policy
+
+The component-aware Dreamscapes worker now stages sources into anonymous memory
+before inference; see [resident worker execution](resident-worker-performance.md).
+The file-backed bulk-read behavior below remains for legacy/nonresident APIs.
+
+Native C++ model reference now defaults to metadata identity (path, size, timestamps,
+file/device identity), avoiding a full checkpoint hash before first use.
+`IILD_MODEL_VALIDATION=content` retains full-content validation for offline
+integrity workflows; `metadata` explicitly selects the interactive default.
+Pre/post generation identity checks and header/tensor validation remain enabled.
+This detects ordinary edits/replacements; metadata identity is not a content
+checksum or authentication guarantee.
+
+On Unix, read-only mapped weights are copied with bounded 8 MiB `pread` calls
+instead of demand-faulting every mapped page through `memcpy`. Tensors are
+scheduled in file-offset order. Metal shared weight allocations receive bytes
+directly, including CPU-mapped parameter staging, without a tensor-sized host
+upload copy. CPU conversion and private/device buffers retain their existing
+conversion/upload paths. Writable private mappings retain memcpy semantics so
+in-memory LoRA changes are never overwritten by original file data. Short reads,
+bounds failures and cancellation are errors; cancellation is checked between
+chunks. This changes storage access, not precision or sampling.
+
+macOS uses available memory minus 1 GiB of host headroom, capped at Metal's
+recommended working set minus 256 MiB and rounded down to 256 MiB. The engine
+reserves compute graph workspace inside that allocation. This replaces a second
+proportional desktop reserve of one sixth of available RAM. It does not forcibly
+reclaim another app's memory, exceed the reported limit, or change the separate
+iOS CPU-VAE headroom policy. Oversized checkpoints still use segmented loading.
+
+`NativeBulkReadTests` verifies exact bytes across multiple chunks, unaligned
+ranges, bounds, private mapping edits, cancellation, and truncated files.
+`NativeMappedMetalStorage` and `NativeMappedPrivateStorage` execute a 17 MiB
+weight graph through resident Metal, CPU-to-Metal staging and disk residency,
+including cancellation after a partial staging swap followed by a successful retry.
+`NativeWeightReadBenchmark FILE OFFSET BYTES bulk|mapped` is an opt-in probe of
+real checkpoint bytes into shared Metal storage, reporting elapsed time,
+throughput, page faults and a checksum. It is not an end-to-end generation
+benchmark; cache state and other I/O must be reported with any comparison.

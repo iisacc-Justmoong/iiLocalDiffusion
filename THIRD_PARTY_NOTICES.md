@@ -1,5 +1,17 @@
 # Third-party notices
 
+The optional native Pose preprocessor uses ONNX Runtime 1.30.0 (MIT, with
+upstream third-party notices). The macOS ARM64 archive and SHA-256 are pinned
+in `cmake/IildPose.cmake`; enabling this path installs its LICENSE and
+ThirdPartyNotices.txt under `share/iiLocalDiffusion/licenses/onnxruntime`.
+DWPose/MMPose tensor geometry and ControlNet pose conventions were adapted
+into Qt/OpenCV/Python-free native C++, with bounded validation and an analytic
+rasterizer, from IDEA-Research/DWPose revision
+`3dca5db79d9f9ffdd378753ddf6ec66535aace88`. Copyright 2023 IDEA and
+2018-2020 Open-MMLab (Apache-2.0); the complete original license/attributions
+are retained and installed in `docs/licenses/DWPose.txt`. No pretrained
+detector/pose weights are included; weight licenses remain separate.
+
 The optional in-process image backend uses stable-diffusion.cpp
 `d04e8950c1ec8d30248cbe996682b3182fb1adf6` and ggml
 `e20c3a14aa70ee84ca58499814206dd08d8026bc` (MIT). Its bundled JSON,

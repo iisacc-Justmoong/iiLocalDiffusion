@@ -1,0 +1,42 @@
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -2505,3 +2505,3 @@
+-    void compute_sample_controls(const sd::Tensor<float>& control_image,
++    bool compute_sample_controls(const sd::Tensor<float>& control_image,
+                                  const sd::Tensor<float>& noised_input,
+                                  const sd::Tensor<float>& timesteps_tensor,
+@@ -2512,4 +2512,4 @@
+         if (control_image.empty() || control_net == nullptr) {
+-            return;
++            return true;
+         }
+ 
+@@ -2522,7 +2522,8 @@
+         if (!control_result.has_value()) {
+             LOG_ERROR("controlnet compute failed");
+-            return;
++            return false;
+         }
+ 
+         *controls = std::move(*control_result);
++        return true;
+     }
+@@ -2733,6 +2734,6 @@
+-            compute_sample_controls(control_image,
++            if (!compute_sample_controls(control_image,
+                                     noised_input,
+                                     timesteps_tensor,
+                                     cond,
+-                                    &controls);
++                                    &controls)) return {};
+ 
+@@ -2852,6 +2853,6 @@
+-                    compute_sample_controls(control_image,
++                    if (!compute_sample_controls(control_image,
+                                             noised_input,
+                                             timesteps_tensor,
+                                             uncond,
+-                                            &controls);
++                                            &controls)) return {};
+                 }

@@ -1,0 +1,40 @@
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -358,4 +358,6 @@
+     SD_HIRES_UPSCALER_LANCZOS,
+     SD_HIRES_UPSCALER_NEAREST,
+     SD_HIRES_UPSCALER_MODEL,
++    SD_HIRES_UPSCALER_BILINEAR,
++    SD_HIRES_UPSCALER_BICUBIC,
+     SD_HIRES_UPSCALER_COUNT,
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -3475,3 +3475,5 @@
+     "Nearest",
+     "Model",
++    "Bilinear",
++    "Bicubic",
+ };
+@@ -5641,4 +5643,6 @@
+     } else if (request.hires.upscaler == SD_HIRES_UPSCALER_MODEL ||
+                request.hires.upscaler == SD_HIRES_UPSCALER_LANCZOS ||
+-               request.hires.upscaler == SD_HIRES_UPSCALER_NEAREST) {
++               request.hires.upscaler == SD_HIRES_UPSCALER_NEAREST ||
++               request.hires.upscaler == SD_HIRES_UPSCALER_BILINEAR ||
++               request.hires.upscaler == SD_HIRES_UPSCALER_BICUBIC) {
+         if (request.hires.upscaler == SD_HIRES_UPSCALER_MODEL && upscaler == nullptr) {
+@@ -5676,5 +5680,9 @@
+         } else {
+-            sd::ops::InterpolateMode mode = request.hires.upscaler == SD_HIRES_UPSCALER_LANCZOS
+-                                                ? sd::ops::InterpolateMode::Lanczos
+-                                                : sd::ops::InterpolateMode::Nearest;
++            sd::ops::InterpolateMode mode = request.hires.upscaler == SD_HIRES_UPSCALER_NEAREST
++                                                ? sd::ops::InterpolateMode::Nearest
++                                                : request.hires.upscaler == SD_HIRES_UPSCALER_BILINEAR
++                                                    ? sd::ops::InterpolateMode::Bilinear
++                                                    : request.hires.upscaler == SD_HIRES_UPSCALER_BICUBIC
++                                                        ? sd::ops::InterpolateMode::Bicubic
++                                                        : sd::ops::InterpolateMode::Lanczos;
+             LOG_INFO("hires %s image upscale %" PRId64 "x%" PRId64 " -> %dx%d",

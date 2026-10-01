@@ -1,0 +1,160 @@
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+index 864404b..0c231d0 100644
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -632,6 +632,9 @@ SD_API size_t sd_list_devices(char* buffer, size_t buffer_size);
+ // This helps avoid CRT problems on Windows when memory is allocated in the library but freed in the caller, which may use a different CRT.
+ SD_API void free_sd_images(sd_image_t* result_images, int num_images);
+ 
++// Explicit runtime teardown only; active readers keep their anonymous buffers.
++SD_API void sd_release_resident_model_memory(void);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/core/util.cpp b/src/core/util.cpp
+index 1fa980e..72dbaea 100644
+--- a/src/core/util.cpp
++++ b/src/core/util.cpp
+@@ -11,6 +11,10 @@
+ #include <cstring>
+ #include <exception>
+ #include <fstream>
++#include <filesystem>
++#include <mutex>
++#include <map>
++#include <sys/stat.h>
+ #include <locale>
+ #include <regex>
+ #include <sstream>
+@@ -37,8 +41,8 @@
+ 
+ class ResidentMemoryMmapWrapper final : public MmapWrapper {
+ public:
+-    ResidentMemoryMmapWrapper(void* data, size_t size) : MmapWrapper(data, size) {}
+-    ~ResidentMemoryMmapWrapper() override { std::free(data_); }
++    ResidentMemoryMmapWrapper(std::shared_ptr<void> data, size_t size)
++        : MmapWrapper(data.get(), size), owner_(std::move(data)) {}
+     bool copy_data(void* buffer, size_t bytes, size_t offset) const override {
+         if (offset > size_ || bytes > size_ - offset) return false;
+         auto* destination = static_cast<uint8_t*>(buffer);
+@@ -52,9 +56,58 @@ public:
+         }
+         return true;
+     }
++private:
++    std::shared_ptr<void> owner_;
++};
++
++namespace {
++struct ResidentSource {
++    std::shared_ptr<void> data;
++    size_t size;
++};
++struct ResidentSourceRuntime {
++    std::mutex mutex;
++    // No eviction budget or idle timeout: the OS may compress/swap anonymous pages.
++    std::map<std::string, ResidentSource> sources;
+ };
++ResidentSourceRuntime& resident_source_runtime() {
++    // Keep the control block valid for late engine atexit callbacks, even when
++    // resident mode was first used after a nonresident context registered one.
++    // Explicit runtime release destroys all retained source allocations.
++    static auto* runtime = new ResidentSourceRuntime;
++    return *runtime;
++}
++std::string resident_source_identity(const std::string& filename) {
++    const auto path = std::filesystem::canonical(filename);
++    struct stat info {};
++    if (stat(path.string().c_str(), &info) != 0 || info.st_size <= 0)
++        throw std::runtime_error("Cannot identify resident model source");
++    std::ostringstream key;
++    key << path.string() << '\n' << info.st_dev << ':' << info.st_ino << ':' << info.st_size
++        << ':' << info.st_mtime
++        << ':' << info.st_ctime;
++#if defined(__APPLE__)
++    key << ':' << info.st_ctimespec.tv_nsec << ':' << info.st_mtimespec.tv_nsec;
++#elif !defined(_WIN32)
++    key << ':' << info.st_ctim.tv_nsec << ':' << info.st_mtim.tv_nsec;
++#endif
++    return key.str();
++}
++}
++
++void sd_release_resident_model_memory(void) {
++    auto& runtime = resident_source_runtime();
++    const std::lock_guard<std::mutex> lock(runtime.mutex);
++    runtime.sources.clear();
++}
+ 
+-static std::unique_ptr<MmapWrapper> load_file_into_resident_memory(const std::string& filename) {
++static std::unique_ptr<MmapWrapper> load_file_into_resident_memory(const std::string& filename, bool writable) {
++    auto& runtime = resident_source_runtime();
++    // The engine serializes inference. Also protect direct backend consumers.
++    const std::lock_guard<std::mutex> lock(runtime.mutex);
++    const auto identity = resident_source_identity(filename);
++    auto found = runtime.sources.find(identity);
++    if (found == runtime.sources.end()) {
+     std::ifstream input(filename, std::ios::binary | std::ios::ate);
+     if (!input) return nullptr;
+     const auto end = static_cast<std::streamoff>(input.tellg());
+@@ -62,22 +115,37 @@ static std::unique_ptr<MmapWrapper> load_file_into_resident_memory(const std::st
+     const size_t size = static_cast<size_t>(end);
+     void* memory = std::malloc(size);
+     if (!memory) return nullptr;
++    const std::shared_ptr<void> owner(memory, std::free);
+     input.seekg(0, std::ios::beg);
+     size_t offset = 0;
+     const auto started = std::chrono::steady_clock::now();
+     while (offset < size) {
+-        if (sd_should_abort()) { std::free(memory); return nullptr; }
++        if (sd_should_abort()) return nullptr;
+         const size_t chunk = std::min<size_t>(32 * 1024 * 1024, size - offset);
+         input.read(static_cast<char*>(memory) + offset, static_cast<std::streamsize>(chunk));
+-        if (static_cast<size_t>(input.gcount()) != chunk) { std::free(memory); return nullptr; }
++        if (static_cast<size_t>(input.gcount()) != chunk) return nullptr;
+         offset += chunk;
+         const auto elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - started).count();
+         pretty_bytes_progress(static_cast<int>(1000.0 * offset / size), 1000, offset, elapsed);
+-        if (sd_should_abort()) { std::free(memory); return nullptr; }
++        if (sd_should_abort()) return nullptr;
+     }
+     input.close();
++    if (resident_source_identity(filename) != identity)
++        throw std::runtime_error("Model source changed while loading anonymous memory");
+     LOG_INFO("copied model file into anonymous memory: %s (%zu bytes)", filename.c_str(), size);
+-    return std::make_unique<ResidentMemoryMmapWrapper>(memory, size);
++    found = runtime.sources.emplace(identity, ResidentSource{owner, size}).first;
++    } else {
++        LOG_INFO("reused runtime anonymous model source: %s (%zu bytes)", filename.c_str(), found->second.size);
++    }
++    const auto& source = found->second;
++    if (sd_should_abort()) return nullptr;
++    if (!writable) return std::make_unique<ResidentMemoryMmapWrapper>(source.data, source.size);
++    // In-place LoRA edits must never contaminate the retained pristine source.
++    const std::shared_ptr<void> copy(std::malloc(source.size), std::free);
++    if (!copy) return nullptr;
++    ResidentMemoryMmapWrapper pristine(source.data, source.size);
++    if (!pristine.copy_data(copy.get(), source.size, 0)) return nullptr;
++    return std::make_unique<ResidentMemoryMmapWrapper>(copy, source.size);
+ }
+ 
+ bool ends_with(const std::string& str, const std::string& ending) {
+@@ -165,7 +233,7 @@ private:
+ };
+ 
+ std::unique_ptr<MmapWrapper> MmapWrapper::create(const std::string& filename, bool writable, bool resident_memory) {
+-    if (resident_memory) return load_file_into_resident_memory(filename);
++    if (resident_memory) return load_file_into_resident_memory(filename, writable);
+     void* mapped_data = nullptr;
+     size_t file_size  = 0;
+ 
+@@ -311,7 +379,7 @@ private:
+ };
+ 
+ std::unique_ptr<MmapWrapper> MmapWrapper::create(const std::string& filename, bool writable, bool resident_memory) {
+-    if (resident_memory) return load_file_into_resident_memory(filename);
++    if (resident_memory) return load_file_into_resident_memory(filename, writable);
+     int file_descriptor = open(filename.c_str(), O_RDONLY);
+     if (file_descriptor == -1) {
+         return nullptr;

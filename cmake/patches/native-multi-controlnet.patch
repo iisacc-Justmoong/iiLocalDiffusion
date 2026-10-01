@@ -1,0 +1,321 @@
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -472,3 +472,14 @@
++// Optional resident multi-ControlNet API. Call only between generations.
++// Model paths are borrowed during preparation. Inputs are copied atomically.
++// count=0 releases models in prepare, or disables inputs without unloading in set.
++typedef struct {
++    sd_image_t image;
++    sd_image_t mask;
++    float strength;
++} sd_control_input_t;
++SD_API bool sd_prepare_control_nets(sd_ctx_t* ctx, const char* const* paths, uint32_t count);
++SD_API bool sd_set_control_net_inputs(sd_ctx_t* ctx, const sd_control_input_t* inputs, uint32_t count);
++
+ // Copies regional coverage; all-zero image clears it. Set only between generations.
+ SD_API bool sd_set_control_net_mask(sd_ctx_t* sd_ctx, sd_image_t mask);
+ 
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -32,3 +32,4 @@
++#include "runtime/control_stack.hpp"
+ #include "model/diffusion/anima.hpp"
+ #include "model/diffusion/animatediff.hpp"
+ #include "model/diffusion/boogu.hpp"
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -248,4 +248,18 @@
+     sd::Tensor<float> ip_adapter_tokens;
+     sd::Tensor<float> ip_adapter_uncond_tokens;
+     float ip_adapter_strength = 1.0f;
++    struct ResidentControl {
++        std::shared_ptr<ModelManager> manager;
++        std::shared_ptr<ControlNet> runner; // Destroy before manager/backend.
++    };
++    std::vector<ResidentControl> control_models;
++    std::vector<std::string> control_model_paths;
++    ControlNetStack control_stack;
++    void end_control_stack_pass() {
++        for (auto& model : control_models) {
++            model.runner->runner_end();
++            model.runner->free_control_ctx();
++        }
++        control_stack.end_pass();
++    }
+     std::vector<std::shared_ptr<GenerationExtension>> generation_extensions;
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -643,6 +643,53 @@
+         return true;
+     }
+ 
++    bool prepare_control_nets(const char* const* paths, uint32_t count) {
++        if (count > 64 || (count && !paths)) return false;
++        if (!count) {
++            control_stack.set(nullptr, 0);
++            control_models.clear(); control_model_paths.clear(); return true;
++        }
++        if (version != VERSION_SD1 && version != VERSION_SDXL
++            && version != VERSION_SDXL_SSD1B && version != VERSION_SDXL_VEGA) return false;
++        std::vector<std::string> requested;
++        for (uint32_t i = 0; i < count; ++i) {
++            if (!paths[i] || !paths[i][0]) return false;
++            requested.emplace_back(paths[i]);
++        }
++        if (requested == control_model_paths && control_models.size() == count) return true;
++        if (!ensure_backend_pair(SDBackendModule::CONTROL_NET)
++            || backend_manager.params_backend_is_disk(SDBackendModule::CONTROL_NET)) return false;
++        const auto runtime = backend_for(SDBackendModule::CONTROL_NET);
++        const auto params = params_backend_for(SDBackendModule::CONTROL_NET);
++        std::vector<ResidentControl> next;
++        for (const auto& path : requested) {
++            if (sd_should_abort()) return false;
++            ResidentControl model;
++            model.manager = std::make_shared<ModelManager>();
++            model.manager->set_n_threads(n_threads);
++            model.manager->set_enable_mmap(false);
++            auto& loader = model.manager->loader();
++            loader.set_resident_memory(true);
++            if (!loader.init_from_file_and_convert_name(path)) return false;
++            model.runner = std::make_shared<ControlNet>(runtime, params,
++                loader.get_tensor_storage_map(), version, "", model.manager);
++            model.runner->set_max_graph_vram_bytes(max_graph_vram_bytes_for_module(SDBackendModule::CONTROL_NET));
++            if (diffusion_conv_direct) model.runner->set_conv2d_direct_enabled(true);
++            std::map<std::string, ggml_tensor*> tensors;
++            model.runner->get_param_tensors(tensors);
++            if (!model.manager->register_param_tensors("ControlNet", std::move(tensors),
++                    ModelManager::ResidencyMode::ParamBackend, runtime, params)
++                || !model.manager->validate_registered_tensors()
++                || !model.manager->load_all_params_eagerly()) return false;
++            next.push_back(std::move(model));
++        }
++        if (sd_should_abort()) return false;
++        control_stack.set(nullptr, 0);
++        control_models = std::move(next);
++        control_model_paths = std::move(requested);
++        return true;
++    }
++
+     bool init_backend() {
+         std::string error;
+         if (!backend_manager.init(backend_spec.c_str(),
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -2516,6 +2516,17 @@
+                                  std::vector<sd::Tensor<float>>* controls) {
+         GGML_ASSERT(controls != nullptr);
+         controls->clear();
++        if (!control_image.empty() && control_stack.active()) {
++            if (control_stack.size() != control_models.size() || noised_input.dim() < 2) return false;
++            auto result = control_stack.compute(int(noised_input.shape()[0]) * 8,
++                int(noised_input.shape()[1]) * 8, [&](size_t index, const sd::Tensor<float>& hint) {
++                    return control_models[index].runner->compute(n_threads, noised_input, hint,
++                        timesteps_tensor, condition.c_crossattn, condition.c_vector);
++                });
++            if (!result) { LOG_ERROR("multi-ControlNet compute failed"); return false; }
++            *controls = std::move(*result);
++            return true;
++        }
+         if (control_image.empty() || control_net == nullptr) {
+             return true;
+         }
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -2591,6 +2591,11 @@
+ 
+         RunnerEndOnExit sample_control_runner_end{!control_image.empty() && control_net != nullptr ? control_net.get() : nullptr};
+ 
++        struct ControlStackEndOnExit {
++            StableDiffusionGGML* engine;
++            ~ControlStackEndOnExit() { engine->end_control_stack_pass(); }
++        } control_stack_end{this};
++
+         std::vector<int> skip_layers(guidance.slg.layers, guidance.slg.layers + guidance.slg.layer_count);
+         float cfg_scale     = guidance.txt_cfg;
+         float img_cfg_scale = guidance.img_cfg;
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -2798,7 +2798,7 @@
+                     if (animatediff_loaded && noised_input.dim() >= 4 && noised_input.shape()[3] > 1) {
+                         nvf = static_cast<int>(noised_input.shape()[3]);
+                     }
+-                    UNetDiffusionExtra unet_extra{nvf, &controls, control_strength};
++                    UNetDiffusionExtra unet_extra{nvf, &controls, control_stack.active() ? 1.f : control_strength};
+                     const auto& ip_tokens = use_uncond_ip ? ip_adapter_uncond_tokens : ip_adapter_tokens;
+                     if (!refining && !ip_tokens.empty()) {
+                         unet_extra.ip_context = &ip_tokens;
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -4173,6 +4173,21 @@
+     return sd_version_supports_video_generation(sd_ctx->sd->version);
+ }
+ 
++SD_API bool sd_prepare_control_nets(sd_ctx_t* ctx, const char* const* paths, uint32_t count) {
++    if (!ctx || !ctx->sd) return false;
++    try { return ctx->sd->prepare_control_nets(paths, count); }
++    catch (const std::exception& error) { LOG_ERROR("multi-ControlNet preparation failed: %s", error.what()); return false; }
++}
++
++SD_API bool sd_set_control_net_inputs(sd_ctx_t* ctx, const sd_control_input_t* inputs, uint32_t count) {
++    if (!ctx || !ctx->sd || (count && count != ctx->sd->control_models.size())) return false;
++    try {
++        if (!ctx->sd->control_stack.set(inputs, count)) return false;
++        ctx->sd->end_control_stack_pass();
++        return true;
++    } catch (const std::exception& error) { LOG_ERROR("multi-ControlNet inputs failed: %s", error.what()); return false; }
++}
++
+ SD_API bool sd_set_control_net_mask(sd_ctx_t* sd_ctx, sd_image_t mask) {
+     if (!sd_ctx || !sd_ctx->sd) return false;
+     return sd_ctx->sd->control_region_mask.set(mask);
+diff --git a/src/model/diffusion/control.hpp b/src/model/diffusion/control.hpp
+--- a/src/model/diffusion/control.hpp
++++ b/src/model/diffusion/control.hpp
+@@ -409,7 +409,7 @@
+         return gf;
+     }
+ 
+-    std::optional<std::vector<sd::Tensor<float>>> compute(int n_threads,
++    virtual std::optional<std::vector<sd::Tensor<float>>> compute(int n_threads,
+                                                           const sd::Tensor<float>& x,
+                                                           const sd::Tensor<float>& hint,
+                                                           const sd::Tensor<float>& timesteps,
+diff --git a/src/runtime/control_stack.hpp b/src/runtime/control_stack.hpp
+new file mode 100644
+--- /dev/null
++++ b/src/runtime/control_stack.hpp
+@@ -0,0 +1,90 @@
++#pragma once
++#include "stable-diffusion.h"
++#include "core/util.h"
++#include "runtime/control_region_mask.hpp"
++#include <cmath>
++#include <optional>
++#include <vector>
++
++// Request-owned inputs; model lifetime is owned separately by the runtime.
++class ControlNetStack {
++    struct Layer {
++        int width = 0, height = 0;
++        std::vector<uint8_t> rgb;
++        float weight = 1;
++        ControlRegionMask mask;
++        sd::Tensor<float> hint;
++        int target_width = 0, target_height = 0;
++    };
++    std::vector<Layer> layers_;
++public:
++    bool active() const { return !layers_.empty(); }
++    size_t size() const { return layers_.size(); }
++    sd_image_t first_image() {
++        if (layers_.empty()) return {};
++        auto& layer = layers_.front();
++        return {uint32_t(layer.width), uint32_t(layer.height), 3, layer.rgb.data()};
++    }
++
++    bool set(const sd_control_input_t* inputs, uint32_t count) {
++        if (count > 64 || (count && !inputs)) return false;
++        std::vector<Layer> next;
++        for (uint32_t i = 0; i < count; ++i) {
++            const auto& input = inputs[i];
++            if (!input.image.data || input.image.width < 1 || input.image.width > 2048
++                || input.image.height < 1 || input.image.height > 2048 || input.image.channel != 3
++                || !std::isfinite(input.strength) || input.strength < 0 || input.strength > 2) return false;
++            Layer layer;
++            if (!layer.mask.set(input.mask)) return false;
++            layer.width = int(input.image.width); layer.height = int(input.image.height);
++            layer.weight = input.strength;
++            layer.rgb.assign(input.image.data, input.image.data + size_t(layer.width) * layer.height * 3);
++            next.push_back(std::move(layer));
++        }
++        layers_ = std::move(next);
++        return true;
++    }
++    void end_pass() {
++        for (auto& layer : layers_) {
++            layer.hint = {}; layer.target_width = layer.target_height = 0;
++        }
++    }
++    // Compute is called for EVERY selected model, including zero-weight models.
++    // Results remain local until all models succeed and match residual topology.
++    template<class Compute>
++    std::optional<std::vector<sd::Tensor<float>>> compute(int width, int height, Compute&& run) {
++        if (!active() || width < 1 || height < 1 || width > 4096 || height > 4096) return std::nullopt;
++        std::vector<sd::Tensor<float>> total;
++        for (size_t index = 0; index < layers_.size(); ++index) {
++            if (sd_should_abort()) return std::nullopt;
++            auto& layer = layers_[index];
++            if (layer.target_width != width || layer.target_height != height) {
++                layer.hint = sd_image_to_tensor({uint32_t(layer.width), uint32_t(layer.height), 3, layer.rgb.data()}, width, height);
++                if (layer.hint.empty()) return std::nullopt;
++                layer.target_width = width; layer.target_height = height;
++            }
++            auto result = run(index, layer.hint);
++            if (!result || result->empty() || !layer.mask.apply(*result)) return std::nullopt;
++            if (!total.empty() && total.size() != result->size()) return std::nullopt;
++            if (total.empty()) {
++                for (const auto& tensor : *result) {
++                    if (tensor.empty() || tensor.dim() < 2) return std::nullopt;
++                    total.emplace_back(tensor.shape());
++                }
++            }
++            for (size_t residual = 0; residual < total.size(); ++residual) {
++                auto& destination = total[residual];
++                const auto& source = (*result)[residual];
++                if (destination.shape() != source.shape()) return std::nullopt;
++                for (size_t i = 0; i < source.values().size(); ++i) {
++                    const float value = source.values()[i];
++                    if (!std::isfinite(value)) return std::nullopt;
++                    destination.values()[i] += value * layer.weight;
++                    if (!std::isfinite(destination.values()[i])) return std::nullopt;
++                }
++            }
++        }
++        if (sd_should_abort()) return std::nullopt;
++        return total;
++    }
++};
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -5147,6 +5147,9 @@
+     if (sd_ctx->sd->control_net) {
+         sd_ctx->sd->control_net->set_circular_axes(circular_x, circular_y);
+     }
++    for (auto& model : sd_ctx->sd->control_models) {
++        model.runner->set_circular_axes(circular_x, circular_y);
++    }
+     if (circular_x || circular_y) {
+         LOG_INFO("Using circular padding for convolutions (x=%s, y=%s)",
+                  circular_x ? "true" : "false",
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -5331,3 +5331,5 @@
+-    if (sd_img_gen_params->control_image.data != nullptr) {
+-        control_image_tensor = sd_image_to_tensor(sd_img_gen_params->control_image, request->width, request->height);
++    const auto control_source = sd_ctx->sd->control_stack.active()
++        ? sd_ctx->sd->control_stack.first_image() : sd_img_gen_params->control_image;
++    if (control_source.data != nullptr) {
++        control_image_tensor = sd_image_to_tensor(control_source, request->width, request->height);
+     }
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -6184,4 +6184,6 @@
+-        const auto hires_control_image = sd_img_gen_params->control_image.data != nullptr
+-            ? sd_image_to_tensor(sd_img_gen_params->control_image, request.hires.target_width, request.hires.target_height)
++        const auto control_source = sd_ctx->sd->control_stack.active()
++            ? sd_ctx->sd->control_stack.first_image() : sd_img_gen_params->control_image;
++        const auto hires_control_image = control_source.data != nullptr
++            ? sd_image_to_tensor(control_source, request.hires.target_width, request.hires.target_height)
+             : sd::Tensor<float>{};
+         std::vector<sd::Tensor<float>> hires_final_latents;

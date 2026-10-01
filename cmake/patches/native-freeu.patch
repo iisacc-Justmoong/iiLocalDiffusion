@@ -1,0 +1,142 @@
+diff --git a/src/model/diffusion/freeu.hpp b/src/model/diffusion/freeu.hpp
+new file mode 100644
+--- /dev/null
++++ b/src/model/diffusion/freeu.hpp
+@@ -0,0 +1,80 @@
++#ifndef SD_MODEL_DIFFUSION_FREEU_HPP
++#define SD_MODEL_DIFFUSION_FREEU_HPP
++#include <array>
++#include <algorithm>
++#include <cmath>
++#include <complex>
++#include <vector>
++#include "ggml.h"
++
++namespace sd::freeu {
++enum class Profile { SD15, SD2, SDXL };
++struct Settings {
++    bool enabled = false;
++    std::array<float, 2> backbone{1, 1};
++    std::array<float, 2> skip{1, 1};
++};
++inline Settings settings(bool enabled, Profile profile) {
++    if (profile == Profile::SDXL) return {enabled, {1.1f, 1.2f}, {.6f, .4f}};
++    if (profile == Profile::SD2) return {enabled, {1.1f, 1.2f}, {.9f, .2f}};
++    return {enabled, {1.2f, 1.4f}, {.9f, .2f}};
++}
++
++// Diffusers FreeU threshold=1 changes exactly the centered 2x2 Fourier bins.
++// Evaluate their projection directly: no FFT dependency or full spectrum buffer.
++// Taking the real correction preserves the reference's asymmetric-mask behavior.
++struct Basis {
++    size_t pixels;
++    std::vector<std::vector<std::complex<double>>> values;
++    Basis(int64_t width, int64_t height) : pixels(size_t(width) * size_t(height)) {
++        constexpr double tau = 6.28318530717958647692;
++        for (int ky = height > 1 ? -1 : 0; ky <= 0; ++ky) {
++            for (int kx = width > 1 ? -1 : 0; kx <= 0; ++kx) {
++                auto& basis = values.emplace_back(pixels);
++                for (int64_t y = 0; y < height; ++y) for (int64_t x = 0; x < width; ++x)
++                    basis[size_t(y * width + x)] = std::polar(1., tau * (double(kx * x) / width + double(ky * y) / height));
++            }
++        }
++    }
++};
++inline void filter_plane(const float* input, float* output, const Basis& basis, float scale) {
++    std::copy_n(input, basis.pixels, output);
++    if (scale == 1) return;
++    for (const auto& frequency : basis.values) {
++        std::complex<double> coefficient{};
++        for (size_t p = 0; p < basis.pixels; ++p) coefficient += double(input[p]) * std::conj(frequency[p]);
++        coefficient *= double(scale - 1) / basis.pixels;
++        for (size_t p = 0; p < basis.pixels; ++p) output[p] += float((coefficient * frequency[p]).real());
++    }
++}
++inline void filter_kernel(ggml_tensor* dst, const ggml_tensor* input, int ith, int nth, void* userdata) {
++    GGML_ASSERT(input->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32);
++    GGML_ASSERT(ggml_is_contiguous(input) && ggml_is_contiguous(dst));
++    const int64_t planes = input->ne[2] * input->ne[3];
++    if (ith >= planes) return;
++    const Basis basis(input->ne[0], input->ne[1]);
++    const float scale = *static_cast<const float*>(userdata);
++    for (int64_t plane = ith; plane < planes; plane += nth)
++        filter_plane(static_cast<const float*>(input->data) + plane * basis.pixels,
++                     static_cast<float*>(dst->data) + plane * basis.pixels, basis, scale);
++}
++// Settings are owned by the model and outlive graph execution. Never mutate them
++// while inference is active. The public native adapter serializes context use.
++inline void apply(ggml_context* ctx, ggml_tensor*& hidden, ggml_tensor*& skip, int stage, const Settings& config) {
++    if (!config.enabled || stage < 0 || stage > 1) return;
++    if (hidden->type != GGML_TYPE_F32) hidden = ggml_cast(ctx, hidden, GGML_TYPE_F32);
++    const auto half = hidden->ne[2] / 2;
++    if (half > 0) {
++        auto* first = ggml_view_4d(ctx, hidden, hidden->ne[0], hidden->ne[1], half, hidden->ne[3],
++                                  hidden->nb[1], hidden->nb[2], hidden->nb[3], 0);
++        auto* rest = ggml_view_4d(ctx, hidden, hidden->ne[0], hidden->ne[1], hidden->ne[2] - half, hidden->ne[3],
++                                 hidden->nb[1], hidden->nb[2], hidden->nb[3], half * hidden->nb[2]);
++        hidden = ggml_concat(ctx, ggml_scale(ctx, ggml_cont(ctx, first), config.backbone[stage]), rest, 2);
++    }
++    if (skip->type != GGML_TYPE_F32) skip = ggml_cast(ctx, skip, GGML_TYPE_F32);
++    if (!ggml_is_contiguous(skip)) skip = ggml_cont(ctx, skip);
++    skip = ggml_map_custom1(ctx, skip, filter_kernel, GGML_N_TASKS_MAX, const_cast<float*>(&config.skip[stage]));
++    ggml_set_name(skip, "freeu.skip.frequency_filter");
++}
++}
++#endif
+diff --git a/src/model/diffusion/unet.hpp b/src/model/diffusion/unet.hpp
+--- a/src/model/diffusion/unet.hpp
++++ b/src/model/diffusion/unet.hpp
+@@ -10,2 +10,3 @@
+ #include "model/diffusion/animatediff.hpp"
++#include "model/diffusion/freeu.hpp"
+ #include "model/diffusion/model.hpp"
+@@ -302,5 +302,6 @@
+ class UnetModelBlock : public GGMLBlock {
+ public:
+     UNetConfig config;
++    sd::freeu::Settings freeu;
+ 
+     explicit UnetModelBlock(UNetConfig config = {})
+@@ -703,3 +703,4 @@
++                sd::freeu::apply(ctx->ggml_ctx, h, h_skip, int(len_mults) - 1 - i, freeu);
+                 h = ggml_concat(ctx->ggml_ctx, h, h_skip, 2);
+ 
+                 std::string name = "output_blocks." + std::to_string(output_block_idx) + ".0";
+@@ -765,5 +765,15 @@
+     std::string get_desc() override {
+         return "unet";
+     }
+ 
++    bool configure_freeu(bool enabled) {
++        const bool supported = !config.tiny_unet && !config.enable_animatediff
++            && (sd_version_is_sd1(config.version) || sd_version_is_sd2(config.version) || sd_version_is_sdxl(config.version));
++        if (enabled && !supported) return false;
++        const auto profile = sd_version_is_sdxl(config.version) ? sd::freeu::Profile::SDXL
++            : sd_version_is_sd2(config.version) ? sd::freeu::Profile::SD2 : sd::freeu::Profile::SD15;
++        unet.freeu = sd::freeu::settings(enabled, profile);
++        return true;
++    }
++
+     void get_param_tensors(std::map<std::string, ggml_tensor*>& tensors, const std::string& prefix) override {
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -475,3 +475,6 @@
+ SD_API bool sd_ctx_has_control_net(const sd_ctx_t* sd_ctx);
+ 
++// Change only while no generation is in flight; false resets cached contexts.
++SD_API bool sd_set_freeu(sd_ctx_t* sd_ctx, bool enabled);
++
+ SD_API const char* sd_type_name(enum sd_type_t type);
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -4136,2 +4136,8 @@
++SD_API bool sd_set_freeu(sd_ctx_t* sd_ctx, bool enabled) {
++    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) return false;
++    auto unet = std::dynamic_pointer_cast<UNetModelRunner>(sd_ctx->sd->diffusion_model);
++    return unet ? unet->configure_freeu(enabled) : !enabled;
++}
++
+ enum sample_method_t sd_get_default_sample_method(const sd_ctx_t* sd_ctx) {
+     if (sd_ctx != nullptr && sd_ctx->sd != nullptr) {

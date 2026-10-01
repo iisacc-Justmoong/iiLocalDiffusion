@@ -1,0 +1,28 @@
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -617,3 +617,6 @@
++// Native reference-conditioning capacity; zero still permits ordinary img2img.
++SD_API int sd_ctx_reference_image_capacity(const sd_ctx_t* sd_ctx);
++
+ SD_API bool load_imatrix(const char* imatrix_path);
+ SD_API void save_imatrix(const char* imatrix_path);
+ SD_API void enable_imatrix_collection(void);
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -7405,2 +7405,14 @@
+     free(result_images);
+ }
++
++SD_API int sd_ctx_reference_image_capacity(const sd_ctx_t* sd_ctx) {
++    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) return 0;
++    const auto version = sd_ctx->sd->version;
++    if (sd_version_is_unet_edit(version)) return 1;
++    if (sd_version_supports_ref_latent_img_cfg(version) ||
++        sd_version_is_krea2(version) || sd_version_is_anima(version) ||
++        sd_version_is_sefi_image(version) || version == VERSION_HIDREAM_O1) {
++        return 20;
++    }
++    return 0;
++}

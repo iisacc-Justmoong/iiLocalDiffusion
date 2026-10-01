@@ -1,4 +1,5 @@
 #include "Generation/NativeDiffusion.hpp"
+#include "Generation/NativePose.hpp"
 #include "Generation/NativeImageBridge.hpp"
 #include "Generation/NativeCachePolicy.hpp"
 #include <stable-diffusion.h>
@@ -10,10 +11,26 @@
 #include <stdexcept>
 #include <future>
 #include <thread>
+#include <map>
 
-// The real adapter is compiled into this test. Only the upstream C API is a
+// The real adapter is compiled into this test. The upstream C API and Pose
+// boundary are fixtures; NativePoseTests separately executes the real ONNX path.
+namespace iiLocalDiffusion {
+bool nativePoseAvailable() noexcept { return true; }
+void releaseNativePoseCache() noexcept {}
+NativePoseResult processNativePose(const std::filesystem::path &detector, const std::filesystem::path &pose,
+    const NativeReferenceImage &image, const std::atomic_bool &, unsigned threads,
+    const std::shared_ptr<NativeExecutionControl> &)
+{
+    if (detector.filename() != "detector.onnx" || pose.filename() != "pose.onnx") throw std::runtime_error("Wrong Pose resources");
+    auto hint = image; std::fill(hint.rgb.begin(),hint.rgb.end(),67);
+    return {std::move(hint),false,128,threads};
+}
+}
+// The C API
 // fixture: mimic SDXL alignment, identifiable RGB pixels, and failure cases.
-struct sd_ctx_t {};
+struct sd_ctx_t { bool refiner = false; std::vector<std::string> multiPaths; unsigned ipCount = 0; };
+struct adetailer_ctx_t {};
 namespace {
 sd_log_cb_t logCallback = nullptr;
 void *logData = nullptr;
@@ -29,8 +46,48 @@ enum class Output { valid, failed, engineError, refinementFailed, wrongSize, wro
 Output output = Output::valid;
 int allocatedImages = 0;
 int generationCalls = 0;
+int runtimeReleaseCalls = 0;
 int imageBridgeCalls = 0;
 unsigned embeddingCount = 0;
+std::map<std::string, std::string> registeredEmbeddings;
+std::vector<std::string> loadedEmbeddings;
+std::string actualPrompt;
+bool actualPromptWeighting = true, embeddingLoadSucceeds = true;
+bool actualFreeU = false, freeUAvailable = true;
+bool upscalerAvailable = true;
+std::string preparedUpscaler;
+int upscalerPrepareCalls = 0;
+int detailerLoads = 0, detailerCalls = 0, liveDetailers = 0;
+bool detailerLoadSucceeds = true, detailerRunSucceeds = true, detailerExpected = false;
+std::atomic_bool *detailerCancellation = nullptr;
+std::string refinerFixturePath, refinerFamily = "sdxl-refiner", refinerNegative;
+int refinerLoads = 0, refinerCalls = 0, liveRefiners = 0;
+float actualRefinerSwitch = -1;
+bool refinerLoadSucceeds = true, refinerRunSucceeds = true, refinerCompatible = true;
+bool refinerPromptWeighting = true, refinerFreeU = false, refinerEmbeddingSucceeds = true;
+std::map<std::string, std::string> refinerEmbeddings;
+std::atomic_bool *refinerCancellation = nullptr;
+bool replaceRefinerDuringGeneration = false;
+std::string selectedControlNet;
+bool controlNetAvailable = true, cannySucceeds = true;
+int cannyCalls = 0, controlMarker = -1;
+float controlWeight = -1;
+std::vector<uint8_t> selectedControlMask;
+bool controlMaskSucceeds = true;
+int multiControlLoads = 0;
+bool multiControlLoadSucceeds = true, multiControlInputsSucceed = true;
+std::vector<std::string> preparedMultiPaths;
+std::vector<int> multiControlMarkers;
+std::vector<float> multiControlStrengths;
+std::vector<std::vector<uint8_t>> multiControlMasks;
+int ipLoads = 0;
+bool ipLoadSucceeds = true, ipInputsSucceed = true;
+std::vector<std::pair<std::string, std::string>> ipPaths;
+std::vector<int> ipMarkers;
+std::vector<int> ipAtGeneration;
+std::vector<float> ipStrengths;
+std::vector<std::vector<uint8_t>> ipMasks;
+std::filesystem::path replaceIPDuringGeneration;
 unsigned loraCount = 0;
 float loraStrength = 0;
 std::string negativePrompt;
@@ -40,11 +97,20 @@ bool missingVae = false;
 bool validExternalVae = true;
 int vaeValidationCalls = 0;
 bool expectCpu = false;
+bool expectResidentModel = false;
 std::string selectedVae;
 std::string selectedClipL, selectedClipG, selectedT5, selectedLlm;
 bool expectHires = true;
 float actualCfg = 0, actualDistilled = 0, actualFlowShift = 0;
 sample_method_t actualSampler{};
+scheduler_t actualScheduler{};
+int actualClipSkip = 0;
+bool actualSeamless = false;
+int referenceCapacity = 0, expectedReferenceCount = -1;
+float actualImageStrength = -1;
+std::vector<int> actualReferenceMarkers;
+float actualEta = 0, expectedDenoise = 0.35f;
+sd_hires_upscaler_t expectedUpscaler = SD_HIRES_UPSCALER_LANCZOS;
 std::vector<float> actualSigmas;
 prediction_t selectedPrediction = PREDICTION_COUNT;
 constexpr auto warning = "No valid VAE specified with --vae or --force-sdxl-vae-conv-scale flag set, using Conv2D scale 0.031";
@@ -70,6 +136,8 @@ void sd_set_preview_callback(sd_preview_cb_t callback, preview_t mode, int inter
 int32_t sd_get_num_physical_cores() { return 2; }
 void sd_ctx_params_init(sd_ctx_params_t *parameters) { *parameters = {}; parameters->auto_fit = true; }
 sd_ctx_t *new_sd_ctx(const sd_ctx_params_t *parameters) {
+    require(parameters->memory_resident_model == expectResidentModel,
+            "Resident model mode was not propagated to the native backend");
     if (expectCpu) {
         require(parameters->backend && std::string(parameters->backend) == "cpu",
                 "CPU continuation must route every compute module away from the GPU");
@@ -80,8 +148,8 @@ sd_ctx_t *new_sd_ctx(const sd_ctx_params_t *parameters) {
     require(parameters->backend && std::string(parameters->backend) == "vae=cpu",
             "iOS must place VAE computation on CPU while leaving denoising automatic");
     require(parameters->params_backend
-            && std::string(parameters->params_backend) == "te=disk,diffusion=disk,vae=cpu",
-            "Explicit iOS placement must keep GPU weights evictable within the memory budget");
+            && std::string(parameters->params_backend) == (expectResidentModel ? "vae=cpu" : "te=disk,diffusion=disk,vae=cpu"),
+            "Resident iOS mode must not place model parameters in a disk backend");
 #if defined(__APPLE__)
     require(parameters->max_vram && std::stod(parameters->max_vram) == 2.25,
             "iOS must pass the shared-memory headroom budget to the real adapter");
@@ -93,35 +161,180 @@ sd_ctx_t *new_sd_ctx(const sd_ctx_params_t *parameters) {
     }
     require(parameters->flash_attn && parameters->diffusion_flash_attn,
             "VAE placement must preserve denoiser attention settings");
+    if (!refinerFixturePath.empty() && parameters->model_path == refinerFixturePath) {
+        require(!parameters->clip_l_path && !parameters->clip_g_path && !parameters->t5xxl_path
+            && !parameters->llm_path && !parameters->control_net_path
+            && parameters->prediction == PREDICTION_COUNT,
+            "Refiner inherited Base-specific components or prediction override");
+        ++refinerLoads;
+        if (!refinerLoadSucceeds) return nullptr;
+        refinerEmbeddings.clear();
+        for (unsigned i = 0; i < parameters->embedding_count; ++i)
+            refinerEmbeddings[parameters->embeddings[i].name] = parameters->embeddings[i].path;
+        ++liveRefiners;
+        return new sd_ctx_t{true};
+    }
     selectedVae = parameters->vae_path ? parameters->vae_path : "";
+    selectedControlNet = parameters->control_net_path ? parameters->control_net_path : "";
     selectedClipL = parameters->clip_l_path ? parameters->clip_l_path : "";
     selectedClipG = parameters->clip_g_path ? parameters->clip_g_path : "";
     selectedT5 = parameters->t5xxl_path ? parameters->t5xxl_path : "";
     selectedLlm = parameters->llm_path ? parameters->llm_path : "";
     selectedPrediction = parameters->prediction;
     embeddingCount = parameters->embedding_count;
+    registeredEmbeddings.clear(); loadedEmbeddings.clear();
+    for (unsigned i = 0; i < embeddingCount; ++i)
+        registeredEmbeddings[parameters->embeddings[i].name] = parameters->embeddings[i].path;
     for (unsigned i = 0; i < embeddingCount; ++i)
         require(std::filesystem::is_regular_file(parameters->embeddings[i].path), "Default embedding is not a file");
     if (logCallback) logCallback(SD_LOG_WARN, warning, logData);
     return new sd_ctx_t;
 }
-void free_sd_ctx(sd_ctx_t *context) { delete context; }
+void free_sd_ctx(sd_ctx_t *context) { if (context && context->refiner) --liveRefiners; delete context; }
+sd_ctx_t *new_sd_ctx_with_ip_adapters(const sd_ctx_params_t *params, const sd_ip_adapter_model_t *models, uint32_t count) {
+    ++ipLoads; ipPaths.clear();
+    require(count && count <= 64 && models && params->memory_resident_model, "IP resources were not resident");
+    for (uint32_t i = 0; i < count; ++i) ipPaths.emplace_back(models[i].adapter_path, models[i].vision_path);
+    if (!ipLoadSucceeds) return nullptr;
+    auto *ctx = new_sd_ctx(params); ctx->ipCount = count; return ctx;
+}
+bool sd_set_ip_adapter_inputs(sd_ctx_t *ctx, const sd_ip_adapter_input_t *inputs, uint32_t count) {
+    if (!ipInputsSucceed) return false;
+    ipMarkers.clear(); ipStrengths.clear(); ipMasks.clear();
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto &input = inputs[i];
+        require(input.slot == i && i < ctx->ipCount && input.image.data && input.image.channel == 3,
+            "IP slot or RGB forwarding was incorrect");
+        ipMarkers.push_back(input.image.data[0]); ipStrengths.push_back(input.strength); ipMasks.emplace_back();
+        if (input.mask.data) ipMasks.back().assign(input.mask.data,
+            input.mask.data + size_t(input.mask.width) * input.mask.height * input.mask.channel);
+    }
+    return true;
+}
+void sd_release_resident_model_memory() { ++runtimeReleaseCalls; }
 bool sd_ctx_supports_image_generation(const sd_ctx_t *) { return true; }
-const char *sd_get_model_family(const sd_ctx_t *) { return modelFamily.c_str(); }
-bool sd_model_inspect_vae(const char *, sd_model_vae_info_t *info) {
+const char *sd_get_model_family(const sd_ctx_t *ctx) { return ctx->refiner ? refinerFamily.c_str() : modelFamily.c_str(); }
+bool sd_ctx_can_refine(const sd_ctx_t *base, const sd_ctx_t *refiner) {
+    return base && !base->refiner && refiner && refiner->refiner && refinerCompatible;
+}
+bool sd_model_inspect_vae(const char *path, sd_model_vae_info_t *info) {
+    if (!refinerFixturePath.empty() && path == refinerFixturePath) {
+        *info = {refinerFamily.c_str(), "sdxl-base", SD_VAE_EMBEDDED};
+        return true;
+    }
     *info = {modelFamily.c_str(), modelFamily == "anima" ? "qwen-image"
         : modelFamily == "z-image" ? "flux1" : modelFamily.c_str(), missingVae ? SD_VAE_MISSING : SD_VAE_EMBEDDED};
     return true;
 }
 bool sd_model_validate_vae(const char *, const char *) { ++vaeValidationCalls; return validExternalVae; }
 sample_method_t sd_get_default_sample_method(const sd_ctx_t *) { return static_cast<sample_method_t>(0); }
+int sd_ctx_reference_image_capacity(const sd_ctx_t *) { return referenceCapacity; }
+bool sd_ctx_has_control_net(const sd_ctx_t *) { return controlNetAvailable && !selectedControlNet.empty(); }
+bool sd_prepare_control_nets(sd_ctx_t *ctx, const char *const *paths, uint32_t count) {
+    if (!multiControlLoadSucceeds) return false;
+    std::vector<std::string> next;
+    for (uint32_t i = 0; i < count; ++i) next.emplace_back(paths[i]);
+    if (ctx->multiPaths != next) {
+        ++multiControlLoads;
+        ctx->multiPaths = next;
+    }
+    preparedMultiPaths = std::move(next);
+    return true;
+}
+bool sd_set_control_net_inputs(sd_ctx_t *ctx, const sd_control_input_t *inputs, uint32_t count) {
+    if (!multiControlInputsSucceed) return false;
+    require(!count || (inputs && count == ctx->multiPaths.size()), "Multi-ControlNet input/model counts differ");
+    multiControlMarkers.clear(); multiControlStrengths.clear(); multiControlMasks.clear();
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto &input = inputs[i];
+        require(input.image.data && input.image.channel == 3, "Missing independent control RGB");
+        multiControlMarkers.push_back(input.image.data[0]);
+        multiControlStrengths.push_back(input.strength);
+        multiControlMasks.emplace_back();
+        if (input.mask.data) multiControlMasks.back().assign(input.mask.data,
+            input.mask.data + size_t(input.mask.width) * input.mask.height * input.mask.channel);
+    }
+    return true;
+}
+bool sd_set_control_net_mask(sd_ctx_t *, sd_image_t mask) {
+    selectedControlMask.clear();
+    if (mask.data) selectedControlMask.assign(mask.data, mask.data + size_t(mask.width) * mask.height * mask.channel);
+    return controlMaskSucceeds;
+}
+bool preprocess_canny(sd_image_t image, float high, float low, float weak, float strong, bool inverse) {
+    require(high == 0.08f && low == 0.08f && weak == 0.8f && strong == 1 && !inverse,
+        "Unexpected native Canny preprocessing contract");
+    ++cannyCalls; image.data[0] = 255;
+    return cannySucceeds;
+}
+void sd_set_prompt_weighting(sd_ctx_t *ctx, bool enabled) {
+    (ctx->refiner ? refinerPromptWeighting : actualPromptWeighting) = enabled;
+}
+bool sd_set_freeu(sd_ctx_t *ctx, bool enabled) {
+    (ctx->refiner ? refinerFreeU : actualFreeU) = enabled;
+    return !enabled || freeUAvailable;
+}
+bool sd_prepare_hires_upscaler(sd_ctx_t *, const char *path) {
+    ++upscalerPrepareCalls;
+    preparedUpscaler = path;
+    return upscalerAvailable;
+}
+adetailer_ctx_t *new_resident_adetailer_ctx(const char *path, int threads, const char *backend) {
+    require(path && std::filesystem::is_regular_file(path) && threads > 0, "Invalid Detailer preparation request");
+    if (expectCpu) require(backend && std::string(backend) == "cpu", "Detailer must honor CPU execution");
+    ++detailerLoads;
+    if (!detailerLoadSucceeds) return nullptr;
+    ++liveDetailers;
+    return new adetailer_ctx_t;
+}
+void free_adetailer_ctx(adetailer_ctx_t *ctx) { if (ctx) { --liveDetailers; delete ctx; } }
+bool adetail_image(adetailer_ctx_t *ctx, sd_ctx_t *, sd_image_t input, const sd_adetailer_params_t *parameters,
+    const sd_img_gen_params_t *inpaint, sd_image_t **images, int *count) {
+    require(ctx && liveDetailers == 1 && input.data && input.channel == 3, "Detailer did not receive the generated image");
+    require(ipMarkers.empty() && multiControlMarkers.empty() && selectedControlMask.empty(),
+        "Whole-image IP/ControlNet conditioning leaked into Detailer crop coordinates");
+    require(inpaint->width == 512 && inpaint->height == 512 && inpaint->strength == .25f,
+        "Detailer lost crop dimensions or submitted denoise strength");
+    require(parameters && !parameters->prompt && !parameters->negative_prompt && !previewCallback,
+        "Detailer must inherit prompts without publishing crop-only previews");
+    ++detailerCalls;
+    *count = 1;
+    *images = static_cast<sd_image_t *>(std::calloc(1, sizeof(sd_image_t)));
+    ++allocatedImages;
+    **images = input;
+    (*images)->data = static_cast<uint8_t *>(std::calloc(input.width * input.height, 3));
+    std::fill_n((*images)->data, input.width * input.height * 3, uint8_t(177));
+    if (detailerCancellation) *detailerCancellation = true;
+    return detailerRunSucceeds;
+}
+bool sd_load_textual_embedding(sd_ctx_t *ctx, const char *name) {
+    if (ctx->refiner) return refinerEmbeddingSucceeds && refinerEmbeddings.contains(name);
+    loadedEmbeddings.emplace_back(name);
+    return embeddingLoadSucceeds && registeredEmbeddings.contains(name);
+}
 scheduler_t sd_get_default_scheduler(const sd_ctx_t *, sample_method_t) { return static_cast<scheduler_t>(0); }
 void sd_img_gen_params_init(sd_img_gen_params_t *parameters) { *parameters = {}; }
 void sd_cancel_generation(sd_ctx_t *, sd_cancel_mode_t) {}
 bool convert_with_components(const char *, const char *, const char *, const char *, const char *,
     const char *, const char *, sd_type_t, const char *, bool, int) { return false; }
 bool generate_image(sd_ctx_t *, const sd_img_gen_params_t *parameters, sd_image_t **images, int *count) {
-    if (parameters->init_image.data) {
+    require(!detailerExpected || liveDetailers == 1, "Detailer weights must be prepared before base generation");
+    if (parameters->hires.enabled && parameters->hires.upscaler == SD_HIRES_UPSCALER_MODEL)
+        require(upscalerPrepareCalls > 0 && parameters->hires.model_path
+            && preparedUpscaler == parameters->hires.model_path,
+            "Learned upscaler must be prepared before any image generation");
+    actualPrompt = parameters->prompt ? parameters->prompt : "";
+    controlMarker = parameters->control_image.data ? parameters->control_image.data[0] : -1;
+    controlWeight = parameters->control_strength;
+    if (expectedReferenceCount >= 0) {
+        require(parameters->init_image.data && parameters->init_image.data[0] == 11,
+            "Initial reference pixels were not passed to img2img");
+        require(parameters->ref_images_count == expectedReferenceCount, "Reference count was lost");
+        actualImageStrength = parameters->strength;
+        actualReferenceMarkers.clear();
+        for (int i = 0; i < parameters->ref_images_count; ++i)
+            actualReferenceMarkers.push_back(parameters->ref_images[i].data[0]);
+    } else if (parameters->init_image.data) {
         ++imageBridgeCalls;
         require(parameters->init_image.channel == 3 && parameters->init_image.width == parameters->width * 2
             && parameters->init_image.height == parameters->height * 2 && parameters->strength == 0.35f,
@@ -132,20 +345,24 @@ bool generate_image(sd_ctx_t *, const sd_img_gen_params_t *parameters, sd_image_
     require(parameters->hires.enabled == expectHires, "Native image must honor its Hires contract");
     actualFlowShift = parameters->sample_params.flow_shift;
     actualSampler = parameters->sample_params.sample_method;
+    actualScheduler = parameters->sample_params.scheduler;
+    actualClipSkip = parameters->clip_skip;
+    actualSeamless = parameters->circular_x && parameters->circular_y;
+    actualEta = parameters->sample_params.eta;
     actualSigmas.clear();
     if (parameters->sample_params.custom_sigmas_count)
         actualSigmas.assign(parameters->sample_params.custom_sigmas,
             parameters->sample_params.custom_sigmas + parameters->sample_params.custom_sigmas_count);
     actualCfg = parameters->sample_params.guidance.txt_cfg;
     actualDistilled = parameters->sample_params.guidance.distilled_guidance;
-    require(parameters->hires.upscaler == SD_HIRES_UPSCALER_LANCZOS
-        && parameters->hires.denoising_strength == 0.35f,
+    require(parameters->hires.upscaler == expectedUpscaler
+        && parameters->hires.denoising_strength == expectedDenoise,
         "Hires fix must decode, upscale with Lanczos, and denoise at strength 0.35");
     const int factor = expectHires ? 2 : 1;
     require(parameters->hires.target_width == (parameters->width * factor + 63) / 64 * 64
         && parameters->hires.target_height == (parameters->height * factor + 63) / 64 * 64,
         "The engine must receive half the requested axes and the aligned final target");
-    require(parameters->hires.steps == std::max(1, int(parameters->sample_params.sample_steps * 0.35f)),
+    require(parameters->hires.steps == std::max(1, int(parameters->sample_params.sample_steps * expectedDenoise)),
         "Even a one-step request must retain actual Hires denoising");
     const auto &tiling = parameters->vae_tiling_params;
     const bool sdxl = modelFamily == "sdxl-base" || modelFamily == "sdxl-refiner";
@@ -160,6 +377,8 @@ bool generate_image(sd_ctx_t *, const sd_img_gen_params_t *parameters, sd_image_
         || parameters->hires.target_height > expectedTile * 8),
             "Small SDXL canvases must decode without tile-local normalization differences");
     ++generationCalls;
+    ipAtGeneration = ipMarkers;
+    if (!replaceIPDuringGeneration.empty()) { std::ofstream file(replaceIPDuringGeneration); file << "replaced IP resources during inference"; }
     loraCount = parameters->lora_count;
     loraStrength = loraCount ? parameters->loras[0].multiplier : 0;
     loraPath = loraCount ? parameters->loras[0].path : "";
@@ -221,6 +440,20 @@ bool generate_image(sd_ctx_t *, const sd_img_gen_params_t *parameters, sd_image_
     if (progressCallback) progressCallback(SD_PROGRESS_DECODE, 1, 1, 0, progressData);
     return true;
 }
+bool generate_image_with_refiner(sd_ctx_t *base, sd_ctx_t *refiner, float switchAt,
+    const sd_img_gen_params_t *parameters, sd_image_t **images, int *count, const char *negative) {
+    require(sd_ctx_can_refine(base, refiner) && liveRefiners == 1,
+        "Refiner weights must be prepared before any image generation");
+    ++refinerCalls; actualRefinerSwitch = switchAt;
+    refinerNegative = negative ? negative : parameters->negative_prompt;
+    const bool generated = generate_image(base, parameters, images, count);
+    if (generated) for (int i = 0; i < *count; ++i)
+        for (size_t pixel = 0; pixel < size_t((*images)[i].width) * (*images)[i].height; ++pixel)
+            (*images)[i].data[pixel * (*images)[i].channel] = 221;
+    if (refinerCancellation) *refinerCancellation = true;
+    if (replaceRefinerDuringGeneration) { std::ofstream file(refinerFixturePath); file << "changed refiner weights"; }
+    return generated && refinerRunSucceeds;
+}
 void free_sd_images(sd_image_t *images, int count) {
     for (int i = 0; i < count; ++i) std::free(images[i].data);
     std::free(images);
@@ -242,6 +475,7 @@ int main(int argc, char **argv) {
         {
             const auto path = request.modelPath.string();
             iild_native_request_v1 bridge{};
+            expectResidentModel = true;
             bridge.size = sizeof(bridge); bridge.model = path.c_str(); bridge.prompt = "short portrait";
             bridge.negative_prompt = "blur"; bridge.width = 64; bridge.height = 120;
             bridge.steps = 10; bridge.seed = 23; bridge.prepare_only = 1;
@@ -287,14 +521,30 @@ int main(int argc, char **argv) {
             iild_native_free_v1(cancelledResult);
             {
                 iild_native_request_v2 split{};
+                // Desktop component-aware workers must stage source weights once,
+                // including prepare-only and V3 custom sampling requests.
+                expectResidentModel = true;
                 split.size = sizeof(split); split.image = bridge;
                 split.clip_l = split.clip_g = split.t5xxl = split.llm = split.vae = path.c_str();
                 split.guidance_scale = 1.25f; split.distilled_guidance = 3.5f;
                 split.prediction = 2;
                 expectHires = false;
+                releaseNativeDiffusionCache();
+                split.image.prepare_only = 1;
+                const auto callsBeforeResidentPreparation = generationCalls;
                 auto *image = iild_native_generate_v2(&split, nullptr, nullptr, nullptr);
+                require(image && std::string(iild_native_metadata_v1(image)).find("\"error\":\"\"") != std::string::npos
+                    && generationCalls == callsBeforeResidentPreparation,
+                    "Resident V2 preparation must not sample an image");
+                iild_native_free_v1(image);
+                split.image.prepare_only = 0;
+                image = iild_native_generate_v2(&split, nullptr, nullptr, nullptr);
                 require(image && std::string(iild_native_metadata_v1(image)).find("\"error\":\"\"") != std::string::npos,
                     "Component-aware native generation failed");
+                require(std::string(iild_native_metadata_v1(image)).find("\"model_cache_hit\":true") != std::string::npos
+                    && std::string(iild_native_metadata_v1(image)).find("\"weight_storage\":\"anonymous\"") != std::string::npos
+                    && std::string(iild_native_metadata_v1(image)).find("\"weight_lifetime\":\"runtime\"") != std::string::npos,
+                    "Resident desktop generation must reuse its prepared anonymous weights");
                 require(selectedClipL == path && selectedClipG == path && selectedT5 == path
                     && selectedLlm == path && selectedVae == path,
                     "Split model component paths did not reach the native engine");
@@ -372,9 +622,532 @@ int main(int argc, char **argv) {
                 "Native bridge accepted an incompatible request layout");
             iild_native_free_v1(invalid);
             iild_native_release_v1();
+            expectResidentModel = false;
         }
         request.steps = 10;
         std::atomic_bool cancelled{false};
+        {
+            NativeAdvancedControls advanced;
+            NativeGenerationOptions modifiers;
+            modifiers.defaultModifiers = false;
+            NativeModelComponents components;
+            components.guidanceScale = 6.5f;
+            expectResidentModel = true;
+            expectHires = false;
+            const std::vector<std::pair<std::string, sample_method_t>> samplers{
+                {"auto", EULER_SAMPLE_METHOD}, {"euler", EULER_SAMPLE_METHOD}, {"heun", HEUN_SAMPLE_METHOD},
+                {"euler_a", EULER_A_SAMPLE_METHOD}, {"dpmpp_2m", DPMPP2M_SAMPLE_METHOD},
+                {"dpmpp_sde", DPMPP2M_SDE_SAMPLE_METHOD}, {"ddim", DDIM_TRAILING_SAMPLE_METHOD}};
+            const std::vector<std::pair<std::string, scheduler_t>> schedulers{{"auto", DISCRETE_SCHEDULER},
+                {"normal", DISCRETE_SCHEDULER}, {"karras", KARRAS_SCHEDULER},
+                {"exponential", EXPONENTIAL_SCHEDULER}, {"sgm_uniform", SGM_UNIFORM_SCHEDULER}};
+            for (const auto &[name, expected] : samplers) {
+                advanced.sampler = name;
+                for (const auto &[schedule, expectedSchedule] : schedulers) {
+                    advanced.scheduler = schedule;
+                    advanced.clipSkip = 2;
+                    advanced.seamlessTiling = true;
+                    advanced.eta = 0.65f;
+                    const auto image = generateNativeAdvancedImage(request, modifiers, components, advanced,
+                        NativeComputeBackend::Automatic, cancelled);
+                    require(image.error.empty() && !image.rgb.empty(), image.error);
+                    require(actualSampler == expected && actualScheduler == expectedSchedule
+                        && actualClipSkip == 2 && actualEta == 0.65f && actualCfg == 6.5f && actualSeamless,
+                        "Advanced sampler/scheduler/CLIP/eta/CFG did not reach the native C API");
+                }
+            }
+            advanced.hires = expectHires = true;
+            advanced.denoiseStrength = expectedDenoise = 0.25f;
+            for (const auto &[name, mode] : std::vector<std::pair<std::string, sd_hires_upscaler_t>>{
+                {"nearest", SD_HIRES_UPSCALER_NEAREST}, {"bilinear", SD_HIRES_UPSCALER_BILINEAR},
+                {"bicubic", SD_HIRES_UPSCALER_BICUBIC}, {"lanczos", SD_HIRES_UPSCALER_LANCZOS}}) {
+                advanced.upscaler = name; expectedUpscaler = mode;
+                const auto refined = generateNativeAdvancedImage(request, modifiers, components, advanced,
+                    NativeComputeBackend::Automatic, cancelled);
+                require(refined.error.empty() && !refined.rgb.empty(), refined.error);
+            }
+            advanced.upscaler = "4x-ultra";
+            expectedUpscaler = SD_HIRES_UPSCALER_MODEL;
+            auto beforeLearned = generationCalls;
+            require(!generateNativeAdvancedImage(request, modifiers, components, advanced,
+                NativeComputeBackend::Automatic, cancelled).error.empty() && generationCalls == beforeLearned,
+                "Missing learned weights must fail before base generation");
+            advanced.upscalerModel = request.modelPath; // C API fixture, not an ESRGAN quality claim.
+            auto learned = generateNativeAdvancedImage(request, modifiers, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(learned.error.empty() && !learned.rgb.empty() && !learned.modelCacheHit, learned.error);
+            learned = generateNativeAdvancedImage(request, modifiers, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(learned.error.empty() && learned.modelCacheHit, "Learned weights broke warm cache reuse");
+            upscalerAvailable = false;
+            beforeLearned = generationCalls;
+            require(!generateNativeAdvancedImage(request, modifiers, components, advanced,
+                NativeComputeBackend::Automatic, cancelled).error.empty() && generationCalls == beforeLearned,
+                "Invalid learned weights must never fall back to interpolation");
+            upscalerAvailable = true;
+            const auto before = generationCalls;
+            advanced.upscaler = "unknown";
+            require(!generateNativeAdvancedImage(request, modifiers, components, advanced,
+                NativeComputeBackend::Automatic, cancelled).error.empty() && generationCalls == before,
+                "Invalid advanced controls reached native inference");
+            expectedDenoise = 0.35f;
+            expectedUpscaler = SD_HIRES_UPSCALER_LANCZOS;
+            advanced.hires = expectHires = false;
+            advanced.references = {{64, 32, std::vector<uint8_t>(64 * 32 * 3, 11)}};
+            expectedReferenceCount = 0;
+            for (float amount : {0.0f, 0.65f, 1.0f}) {
+                advanced.imageStrength = amount;
+                const auto image = generateNativeAdvancedImage(request, modifiers, components, advanced,
+                    NativeComputeBackend::Automatic, cancelled);
+                require(image.error.empty() && actualImageStrength == amount, "Reference strength did not reach img2img: " + image.error);
+            }
+            advanced.references.push_back({32, 64, std::vector<uint8_t>(32 * 64 * 3, 22)});
+            const auto beforeUnsupported = generationCalls;
+            require(!generateNativeAdvancedImage(request, modifiers, components, advanced,
+                NativeComputeBackend::Automatic, cancelled).error.empty() && generationCalls == beforeUnsupported,
+                "A non-reference model silently accepted multiple images");
+            referenceCapacity = 20; expectedReferenceCount = 2;
+            const auto multiple = generateNativeAdvancedImage(request, modifiers, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(multiple.error.empty() && actualReferenceMarkers == std::vector<int>({11, 22}),
+                "Ordered reference pixels did not reach the editing model: " + multiple.error);
+            advanced.references.front().rgb.pop_back();
+            require(!generateNativeAdvancedImage(request, modifiers, components, advanced,
+                NativeComputeBackend::Automatic, cancelled).error.empty(), "Truncated reference RGB was accepted");
+            referenceCapacity = 0; expectedReferenceCount = -1; expectHires = true;
+            expectResidentModel = false;
+        }
+        {
+            releaseNativeDiffusionCache();
+            expectHires = false; expectResidentModel = true;
+            const auto model = directory / "selected-control.safetensors";
+            { std::ofstream file(model); file << "control fixture"; }
+            NativeAdvancedControls advanced;
+            advanced.controls.push_back({std::filesystem::canonical(model),
+                {16, 16, std::vector<uint8_t>(16 * 16 * 3, 41)}, "Canny", 0.7f});
+            NativeGenerationOptions options; options.defaultModifiers = false;
+            NativeModelComponents components;
+            auto result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && selectedControlNet == model.string() && controlMarker == 255
+                && controlWeight == 0.7f && advanced.controls.front().image.rgb.front() == 41,
+                "ControlNet model, private Canny pixels or strength were lost: " + result.error);
+            advanced.controls.front().process = "Pose";
+            advanced.controls.front().poseDetector = directory / "detector.onnx";
+            advanced.controls.front().poseModel = directory / "pose.onnx";
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && controlMarker == 67 && advanced.controls.front().image.rgb.front() == 41,
+                "Pose-conditioned pixels did not reach ControlNet: " + result.error);
+            advanced.controls.front().process = "Canny";
+            advanced.controls.front().mask = {2, 1, {0, 0, 0, 255, 255, 255}};
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && result.modelCacheHit
+                && selectedControlMask == advanced.controls.front().mask.rgb,
+                "Regional mask was lost or reloaded model weights");
+            advanced.controls.front().mask.rgb.pop_back();
+            const auto beforeInvalidMask = generationCalls;
+            require(!generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled).error.empty() && generationCalls == beforeInvalidMask,
+                "Malformed mask reached sampling");
+            advanced.controls.front().mask = {};
+            controlMaskSucceeds = false;
+            require(!generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled).error.empty() && generationCalls == beforeInvalidMask,
+                "Failed mask preparation reached sampling");
+            controlMaskSucceeds = true;
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && selectedControlMask.empty(), "Disabled mask leaked into a later request");
+            const auto beforeCanny = cannyCalls;
+            advanced.controls.front().process = "Tile";
+            advanced.controls.front().weight = 0;
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && result.modelCacheHit && controlMarker == 41
+                && controlWeight == 0 && cannyCalls == beforeCanny,
+                "Tile must preserve pixels and reuse weights without Canny preprocessing");
+            { std::ofstream file(model); file << "changed ControlNet fixture"; }
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && !result.modelCacheHit, "Changed ControlNet reused stale weights");
+            auto before = generationCalls;
+            controlNetAvailable = false;
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!result.error.empty() && generationCalls == before, "Missing ControlNet reached inference");
+            controlNetAvailable = true;
+            cannySucceeds = false; advanced.controls.front().process = "Canny";
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!result.error.empty() && generationCalls == before, "Failed preprocessing reached inference");
+            cannySucceeds = true;
+            const auto secondModel = directory / "second-control.safetensors";
+            { std::ofstream file(secondModel); file << "second control fixture"; }
+            advanced.controls.front().weight = 0.5f;
+            advanced.controls.front().mask = {1, 1, {255, 255, 255}};
+            advanced.controls.push_back({std::filesystem::canonical(secondModel),
+                {8, 8, std::vector<uint8_t>(8 * 8 * 3, 73)}, "Tile", 1.25f,
+                {1, 1, {128, 128, 128}}});
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && !result.modelCacheHit && selectedControlNet.empty()
+                && preparedMultiPaths == std::vector<std::string>({model.string(), secondModel.string()})
+                && multiControlMarkers == std::vector<int>({255, 73})
+                && multiControlStrengths == std::vector<float>({0.5f, 1.25f})
+                && multiControlMasks == std::vector<std::vector<uint8_t>>({{255, 255, 255}, {128, 128, 128}})
+                && controlWeight == 1.f && selectedControlMask.empty(),
+                "Ordered independent ControlNet inputs were lost: " + result.error);
+            const auto multiLoads = multiControlLoads;
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && result.modelCacheHit && multiControlLoads == multiLoads,
+                "Warm multi-ControlNet weights were unnecessarily reloaded");
+            advanced.controls.back().weight = 1.75f;
+            advanced.controls.back().image.rgb.front() = 91;
+            advanced.controls.back().mask = {};
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && result.modelCacheHit && multiControlLoads == multiLoads
+                && multiControlMarkers.back() == 91 && multiControlStrengths.back() == 1.75f
+                && multiControlMasks.back().empty(), "Input edits reloaded weights or retained old multi input");
+            { std::ofstream file(secondModel); file << "changed second ControlNet fixture"; }
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && !result.modelCacheHit && multiControlLoads > multiLoads,
+                "Changing the second ControlNet model reused stale weights");
+            before = generationCalls;
+            multiControlLoadSucceeds = false;
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!result.error.empty() && generationCalls == before,
+                "Failed multi-ControlNet preparation reached inference");
+            multiControlLoadSucceeds = true; multiControlInputsSucceed = false;
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!result.error.empty() && generationCalls == before,
+                "Failed multi-ControlNet input preparation reached inference");
+            multiControlInputsSucceed = true;
+            advanced.controls.pop_back();
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && multiControlMarkers.empty() && controlWeight == .5f,
+                "Multi-ControlNet inputs leaked into a single-control request");
+            before = generationCalls;
+            advanced.controls.front().process = "Depth";
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!result.error.empty() && generationCalls == before, "An unimplemented detector reached inference");
+            advanced.controls.front().process = "Tile"; advanced.controls.front().image.rgb.pop_back();
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!result.error.empty() && generationCalls == before, "Invalid control RGB was accepted");
+            advanced.controls.front().image.rgb.push_back(41);
+            releaseNativeDiffusionCache(); modelFamily = "flux1";
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!result.error.empty() && generationCalls == before, "Unsupported control architecture reached inference");
+            modelFamily = "sdxl-base"; releaseNativeDiffusionCache();
+            advanced.controls.clear();
+            advanced.freeU = true;
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && selectedControlNet.empty() && controlMarker == -1 && actualFreeU,
+                "Removed ControlNet leaked into the next request");
+            advanced.freeU = false;
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && result.modelCacheHit && !actualFreeU,
+                "Disabling FreeU must reset the cached model without reloading weights");
+            advanced.freeU = true;
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && actualFreeU, "FreeU could not be re-enabled on a warm model");
+            result = generateNativeImageWithResidentWeights(request, options, components, NativeSamplingControls{},
+                NativeComputeBackend::Automatic, cancelled, false);
+            require(result.error.empty() && result.modelCacheHit && !actualFreeU,
+                "FreeU leaked into a legacy resident request sharing the same model context");
+            advanced.freeU = true; freeUAvailable = false;
+            before = generationCalls;
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!result.error.empty() && generationCalls == before, "Unsupported FreeU silently reached sampling");
+            freeUAvailable = true;
+            expectHires = true; expectResidentModel = false;
+        }
+        {
+            expectResidentModel = true;
+            expectHires = false;
+            releaseNativeDiffusionCache();
+            const auto a = std::filesystem::canonical(directory) / "ip-first.safetensors";
+            const auto b = std::filesystem::canonical(directory) / "ip-second.safetensors";
+            const auto v = std::filesystem::canonical(directory) / "ip-vision.safetensors";
+            for (const auto &path : {a, b, v}) { std::ofstream file(path); file << "IP resource fixture"; }
+            NativeGenerationOptions options;
+            NativeModelComponents components;
+            NativeAdvancedControls advanced;
+            advanced.ipAdapters = {{a, v, {2, 1, std::vector<uint8_t>(6, 31)}, .3f, {2, 1, {0, 0, 0, 255, 255, 255}}},
+                {b, v, {1, 1, std::vector<uint8_t>(3, 71)}, .7f, {}}};
+            const auto generate = [&] { return generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Automatic, cancelled); };
+            auto result = generate();
+            require(result.error.empty() && ipPaths == std::vector<std::pair<std::string, std::string>>{{a.string(), v.string()}, {b.string(), v.string()}}
+                && ipMarkers == std::vector<int>{31, 71} && ipStrengths == std::vector<float>{.3f, .7f}
+                && ipMasks.front() == advanced.ipAdapters.front().mask.rgb && ipMasks.back().empty(),
+                "Independent IP resources, raw images, masks or weights were not forwarded: " + result.error);
+            const auto loads = ipLoads;
+            advanced.ipAdapters.back().weight = 0; advanced.ipAdapters.back().image.rgb.front() = 81;
+            result = generate();
+            require(result.error.empty() && result.modelCacheHit && ipLoads == loads && ipMarkers.back() == 81
+                && ipStrengths.back() == 0, "IP input edits rebuilt model resources or discarded zero weight");
+            auto saved = advanced.ipAdapters;
+            advanced.ipAdapters.clear(); result = generate();
+            require(result.error.empty() && result.modelCacheHit && ipLoads == loads && ipMarkers.empty(),
+                "Disabled IP inputs leaked or unloaded resident resources");
+            result = generateNativeImageWithResidentWeights(request, options, components, NativeSamplingControls{},
+                NativeComputeBackend::Automatic, cancelled, false);
+            require(result.error.empty() && result.modelCacheHit && ipMarkers.empty(), "IP leaked into a legacy resident request");
+            advanced.ipAdapters = saved; result = generate();
+            require(result.error.empty() && result.modelCacheHit && ipLoads == loads, "Re-enabling IP reloaded resident resources");
+            for (const auto &path : {b, v}) {
+                { std::ofstream file(path); file << "changed resource " << path.string(); }
+                result = generate();
+                require(result.error.empty() && !result.modelCacheHit, "Changed IP or vision weights reused a stale context");
+            }
+            auto before = generationCalls;
+            advanced.ipAdapters.back().image.rgb.pop_back(); result = generate();
+            require(!result.error.empty() && generationCalls == before, "Invalid IP image reached sampling");
+            advanced.ipAdapters = saved; advanced.ipAdapters.back().mask = {2, 1, {0}}; result = generate();
+            require(!result.error.empty() && generationCalls == before, "Invalid IP mask reached sampling");
+            advanced.ipAdapters = saved; advanced.ipAdapters.back().weight = std::numeric_limits<float>::quiet_NaN(); result = generate();
+            require(!result.error.empty() && generationCalls == before, "Invalid IP strength reached sampling");
+            advanced.ipAdapters = saved; advanced.ipAdapters.back().vision = directory / "missing-vision.safetensors"; result = generate();
+            require(!result.error.empty() && generationCalls == before, "Missing vision model reached sampling");
+            advanced.ipAdapters = saved; advanced.ipAdapters.resize(65, saved.front()); result = generate();
+            require(!result.error.empty() && generationCalls == before, "Excess IP inputs reached sampling");
+            advanced.ipAdapters = saved; releaseNativeDiffusionCache(); ipLoadSucceeds = false; result = generate();
+            require(!result.error.empty() && generationCalls == before, "Failed IP loading reached sampling");
+            ipLoadSucceeds = true; ipInputsSucceed = false; result = generate();
+            require(!result.error.empty() && generationCalls == before, "Failed IP input preparation reached sampling");
+            ipInputsSucceed = true; releaseNativeDiffusionCache(); modelFamily = "flux1"; result = generate();
+            require(!result.error.empty() && generationCalls == before, "Unsupported IP model family reached sampling");
+            modelFamily = "sdxl-base"; releaseNativeDiffusionCache();
+            replaceIPDuringGeneration = v; result = generate(); replaceIPDuringGeneration.clear();
+            require(!result.error.empty() && result.rgb.empty(), "Changed IP resources published an unverifiable output");
+            result = generate(); require(result.error.empty(), "IP failed to recover after resource replacement");
+            advanced.controls = {{a, saved.front().image, "Canny", .5f, {}}};
+            result = generate();
+            require(result.error.empty() && controlMarker == 255 && ipMarkers.front() == 31
+                && advanced.ipAdapters.front().image.rgb.front() == 31,
+                "Canny preprocessing replaced the original IP reference image");
+            expectCpu = true;
+            result = generateNativeAdvancedImage(request, options, components, advanced,
+                NativeComputeBackend::Cpu, cancelled);
+            require(result.error.empty() && !result.modelCacheHit && ipMarkers.front() == 31,
+                "IP resources failed to transition to explicit CPU placement");
+            expectCpu = false;
+            advanced.controls.push_back({b, saved.back().image, "Tile", .2f, {}});
+            advanced.detailer = true; advanced.detailerModel = a; detailerExpected = true;
+            result = generate();
+            require(result.error.empty() && result.rgb.front() == 177 && ipAtGeneration == std::vector<int>{31, 81}
+                && ipMarkers.empty(), "IP + multiple ControlNets + Detailer did not separate whole-image and crop inputs: " + result.error);
+            const auto retainedLoads = ipLoads;
+            result = generate();
+            require(result.error.empty() && result.modelCacheHit && ipLoads == retainedLoads
+                && ipAtGeneration == std::vector<int>{31, 81}, "Detailer cleanup broke the next warm IP request");
+            detailerExpected = false;
+            releaseNativeDiffusionCache(); expectHires = true; expectResidentModel = false;
+        }
+        {
+            expectResidentModel = true;
+            expectHires = false;
+            releaseNativeDiffusionCache();
+            const auto fixture = directory / "refiner.safetensors";
+            { std::ofstream file(fixture); file << "refiner fixture"; }
+            refinerFixturePath = std::filesystem::canonical(fixture).string();
+            NativeGenerationOptions refineOptions; refineOptions.defaultModifiers = true;
+            refineOptions.negativePrompt = "user negative";
+            NativeModelComponents refineComponents;
+            NativeAdvancedControls refineControls;
+            refineControls.refiner = true; refineControls.refinerSwitch = .65f;
+            const auto generateRefined = [&] {
+                return generateNativeAdvancedImage(request, refineOptions, refineComponents, refineControls,
+                    NativeComputeBackend::Automatic, cancelled);
+            };
+            const auto beforeRefiner = generationCalls;
+            require(!generateRefined().error.empty() && generationCalls == beforeRefiner,
+                "Missing Refiner weights reached sampling");
+            refineControls.refinerModel = refinerFixturePath;
+            for (const auto invalid : {-0.1f, 1.1f, std::numeric_limits<float>::quiet_NaN()}) {
+                refineControls.refinerSwitch = invalid;
+                require(!generateRefined().error.empty() && generationCalls == beforeRefiner,
+                    "Invalid Refiner switch reached sampling");
+            }
+            refineControls.refinerSwitch = .65f;
+            auto refined = generateRefined();
+            require(refined.error.empty() && refined.rgb.front() == 221 && allocatedImages == 0
+                && actualRefinerSwitch == .65f && refinerNegative == "user negative",
+                "Refiner output or controls were not forwarded: " + refined.error);
+            require(refinerEmbeddings.empty() && negativePrompt.find("iild_ndxl") != std::string::npos
+                && refinerNegative.find("iild_ndxl") == std::string::npos,
+                "Base automatic negative embeddings leaked into Refiner");
+            const auto loads = refinerLoads;
+            refineControls.refinerSwitch = .25f;
+            refined = generateRefined();
+            require(refined.error.empty() && refined.modelCacheHit && refinerLoads == loads
+                && actualRefinerSwitch == .25f, "Switch adjustment reloaded Refiner weights");
+            const auto calls = refinerCalls;
+            refineControls.refiner = false;
+            refined = generateRefined();
+            require(refined.error.empty() && refined.modelCacheHit && refinerCalls == calls && liveRefiners == 1,
+                "Disabling Refiner executed or unloaded the resident model");
+            refineControls.refiner = true; refineControls.refinerSwitch = 1.f;
+            refined = generateRefined();
+            require(refined.error.empty() && refinerCalls == calls && liveRefiners == 1,
+                "Switch endpoint one executed or unloaded Refiner");
+            refineControls.refinerSwitch = 0.f;
+            refineControls.freeU = true; refineControls.promptWeighting = false;
+            refined = generateRefined();
+            require(refined.error.empty() && refined.modelCacheHit && refinerLoads == loads
+                && actualRefinerSwitch == 0.f && refinerFreeU && !refinerPromptWeighting,
+                "Warm Refiner lost per-request controls");
+            refinerRunSucceeds = false;
+            refined = generateRefined();
+            require(!refined.error.empty() && refined.rgb.empty() && allocatedImages == 0 && liveRefiners == 0,
+                "Failed Refiner published Base output or leaked buffers");
+            refinerRunSucceeds = true; refinerLoadSucceeds = false;
+            const auto beforeLoadFailure = generationCalls;
+            require(!generateRefined().error.empty() && generationCalls == beforeLoadFailure,
+                "Refiner load failure reached sampling");
+            refinerLoadSucceeds = true; refinerCompatible = false;
+            require(!generateRefined().error.empty() && generationCalls == beforeLoadFailure,
+                "Incompatible Refiner pair reached sampling");
+            refinerCompatible = true;
+            modelFamily = "sd1"; releaseNativeDiffusionCache();
+            require(!generateRefined().error.empty() && generationCalls == beforeLoadFailure,
+                "Non-SDXL Base reached Refiner sampling");
+            modelFamily = "sdxl-base"; releaseNativeDiffusionCache();
+            refinerCancellation = &cancelled;
+            refined = generateRefined();
+            require(refined.cancelled && refined.rgb.empty() && allocatedImages == 0 && liveRefiners == 0,
+                "Late Refiner cancellation published output or leaked buffers");
+            refinerCancellation = nullptr; cancelled = false;
+            replaceRefinerDuringGeneration = true;
+            refined = generateRefined();
+            require(!refined.error.empty() && refined.rgb.empty() && allocatedImages == 0,
+                "Changed Refiner source published inconsistent output");
+            replaceRefinerDuringGeneration = false;
+            const auto embeddingFixture = directory / "refiner-embedding.safetensors";
+            { std::ofstream file(embeddingFixture); file << "explicit embedding"; }
+            refineControls.embeddings.push_back({"user_refiner", std::filesystem::canonical(embeddingFixture)});
+            refined = generateRefined();
+            require(refined.error.empty() && refinerEmbeddings.size() == 1
+                && refinerEmbeddings.contains("user_refiner"), "Explicit Refiner embedding was not registered");
+            refinerEmbeddingSucceeds = false;
+            const auto beforeEmbeddingFailure = generationCalls;
+            require(!generateRefined().error.empty() && generationCalls == beforeEmbeddingFailure,
+                "Incompatible Refiner embedding reached sampling");
+            refinerEmbeddingSucceeds = true;
+            refined = generateRefined();
+            require(refined.error.empty() && liveRefiners == 1, "Refiner could not recover after validation failure");
+            releaseNativeDiffusionCache();
+            require(liveRefiners == 0, "Explicit release retained Refiner context");
+            refinerFixturePath.clear();
+            NativeGenerationOptions detailOptions; detailOptions.defaultModifiers = false;
+            NativeModelComponents detailComponents;
+            NativeAdvancedControls detailControls;
+            detailControls.detailer = true;
+            auto beforeDetail = generationCalls;
+            auto detailResult = generateNativeAdvancedImage(request, detailOptions, detailComponents, detailControls,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!detailResult.error.empty() && generationCalls == beforeDetail, "Missing detector reached generation");
+            detailControls.detailerModel = request.modelPath; // Weight contents belong to the separate real detector test.
+            detailerExpected = true;
+            detailResult = generateNativeAdvancedImage(request, detailOptions, detailComponents, detailControls,
+                NativeComputeBackend::Automatic, cancelled);
+            require(detailResult.error.empty() && detailResult.rgb.front() == 177 && allocatedImages == 0,
+                "Detailer output was not published or buffers leaked");
+            const auto loaded = detailerLoads;
+            detailResult = generateNativeAdvancedImage(request, detailOptions, detailComponents, detailControls,
+                NativeComputeBackend::Automatic, cancelled);
+            require(detailResult.error.empty() && detailResult.modelCacheHit && detailerLoads == loaded,
+                "Warm Detailer reloaded its detector");
+            detailerRunSucceeds = false;
+            detailResult = generateNativeAdvancedImage(request, detailOptions, detailComponents, detailControls,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!detailResult.error.empty() && detailResult.rgb.empty() && allocatedImages == 0 && liveDetailers == 0,
+                "Failed Detailer silently returned the base image or leaked resources");
+            detailerRunSucceeds = true; detailerLoadSucceeds = false;
+            beforeDetail = generationCalls;
+            detailResult = generateNativeAdvancedImage(request, detailOptions, detailComponents, detailControls,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!detailResult.error.empty() && generationCalls == beforeDetail, "Unloaded detector reached base generation");
+            detailerLoadSucceeds = true; detailerCancellation = &cancelled;
+            detailResult = generateNativeAdvancedImage(request, detailOptions, detailComponents, detailControls,
+                NativeComputeBackend::Automatic, cancelled);
+            require(detailResult.cancelled && detailResult.rgb.empty() && allocatedImages == 0 && liveDetailers == 0,
+                "Cancelled Detailer published output or leaked resources");
+            detailerCancellation = nullptr; cancelled = false; detailerExpected = false;
+            const auto callsBeforeDisabled = detailerCalls;
+            detailControls.detailer = false;
+            detailResult = generateNativeAdvancedImage(request, detailOptions, detailComponents, detailControls,
+                NativeComputeBackend::Automatic, cancelled);
+            require(detailResult.error.empty() && detailerCalls == callsBeforeDisabled, "Disabled Detailer still ran");
+            const auto embedding = directory / "selected-embedding.safetensors";
+            { std::ofstream file(embedding); file << "embedding fixture"; }
+            const auto originalPrompt = request.prompt;
+            request.prompt = "coastalness";
+            NativeGenerationOptions options;
+            options.defaultModifiers = false;
+            NativeModelComponents components;
+            NativeAdvancedControls controls;
+            controls.promptWeighting = false;
+            controls.embeddings.push_back({"coastal", std::filesystem::canonical(embedding)});
+            auto result = generateNativeAdvancedImage(request, options, components, controls,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && embeddingCount == 1 && !actualPromptWeighting
+                && actualPrompt == "coastalness coastal" && loadedEmbeddings == std::vector<std::string>{"coastal"},
+                "Selected embedding or literal prompt policy did not reach the native engine: " + result.error);
+            options.negativePrompt = "(coastal:0.8)";
+            controls.promptWeighting = true;
+            result = generateNativeAdvancedImage(request, options, components, controls,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && result.modelCacheHit && actualPromptWeighting && actualPrompt == "coastalness",
+                "Weighting toggle must reuse the context, and an explicit negative embedding must not be added positively");
+            { std::ofstream file(embedding); file << "changed embedding fixture"; }
+            result = generateNativeAdvancedImage(request, options, components, controls,
+                NativeComputeBackend::Automatic, cancelled);
+            require(result.error.empty() && !result.modelCacheHit, "Changed embedding weights reused a stale context");
+            embeddingLoadSucceeds = false;
+            const auto before = generationCalls;
+            result = generateNativeAdvancedImage(request, options, components, controls,
+                NativeComputeBackend::Automatic, cancelled);
+            require(!result.error.empty() && generationCalls == before, "An incompatible embedding silently reached inference");
+            embeddingLoadSucceeds = true;
+            controls.embeddings.push_back(controls.embeddings.front());
+            require(!generateNativeAdvancedImage(request, options, components, controls,
+                NativeComputeBackend::Automatic, cancelled).error.empty(), "Duplicate embedding tokens were accepted");
+            request.prompt = originalPrompt;
+            expectHires = true; expectResidentModel = false;
+        }
+        {
+            expectResidentModel = true;
+            const auto resident = generateNativeImageWithResidentWeights(request, {}, cancelled);
+            expectResidentModel = false;
+            require(resident.error.empty() && !resident.modelCacheHit,
+                "Resident model mode failed or reused a nonresident context: " + resident.error);
+            request.q8CacheDirectory = directory / "resident-q8-must-not-exist";
+            const auto callsBeforeQ8Rejection = generationCalls;
+            expectResidentModel = true;
+            const auto rejected = generateNativeImageWithResidentWeights(request, {}, cancelled);
+            expectResidentModel = false;
+            request.q8CacheDirectory.clear();
+            require(!rejected.error.empty() && rejected.error.find("disk-backed Q8 cache") != std::string::npos
+                && generationCalls == callsBeforeQ8Rejection
+                && !std::filesystem::exists(directory / "resident-q8-must-not-exist"),
+                "Resident mode must reject the disk-backed Q8 cache before writing or inference");
+        }
         {
             std::vector<NativeGenerationPreview> frames;
             const auto result = generateNativeImageWithPreview(request, {}, NativeComputeBackend::Automatic,
@@ -568,6 +1341,7 @@ int main(int argc, char **argv) {
         for (const auto failure : {Output::failed, Output::engineError, Output::refinementFailed, Output::wrongSize,
                                   Output::wrongChannels, Output::missing, Output::multiple}) {
             releaseNativeDiffusionCache();
+            const auto releaseCount = runtimeReleaseCalls;
             output = failure;
             const auto result = generateNativeImageWithProgress(request, cancelled, {});
             require(!result.error.empty() && result.rgb.empty(), "Invalid result accepted");
@@ -581,6 +1355,7 @@ int main(int argc, char **argv) {
                     && result.error.find("128x64") != std::string::npos, "Missing expected/actual dimensions");
             require(allocatedImages == 0, "Failed image allocation leaked");
             require(!logCallback && !progressCallback, "Dangling callback state");
+            require(runtimeReleaseCalls == releaseCount, "Generation failure evicted runtime source memory");
         }
         releaseNativeDiffusionCache();
         output = Output::valid;
@@ -640,6 +1415,10 @@ int main(int argc, char **argv) {
             cascade = generateNativeImageWithOptions(request, options, cancelled);
             require(cascade.error.empty() && generationCalls == packagedBefore + 2,
                 "A packaged .iildmodel file did not execute as a unified cascade: " + cascade.error);
+            const auto residentPackage = generateNativeImageWithResidentWeights(request, options, cancelled);
+            require(!residentPackage.error.empty() && residentPackage.error.find("archive extraction to disk is disabled") != std::string::npos
+                && generationCalls == packagedBefore + 2,
+                "Memory-resident generation must not materialize an archive package to disk");
             request.modelPath = package;
             int loads = 0;
             cascade = generateNativeImageWithOptions(request, options, cancelled, [&](const auto &event) {

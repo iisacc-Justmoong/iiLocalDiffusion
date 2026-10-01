@@ -1,0 +1,340 @@
+diff --git a/src/core/ggml_runner.h b/src/core/ggml_runner.h
+--- a/src/core/ggml_runner.h
++++ b/src/core/ggml_runner.h
+@@ -7,6 +7,8 @@
+ #include <memory>
+ #include <optional>
+ #include <string>
++#include <stdexcept>
++#include <tuple>
+ #include <unordered_map>
+ #include <unordered_set>
+ #include <utility>
+@@ -64,6 +66,19 @@
+     virtual size_t get_extra_graph_size()                                                                                             = 0;
+ };
+ 
++// Coverage storage is owned by the request and must outlive graph execution.
++// A missing callback means full coverage; a callback returning null is an error.
++using IPAttentionCoverage = std::function<const std::vector<float>*(int, int)>;
++struct IPAttentionContext {
++    size_t slot = 0;
++    ggml_tensor* tokens = nullptr;
++    float scale = 1.f;
++    IPAttentionCoverage coverage;
++};
++struct IPAttentionInputError : std::runtime_error {
++    using std::runtime_error::runtime_error;
++};
++
+ struct GGMLRunnerContext {
+     ggml_backend_t backend                                           = nullptr;
+     ggml_context* ggml_ctx                                           = nullptr;
+@@ -73,6 +88,9 @@
+     bool circular_y_enabled                                          = false;
+     ggml_tensor* ip_context                                          = nullptr;
+     float ip_scale                                                   = 1.0f;
++    std::vector<IPAttentionContext> ip_adapters;
++    int64_t ip_spatial_width = 0, ip_spatial_height = 0;
++    std::map<std::tuple<size_t, int, int>, ggml_tensor*> ip_mask_inputs;
+     std::shared_ptr<WeightAdapter> weight_adapter                    = nullptr;
+     std::vector<std::pair<ggml_tensor*, std::string>>* debug_tensors = nullptr;
+     std::function<ggml_tensor*(const std::string&)> get_cache_tensor;
+diff --git a/src/runtime/control_region_mask.hpp b/src/runtime/control_region_mask.hpp
+--- a/src/runtime/control_region_mask.hpp
++++ b/src/runtime/control_region_mask.hpp
+@@ -29,6 +29,27 @@
+         coverage_ = std::move(next); width_ = int(image.width); height_ = int(image.height);
+         scales_.clear(); return true;
+     }
++    // Cached pixel-center bilinear coverage, shared by residual and attention paths.
++    // Map insertion keeps existing vector addresses stable until set() replaces the mask.
++    const std::vector<float>* coverage(int width, int height) {
++        if (coverage_.empty() || width < 1 || height < 1 || width > 4096 || height > 4096) return nullptr;
++        auto [it, inserted] = scales_.try_emplace({width, height});
++        auto& scale = it->second;
++        if (inserted) {
++            scale.resize(size_t(width) * height);
++            for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
++                const float sx = std::clamp((float(x) + .5f) * float(width_) / float(width) - .5f, 0.f, float(width_ - 1));
++                const float sy = std::clamp((float(y) + .5f) * float(height_) / float(height) - .5f, 0.f, float(height_ - 1));
++                const int x0 = int(sx), y0 = int(sy), x1 = std::min(x0 + 1, width_ - 1), y1 = std::min(y0 + 1, height_ - 1);
++                const float dx = sx - float(x0), dy = sy - float(y0);
++                const auto at = [&](int px, int py) { return coverage_[size_t(py) * width_ + px]; };
++                scale[size_t(y) * width + x] =
++                    (at(x0, y0) * (1.f - dx) + at(x1, y0) * dx) * (1.f - dy)
++                    + (at(x0, y1) * (1.f - dx) + at(x1, y1) * dx) * dy;
++            }
++        }
++        return &scale;
++    }
+     bool apply(std::vector<sd::Tensor<float>>& residuals) {
+         if (coverage_.empty()) return true;
+         // Validate all shapes before modifying any residual.
+@@ -36,22 +57,7 @@
+             if (tensor.dim() < 2 || tensor.empty() || tensor.shape()[0] < 1 || tensor.shape()[1] < 1
+                 || tensor.shape()[0] > 4096 || tensor.shape()[1] > 4096) return false;
+         for (auto& tensor : residuals) {
+-            const int width = int(tensor.shape()[0]), height = int(tensor.shape()[1]);
+-            auto [it, inserted] = scales_.try_emplace({width, height});
+-            auto& scale = it->second;
+-            if (inserted) {
+-                scale.resize(size_t(width) * height);
+-                for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+-                    const float sx = std::clamp((float(x) + .5f) * float(width_) / float(width) - .5f, 0.f, float(width_ - 1));
+-                    const float sy = std::clamp((float(y) + .5f) * float(height_) / float(height) - .5f, 0.f, float(height_ - 1));
+-                    const int x0 = int(sx), y0 = int(sy), x1 = std::min(x0 + 1, width_ - 1), y1 = std::min(y0 + 1, height_ - 1);
+-                    const float dx = sx - float(x0), dy = sy - float(y0);
+-                    const auto at = [&](int px, int py) { return coverage_[size_t(py) * width_ + px]; };
+-                    scale[size_t(y) * width + x] =
+-                        (at(x0, y0) * (1.f - dx) + at(x1, y0) * dx) * (1.f - dy)
+-                        + (at(x0, y1) * (1.f - dx) + at(x1, y1) * dx) * dy;
+-                }
+-            }
++            const auto& scale = *coverage(int(tensor.shape()[0]), int(tensor.shape()[1]));
+             // Spatial planes repeat for every feature channel and batch.
+             for (size_t i = 0; i < tensor.values().size(); ++i) tensor.values()[i] *= scale[i % scale.size()];
+         }
+diff --git a/src/model/common/block.hpp b/src/model/common/block.hpp
+--- a/src/model/common/block.hpp
++++ b/src/model/common/block.hpp
+@@ -316,6 +316,7 @@
+     bool xtra_dim  = false;
+     bool enable_ip = false;
+     bool has_ip    = false;
++    std::map<size_t, int64_t> ip_widths;
+ 
+     void init_params(ggml_context* ctx, const String2TensorStorage& tensor_storage_map = {}, const std::string prefix = "") override {
+         GGMLBlock::init_params(ctx, tensor_storage_map, prefix);
+@@ -327,6 +328,19 @@
+             blocks["to_k_ip"] = std::shared_ptr<GGMLBlock>(new Linear(ip_dim, inner_dim, false));
+             blocks["to_v_ip"] = std::shared_ptr<GGMLBlock>(new Linear(ip_dim, inner_dim, false));
+         }
++        if (enable_ip) for (size_t slot = 0; slot < 64; ++slot) {
++            const auto name = "ip_adapters." + std::to_string(slot) + ".";
++            const auto key = tensor_storage_map.find(prefix + name + "to_k.weight");
++            const auto value = tensor_storage_map.find(prefix + name + "to_v.weight");
++            if (key == tensor_storage_map.end() || value == tensor_storage_map.end()) continue;
++            const int64_t width = key->second.ne[0], inner = d_head * n_head;
++            if (width < 1 || key->second.ne[1] != inner || value->second.ne[0] != width
++                || value->second.ne[1] != inner || key->second.ne[2] != 1 || key->second.ne[3] != 1
++                || value->second.ne[2] != 1 || value->second.ne[3] != 1) continue;
++            ip_widths[slot] = width;
++            blocks[name + "to_k"] = std::make_shared<Linear>(width, inner, false);
++            blocks[name + "to_v"] = std::make_shared<Linear>(width, inner, false);
++        }
+     }
+ 
+ public:
+@@ -370,6 +384,39 @@
+         int64_t n_context = context->ne[1];
+         int64_t inner_dim = d_head * n_head;
+ 
++        if (enable_ip && !ctx->ip_adapters.empty()) {
++            if (ctx->ip_context != nullptr || ctx->ip_adapters.size() > 64)
++                throw IPAttentionInputError("Ambiguous or excessive IP-Adapter inputs");
++            std::set<size_t> slots;
++            for (const auto& input : ctx->ip_adapters) {
++                const auto width = ip_widths.find(input.slot);
++                const auto* tokens = input.tokens;
++                if (!slots.insert(input.slot).second || width == ip_widths.end() || !tokens
++                    || tokens->type != GGML_TYPE_F32 || tokens->ne[0] != width->second || tokens->ne[1] < 1
++                    || (tokens->ne[2] != 1 && tokens->ne[2] != n) || tokens->ne[3] != 1
++                    || !std::isfinite(input.scale) || input.scale < 0.f || input.scale > 2.f)
++                    throw IPAttentionInputError("Invalid IP-Adapter slot, tokens, weight or K/V bindings");
++                if (input.coverage) {
++                    const auto w = ctx->ip_spatial_width, h = ctx->ip_spatial_height;
++                    if (w < 1 || h < 1 || w > 4096 || h > 4096 || w * h != n_token
++                        || !ctx->set_backend_tensor_data)
++                        throw IPAttentionInputError("IP-Adapter mask requires its actual spatial shape and input binding");
++                    const auto mask_key = std::make_tuple(input.slot, int(w), int(h));
++                    if (ctx->ip_mask_inputs.count(mask_key) == 0) {
++                        const auto* coverage = input.coverage(int(w), int(h));
++                        if (!coverage || coverage->size() != size_t(w * h)
++                            || std::any_of(coverage->begin(), coverage->end(),
++                                [](float v) { return !std::isfinite(v) || v < 0.f || v > 1.f; }))
++                            throw IPAttentionInputError("Invalid IP-Adapter regional coverage");
++                        auto* mask = ggml_new_tensor_3d(ctx->ggml_ctx, GGML_TYPE_F32, 1, w * h, 1);
++                        ggml_set_input(mask);
++                        ctx->bind_backend_tensor_data(mask, coverage->data());
++                        ctx->ip_mask_inputs.emplace(mask_key, mask);
++                    }
++                }
++            }
++        }
++
+         auto q = to_q->forward(ctx, x);  // [N, n_token, inner_dim]
+         if (xtra_dim) {
+             // LOG_VERBOSE("CrossAttention: temp set dim to 1024 for sdxs_09");
+@@ -391,6 +438,26 @@
+             x            = ggml_add(ctx->ggml_ctx, x, ggml_scale(ctx->ggml_ctx, x_ip, ctx->ip_scale));
+         }
+ 
++        if (enable_ip) for (const auto& input : ctx->ip_adapters) {
++            if (input.scale == 0.f) continue; // Still validate every requested slot and mask above.
++            const auto name = "ip_adapters." + std::to_string(input.slot) + ".";
++            auto to_k_ip = std::dynamic_pointer_cast<Linear>(blocks.at(name + "to_k"));
++            auto to_v_ip = std::dynamic_pointer_cast<Linear>(blocks.at(name + "to_v"));
++            auto* tokens = input.tokens;
++            if (tokens->ne[2] == 1 && n > 1)
++                tokens = ggml_repeat(ctx->ggml_ctx, tokens,
++                    ggml_new_tensor_3d(ctx->ggml_ctx, tokens->type, tokens->ne[0], tokens->ne[1], n));
++            auto* k_ip = to_k_ip->forward(ctx, tokens);
++            auto* v_ip = to_v_ip->forward(ctx, tokens);
++            // Independent softmax for each adapter, never concatenate or average tokens.
++            auto* contribution = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend,
++                q, k_ip, v_ip, n_head, nullptr, false, ctx->flash_attn_enabled);
++            if (input.coverage)
++                contribution = ggml_mul(ctx->ggml_ctx, contribution, ctx->ip_mask_inputs.at(
++                    std::make_tuple(input.slot, int(ctx->ip_spatial_width), int(ctx->ip_spatial_height))));
++            x = ggml_add(ctx->ggml_ctx, x, ggml_scale(ctx->ggml_ctx, contribution, input.scale));
++        }
++
+         x = to_out_0->forward(ctx, x);  // [N, n_token, query_dim]
+         return x;
+     }
+@@ -542,6 +609,13 @@
+         int64_t h         = x->ne[1];
+         int64_t w         = x->ne[0];
+         int64_t inner_dim = n_head * d_head;
++        struct RestoreIPSpatialShape {
++            GGMLRunnerContext* ctx;
++            int64_t width, height;
++            ~RestoreIPSpatialShape() { ctx->ip_spatial_width = width; ctx->ip_spatial_height = height; }
++        } restore{ctx, ctx->ip_spatial_width, ctx->ip_spatial_height};
++        ctx->ip_spatial_width = w;
++        ctx->ip_spatial_height = h;
+ 
+         x = norm->forward(ctx, x);
+         if (use_linear) {
+diff --git a/src/model/diffusion/model.hpp b/src/model/diffusion/model.hpp
+--- a/src/model/diffusion/model.hpp
++++ b/src/model/diffusion/model.hpp
+@@ -42,12 +42,20 @@
+     {"cosmos_reference", {false, true, Rope::RefIndexMode::INCREASE, false, false, -1, RefImageResizeMode::NONE, -1, -1}},
+ };
+ 
++struct IPAdapterInput {
++    size_t slot = 0;
++    const sd::Tensor<float>* tokens = nullptr;
++    float scale = 1.f;
++    IPAttentionCoverage coverage;
++};
++
+ struct UNetDiffusionExtra {
+     int num_video_frames                           = -1;
+     const std::vector<sd::Tensor<float>>* controls = nullptr;
+     float control_strength                         = 0.f;
+     const sd::Tensor<float>* ip_context            = nullptr;
+     float ip_scale                                 = 1.f;
++    const std::vector<IPAdapterInput>* ip_adapters = nullptr;
+ };
+ 
+ struct SkipLayerDiffusionExtra {
+diff --git a/src/model/diffusion/unet.hpp b/src/model/diffusion/unet.hpp
+--- a/src/model/diffusion/unet.hpp
++++ b/src/model/diffusion/unet.hpp
+@@ -802,8 +802,9 @@
+                              const std::vector<sd::Tensor<float>>& controls_tensor = {},
+                              float control_strength                                = 0.f,
+                              const sd::Tensor<float>& ip_context_tensor            = {},
+-                             float ip_scale                                        = 1.f) {
+-        ggml_cgraph* gf = new_graph_custom(UNET_GRAPH_SIZE);
++                             float ip_scale                                        = 1.f,
++                             const std::vector<IPAdapterInput>& ip_adapters        = {}) try {
++        ggml_cgraph* gf = new_graph_custom(ip_adapters.empty() ? UNET_GRAPH_SIZE : MAX_GRAPH_SIZE);
+ 
+         ggml_tensor* x          = make_input(x_tensor);
+         ggml_tensor* timesteps  = make_input(timesteps_tensor);
+@@ -824,6 +825,20 @@
+         auto runner_ctx       = get_context();
+         runner_ctx.ip_context = ip_context;
+         runner_ctx.ip_scale   = ip_scale;
++        if (!ip_adapters.empty() && (ip_context || ip_adapters.size() > 64))
++            throw IPAttentionInputError("Ambiguous or excessive UNet IP-Adapter inputs");
++        std::set<size_t> slots;
++        for (const auto& input : ip_adapters) {
++            const auto* tokens = input.tokens;
++            if (input.slot >= 64 || !slots.insert(input.slot).second || !tokens || tokens->empty()
++                || tokens->dim() < 2 || tokens->dim() > 3 || tokens->shape()[0] < 1 || tokens->shape()[1] < 1
++                || (tokens->dim() == 3 && tokens->shape()[2] != 1 && tokens->shape()[2] != x->ne[3])
++                || !std::isfinite(input.scale) || input.scale < 0.f || input.scale > 2.f
++                || std::any_of(tokens->values().begin(), tokens->values().end(),
++                    [](float value) { return !std::isfinite(value); }))
++                throw IPAttentionInputError("Invalid UNet IP-Adapter input");
++            runner_ctx.ip_adapters.push_back({input.slot, make_input(*tokens), input.scale, input.coverage});
++        }
+ 
+         ggml_tensor* out = unet.forward(&runner_ctx,
+                                         x,
+@@ -838,6 +853,9 @@
+         ggml_build_forward_expand(gf, out);
+ 
+         return gf;
++    } catch (const IPAttentionInputError& error) {
++        LOG_ERROR("Cannot build IP-Adapter attention graph: %s", error.what());
++        return nullptr; // GGMLRunner tears down graph scratch and reports an empty result.
+     }
+ 
+     sd::Tensor<float> compute(int n_threads,
+@@ -850,14 +868,15 @@
+                               const std::vector<sd::Tensor<float>>& controls = {},
+                               float control_strength                         = 0.f,
+                               const sd::Tensor<float>& ip_context            = {},
+-                              float ip_scale                                 = 1.f) {
++                              float ip_scale                                 = 1.f,
++                              const std::vector<IPAdapterInput>& ip_adapters = {}) {
+         // x: [N, in_channels, h, w]
+         // timesteps: [N, ]
+         // context: [N, max_position, hidden_size]([N, 77, 768]) or [1, max_position, hidden_size]
+         // c_concat: [N, in_channels, h, w] or [1, in_channels, h, w]
+         // y: [N, adm_in_channels] or [1, adm_in_channels]
+         auto get_graph = [&]() -> ggml_cgraph* {
+-            return build_graph(x, timesteps, context, c_concat, y, num_video_frames, controls, control_strength, ip_context, ip_scale);
++            return build_graph(x, timesteps, context, c_concat, y, num_video_frames, controls, control_strength, ip_context, ip_scale, ip_adapters);
+         };
+ 
+         return restore_trailing_singleton_dims(GGMLRunner::compute(get_graph, n_threads, false), x.dim());
+@@ -869,6 +888,7 @@
+         GGML_ASSERT(diffusion_params.timesteps != nullptr);
+         const auto* extra = diffusion_extra_as<UNetDiffusionExtra>(diffusion_params);
+         static const std::vector<sd::Tensor<float>> empty_controls;
++        static const std::vector<IPAdapterInput> empty_ip_adapters;
+         return compute(n_threads,
+                        *diffusion_params.x,
+                        *diffusion_params.timesteps,
+@@ -879,7 +899,8 @@
+                        extra->controls ? *extra->controls : empty_controls,
+                        extra->control_strength,
+                        extra->ip_context ? *extra->ip_context : sd::Tensor<float>{},
+-                       extra->ip_scale);
++                       extra->ip_scale,
++                       extra->ip_adapters ? *extra->ip_adapters : empty_ip_adapters);
+     }
+ 
+     void test() {
+diff --git a/src/runtime/ip_adapter_validation.hpp b/src/runtime/ip_adapter_validation.hpp
+--- a/src/runtime/ip_adapter_validation.hpp
++++ b/src/runtime/ip_adapter_validation.hpp
+@@ -6,8 +6,8 @@
+ // Projection weights alone are not an IP-Adapter. Every UNet attn2 needs its
+ // own image K/V pair; partial attachment must not silently lose conditioning.
+ inline bool sd_valid_ip_attention_bindings(const std::map<std::string, ggml_tensor*>& tensors,
+-                                            int64_t image_width) {
+-    if (image_width < 1) return false;
++                                            int64_t image_width, int slot = -1) {
++    if (image_width < 1 || slot < -1 || slot >= 64) return false;
+     size_t layers = 0;
+     for (const auto& [name, text_key] : tensors) {
+         const std::string suffix = "attn2.to_k.weight";
+@@ -16,7 +16,9 @@
+         if (!text_key) return false;
+         const auto prefix = name.substr(0, name.size() - std::string("to_k.weight").size());
+         for (const auto* role : {"to_k_ip.weight", "to_v_ip.weight"}) {
+-            const auto found = tensors.find(prefix + role);
++            const auto indexed = "ip_adapters." + std::to_string(slot) + "."
++                + (std::string(role) == "to_k_ip.weight" ? "to_k.weight" : "to_v.weight");
++            const auto found = tensors.find(prefix + (slot < 0 ? std::string(role) : indexed));
+             if (found == tensors.end() || !found->second) return false;
+             const auto* tensor = found->second;
+             if (tensor->ne[0] != image_width || tensor->ne[1] != text_key->ne[1]

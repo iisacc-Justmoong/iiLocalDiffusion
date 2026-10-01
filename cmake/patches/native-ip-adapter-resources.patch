@@ -1,0 +1,966 @@
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -480,6 +480,20 @@
+ SD_API bool sd_prepare_control_nets(sd_ctx_t* ctx, const char* const* paths, uint32_t count);
+ SD_API bool sd_set_control_net_inputs(sd_ctx_t* ctx, const sd_control_input_t* inputs, uint32_t count);
+ 
++// Independent IP resources belong to the context; inputs are request-owned copies.
++typedef struct {
++    const char* adapter_path;
++    const char* vision_path;
++} sd_ip_adapter_model_t;
++typedef struct {
++    uint32_t slot;
++    sd_image_t image;
++    sd_image_t mask;
++    float strength;
++} sd_ip_adapter_input_t;
++// Call between generations. count=0 disables inputs without unloading models.
++SD_API bool sd_set_ip_adapter_inputs(sd_ctx_t* ctx, const sd_ip_adapter_input_t* inputs, uint32_t count);
++
+ // Copies regional coverage; all-zero image clears it. Set only between generations.
+ SD_API bool sd_set_control_net_mask(sd_ctx_t* sd_ctx, sd_image_t mask);
+ 
+@@ -534,6 +548,10 @@
+ SD_API bool sd_model_requires_qwen_image_vae(const char* model_path, bool* required);
+ 
+ SD_API sd_ctx_t* new_sd_ctx(const sd_ctx_params_t* sd_ctx_params);
++// Additive API: existing context parameter layout is unchanged. Up to 64 slots.
++// Paths are borrowed only during creation. Every model is resident before return.
++SD_API sd_ctx_t* new_sd_ctx_with_ip_adapters(const sd_ctx_params_t* params,
++    const sd_ip_adapter_model_t* models, uint32_t count);
+ SD_API void free_sd_ctx(sd_ctx_t* sd_ctx);
+ SD_API void free_sd_audio(sd_audio_t* audio);
+ 
+diff --git a/src/model_loader.h b/src/model_loader.h
+--- a/src/model_loader.h
++++ b/src/model_loader.h
+@@ -55,6 +55,10 @@
+ 
+     bool init_from_file(const std::string& file_path, const std::string& prefix = "");
+     void convert_tensors_name();
++    // Merge converted metadata before file processing, preserving source offsets.
++    // Empty mapped names are excluded. Collisions fail without changing this loader.
++    bool append_metadata(const ModelLoader& source,
++                         const std::function<std::string(const std::string&)>& rename);
+     bool init_from_file_and_convert_name(const std::string& file_path,
+                                          const std::string& prefix = "",
+                                          SDVersion version         = VERSION_COUNT);
+diff --git a/src/model_loader.cpp b/src/model_loader.cpp
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -202,6 +202,32 @@
+     }
+ }
+ 
++bool ModelLoader::append_metadata(const ModelLoader& source,
++    const std::function<std::string(const std::string&)>& rename) {
++    if (model_files_processed || &source == this || !rename) return false;
++    auto paths = file_paths_;
++    String2TensorStorage tensors;
++    // OrderedMap's index holds iterators: rebuild instead of shallow-copying it.
++    for (const auto& item : tensor_storage_map) tensors[item.first] = item.second;
++    size_t added = 0;
++    for (const auto& item : source.tensor_storage_map) {
++        auto tensor = item.second;
++        const auto name = rename(item.first);
++        if (name.empty()) continue;
++        if (tensor.file_index >= source.file_paths_.size() || tensors.find(name) != tensors.end()) return false;
++        const auto& path = source.file_paths_[tensor.file_index];
++        auto found = std::find(paths.begin(), paths.end(), path);
++        tensor.file_index = found == paths.end() ? paths.size() : size_t(found - paths.begin());
++        if (found == paths.end()) paths.push_back(path);
++        tensor.name = name;
++        tensors[name] = std::move(tensor);
++        ++added;
++    }
++    if (!added) return false;
++    file_paths_ = std::move(paths); tensor_storage_map.swap(tensors);
++    return true;
++}
++
+ void ModelLoader::convert_tensors_name() {
+     SDVersion version = (version_ == VERSION_COUNT) ? get_sd_version() : version_;
+     String2TensorStorage new_map;
+diff --git a/src/model/te/clip.hpp b/src/model/te/clip.hpp
+--- a/src/model/te/clip.hpp
++++ b/src/model/te/clip.hpp
+@@ -17,7 +17,7 @@
+     bool use_gelu;
+ 
+ public:
+-    CLIPMLP(int64_t d_model, int64_t intermediate_size) {
++    CLIPMLP(int64_t d_model, int64_t intermediate_size, std::optional<bool> activation = std::nullopt) {
+         blocks["fc1"] = std::shared_ptr<GGMLBlock>(new Linear(d_model, intermediate_size));
+         blocks["fc2"] = std::shared_ptr<GGMLBlock>(new Linear(intermediate_size, d_model));
+ 
+@@ -26,6 +26,7 @@
+         } else {  // SD 1.x
+             use_gelu = false;
+         }
++        if (activation) use_gelu = *activation;
+     }
+ 
+     ggml_tensor* forward(GGMLRunnerContext* ctx, ggml_tensor* x) {
+@@ -54,7 +55,8 @@
+     CLIPLayer(int64_t d_model,
+               int64_t n_head,
+               int64_t intermediate_size,
+-              bool proj_in = false)
++              bool proj_in = false,
++              std::optional<bool> activation = std::nullopt)
+         : d_model(d_model),
+           n_head(n_head),
+           intermediate_size(intermediate_size) {
+@@ -63,7 +65,7 @@
+         blocks["layer_norm1"] = std::shared_ptr<GGMLBlock>(new LayerNorm(d_model));
+         blocks["layer_norm2"] = std::shared_ptr<GGMLBlock>(new LayerNorm(d_model));
+ 
+-        blocks["mlp"] = std::shared_ptr<GGMLBlock>(new CLIPMLP(d_model, intermediate_size));
++        blocks["mlp"] = std::shared_ptr<GGMLBlock>(new CLIPMLP(d_model, intermediate_size, activation));
+     }
+ 
+     ggml_tensor* forward(GGMLRunnerContext* ctx, ggml_tensor* x, ggml_tensor* mask = nullptr) {
+@@ -88,11 +90,12 @@
+                 int64_t d_model,
+                 int64_t n_head,
+                 int64_t intermediate_size,
+-                bool proj_in = false)
++                bool proj_in = false,
++                std::optional<bool> activation = std::nullopt)
+         : n_layer(n_layer) {
+         for (int i = 0; i < n_layer; i++) {
+             std::string name = "layers." + std::to_string(i);
+-            blocks[name]     = std::shared_ptr<GGMLBlock>(new CLIPLayer(d_model, n_head, intermediate_size, proj_in));
++            blocks[name]     = std::shared_ptr<GGMLBlock>(new CLIPLayer(d_model, n_head, intermediate_size, proj_in, activation));
+         }
+     }
+ 
+@@ -360,7 +363,7 @@
+ 
+         blocks["embeddings"]     = std::shared_ptr<GGMLBlock>(new CLIPVisionEmbeddings(hidden_size, num_channels, patch_size, image_size));
+         blocks["pre_layernorm"]  = std::shared_ptr<GGMLBlock>(new LayerNorm(hidden_size));
+-        blocks["encoder"]        = std::shared_ptr<GGMLBlock>(new CLIPEncoder(n_layer, hidden_size, n_head, intermediate_size, proj_in));
++        blocks["encoder"]        = std::shared_ptr<GGMLBlock>(new CLIPEncoder(n_layer, hidden_size, n_head, intermediate_size, proj_in, version != OPENAI_CLIP_VIT_L_14));
+         blocks["post_layernorm"] = std::shared_ptr<GGMLBlock>(new LayerNorm(hidden_size));
+     }
+ 
+@@ -435,7 +438,8 @@
+ public:
+     CLIPVisionModelProjection(CLIPVersion version   = OPENAI_CLIP_VIT_L_14,
+                               bool transpose_proj_w = false,
+-                              bool proj_in          = false) {
++                              bool proj_in          = false,
++                              int32_t output_dim    = 0) {
+         if (version == OPEN_CLIP_VIT_H_14) {
+             hidden_size    = 1280;
+             projection_dim = 1024;
+@@ -443,6 +447,7 @@
+             hidden_size = 1664;
+         }
+ 
++        if (output_dim > 0) projection_dim = output_dim;
+         blocks["vision_model"]      = std::shared_ptr<GGMLBlock>(new CLIPVisionModel(version, proj_in));
+         blocks["visual_projection"] = std::shared_ptr<GGMLBlock>(new CLIPProjection(hidden_size, projection_dim, transpose_proj_w));
+     }
+diff --git a/src/conditioning/conditioner.hpp b/src/conditioning/conditioner.hpp
+--- a/src/conditioning/conditioner.hpp
++++ b/src/conditioning/conditioner.hpp
+@@ -597,8 +597,11 @@
+ 
+     FrozenCLIPVisionEmbedder(ggml_backend_t backend,
+                              const String2TensorStorage& tensor_storage_map      = {},
+-                             std::shared_ptr<RunnerWeightManager> weight_manager = nullptr)
+-        : GGMLRunner(backend, weight_manager) {
++                             std::shared_ptr<RunnerWeightManager> weight_manager = nullptr,
++                             std::string prefix = "cond_stage_model.transformer",
++                             CLIPVersion version = OPEN_CLIP_VIT_H_14,
++                             int32_t projection_dim = 0)
++        : GGMLRunner(backend, weight_manager), weight_prefix(std::move(prefix)) {
+         bool proj_in = false;
+         for (const auto& [name, tensor_storage] : tensor_storage_map) {
+             if (!starts_with(name, weight_prefix)) {
+@@ -609,7 +612,7 @@
+                 break;
+             }
+         }
+-        vision_model = CLIPVisionModelProjection(OPEN_CLIP_VIT_H_14, false, proj_in);
++        vision_model = CLIPVisionModelProjection(version, false, proj_in, projection_dim);
+         vision_model.init(params_ctx, tensor_storage_map, weight_prefix);
+     }
+ 
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -28,6 +28,8 @@
+ #include "core/backend_fit.h"
+ #include "extensions/generation_extension.h"
+ #include "model/adapter/ip_adapter.hpp"
++#include "runtime/ip_adapter_runtime.hpp"
++#include "runtime/ip_adapter_resources.hpp"
+ #include "model/adapter/lora.hpp"
+ #include "runtime/control_stack.hpp"
+ #include "model/diffusion/anima.hpp"
+@@ -249,6 +251,8 @@
+     sd::Tensor<float> ip_adapter_tokens;
+     sd::Tensor<float> ip_adapter_uncond_tokens;
+     float ip_adapter_strength = 1.0f;
++    IPAdapterStack ip_stack;
++    std::vector<size_t> ip_vision_indices;
+     struct ResidentControl {
+         std::shared_ptr<ModelManager> manager;
+         std::shared_ptr<ControlNet> runner; // Destroy before manager/backend.
+@@ -792,7 +796,8 @@
+                            const sd_ctx_params_t* sd_ctx_params,
+                            bool& use_tae,
+                            bool& use_audio_vae,
+-                           bool& use_control_net) {
++                           bool& use_control_net,
++                           const sd_ip_adapter_model_t* ip_models = nullptr, uint32_t ip_count = 0) {
+         if (strlen(SAFE_STR(sd_ctx_params->model_path)) > 0) {
+             LOG_INFO("loading model from '%s'", sd_ctx_params->model_path);
+             if (!model_loader.init_from_file(sd_ctx_params->model_path)) {
+@@ -931,6 +936,33 @@
+         }
+ 
+         model_loader.convert_tensors_name();
++        if (ip_count) {
++            const auto family = model_loader.get_sd_version();
++            if (family != VERSION_SD1 && family != VERSION_SDXL) {
++                LOG_ERROR("Indexed IP-Adapter resources require an SD 1.5 or SDXL Base model"); return false;
++            }
++            std::map<std::string, size_t> visions;
++            ip_vision_indices.clear();
++            for (uint32_t slot = 0; slot < ip_count; ++slot) {
++                if (sd_should_abort()) return false;
++                ModelLoader adapter;
++                if (!adapter.init_from_file_and_convert_name(ip_models[slot].adapter_path, "", family)
++                    || !model_loader.append_metadata(adapter, [slot](const std::string& name) {
++                        return sd_indexed_ip_weight_name(name, slot);
++                    })) return false;
++                const std::string path = ip_models[slot].vision_path;
++                const auto inserted = visions.emplace(path, slot);
++                const auto vision_slot = inserted.first->second;
++                ip_vision_indices.push_back(vision_slot);
++                if (inserted.second) {
++                    ModelLoader vision;
++                    if (!vision.init_from_file_and_convert_name(path, "clip_vision.", family)
++                        || !model_loader.append_metadata(vision, [vision_slot](const std::string& name) {
++                            return sd_indexed_ip_vision_name(name, vision_slot);
++                        })) return false;
++                }
++            }
++        }
+ 
+         ggml_type wtype               = sd_type_to_ggml_type(sd_ctx_params->wtype);
+         std::string tensor_type_rules = SAFE_STR(sd_ctx_params->tensor_type_rules);
+@@ -941,7 +973,8 @@
+         return true;
+     }
+ 
+-    bool init(const sd_ctx_params_t* sd_ctx_params) {
++    bool init(const sd_ctx_params_t* sd_ctx_params,
++              const sd_ip_adapter_model_t* ip_models = nullptr, uint32_t ip_count = 0) {
+         n_threads                 = sd_ctx_params->n_threads;
+         enable_mmap               = sd_ctx_params->enable_mmap;
+         disable_prefetch          = sd_ctx_params->disable_prefetch;
+@@ -984,7 +1017,7 @@
+         ModelLoader& model_loader = model_manager->loader();
+         model_loader.set_resident_memory(sd_ctx_params->memory_resident_model);
+ 
+-        if (!init_model_loader(model_loader, sd_ctx_params, use_tae, use_audio_vae, use_control_net)) {
++        if (!init_model_loader(model_loader, sd_ctx_params, use_tae, use_audio_vae, use_control_net, ip_models, ip_count)) {
+             return false;
+         }
+ 
+@@ -1492,40 +1525,83 @@
+                 }
+             }
+ 
+-            if (!ensure_backend_pair(SDBackendModule::VAE)) {
+-                return false;
+-            }
+-
+-            auto create_tae = [&](bool decode_only) -> std::shared_ptr<VAE> {
+-                if (sd_version_uses_wan_vae(version) || sd_version_is_hunyuan_video(version) || sd_version_is_ltxav(version) || sd_version_is_minimax_h3(version)) {
+-                    return std::make_shared<TinyVideoAutoEncoder>(backend_for(SDBackendModule::VAE),
+-                                                                  tensor_storage_map,
+-                                                                  "decoder",
+-                                                                  decode_only,
+-                                                                  version,
+-                                                                  model_manager);
+-
+-                } else {
+-                    auto model = std::make_shared<TinyImageAutoEncoder>(backend_for(SDBackendModule::VAE),
+-                                                                        tensor_storage_map,
+-                                                                        "decoder.layers",
+-                                                                        decode_only,
+-                                                                        version,
+-                                                                        model_manager);
+-                    return model;
++            if (ip_count) {
++                if (!ensure_backend_pair(SDBackendModule::CLIP_VISION)
++                    || backend_manager.params_backend_is_disk(SDBackendModule::CLIP_VISION)
++                    || backend_manager.params_backend_is_disk(SDBackendModule::DIFFUSION)) {
++                    LOG_ERROR("IP-Adapter weights require resident, non-disk parameter storage"); return false;
+                 }
+-            };
++                std::map<std::string, ggml_tensor*> attention_weights;
++                diffusion_model->get_param_tensors(attention_weights);
++                for (uint32_t slot = 0; slot < ip_count; ++slot) {
++                    if (sd_should_abort()) return false;
++                    IPAdapterStack::Model model;
++                    const auto adapter_prefix = "ip_adapter_slots." + std::to_string(slot);
++                    const auto vision_prefix = "ip_vision_slots." + std::to_string(ip_vision_indices[slot]);
++                    CLIPVersion vision_version;
++                    int32_t projection_dim = 0;
++                    if (!sd_valid_ip_projection_metadata(tensor_storage_map, adapter_prefix)
++                        || !sd_ip_vision_architecture(tensor_storage_map, vision_prefix, vision_version, projection_dim))
++                        return false;
++                    if (ip_vision_indices[slot] == slot) {
++                        model.vision = std::make_shared<FrozenCLIPVisionEmbedder>(
++                            backend_for(SDBackendModule::CLIP_VISION), tensor_storage_map, model_manager,
++                            vision_prefix, vision_version, projection_dim);
++                        model.vision->set_max_graph_vram_bytes(max_graph_vram_bytes_for_module(SDBackendModule::CLIP_VISION));
++                        model.vision->set_flash_attention_enabled(sd_ctx_params->flash_attn);
++                        if (!register_runner_params("IP vision " + std::to_string(slot), model.vision, SDBackendModule::CLIP_VISION))
++                            return false;
++                    } else model.vision = ip_stack.models.at(ip_vision_indices[slot]).vision;
++                    model.projection = std::make_shared<IPAdapter::IPAdapterRunner>(
++                        backend_for(SDBackendModule::DIFFUSION), tensor_storage_map, adapter_prefix, model_manager);
++                    model.projection->set_max_graph_vram_bytes(max_graph_vram_bytes_for_module(SDBackendModule::DIFFUSION));
++                    const auto& projection = *model.projection;
++                    const auto image_width = projection.is_plus ? projection.resampler.output_dim : projection.image_proj.ctx_dim;
++                    const auto input_width = projection.is_plus ? projection.resampler.embed_dim : projection.image_proj.clip_dim;
++                    const auto vision_width = projection.is_plus ? model.vision->vision_model.hidden_size : model.vision->vision_model.projection_dim;
++                    if (input_width != vision_width || !sd_valid_ip_attention_bindings(attention_weights, image_width, int(slot))) {
++                        LOG_ERROR("IP-Adapter projection, vision or UNet K/V dimensions are incompatible"); return false;
++                    }
++                    if (!register_runner_params("IP adapter " + std::to_string(slot), model.projection, SDBackendModule::DIFFUSION))
++                        return false;
++                    ip_stack.models.push_back(std::move(model));
++                }
++            }
+ 
+-            sd_vae_format_t vae_format = sd_ctx_params->vae_format;
+-            if (vae_format < SD_VAE_FORMAT_AUTO || vae_format >= SD_VAE_FORMAT_COUNT) {
+-                LOG_WARN("invalid VAE format override, using auto");
+-                vae_format = SD_VAE_FORMAT_AUTO;
++            if (!ensure_backend_pair(SDBackendModule::VAE)) {
++                return false;
+             }
+-            SDVersion vae_version = version;
+-            if (sd_version_is_pid(version) && vae_format != SD_VAE_FORMAT_AUTO) {
+-                vae_version = sd_vae_format_to_version(vae_format, vae_version);
+-            }
+ 
++            auto create_tae = [&](bool decode_only) -> std::shared_ptr<VAE> {
++                if (sd_version_uses_wan_vae(version) || sd_version_is_hunyuan_video(version) || sd_version_is_ltxav(version) || sd_version_is_minimax_h3(version)) {
++                    return std::make_shared<TinyVideoAutoEncoder>(backend_for(SDBackendModule::VAE),
++                                                                  tensor_storage_map,
++                                                                  "decoder",
++                                                                  decode_only,
++                                                                  version,
++                                                                  model_manager);
++
++                } else {
++                    auto model = std::make_shared<TinyImageAutoEncoder>(backend_for(SDBackendModule::VAE),
++                                                                        tensor_storage_map,
++                                                                        "decoder.layers",
++                                                                        decode_only,
++                                                                        version,
++                                                                        model_manager);
++                    return model;
++                }
++            };
++
++            sd_vae_format_t vae_format = sd_ctx_params->vae_format;
++            if (vae_format < SD_VAE_FORMAT_AUTO || vae_format >= SD_VAE_FORMAT_COUNT) {
++                LOG_WARN("invalid VAE format override, using auto");
++                vae_format = SD_VAE_FORMAT_AUTO;
++            }
++            SDVersion vae_version = version;
++            if (sd_version_is_pid(version) && vae_format != SD_VAE_FORMAT_AUTO) {
++                vae_version = sd_vae_format_to_version(vae_format, vae_version);
++            }
++
+             auto create_vae = [&]() -> std::shared_ptr<VAE> {
+                 if (sd_version_is_ltxav(version)) {
+                     return std::make_shared<LTXVideoVAE>(backend_for(SDBackendModule::VAE),
+@@ -2282,104 +2358,50 @@
+     }
+ 
+     bool compute_ip_adapter_tokens(const sd_image_t& image, float strength) {
+-        ip_adapter_tokens = {};
+-        ip_adapter_uncond_tokens = {};
+         ip_adapter_strength = 0.f;
+-        struct EndIPRunners {
+-            GGMLRunner* vision;
+-            GGMLRunner* adapter;
+-            ~EndIPRunners() {
+-                if (vision) vision->runner_end();
+-                if (adapter) adapter->runner_end();
++        if (!sd_compute_ip_tokens(clip_vision.get(), ip_adapter.get(), n_threads, image, strength,
++                ip_adapter_tokens, ip_adapter_uncond_tokens)) return false;
++        if (!ip_adapter_tokens.empty()) ip_adapter_strength = strength;
++        return true;
++    }
++
++    std::vector<float> process_timesteps(const std::vector<float>& timesteps,
++                                         const sd::Tensor<float>& init_latent,
++                                         const sd::Tensor<float>& denoise_mask,
++                                         int step) {
++        if (auto sefi_denoiser = std::dynamic_pointer_cast<SefiFlowDenoiser>(denoiser)) {
++            int sched_idx = step > 0 ? step - 1 : 0;
++            if (sched_idx >= static_cast<int>(sefi_denoiser->tex_timesteps.size())) {
++                sched_idx = static_cast<int>(sefi_denoiser->tex_timesteps.size()) - 1;
+             }
+-        } finish{clip_vision.get(), ip_adapter.get()};
+-        if (!image.data && !image.width && !image.height && !image.channel) return true;
+-        const auto fail = [](const char* reason) {
+-            LOG_ERROR("IP-Adapter preparation failed: %s", reason); return false;
+-        };
+-        if (!image.data || image.width < 1 || image.width > 2048
+-            || image.height < 1 || image.height > 2048 || image.channel != 3
+-            || !std::isfinite(strength) || strength < 0.f || strength > 2.f)
+-            return fail("invalid RGB image or strength");
+-        if (!ip_adapter || !clip_vision) return fail("adapter and CLIP vision weights are required");
+-        if (sd_should_abort()) return fail("cancelled");
+-        const bool plus = ip_adapter->is_plus;
+-        auto pixels = clip_preprocess(sd_image_to_tensor(image),
+-            clip_vision->vision_model.image_size, clip_vision->vision_model.image_size);
+-        if (pixels.empty()) return fail("image preprocessing");
+-        const auto finite = [](const sd::Tensor<float>& tensor) {
+-            return !tensor.empty() && std::all_of(tensor.values().begin(), tensor.values().end(),
+-                [](float value) { return std::isfinite(value); });
+-        };
+-        const int64_t input_width = plus ? ip_adapter->resampler.embed_dim : ip_adapter->image_proj.clip_dim;
+-        const int64_t output_width = plus ? ip_adapter->resampler.output_dim : ip_adapter->image_proj.ctx_dim;
+-        const auto valid_embedding = [&](const sd::Tensor<float>& tensor) {
+-            return finite(tensor) && tensor.dim() >= 1 && tensor.shape()[0] == input_width
+-                && (plus ? tensor.dim() >= 2 : tensor.numel() == input_width);
+-        };
+-        const auto valid_tokens = [&](const sd::Tensor<float>& tensor) {
+-            return finite(tensor) && tensor.dim() >= 2 && tensor.shape()[0] == output_width
+-                && tensor.shape()[1] == ip_adapter->num_tokens
+-                && tensor.numel() == output_width * ip_adapter->num_tokens;
+-        };
+-        auto embed = clip_vision->compute(n_threads, pixels, !plus, plus ? 2 : -1);
+-        if (!valid_embedding(embed) || sd_should_abort()) return fail("conditional vision encoding");
+-        auto conditional = ip_adapter->compute(n_threads, embed);
+-        if (!valid_tokens(conditional) || sd_should_abort()) return fail("conditional image projection");
+-        // Plus conditions on the CLIP hidden states of zero NORMALIZED pixels,
+-        // not a zero embedding or a black RGB image passed through normalization.
+-        auto uncond_embed = plus
+-            ? clip_vision->compute(n_threads, sd::Tensor<float>::zeros_like(pixels), false, 2)
+-            : sd::Tensor<float>::zeros_like(embed);
+-        if (!valid_embedding(uncond_embed) || sd_should_abort()) return fail("unconditional vision encoding");
+-        auto unconditional = ip_adapter->compute(n_threads, uncond_embed);
+-        if (!valid_tokens(unconditional) || unconditional.shape() != conditional.shape() || sd_should_abort())
+-            return fail("unconditional image projection");
+-        ip_adapter_tokens = std::move(conditional);
+-        ip_adapter_uncond_tokens = std::move(unconditional);
+-        ip_adapter_strength = strength;
+-        LOG_INFO("IP-Adapter: %lld image tokens, strength %.2f",
+-                 (long long)ip_adapter_tokens.shape()[1], strength);
+-        return true;
+-    }
++            return {sefi_denoiser->sem_timesteps[sched_idx],
++                    sefi_denoiser->tex_timesteps[sched_idx]};
++        }
++        if (diffusion_model->get_desc() == "Wan2.2-TI2V-5B") {
++            int64_t frame_count = init_latent.shape()[2];
++            auto new_timesteps  = std::vector<float>(static_cast<size_t>(frame_count), timesteps[0]);
+ 
+-    std::vector<float> process_timesteps(const std::vector<float>& timesteps,
+-                                         const sd::Tensor<float>& init_latent,
+-                                         const sd::Tensor<float>& denoise_mask,
+-                                         int step) {
+-        if (auto sefi_denoiser = std::dynamic_pointer_cast<SefiFlowDenoiser>(denoiser)) {
+-            int sched_idx = step > 0 ? step - 1 : 0;
+-            if (sched_idx >= static_cast<int>(sefi_denoiser->tex_timesteps.size())) {
+-                sched_idx = static_cast<int>(sefi_denoiser->tex_timesteps.size()) - 1;
++            if (!denoise_mask.empty() && denoise_mask.dim() >= 4 && denoise_mask.shape()[2] == frame_count) {
++                for (int64_t frame = 0; frame < frame_count; ++frame) {
++                    float value = denoise_mask.dim() == 5 ? denoise_mask.index(0, 0, frame, 0, 0) : denoise_mask.index(0, 0, frame, 0);
++                    if (value == 0.f) {
++                        new_timesteps[static_cast<size_t>(frame)] = 0.f;
++                    }
++                }
+             }
+-            return {sefi_denoiser->sem_timesteps[sched_idx],
+-                    sefi_denoiser->tex_timesteps[sched_idx]};
++            return new_timesteps;
++        } else {
++            return timesteps;
+         }
+-        if (diffusion_model->get_desc() == "Wan2.2-TI2V-5B") {
+-            int64_t frame_count = init_latent.shape()[2];
+-            auto new_timesteps  = std::vector<float>(static_cast<size_t>(frame_count), timesteps[0]);
++    }
+ 
+-            if (!denoise_mask.empty() && denoise_mask.dim() >= 4 && denoise_mask.shape()[2] == frame_count) {
+-                for (int64_t frame = 0; frame < frame_count; ++frame) {
+-                    float value = denoise_mask.dim() == 5 ? denoise_mask.index(0, 0, frame, 0, 0) : denoise_mask.index(0, 0, frame, 0);
+-                    if (value == 0.f) {
+-                        new_timesteps[static_cast<size_t>(frame)] = 0.f;
+-                    }
+-                }
+-            }
+-            return new_timesteps;
+-        } else {
++    std::vector<float> process_ltxav_video_timesteps(const std::vector<float>& timesteps,
++                                                     const sd::Tensor<float>& init_latent,
++                                                     const sd::Tensor<float>& denoise_mask) {
++        if (timesteps.empty() || denoise_mask.empty() || init_latent.dim() < 4 || denoise_mask.dim() < 4) {
+             return timesteps;
+         }
+-    }
+ 
+-    std::vector<float> process_ltxav_video_timesteps(const std::vector<float>& timesteps,
+-                                                     const sd::Tensor<float>& init_latent,
+-                                                     const sd::Tensor<float>& denoise_mask) {
+-        if (timesteps.empty() || denoise_mask.empty() || init_latent.dim() < 4 || denoise_mask.dim() < 4) {
+-            return timesteps;
+-        }
+-
+         int64_t width  = init_latent.shape()[0];
+         int64_t height = init_latent.shape()[1];
+         int64_t frames = init_latent.shape()[2];
+@@ -2922,6 +2944,8 @@
+                         unet_extra.ip_context = &ip_tokens;
+                         unet_extra.ip_scale   = ip_adapter_strength;
+                     }
++                    if (!refining && ip_stack.active())
++                        unet_extra.ip_adapters = &ip_stack.views(use_uncond_ip);
+                     diffusion_params.extra = unet_extra;
+                 } else if (sd_version_is_sd3(version)) {
+                     diffusion_params.extra = SkipLayerDiffusionExtra{local_skip_layers};
+@@ -4149,7 +4173,9 @@
+     return true;
+ }
+ 
+-sd_ctx_t* new_sd_ctx(const sd_ctx_params_t* sd_ctx_params) {
++static sd_ctx_t* new_sd_ctx_impl(const sd_ctx_params_t* sd_ctx_params,
++    const sd_ip_adapter_model_t* ip_models, uint32_t ip_count) {
++    if (!sd_ctx_params) return nullptr;
+     sd_ctx_t* sd_ctx = (sd_ctx_t*)malloc(sizeof(sd_ctx_t));
+     if (sd_ctx == nullptr) {
+         return nullptr;
+@@ -4162,7 +4188,7 @@
+     }
+ 
+     try {
+-        if (!sd_ctx->sd->init(sd_ctx_params)) {
++        if (!sd_ctx->sd->init(sd_ctx_params, ip_models, ip_count)) {
+             delete sd_ctx->sd;
+             free(sd_ctx);
+             return nullptr;
+@@ -4175,90 +4201,117 @@
+     return sd_ctx;
+ }
+ 
+-// The caller serializes context use and includes file metadata in cache identity.
+-SD_API bool sd_prepare_hires_upscaler(sd_ctx_t* ctx, const char* path) {
+-    if (!ctx || !ctx->sd || !path || !*path) return false;
+-    auto& sd = *ctx->sd;
+-    if (sd.prepared_hires_upscaler && sd.prepared_hires_path == path) return true;
+-    auto candidate = std::make_unique<UpscalerGGML>(sd.n_threads, false, 128,
+-                                                   sd.backend_spec, "cpu");
+-    candidate->set_max_graph_vram_bytes(sd.max_graph_vram_bytes_for_module(SDBackendModule::UPSCALER));
+-    if (!candidate->load_from_file(path, sd.n_threads, true)
+-        || candidate->esrgan_upscaler->config.scale != 4) {
+-        LOG_ERROR("A compatible 4x ESRGAN model is required for learned Hires.");
+-        return false;
+-    }
+-    sd.prepared_hires_path = path;
+-    sd.prepared_hires_upscaler = std::move(candidate);
+-    return true;
++sd_ctx_t* new_sd_ctx(const sd_ctx_params_t* params) {
++    return new_sd_ctx_impl(params, nullptr, 0);
+ }
+ 
+-void free_sd_ctx(sd_ctx_t* sd_ctx) {
+-    if (sd_ctx->sd != nullptr) {
+-        delete sd_ctx->sd;
+-        sd_ctx->sd = nullptr;
++sd_ctx_t* new_sd_ctx_with_ip_adapters(const sd_ctx_params_t* params,
++    const sd_ip_adapter_model_t* models, uint32_t count) {
++    if (!params || !models || count < 1 || count > 64 || *SAFE_STR(params->ip_adapter_path)) return nullptr;
++    for (uint32_t i = 0; i < count; ++i)
++        if (!models[i].adapter_path || !*models[i].adapter_path || !models[i].vision_path || !*models[i].vision_path)
++            return nullptr;
++    try {
++        auto resident = *params;
++        resident.memory_resident_model = true;
++        resident.enable_mmap = false;
++        resident.eager_load = true;
++        return new_sd_ctx_impl(&resident, models, count);
++    } catch (const std::exception& error) {
++        LOG_ERROR("IP-Adapter context preparation failed: %s", error.what()); return nullptr;
++    } catch (...) {
++        LOG_ERROR("IP-Adapter context preparation failed"); return nullptr;
+     }
+-    free(sd_ctx);
+ }
+ 
+-SD_API void sd_cancel_generation(sd_ctx_t* sd_ctx, enum sd_cancel_mode_t mode) {
+-    if (sd_ctx && sd_ctx->sd) {
+-        if (mode < SD_CANCEL_ALL || mode > SD_CANCEL_RESET) {
+-            mode = SD_CANCEL_ALL;
+-        }
+-        sd_ctx->sd->set_cancel_flag(mode);
+-    }
++bool sd_set_ip_adapter_inputs(sd_ctx_t* ctx, const sd_ip_adapter_input_t* inputs, uint32_t count) {
++    return ctx && ctx->sd && ctx->sd->ip_stack.set(inputs, count);
+ }
+ 
+-static sd_audio_t* waveform_to_sd_audio(const StableDiffusionGGML* sd,
+-                                        const sd::Tensor<float>& waveform) {
+-    if (sd == nullptr || waveform.empty()) {
+-        return nullptr;
++// The caller serializes context use and includes file metadata in cache identity.
++SD_API bool sd_prepare_hires_upscaler(sd_ctx_t* ctx, const char* path) {
++    if (!ctx || !ctx->sd || !path || !*path) return false;
++    auto& sd = *ctx->sd;
++    if (sd.prepared_hires_upscaler && sd.prepared_hires_path == path) return true;
++    auto candidate = std::make_unique<UpscalerGGML>(sd.n_threads, false, 128,
++                                                   sd.backend_spec, "cpu");
++    candidate->set_max_graph_vram_bytes(sd.max_graph_vram_bytes_for_module(SDBackendModule::UPSCALER));
++    if (!candidate->load_from_file(path, sd.n_threads, true)
++        || candidate->esrgan_upscaler->config.scale != 4) {
++        LOG_ERROR("A compatible 4x ESRGAN model is required for learned Hires.");
++        return false;
+     }
++    sd.prepared_hires_path = path;
++    sd.prepared_hires_upscaler = std::move(candidate);
++    return true;
++}
+ 
+-    int64_t sample_count = waveform.shape()[0];
+-    int64_t channels     = waveform.shape().size() > 1 ? waveform.shape()[1] : 1;
+-    if (sample_count <= 0 || channels <= 0) {
+-        return nullptr;
++void free_sd_ctx(sd_ctx_t* sd_ctx) {
++    if (sd_ctx->sd != nullptr) {
++        delete sd_ctx->sd;
++        sd_ctx->sd = nullptr;
+     }
++    free(sd_ctx);
++}
+ 
+-    sd_audio_t* audio = (sd_audio_t*)malloc(sizeof(sd_audio_t));
+-    if (audio == nullptr) {
+-        return nullptr;
++SD_API void sd_cancel_generation(sd_ctx_t* sd_ctx, enum sd_cancel_mode_t mode) {
++    if (sd_ctx && sd_ctx->sd) {
++        if (mode < SD_CANCEL_ALL || mode > SD_CANCEL_RESET) {
++            mode = SD_CANCEL_ALL;
++        }
++        sd_ctx->sd->set_cancel_flag(mode);
+     }
++}
+ 
+-    audio->sample_rate  = static_cast<uint32_t>(sd->audio_vae_model != nullptr ? sd->audio_vae_model->output_sample_rate() : 0);
+-    audio->channels     = static_cast<uint32_t>(channels);
+-    audio->sample_count = static_cast<uint64_t>(sample_count);
+-    size_t sample_bytes = waveform.numel() * sizeof(float);
+-    audio->data         = (float*)malloc(sample_bytes);
+-    if (audio->data == nullptr) {
+-        free(audio);
++static sd_audio_t* waveform_to_sd_audio(const StableDiffusionGGML* sd,
++                                        const sd::Tensor<float>& waveform) {
++    if (sd == nullptr || waveform.empty()) {
+         return nullptr;
+     }
+ 
+-    auto wavaform_t = waveform.permute({1, 0, 2, 3});
+-    std::memcpy(audio->data, wavaform_t.data(), sample_bytes);
++    int64_t sample_count = waveform.shape()[0];
++    int64_t channels     = waveform.shape().size() > 1 ? waveform.shape()[1] : 1;
++    if (sample_count <= 0 || channels <= 0) {
++        return nullptr;
++    }
+ 
+-    return audio;
+-}
+-
+-void free_sd_audio(sd_audio_t* audio) {
++    sd_audio_t* audio = (sd_audio_t*)malloc(sizeof(sd_audio_t));
+     if (audio == nullptr) {
+-        return;
++        return nullptr;
+     }
+-    free(audio->data);
+-    audio->data = nullptr;
+-    free(audio);
+-}
+ 
+-SD_API bool sd_ctx_supports_image_generation(const sd_ctx_t* sd_ctx) {
+-    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) {
+-        return false;
++    audio->sample_rate  = static_cast<uint32_t>(sd->audio_vae_model != nullptr ? sd->audio_vae_model->output_sample_rate() : 0);
++    audio->channels     = static_cast<uint32_t>(channels);
++    audio->sample_count = static_cast<uint64_t>(sample_count);
++    size_t sample_bytes = waveform.numel() * sizeof(float);
++    audio->data         = (float*)malloc(sample_bytes);
++    if (audio->data == nullptr) {
++        free(audio);
++        return nullptr;
+     }
+-    return sd_version_supports_image_generation(sd_ctx->sd->version);
+-}
+ 
++    auto wavaform_t = waveform.permute({1, 0, 2, 3});
++    std::memcpy(audio->data, wavaform_t.data(), sample_bytes);
++
++    return audio;
++}
++
++void free_sd_audio(sd_audio_t* audio) {
++    if (audio == nullptr) {
++        return;
++    }
++    free(audio->data);
++    audio->data = nullptr;
++    free(audio);
++}
++
++SD_API bool sd_ctx_supports_image_generation(const sd_ctx_t* sd_ctx) {
++    if (sd_ctx == nullptr || sd_ctx->sd == nullptr) {
++        return false;
++    }
++    return sd_version_supports_image_generation(sd_ctx->sd->version);
++}
++
+ SD_API const char* sd_get_model_family(const sd_ctx_t* sd_ctx) {
+     if (sd_ctx == nullptr || sd_ctx->sd == nullptr) return "other";
+     if (sd_ctx->sd->version == VERSION_SDXL_REFINER) return "sdxl-refiner";
+@@ -5613,7 +5666,14 @@
+                                               request->pulid_params,
+                                               condition_params,
+                                               plan->total_steps);
+-    if (!sd_ctx->sd->compute_ip_adapter_tokens(sd_img_gen_params->ip_adapter_image, sd_img_gen_params->ip_adapter_strength))
++    if (sd_ctx->sd->ip_stack.active()) {
++        const auto& legacy = sd_img_gen_params->ip_adapter_image;
++        if (legacy.data || legacy.width || legacy.height || legacy.channel) {
++            LOG_ERROR("Cannot mix legacy and indexed IP-Adapter inputs"); return std::nullopt;
++        }
++        if (!sd_ctx->sd->compute_ip_adapter_tokens({}, 0) || !sd_ctx->sd->ip_stack.prepare(sd_ctx->sd->n_threads))
++            return std::nullopt;
++    } else if (!sd_ctx->sd->compute_ip_adapter_tokens(sd_img_gen_params->ip_adapter_image, sd_img_gen_params->ip_adapter_strength))
+         return std::nullopt;
+     int64_t prepare_start_ms         = ggml_time_ms();
+     condition_params.zero_out_masked = false;
+diff --git a/src/runtime/ip_adapter_runtime.hpp b/src/runtime/ip_adapter_runtime.hpp
+new file mode 100644
+--- /dev/null
++++ b/src/runtime/ip_adapter_runtime.hpp
+@@ -0,0 +1,138 @@
++#pragma once
++#include "stable-diffusion.h"
++#include "conditioning/conditioner.hpp"
++#include "model/adapter/ip_adapter.hpp"
++#include "runtime/control_region_mask.hpp"
++#include <set>
++
++// Shared by legacy and indexed adapters so Classic/Plus preparation cannot drift.
++inline bool sd_compute_ip_tokens(FrozenCLIPVisionEmbedder* clip_vision, IPAdapter::IPAdapterRunner* ip_adapter,
++    int n_threads, const sd_image_t& image, float strength,
++    sd::Tensor<float>& ip_adapter_tokens, sd::Tensor<float>& ip_adapter_uncond_tokens) {
++    ip_adapter_tokens = {};
++    ip_adapter_uncond_tokens = {};
++    struct EndIPRunners {
++        GGMLRunner* vision;
++        GGMLRunner* adapter;
++        ~EndIPRunners() {
++            if (vision) vision->runner_end();
++            if (adapter) adapter->runner_end();
++        }
++    } finish{clip_vision, ip_adapter};
++    if (!image.data && !image.width && !image.height && !image.channel) return true;
++    const auto fail = [](const char* reason) {
++        LOG_ERROR("IP-Adapter preparation failed: %s", reason); return false;
++    };
++    if (!image.data || image.width < 1 || image.width > 2048
++        || image.height < 1 || image.height > 2048 || image.channel != 3
++        || !std::isfinite(strength) || strength < 0.f || strength > 2.f)
++        return fail("invalid RGB image or strength");
++    if (!ip_adapter || !clip_vision) return fail("adapter and CLIP vision weights are required");
++    if (sd_should_abort()) return fail("cancelled");
++    const bool plus = ip_adapter->is_plus;
++    auto pixels = clip_preprocess(sd_image_to_tensor(image),
++        clip_vision->vision_model.image_size, clip_vision->vision_model.image_size);
++    if (pixels.empty()) return fail("image preprocessing");
++    const auto finite = [](const sd::Tensor<float>& tensor) {
++        return !tensor.empty() && std::all_of(tensor.values().begin(), tensor.values().end(),
++            [](float value) { return std::isfinite(value); });
++    };
++    const int64_t input_width = plus ? ip_adapter->resampler.embed_dim : ip_adapter->image_proj.clip_dim;
++    const int64_t output_width = plus ? ip_adapter->resampler.output_dim : ip_adapter->image_proj.ctx_dim;
++    const auto valid_embedding = [&](const sd::Tensor<float>& tensor) {
++        return finite(tensor) && tensor.dim() >= 1 && tensor.shape()[0] == input_width
++            && (plus ? tensor.dim() >= 2 : tensor.numel() == input_width);
++    };
++    const auto valid_tokens = [&](const sd::Tensor<float>& tensor) {
++        return finite(tensor) && tensor.dim() >= 2 && tensor.shape()[0] == output_width
++            && tensor.shape()[1] == ip_adapter->num_tokens
++            && tensor.numel() == output_width * ip_adapter->num_tokens;
++    };
++    auto embed = clip_vision->compute(n_threads, pixels, !plus, plus ? 2 : -1);
++    if (!valid_embedding(embed) || sd_should_abort()) return fail("conditional vision encoding");
++    auto conditional = ip_adapter->compute(n_threads, embed);
++    if (!valid_tokens(conditional) || sd_should_abort()) return fail("conditional image projection");
++    // Plus conditions on the CLIP hidden states of zero NORMALIZED pixels,
++    // not a zero embedding or a black RGB image passed through normalization.
++    auto uncond_embed = plus
++        ? clip_vision->compute(n_threads, sd::Tensor<float>::zeros_like(pixels), false, 2)
++        : sd::Tensor<float>::zeros_like(embed);
++    if (!valid_embedding(uncond_embed) || sd_should_abort()) return fail("unconditional vision encoding");
++    auto unconditional = ip_adapter->compute(n_threads, uncond_embed);
++    if (!valid_tokens(unconditional) || unconditional.shape() != conditional.shape() || sd_should_abort())
++        return fail("unconditional image projection");
++    ip_adapter_tokens = std::move(conditional);
++    ip_adapter_uncond_tokens = std::move(unconditional);
++    LOG_INFO("IP-Adapter: %lld image tokens, strength %.2f",
++             (long long)ip_adapter_tokens.shape()[1], strength);
++    return true;
++}
++
++class IPAdapterStack {
++    struct Input {
++        uint32_t slot = 0;
++        uint32_t width = 0, height = 0;
++        std::vector<uint8_t> rgb;
++        float strength = 1;
++        bool masked = false;
++        ControlRegionMask mask;
++    };
++    std::vector<Input> inputs_;
++    std::vector<std::pair<sd::Tensor<float>, sd::Tensor<float>>> tokens_;
++    std::vector<IPAdapterInput> positive_, negative_;
++    void clear_tokens() { positive_.clear(); negative_.clear(); tokens_.clear(); }
++public:
++    struct Model {
++        std::shared_ptr<FrozenCLIPVisionEmbedder> vision;
++        std::shared_ptr<IPAdapter::IPAdapterRunner> projection;
++    };
++    std::vector<Model> models; // Context lifetime, never cleared by request cleanup.
++    bool active() const { return !inputs_.empty(); }
++    const std::vector<IPAdapterInput>& views(bool unconditional) const {
++        return unconditional ? negative_ : positive_;
++    }
++    bool set(const sd_ip_adapter_input_t* inputs, uint32_t count) {
++        if (count > 64 || (count && !inputs)) return false;
++        std::vector<Input> next;
++        std::set<uint32_t> slots;
++        for (uint32_t i = 0; i < count; ++i) {
++            const auto& in = inputs[i];
++            if (in.slot >= models.size() || !slots.insert(in.slot).second
++                || !in.image.data || in.image.channel != 3 || in.image.width < 1 || in.image.width > 2048
++                || in.image.height < 1 || in.image.height > 2048
++                || !std::isfinite(in.strength) || in.strength < 0 || in.strength > 2) return false;
++            Input out;
++            if (!out.mask.set(in.mask)) return false;
++            out.masked = in.mask.data != nullptr;
++            out.slot = in.slot; out.width = in.image.width; out.height = in.image.height; out.strength = in.strength;
++            out.rgb.assign(in.image.data, in.image.data + size_t(in.image.width) * in.image.height * 3);
++            next.push_back(std::move(out));
++        }
++        clear_tokens(); inputs_ = std::move(next); return true;
++    }
++    bool prepare(int n_threads) {
++        clear_tokens();
++        std::vector<std::pair<sd::Tensor<float>, sd::Tensor<float>>> next(inputs_.size());
++        for (size_t i = 0; i < inputs_.size(); ++i) {
++            auto& input = inputs_[i];
++            if (input.slot >= models.size()) return false;
++            auto& model = models[input.slot];
++            if (!sd_compute_ip_tokens(model.vision.get(), model.projection.get(), n_threads,
++                {input.width, input.height, 3, input.rgb.data()}, input.strength, next[i].first, next[i].second))
++                return false;
++        }
++        if (sd_should_abort()) return false;
++        tokens_ = std::move(next);
++        for (size_t i = 0; i < inputs_.size(); ++i) {
++            auto& input = inputs_[i];
++            IPAttentionCoverage coverage;
++            if (input.masked) {
++                auto* mask = &input.mask;
++                coverage = [mask](int w, int h) { return mask->coverage(w, h); };
++            }
++            positive_.push_back({input.slot, &tokens_[i].first, input.strength, coverage});
++            negative_.push_back({input.slot, &tokens_[i].second, input.strength, coverage});
++        }
++        return true;
++    }
++};
+diff --git a/src/runtime/ip_adapter_resources.hpp b/src/runtime/ip_adapter_resources.hpp
+new file mode 100644
+--- /dev/null
++++ b/src/runtime/ip_adapter_resources.hpp
+@@ -0,0 +1,63 @@
++#pragma once
++#include "core/util.h"
++#include "model_loader.h"
++#include "model/te/clip.hpp"
++
++inline std::string sd_indexed_ip_weight_name(const std::string& name, size_t slot) {
++    if (slot >= 64) return {};
++    const auto id = std::to_string(slot);
++    const std::string projection = "ip_adapter.image_proj.";
++    if (starts_with(name, projection)) return "ip_adapter_slots." + id + ".image_proj." + name.substr(projection.size());
++    if (!starts_with(name, "model.diffusion_model.")) return {};
++    for (const auto* role : {"to_k", "to_v"}) {
++        const auto suffix = std::string(".attn2.") + role + "_ip.weight";
++        if (ends_with(name, suffix))
++            return name.substr(0, name.size() - suffix.size()) + ".attn2.ip_adapters." + id + "." + role + ".weight";
++    }
++    return {};
++}
++inline std::string sd_indexed_ip_vision_name(const std::string& name, size_t slot) {
++    if (slot >= 64) return {};
++    const auto prefix = "ip_vision_slots." + std::to_string(slot) + ".";
++    const auto start = name.find("vision_model.");
++    if (start != std::string::npos) return prefix + name.substr(start);
++    if (ends_with(name, "visual_projection.weight")) return prefix + "visual_projection.weight";
++    return {};
++}
++inline bool sd_valid_ip_projection_metadata(const String2TensorStorage& map, const std::string& prefix) {
++    const auto get = [&](const std::string& suffix) -> const TensorStorage* {
++        const auto found = map.find(prefix + ".image_proj." + suffix);
++        return found == map.end() ? nullptr : &found->second;
++    };
++    if (const auto* latents = get("latents")) {
++        const auto* in = get("proj_in.weight"); const auto* out = get("proj_out.weight");
++        const auto* ff = get("layers.0.1.1.weight");
++        const auto dim = latents->ne[0];
++        if (dim < 64 || dim > 4096 || dim % 64 || latents->ne[1] < 1 || latents->ne[1] > 256
++            || latents->ne[2] != 1 || !in || !out || !ff || in->ne[0] < 1 || in->ne[1] != dim
++            || out->ne[0] != dim || out->ne[1] < 1 || ff->ne[0] != dim || ff->ne[1] < 1) return false;
++        size_t depth = 0;
++        while (get("layers." + std::to_string(depth) + ".0.to_q.weight")) ++depth;
++        return depth > 0 && depth <= 16;
++    }
++    const auto* norm = get("norm.weight"); const auto* proj = get("proj.weight");
++    return norm && proj && norm->n_dims == 1 && norm->ne[0] > 0 && norm->ne[0] <= 4096
++        && proj->n_dims == 2 && proj->ne[0] > 0 && proj->ne[0] <= 8192
++        && proj->ne[1] > 0 && proj->ne[1] % norm->ne[0] == 0 && proj->ne[1] / norm->ne[0] <= 256;
++}
++inline bool sd_ip_vision_architecture(const String2TensorStorage& map, const std::string& prefix,
++    CLIPVersion& version, int32_t& projection_dim) {
++    const auto patch = map.find(prefix + ".vision_model.embeddings.patch_embedding.weight");
++    const auto projection = map.find(prefix + ".visual_projection.weight");
++    if (patch == map.end() || projection == map.end()) return false;
++    const auto& p = patch->second; const auto& out = projection->second;
++    if (p.n_dims != 4 || p.ne[0] != 14 || p.ne[1] != 14 || p.ne[2] != 3 || out.n_dims != 2
++        || out.ne[0] != p.ne[3] || out.ne[1] < 1 || out.ne[1] > 8192) return false;
++    switch (p.ne[3]) {
++    case 1024: version = OPENAI_CLIP_VIT_L_14; break;
++    case 1280: version = OPEN_CLIP_VIT_H_14; break;
++    case 1664: version = OPEN_CLIP_VIT_BIGG_14; break;
++    default: return false;
++    }
++    projection_dim = int32_t(out.ne[1]); return true;
++}

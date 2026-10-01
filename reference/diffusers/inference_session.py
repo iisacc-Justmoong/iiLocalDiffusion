@@ -57,17 +57,19 @@ class InferenceSession:
         self.foreground = self.preparing = False
         self.execution = None
         self.preparation_recorded = False
+        self.runtime_releases = {}
 
     def __enter__(self):
         self.token = _current.set(self)
         return self
 
     def __exit__(self, *exception):
-        self.clear()
+        self.release()
         self.configurations.clear()
         _current.reset(self.token)
 
     def clear(self):
+        """Discard request execution state, not runtime-owned native sources."""
         had_value = self.value is not None
         self.value = self.key = self.signature = None
         self.placement_key = self.placement_value = None
@@ -75,6 +77,12 @@ class InferenceSession:
         self.execution = None
         if had_value:
             gc.collect()
+
+    def release(self):
+        """Explicit release or worker teardown, never an idle/pressure policy."""
+        self.clear()
+        for release in self.runtime_releases.values():
+            release()
 
     def pipeline(self, key, sources, loader):
         signature = source_signature(sources) if key is not None else None
@@ -138,7 +146,8 @@ class InferenceSession:
         if not enabled:
             return 0
         if prepare is None:
-            self.clear()  # Foreground without a selected model must not expose the old model as ready.
+            # No selection is not an unload request; hide readiness, retain weights.
+            self.execution = None
             return 0
         self.preparing, self.preparation_recorded = True, False
         try:
@@ -166,6 +175,13 @@ class InferenceSession:
 def cached_pipeline(key, sources, loader):
     session = _current.get()
     return (loader(), False) if session is None else session.pipeline(key, sources, loader)
+
+
+def register_runtime_release(key, release):
+    """Keep the native library and its release callback alive until worker exit."""
+    session = _current.get()
+    if session is not None:
+        session.runtime_releases[key] = release
 
 
 def verify_pipeline_sources():

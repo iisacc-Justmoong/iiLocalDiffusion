@@ -1,0 +1,128 @@
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -469,6 +469,9 @@
+ SD_API const char* sd_get_model_family(const sd_ctx_t* sd_ctx);
+ SD_API bool sd_ctx_supports_video_generation(const sd_ctx_t* sd_ctx);
+ 
++// Copies regional coverage; all-zero image clears it. Set only between generations.
++SD_API bool sd_set_control_net_mask(sd_ctx_t* sd_ctx, sd_image_t mask);
++
+ // ControlNet hot-swap APIs are not safe to call while generation is in flight.
+ SD_API bool sd_ctx_load_control_net(sd_ctx_t* sd_ctx, const char* path);
+ SD_API bool sd_ctx_unload_control_net(sd_ctx_t* sd_ctx);
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -242,6 +242,7 @@
+     std::shared_ptr<VAE> preview_vae;
+     std::shared_ptr<AudioVAERunner> audio_vae_model;
+     std::shared_ptr<ControlNet> control_net;
++    ControlRegionMask control_region_mask;
+     std::shared_ptr<IPAdapter::IPAdapterRunner> ip_adapter;
+     sd::Tensor<float> ip_adapter_tokens;
+     sd::Tensor<float> ip_adapter_uncond_tokens;
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -2524,6 +2524,10 @@
+                                                    timesteps_tensor,
+                                                    condition.c_crossattn,
+                                                    condition.c_vector);
++        if (control_result && !control_region_mask.apply(*control_result)) {
++            LOG_ERROR("controlnet regional mask failed");
++            return false;
++        }
+         if (!control_result.has_value()) {
+             LOG_ERROR("controlnet compute failed");
+             return false;
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -4168,5 +4168,10 @@
+ }
+ 
++SD_API bool sd_set_control_net_mask(sd_ctx_t* sd_ctx, sd_image_t mask) {
++    if (!sd_ctx || !sd_ctx->sd) return false;
++    return sd_ctx->sd->control_region_mask.set(mask);
++}
++
+ SD_API bool sd_ctx_load_control_net(sd_ctx_t* sd_ctx, const char* path) {
+     if (sd_ctx == nullptr || sd_ctx->sd == nullptr || path == nullptr) {
+         return false;
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -33,6 +33,7 @@
+ #include "model/diffusion/animatediff.hpp"
+ #include "model/diffusion/boogu.hpp"
+ #include "model/diffusion/control.hpp"
++#include "runtime/control_region_mask.hpp"
+ #include "model/diffusion/ernie_image.hpp"
+ #include "model/diffusion/flux.hpp"
+ #include "model/diffusion/hidream_o1.hpp"
+diff --git a/src/runtime/control_region_mask.hpp b/src/runtime/control_region_mask.hpp
+new file mode 100644
+--- /dev/null
++++ b/src/runtime/control_region_mask.hpp
+@@ -0,0 +1,60 @@
++#pragma once
++#include "stable-diffusion.h"
++#include "core/tensor.hpp"
++#include <algorithm>
++#include <cmath>
++#include <map>
++#include <utility>
++#include <vector>
++
++// Per-request, owning spatial coverage. No model or GUI dependencies.
++class ControlRegionMask {
++    int width_ = 0, height_ = 0;
++    std::vector<float> coverage_;
++    std::map<std::pair<int, int>, std::vector<float>> scales_;
++public:
++    bool set(sd_image_t image) {
++        if (!image.data && image.width == 0 && image.height == 0 && image.channel == 0) {
++            coverage_.clear(); scales_.clear(); width_ = height_ = 0; return true;
++        }
++        if (!image.data || image.width < 1 || image.height < 1 || image.width > 2048 || image.height > 2048
++            || (image.channel != 1 && image.channel != 3 && image.channel != 4)) return false;
++        std::vector<float> next(size_t(image.width) * image.height);
++        for (size_t i = 0; i < next.size(); ++i) {
++            const auto* pixel = image.data + i * image.channel;
++            next[i] = image.channel == 1 ? float(pixel[0]) / 255.f
++                : float(77 * pixel[0] + 150 * pixel[1] + 29 * pixel[2]) / (256.f * 255.f);
++            if (image.channel == 4) next[i] *= float(pixel[3]) / 255.f;
++        }
++        coverage_ = std::move(next); width_ = int(image.width); height_ = int(image.height);
++        scales_.clear(); return true;
++    }
++    bool apply(std::vector<sd::Tensor<float>>& residuals) {
++        if (coverage_.empty()) return true;
++        // Validate all shapes before modifying any residual.
++        for (const auto& tensor : residuals)
++            if (tensor.dim() < 2 || tensor.empty() || tensor.shape()[0] < 1 || tensor.shape()[1] < 1
++                || tensor.shape()[0] > 4096 || tensor.shape()[1] > 4096) return false;
++        for (auto& tensor : residuals) {
++            const int width = int(tensor.shape()[0]), height = int(tensor.shape()[1]);
++            auto [it, inserted] = scales_.try_emplace({width, height});
++            auto& scale = it->second;
++            if (inserted) {
++                scale.resize(size_t(width) * height);
++                for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
++                    const float sx = std::clamp((float(x) + .5f) * float(width_) / float(width) - .5f, 0.f, float(width_ - 1));
++                    const float sy = std::clamp((float(y) + .5f) * float(height_) / float(height) - .5f, 0.f, float(height_ - 1));
++                    const int x0 = int(sx), y0 = int(sy), x1 = std::min(x0 + 1, width_ - 1), y1 = std::min(y0 + 1, height_ - 1);
++                    const float dx = sx - float(x0), dy = sy - float(y0);
++                    const auto at = [&](int px, int py) { return coverage_[size_t(py) * width_ + px]; };
++                    scale[size_t(y) * width + x] =
++                        (at(x0, y0) * (1.f - dx) + at(x1, y0) * dx) * (1.f - dy)
++                        + (at(x0, y1) * (1.f - dx) + at(x1, y1) * dx) * dy;
++                }
++            }
++            // Spatial planes repeat for every feature channel and batch.
++            for (size_t i = 0; i < tensor.values().size(); ++i) tensor.values()[i] *= scale[i % scale.size()];
++        }
++        return true;
++    }
++};

@@ -1,0 +1,38 @@
+diff --git a/src/core/util.cpp b/src/core/util.cpp
+--- a/src/core/util.cpp
++++ b/src/core/util.cpp
+@@ -4,3 +4,4 @@
+ #include <cctype>
+ #include <cerrno>
++#include <chrono>
+ #include <cmath>
+@@ -38,4 +39,17 @@
+ public:
+     ResidentMemoryMmapWrapper(void* data, size_t size) : MmapWrapper(data, size) {}
+     ~ResidentMemoryMmapWrapper() override { std::free(data_); }
++    bool copy_data(void* buffer, size_t bytes, size_t offset) const override {
++        if (offset > size_ || bytes > size_ - offset) return false;
++        auto* destination = static_cast<uint8_t*>(buffer);
++        while (bytes) {
++            if (sd_should_abort()) return false;
++            const size_t chunk = std::min<size_t>(bytes, 8 * 1024 * 1024);
++            std::memcpy(destination, data() + offset, chunk);
++            destination += chunk;
++            offset += chunk;
++            bytes -= chunk;
++        }
++        return true;
++    }
+ };
+@@ -51,3 +65,4 @@
+     input.seekg(0, std::ios::beg);
+     size_t offset = 0;
++    const auto started = std::chrono::steady_clock::now();
+     while (offset < size) {
+@@ -57,3 +72,6 @@
+         offset += chunk;
++        const auto elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - started).count();
++        pretty_bytes_progress(static_cast<int>(1000.0 * offset / size), 1000, offset, elapsed);
++        if (sd_should_abort()) { std::free(memory); return nullptr; }
+     }
+     input.close();

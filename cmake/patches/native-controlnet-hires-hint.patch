@@ -1,0 +1,19 @@
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -5960,2 +5960,5 @@
++        const auto hires_control_image = sd_img_gen_params->control_image.data != nullptr
++            ? sd_image_to_tensor(sd_img_gen_params->control_image, request.hires.target_width, request.hires.target_height)
++            : sd::Tensor<float>{};
+         std::vector<sd::Tensor<float>> hires_final_latents;
+         int64_t hires_denoise_start = ggml_time_ms();
+@@ -5990,8 +5993,8 @@
+                                                             upscaled,
+                                                             std::move(noise),
+                                                             embeds.cond,
+                                                             embeds.uncond,
+                                                             embeds.img_uncond,
+-                                                            latents.control_image,
++                                                            hires_control_image,
+                                                             request.control_strength,
+                                                             request.guidance,

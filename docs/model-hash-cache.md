@@ -54,7 +54,10 @@ bad-checksum package reaching the loader. `CheckpointConversionTests` verifies
 metadata conversion/reuse without stream checksums while retaining weights-only
 loading. Dreamscapes tests the worker policy during preparation and generation.
 
-The native C++ `modelIdentity` also honors `IILD_MODEL_VALIDATION=metadata`.
-This uses file stat identity for package members and external VAEs, avoiding a
-second full-model FNV pass after the Python preflight. Without this option,
-offline native tools retain their content identity behavior.
+The native C++ `modelIdentity` defaults to metadata validation, and also honors
+an explicit `IILD_MODEL_VALIDATION=metadata`. This uses file stat identity for
+package members and external VAEs, avoiding a second full-model FNV pass after
+the Python preflight. Native offline tools requiring content identity must set
+`IILD_MODEL_VALIDATION=content`. Unknown explicit values retain strict behavior.
+The Python checksum APIs described above keep their existing strict default;
+Dreamscapes explicitly selects metadata mode for that layer.

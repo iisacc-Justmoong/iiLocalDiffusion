@@ -3,8 +3,9 @@
 The independent Python generator accepts one optional ControlNet and one
 prepared local conditioning image with `sd15`, `sdxl-base`, or
 `flux1-schnell`. Omitting `--controlnet` keeps the original generation path.
-No ControlNet model or image is selected by default. This feature does not
-add ControlNet inspection or image generation to C++.
+No ControlNet model or image is selected by default. This document describes the
+independent Python route. The separate in-process C++ advanced route now connects
+up to 64 Canny/Tile ControlNets for SD 1.5 and SDXL; see [native image parameters](image-parameters.md).
 
 ## Generate with a conditioning image
 

@@ -113,13 +113,13 @@ class NativeEngine:
                 setattr(self, name, function)
             if not self.available():
                 raise RuntimeError("This SDK was built without native image inference.")
+            from inference_session import register_runtime_release
+            register_runtime_release(str(self.library._name), self.release)
         except AttributeError as error:
             raise RuntimeError("The native SDK is older than its Python worker. Reinstall iiLocalDiffusion.") from error
 
-    def __del__(self):
-        if hasattr(self, "release"):
-            self.release()
-
+    # The native runtime, not this lightweight ctypes adapter, owns residency.
+    # Replacing a request/session adapter must not evict model source memory.
     def image(self, args, seed, *, prepare=False):
         last = [-1, 0.0]
         def progress(stage, step, total, _):
@@ -345,14 +345,40 @@ def resolve_arguments(args, inspection):
     return None, args
 
 
+def publication_event(performance, event, started, error=""):
+    """Continue the native trace through source validation and PNG publication."""
+    trace = performance.get("telemetry_path")
+    if not trace:
+        return
+    elapsed = (time.monotonic() - started) * 1000
+    record = {"schema": "iild-native-telemetry-v1", "event": event,
+              "trace_path": trace, "phase": "postprocess", "operation": "publish-image",
+              "backend": "CPU", "backend_scope": "output-publication", "pid": os.getpid(),
+              "phase_elapsed_ms": elapsed, "unix_ms": time.time() * 1000,
+              "elapsed_ms": performance.get("telemetry_elapsed_ms", 0) + elapsed}
+    if error:
+        record["detail"] = str(error)[:1500]
+    try:
+        with Path(trace).open("a", encoding="utf-8") as output:
+            output.write(json.dumps(record) + "\n")
+        print("IILD_NATIVE_TELEMETRY " + json.dumps(record), flush=True)
+    except OSError as failure:
+        print(f"Native telemetry publication write failed: {failure}", file=sys.stderr, flush=True)
+
+
 def run(_preset, args):
     model = args.model_selection.single_file
     sources = [model.resolved_file, *args.components.values(), *[path for path, _ in args.native_loras]]
     key = ("native", args.architecture, args.device, args.prediction_type, model.resolved_file, tuple(sorted(args.components.items())),
            str(args.generation_resources), args.default_modifiers, tuple(args.native_loras))
     engine, _ = cached_pipeline(key, sources, NativeEngine)
+    # Every queued batch has an explicit preload barrier, even without an idle
+    # foreground warmup. A cached context reuses its already resident sources.
+    # Fail closed with an older SDK instead of silently streaming from disk.
+    _, preparation = engine.image(args, args.seed, prepare=True)
+    if preparation.get("weight_storage") != "anonymous":
+        raise RuntimeError("The native SDK did not preload model sources into anonymous memory. Update iiLocalDiffusion before generation.")
     if is_preparing():
-        engine.image(args, args.seed, prepare=True)
         record_execution("native-" + args.device, "managed", args.model)
         return 0
     if args.preview_dir:
@@ -361,12 +387,21 @@ def run(_preset, args):
     for index, path in enumerate(paths):
         seed = args.seed + index * args.seed_stride
         image, performance = engine.image(args, seed)
-        verify_weight_file(model, "model")
-        for slot, weight in args.native_component_files.items():
-            verify_weight_file(weight, slot)
-        verify_pipeline_sources()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        write_png(image, path, compress_level=args.png_compress_level, optimize=args.png_optimize, overwrite=args.overwrite)
+        performance["preparation"] = preparation
+        publication_started = time.monotonic()
+        publication_event(performance, "publication-start", publication_started)
+        try:
+            verify_weight_file(model, "model")
+            for slot, weight in args.native_component_files.items():
+                verify_weight_file(weight, slot)
+            verify_pipeline_sources()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            write_png(image, path, compress_level=args.png_compress_level, optimize=args.png_optimize, overwrite=args.overwrite)
+        except Exception as error:
+            publication_event(performance, "publication-failed", publication_started, error)
+            raise
+        performance["publication_ms"] = (time.monotonic() - publication_started) * 1000
+        publication_event(performance, "output-published", publication_started)
         report = {"backend": "native", "architecture": args.architecture, "model": asdict(model),
                   "backend_plan": args.native_plan, "components": {k: asdict(v) for k, v in args.native_component_files.items()},
                   "fixture": {"prompt": args.prompt, "negative_prompt": args.negative_prompt, "width": args.width,

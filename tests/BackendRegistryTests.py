@@ -192,6 +192,8 @@ class BackendRegistryTests(unittest.TestCase):
         output = self.directory / "failed-output"
         class Engine:
             def image(self, request, seed, **kwargs):
+                if kwargs.get("prepare"):
+                    return None, {"weight_storage": "anonymous"}
                 Path(request.components["llm"]).write_bytes(b"changed")
                 return Image.new("RGB", (64, 64)), {}
         with patch.object(native_image, "NativeEngine", Engine), self.assertRaisesRegex(SystemExit, "changed"):

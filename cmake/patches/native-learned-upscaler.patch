@@ -1,0 +1,151 @@
+diff --git a/src/upscaler.h b/src/upscaler.h
+--- a/src/upscaler.h
++++ b/src/upscaler.h
+@@ -30,8 +30,8 @@
+                  std::string params_backend_spec = "");
+     ~UpscalerGGML();
+ 
+-    bool load_from_file(const std::string& esrgan_path,
+-                        int n_threads);
++    bool load_from_file(const std::string& esrgan_path,
++                        int n_threads, bool resident = false);
+     void set_max_graph_vram_bytes(size_t max_vram_bytes);
+     sd::Tensor<float> upscale_tensor(const sd::Tensor<float>& input_tensor);
+     sd_image_t upscale(sd_image_t input_image, uint32_t upscale_factor);
+diff --git a/src/upscaler.cpp b/src/upscaler.cpp
+--- a/src/upscaler.cpp
++++ b/src/upscaler.cpp
+@@ -33,8 +33,8 @@
+     }
+ }
+ 
+-bool UpscalerGGML::load_from_file(const std::string& esrgan_path,
+-                                  int n_threads) {
++bool UpscalerGGML::load_from_file(const std::string& esrgan_path,
++                                  int n_threads, bool resident) {
+     ggml_log_set(sd_ggml_log_callback, nullptr);
+ 
+     std::string error;
+diff --git a/src/upscaler.cpp b/src/upscaler.cpp
+--- a/src/upscaler.cpp
++++ b/src/upscaler.cpp
+@@ -73,8 +73,9 @@
+     model_manager->set_n_threads(n_threads);
+     model_manager->set_enable_mmap(false);
+ 
+-    ModelLoader& model_loader = model_manager->loader();
+-    if (!model_loader.init_from_file_and_convert_name(esrgan_path, "", VERSION_ESRGAN)) {
++    ModelLoader& model_loader = model_manager->loader();
++    model_loader.set_resident_memory(resident);
++    if (!model_loader.init_from_file_and_convert_name(esrgan_path, "", VERSION_ESRGAN)) {
+         LOG_ERROR("init model loader from file failed: '%s'", esrgan_path.c_str());
+         return false;
+     }
+diff --git a/src/upscaler.cpp b/src/upscaler.cpp
+--- a/src/upscaler.cpp
++++ b/src/upscaler.cpp
+@@ -100,10 +100,11 @@
+                                                backend_for(SDBackendModule::UPSCALER),
+                                                params_backend_for(SDBackendModule::UPSCALER)) ||
+         !model_manager->validate_registered_tensors()) {
+-        LOG_ERROR("register esrgan tensors with model manager failed");
+-        return false;
+-    }
+-    return true;
++        LOG_ERROR("register esrgan tensors with model manager failed");
++        return false;
++    }
++    // Finish anonymous source loading before any image-generation graph runs.
++    return !resident || model_manager->load_all_params_eagerly();
+ }
+ 
+ sd::Tensor<float> UpscalerGGML::upscale_tensor(const sd::Tensor<float>& input_tensor) {
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -270,8 +270,10 @@
+ 
+     std::shared_ptr<ModelManager> model_manager;
+ 
+-    std::shared_ptr<Denoiser> denoiser = std::make_shared<CompVisDenoiser>();
+-    std::vector<float> file_alphas_cumprod;
++    std::shared_ptr<Denoiser> denoiser = std::make_shared<CompVisDenoiser>();
++    std::vector<float> file_alphas_cumprod;
++    std::unique_ptr<UpscalerGGML> prepared_hires_upscaler;
++    std::string prepared_hires_path;
+ 
+     StableDiffusionGGML() = default;
+ 
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -4015,7 +4015,25 @@
+     return sd_ctx;
+ }
+ 
+-void free_sd_ctx(sd_ctx_t* sd_ctx) {
++// The caller serializes context use and includes file metadata in cache identity.
++SD_API bool sd_prepare_hires_upscaler(sd_ctx_t* ctx, const char* path) {
++    if (!ctx || !ctx->sd || !path || !*path) return false;
++    auto& sd = *ctx->sd;
++    if (sd.prepared_hires_upscaler && sd.prepared_hires_path == path) return true;
++    auto candidate = std::make_unique<UpscalerGGML>(sd.n_threads, false, 128,
++                                                   sd.backend_spec, "cpu");
++    candidate->set_max_graph_vram_bytes(sd.max_graph_vram_bytes_for_module(SDBackendModule::UPSCALER));
++    if (!candidate->load_from_file(path, sd.n_threads, true)
++        || candidate->esrgan_upscaler->config.scale != 4) {
++        LOG_ERROR("A compatible 4x ESRGAN model is required for learned Hires.");
++        return false;
++    }
++    sd.prepared_hires_path = path;
++    sd.prepared_hires_upscaler = std::move(candidate);
++    return true;
++}
++
++void free_sd_ctx(sd_ctx_t* sd_ctx) {
+     if (sd_ctx->sd != nullptr) {
+         delete sd_ctx->sd;
+         sd_ctx->sd = nullptr;
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -5923,8 +5923,11 @@
+         }
+         LOG_INFO("hires fix: upscaling to %dx%d", request.hires.target_width, request.hires.target_height);
+ 
+-        std::unique_ptr<UpscalerGGML> hires_upscaler;
+-        if (request.hires.upscaler == SD_HIRES_UPSCALER_MODEL) {
++        std::unique_ptr<UpscalerGGML> hires_upscaler;
++        auto* prepared_upscaler = request.hires.upscaler == SD_HIRES_UPSCALER_MODEL
++            && request.hires.model_path && sd_ctx->sd->prepared_hires_path == request.hires.model_path
++            ? sd_ctx->sd->prepared_hires_upscaler.get() : nullptr;
++        if (request.hires.upscaler == SD_HIRES_UPSCALER_MODEL && !prepared_upscaler) {
+             if (sd_ctx->sd->get_cancel_flag() == SD_CANCEL_ALL) {
+                 LOG_ERROR("cancelling generation before hires model load");
+                 return false;
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -5976,7 +5976,7 @@
+             sd::Tensor<float> upscaled = upscale_hires_latent(sd_ctx,
+                                                               final_latents[b],
+                                                               request,
+-                                                              hires_upscaler.get());
++                                                              prepared_upscaler ? prepared_upscaler : hires_upscaler.get());
+             if (upscaled.empty()) {
+                 return false;
+             }
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -637,7 +637,9 @@
+ // The names are the device names accepted by the --backend / --params-backend
+ // assignment specs. Returns the number of bytes required, excluding the null
+ // terminator. Passing nullptr or buffer_size 0 only queries the required size.
+-SD_API size_t sd_list_devices(char* buffer, size_t buffer_size);
++SD_API size_t sd_list_devices(char* buffer, size_t buffer_size);
++// Eager anonymous-memory 4x ESRGAN loading, retained by this context.
++SD_API bool sd_prepare_hires_upscaler(sd_ctx_t* sd_ctx, const char* path);
+ 
+ // for C API, caller needs to call free_sd_images to free the memory after use
+ // This helps avoid CRT problems on Windows when memory is allocated in the library but freed in the caller, which may use a different CRT.

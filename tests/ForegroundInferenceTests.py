@@ -72,6 +72,56 @@ class ForegroundInferenceTests(unittest.TestCase):
         self.assertTrue(all(not result["ok"] for result in results))
         generate.assert_not_called()
 
+    def test_runtime_release_is_explicit_not_idle_or_failed_request(self):
+        release = Mock()
+        loader = Mock(return_value=object())
+        def generate(arguments):
+            inference_session.register_runtime_release("native", release)
+            inference_session.cached_pipeline("model", [self.model], loader)
+            inference_session.record_execution("mps", "none", str(self.model))
+            if arguments == ["fail"]:
+                raise ValueError("bad request")
+        with inference_session.InferenceSession() as session:
+            session.set_foreground(True, lambda: generate(["model"]))
+            value = session.value
+            session.set_foreground(False)
+            session.set_foreground(True)
+            self.assertIs(session.value, value)
+            self.assertFalse(session.residency()["ready"])
+            session.clear()  # Invalid execution state, pristine source lifetime is independent.
+            release.assert_not_called()
+            session.release()
+            release.assert_called_once()
+        self.assertEqual(release.call_count, 2)  # Idempotent native release at EOF.
+        release.reset_mock()
+        _, results = self.serve([
+            {"arguments": ["model"]},
+            {"arguments": ["fail"]},
+            {"action": "foreground", "foreground": False},
+            {"action": "release"},
+        ], generate)
+        self.assertEqual([r["ok"] for r in results], [True, False, True, True])
+        self.assertEqual(release.call_count, 2)  # Explicit command and worker EOF only.
+        self.assertFalse(results[-1]["residency"]["ready"])
+
+    def test_idle_controls_do_not_revalidate_an_unmounted_source(self):
+        def generate(arguments):
+            inference_session.cached_pipeline("model", [self.model], object)
+            inference_session.record_execution("mps", "none", str(self.model))
+        original = inference_session.InferenceSession.set_foreground
+        def transition(session, enabled, prepare=None):
+            if not enabled:
+                self.model.unlink()
+            return original(session, enabled, prepare)
+        with patch.object(inference_session.InferenceSession, "set_foreground", transition):
+            _, results = self.serve([
+                {"arguments": ["model"]},
+                {"action": "foreground", "foreground": False},
+                {"action": "foreground", "foreground": True},
+            ], generate)
+        self.assertTrue(all(r["ok"] for r in results))
+        self.assertFalse(results[-1]["residency"]["ready"])
+
     def test_no_model_waits_and_failed_preparation_does_not_claim_readiness(self):
         generate = Mock(return_value=0)
         _, results = self.serve([

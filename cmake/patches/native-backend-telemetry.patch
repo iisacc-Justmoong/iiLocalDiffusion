@@ -1,0 +1,44 @@
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -281,6 +281,8 @@
+         ggml_backend_t module_backend = backend_manager.runtime_backend(module);
+         if (module_backend == nullptr) {
+             LOG_ERROR("failed to initialize %s backend", sd_backend_module_name(module));
++        } else {
++            LOG_INFO("IILD_BACKEND %s=%s", sd_backend_module_name(module), ggml_backend_name(module_backend));
+         }
+         return module_backend;
+     }
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -923,6 +923,7 @@
+                                bool enable_mmap,
+                                const std::set<std::string>* target_tensor_names,
+                                bool log_progress) {
++    LOG_INFO("IILD_WEIGHT_LOAD begin");
+     process_model_files(enable_mmap, false);
+ 
+     std::atomic<int64_t> read_time_ms(0);
+@@ -1288,6 +1289,8 @@
+     }
+ 
+     int64_t end_time = ggml_time_ms();
++    LOG_INFO("IILD_WEIGHT_LOAD end elapsed_ms=%lld bytes=%llu success=%d",
++             (long long)(end_time - start_time), (unsigned long long)bytes_processed.load(), (int)success);
+     if (log_progress) {
+         LOG_INFO("loading tensors completed, taking %.2fs (read: %.2fs, memcpy: %.2fs, convert: %.2fs, copy_to_backend: %.2fs)",
+                  (end_time - start_time) / 1000.f,
+--- a/src/model_manager.cpp
++++ b/src/model_manager.cpp
+@@ -475,6 +475,11 @@
+         }
+ 
+         const int64_t t0     = ggml_time_ms();
++        LOG_INFO("IILD_WEIGHT_TRANSFER begin backend=%s tensors=%zu", ggml_backend_name(compute_backend), target_states.size());
++        struct TransferTrace {
++            int64_t started;
++            ~TransferTrace() { LOG_INFO("IILD_WEIGHT_TRANSFER end elapsed_ms=%lld", (long long)(ggml_time_ms() - started)); }
++        } transfer_trace{t0};
+         size_t staged_bytes  = 0;
+         size_t staged_blocks = 0;
+         auto stage_chunk     = [&](const std::vector<TensorState*>& chunk) -> bool {

@@ -95,6 +95,55 @@ struct NativeModelComponents {
     bool hires = false;
     NativePrediction prediction = NativePrediction::Automatic;
 };
+// Advanced generation is opt-in; legacy request/options layouts and symbols stay intact.
+// Names use the ImageParameters catalog. The engine resolves "auto" per model.
+struct NativeReferenceImage {
+    int width = 0, height = 0;
+    std::vector<std::uint8_t> rgb;
+};
+struct NativeAdvancedControls {
+    std::string sampler = "auto", scheduler = "auto";
+    int clipSkip = 0; // Model default, not an unconditional first-layer skip.
+    float eta = 0;
+    bool seamlessTiling = false;
+    bool hires = false;
+    float denoiseStrength = 0.25f;
+    std::string upscaler = "lanczos";
+    std::vector<NativeReferenceImage> references;
+    float imageStrength = 0.65f; // Initial-reference denoising amount, [0,1].
+    bool promptWeighting = true;
+    struct Embedding { std::string token; std::filesystem::path path; };
+    std::vector<Embedding> embeddings;
+    struct ControlNet {
+        std::filesystem::path model;
+        NativeReferenceImage image;
+        std::string process = "Canny"; // Canny, DWPose, or unchanged RGB Tile hint.
+        float weight = 1.0f;
+        NativeReferenceImage mask; // Empty disables regional coverage; RGB luminance in [0,255].
+        std::filesystem::path poseDetector, poseModel; // Inline ONNX models, required only for Pose.
+    };
+    // Ordered applied controls; each model/image/weight/mask remains independent.
+    std::vector<ControlNet> controls;
+    bool freeU = false; // Model-profile FreeU on supported SD UNet decoders.
+    std::filesystem::path upscalerModel; // Required for active 4x-ultra Hires.
+    bool detailer = false;
+    std::filesystem::path detailerModel; // Converted YOLOv8 detection weights.
+    bool refiner = false;
+    float refinerSwitch = 0.8f; // Fraction of final-pass steps performed by Base.
+    std::filesystem::path refinerModel; // SDXL Refiner checkpoint, including bigG.
+    struct IPAdapter {
+        std::filesystem::path model, vision;
+        NativeReferenceImage image; // Original reference RGB, never a detector's processed hint.
+        float weight = 1.0f;
+        NativeReferenceImage mask;
+    };
+    std::vector<IPAdapter> ipAdapters; // Ordered independent resident image-conditioning slots.
+};
+IILD_EXPORT NativeGenerationResult generateNativeAdvancedImage(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const NativeModelComponents &components,
+    const NativeAdvancedControls &advanced, NativeComputeBackend backend,
+    const std::atomic_bool &cancelled, const NativeProgressCallback &progress = {},
+    const NativePreviewCallback &preview = {}, const std::shared_ptr<NativeExecutionControl> &control = {});
 IILD_EXPORT NativeGenerationResult generateNativeImageWithComponents(const NativeGenerationRequest &request,
     const NativeGenerationOptions &options, const NativeModelComponents &components,
     NativeComputeBackend backend, const std::atomic_bool &cancelled, bool prepareOnly = false,
@@ -124,7 +173,8 @@ IILD_EXPORT std::filesystem::path nativeGenerationResourceDirectory();
 // and extra borders are center-cropped after refinement.
 IILD_EXPORT bool nativeDiffusionAvailable() noexcept;
 // Nonblocking: release idle residency now, or after the active GPU call returns.
-// Call on memory pressure, actual background entry, or application teardown.
+// Explicit user release or application teardown only. Never call for idle,
+// background entry or memory pressure; anonymous sources belong to the runtime.
 IILD_EXPORT void releaseNativeDiffusionCache() noexcept;
 IILD_EXPORT NativeGenerationResult generateNativeImage(const NativeGenerationRequest &request,
     const std::atomic_bool &cancelled, const std::function<void(int, int)> &progress = {});
@@ -140,6 +190,25 @@ IILD_EXPORT NativeGenerationResult generateNativeImageWithOptions(const NativeGe
     const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress = {},
     const std::shared_ptr<NativeExecutionControl> &control = {});
+// Society host generation stages every tensor source in anonymous process memory
+// before inference. The OS may page these anonymous pages to its managed swap.
+// This is separate from Q8 disk-cache generation and leaves existing APIs intact.
+// Component-aware desktop path: preparation and generation share the same
+// resident context, retaining exact family/sampler/sigma/preview contracts.
+IILD_EXPORT NativeGenerationResult generateNativeImageWithResidentWeights(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const NativeModelComponents &components,
+    const NativeSamplingControls &sampling, NativeComputeBackend backend,
+    const std::atomic_bool &cancelled, bool prepareOnly = false,
+    const NativeProgressCallback &progress = {}, const NativePreviewCallback &preview = {},
+    const std::shared_ptr<NativeExecutionControl> &control = {});
+IILD_EXPORT NativeGenerationResult generateNativeImageWithResidentWeights(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress = {},
+    const std::shared_ptr<NativeExecutionControl> &control = {});
+IILD_EXPORT NativeGenerationResult generateNativeImageWithResidentWeights(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, NativeComputeBackend backend, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const NativePreviewCallback &preview,
+    const std::shared_ptr<NativeExecutionControl> &control = {});
 // A storage owner can supply shared resources while retaining explicit CPU
 // placement for an OS background task. No process-wide resource override.
 IILD_EXPORT NativeGenerationResult generateNativeImageWithOptions(const NativeGenerationRequest &request,
@@ -149,6 +218,10 @@ IILD_EXPORT NativeGenerationResult generateNativeImageWithOptions(const NativeGe
 // Validate and retain the same native context without encoding or sampling.
 // Lazy weight placement still occurs at first use. No image is produced.
 IILD_EXPORT NativeGenerationResult prepareNativeImageModel(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress = {});
+// Queue barrier: return only after all source files occupy anonymous memory.
+IILD_EXPORT NativeGenerationResult prepareNativeImageModelWithResidentWeights(const NativeGenerationRequest &request,
     const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress = {});
 // Opt-in preview entry point preserves all existing request/result layouts.
