@@ -1,0 +1,18 @@
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -4085,6 +4085,7 @@
+         case VERSION_FLUX2:
+         case VERSION_FLUX2_KLEIN: info = {"flux2", "flux2", SD_VAE_MISSING}; break;
+         case VERSION_QWEN_IMAGE_LAYERED: info.model_family = "qwen-image-layered"; break;
++        case VERSION_KREA2: info.model_family = "krea2"; break;
+         default: break;
+     }
+     // Only verified family contracts share resources. Latent channel count alone
+@@ -4327,6 +4328,7 @@
+         case VERSION_FLUX2_KLEIN: return "flux2";
+         case VERSION_QWEN_IMAGE:
+         case VERSION_QWEN_IMAGE_LAYERED: return "qwen-image";
++        case VERSION_KREA2: return "krea2";
+         case VERSION_Z_IMAGE: return "z-image";
+         case VERSION_CHROMA_RADIANCE: return "chroma-radiance";
+         default: break;

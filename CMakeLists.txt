@@ -22,6 +22,7 @@ include(CMakePackageConfigHelpers)
 include(CheckCXXSourceCompiles)
 include(CMakePushCheckState)
 find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 
 find_package(json-c CONFIG QUIET)
 if(TARGET json-c::json-c)
@@ -255,6 +256,12 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_link_libraries(NativeVaeFallbackTests PRIVATE stable-diffusion)
         add_executable(NativeVaeDecodeProbe tests/NativeVaeDecodeProbe.cpp)
         target_link_libraries(NativeVaeDecodeProbe PRIVATE stable-diffusion)
+        add_executable(NativeVaeRoundTripProbe tests/NativeVaeRoundTripProbe.cpp)
+        target_link_libraries(NativeVaeRoundTripProbe PRIVATE stable-diffusion)
+        target_compile_features(NativeVaeRoundTripProbe PRIVATE cxx_std_23)
+        add_executable(NativeImg2ImgSmoke tests/NativeImg2ImgSmoke.cpp)
+        target_link_libraries(NativeImg2ImgSmoke PRIVATE iiLocalDiffusion)
+        target_compile_features(NativeImg2ImgSmoke PRIVATE cxx_std_23)
         add_executable(NativeVaeSafetyTests tests/NativeVaeSafetyTests.cpp)
         target_link_libraries(NativeVaeSafetyTests PRIVATE stable-diffusion)
         add_test(NAME NativeVaeSafetyTests COMMAND NativeVaeSafetyTests)
@@ -365,7 +372,21 @@ else()
 endif()
 target_compile_options(iiLocalDiffusion PRIVATE ${IILD_WARNING_OPTIONS})
 
+# Packaging is a small, Qt/Torch/Python-independent C++23 module.
+add_library(iiModelPackaging STATIC src/ModelPackaging/ModelPackaging.cpp)
+add_library(iiLocalDiffusion::ModelPackaging ALIAS iiModelPackaging)
+set_target_properties(iiModelPackaging PROPERTIES EXPORT_NAME ModelPackaging CXX_EXTENSIONS OFF)
+target_compile_features(iiModelPackaging PUBLIC cxx_std_23)
+target_include_directories(iiModelPackaging PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(iiModelPackaging PRIVATE ${IILD_JSON_C_TARGET} OpenSSL::Crypto)
+target_compile_options(iiModelPackaging PRIVATE ${IILD_WARNING_OPTIONS})
+
 if(IILD_BUILD_TOOLS)
+    add_executable(iild-model-package tools/iild-model-package/main.cpp)
+    target_compile_features(iild-model-package PRIVATE cxx_std_23)
+    target_link_libraries(iild-model-package PRIVATE iiLocalDiffusion::ModelPackaging)
     add_executable(iild-run
         tools/iild-run/ComputeCommands.cpp
         tools/iild-run/NeuralCommands.cpp
@@ -387,6 +408,12 @@ endif()
 
 if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
     find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND AND TARGET iild-model-package)
+        add_test(NAME iiLocalDiffusion.ModelPackaging
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/ModelPackagingTests.py"
+                "$<TARGET_FILE:iild-model-package>")
+        set_tests_properties(iiLocalDiffusion.ModelPackaging PROPERTIES TIMEOUT 120)
+    endif()
     if(UNIX AND Python3_Interpreter_FOUND)
         add_test(NAME iiLocalDiffusion.InstallScript
             COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${Python3_EXECUTABLE}"
@@ -617,7 +644,12 @@ install(
 
 if(IILD_BUILD_TOOLS)
     install(TARGETS iild-run RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(TARGETS iild-model-package RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT ModelPackaging)
 endif()
+
+install(TARGETS iiModelPackaging EXPORT iiLocalDiffusionTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ModelPackaging)
+install(FILES src/ModelPackaging/ModelPackaging.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ModelPackaging COMPONENT ModelPackaging)
 
 install(FILES README.md THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime)
 install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime FILES_MATCHING PATTERN "*.md")
@@ -705,6 +737,7 @@ install(
     FILE iiLocalDiffusionTargets.cmake
     NAMESPACE iiLocalDiffusion::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/iiLocalDiffusion
+    COMPONENT ModelPackaging
 )
 
 install(
@@ -712,4 +745,5 @@ install(
         "${CMAKE_CURRENT_BINARY_DIR}/iiLocalDiffusionConfig.cmake"
         "${CMAKE_CURRENT_BINARY_DIR}/iiLocalDiffusionConfigVersion.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/iiLocalDiffusion
+    COMPONENT ModelPackaging
 )

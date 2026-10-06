@@ -55,10 +55,10 @@ VAE를 명시하지 않고 모델에도 VAE 가중치가 없으면 아래의 호
 
 | 모델 계열 | 기본 VAE 출처 | Diffusers 클래스 | 잠재 공간 | 라이선스 |
 | --- | --- | --- | --- | --- |
-| Qwen Image RGB | [Qwen/Qwen-Image](https://huggingface.co/Qwen/Qwen-Image/tree/75e0b4be04f60ec59a75f475837eced720f823b6/vae) | AutoencoderKLQwenImage | 16채널 RGB | Apache-2.0 |
-| SDXL 및 호환 체크포인트 | [stabilityai/sdxl-vae](https://huggingface.co/stabilityai/sdxl-vae/tree/6f5909a7e596173e25d4e97b07fd19cdf9611c76) | AutoencoderKL | 4채널, scale 0.13025 | 모델 카드의 MIT 선언 |
-| FLUX.1 schnell/dev/Krea/Fill/Control/Kontext | [diffusers/FLUX.1-vae](https://huggingface.co/diffusers/FLUX.1-vae/tree/da548cfb003bdeebaff6da0211fc8fbc67cb563a) | AutoencoderKL | 16채널, scale 0.3611, shift 0.1159 | 원본 FLUX.1 schnell Apache-2.0 |
-| FLUX.2 및 Klein | [black-forest-labs/FLUX.2-klein-4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/tree/e7b7dc27f91deacad38e78976d1f2b499d76a294/vae) | AutoencoderKLFlux2 | 32채널, 2×2 패치와 batch normalization | Apache-2.0 |
+|Qwen Image RGB|[Qwen/Qwen-Image](https://huggingface.co/Qwen/Qwen-Image/tree/75e0b4be04f60ec59a75f475837eced720f823b6/vae)| AutoencoderKLQwenImage | 16채널 RGB | Apache-2.0|
+| SDXL 및 호환 체크포인트 |[stabilityai/sdxl-vae](https://huggingface.co/stabilityai/sdxl-vae/tree/6f5909a7e596173e25d4e97b07fd19cdf9611c76)| AutoencoderKL | 4채널, scale 0.13025 | 모델 카드의 MIT 선언 |
+|FLUX.1 schnell/dev/Krea/채우기/제어/Kontext|[디퓨저/FLUX.1-vae](https://huggingface.co/diffusers/FLUX.1-vae/tree/da548cfb003bdeebaff6da0211fc8fbc67cb563a)| AutoencoderKL | 16채널, scale 0.3611, shift 0.1159 | 원본 FLUX.1schnell Apache-2.0|
+| FLUX.2및 Klein |[black-forest-labs/FLUX.2-klein-4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/tree/e7b7dc27f91deacad38e78976d1f2b499d76a294/vae)| AutoencoderKLFlux2 | 32채널, 2×2 패치와 batch normalization | Apache-2.0|
 
 FLUX.1 공개 사본의 가중치 SHA-256과 설정 Git blob은 BFL `FLUX.1-schnell` 리비전 `741f7c3ce8b383c54771c7003378a50191e9efe9` 원본과 동일하다. 각 VAE의 고정 리비전·파일 크기·가중치 및 설정 SHA-256은 `resources/generation-defaults.json`에 기록한다. 기존 단일 `fallback_vae`는 Qwen에 유지하며, `fallback_vaes` 배열에 SDXL/FLUX.1/FLUX.2를 등록한다. 중복 계열·지원하지 않는 클래스·잠재 공간 불일치는 오류이다. 이 VAE의 라이선스와 별도로 사용자가 선택한 디노이저 모델의 라이선스가 적용된다.
 

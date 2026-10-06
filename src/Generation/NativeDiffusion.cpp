@@ -59,6 +59,19 @@ thread_local bool ownsEngine = false;
 }
 #endif
 bool nativeDiffusionAvailable() noexcept { return IILD_HAS_NATIVE_DIFFUSION; }
+ImageParameters nativeImageParameterDefaults(const std::filesystem::path &modelPath) {
+    auto defaults = ImageParameters::defaults();
+#if IILD_HAS_NATIVE_DIFFUSION
+    sd_model_vae_info_t info{};
+    if (sd_model_inspect_vae(modelPath.string().c_str(), &info) && info.model_family
+        && std::string_view(info.model_family) == "krea2") {
+        defaults.values["steps"] = std::int64_t(52);
+        // Quick requests retain the common native CFG while using Krea2 steps.
+        defaults.values["cfgScale"] = 7.0;
+    }
+#endif
+    return defaults;
+}
 std::filesystem::path nativeGenerationResourceDirectory() { return native_detail::generationResourceDirectory(); }
 void releaseNativeDiffusionCache() noexcept {
     releaseNativePoseCache();
@@ -797,7 +810,10 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             throw std::runtime_error("Cannot prepare every IP-Adapter input.");
         std::vector<sd_image_t> referenceImages;
         if (advanced && !advanced->references.empty()) {
-            const int capacity = sd_ctx_reference_image_capacity(context);
+            // Base Krea2 is an img2img denoiser. Its upstream reference preset
+            // assumes separately trained Ostris edit weights; do not activate
+            // that preset merely because the transformer can accept tokens.
+            const int capacity = family == "krea2" ? 0 : sd_ctx_reference_image_capacity(context);
             if (advanced->references.size() > std::size_t(std::max(1, capacity)))
                 throw std::runtime_error("The selected model cannot condition on this many reference images. Choose a multi-reference editing model.");
             for (const auto &image : advanced->references)
@@ -912,6 +928,26 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             parameters.sample_params.flow_shift = sampling->flowShift;
             parameters.sample_params.custom_sigmas = customSigmas.empty() ? nullptr : customSigmas.data();
             parameters.sample_params.custom_sigmas_count = static_cast<int>(customSigmas.size());
+        }
+        // Match the Python Krea2 path for native app calls. Explicit schedules
+        // and advanced scheduler choices remain authoritative.
+        if (family == "krea2" && customSigmas.empty()
+            && (!advanced || advanced->scheduler == "auto")) {
+            const float mu = sampling && std::isfinite(sampling->flowShift) ? sampling->flowShift
+                : .5f + float((parameters.width / 16) * (parameters.height / 16) - 256) * (.65f / 6144.f);
+            const float factor = std::exp(mu);
+            customSigmas.reserve(std::size_t(request.steps + 1));
+            for (int i = 0; i < request.steps; ++i) {
+                const float sigma = float(request.steps - i) / float(request.steps);
+                customSigmas.push_back(factor * sigma / (1 + (factor - 1) * sigma));
+            }
+            customSigmas.push_back(0.f);
+            parameters.sample_params.flow_shift = mu;
+            parameters.sample_params.custom_sigmas = customSigmas.data();
+            parameters.sample_params.custom_sigmas_count = static_cast<int>(customSigmas.size());
+            if ((!sampling || sampling->sampler == NativeSampler::Automatic)
+                && (!advanced || advanced->sampler == "auto"))
+                parameters.sample_params.sample_method = EULER_SAMPLE_METHOD;
         }
         const auto vaePolicy = native_detail::vaeDecodePolicy(family,
             parameters.hires.target_width, parameters.hires.target_height, budget);

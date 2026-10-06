@@ -1,5 +1,12 @@
 # Third-party notices
 
+The native ModelPackaging static module uses OpenSSL Crypto (Apache-2.0)
+for streaming SHA-256 and the existing json-c dependency for manifest parsing.
+OpenSSL is linked from the installed platform distribution; its original
+license remains applicable. Society embeds the OpenSSL license with its
+existing OpenSSL-dependent runtime. No model weights are redistributed by
+the SDK or the packaging CLI.
+
 The optional native Pose preprocessor uses ONNX Runtime 1.30.0 (MIT, with
 upstream third-party notices). The macOS ARM64 archive and SHA-256 are pinned
 in `cmake/IildPose.cmake`; enabling this path installs its LICENSE and

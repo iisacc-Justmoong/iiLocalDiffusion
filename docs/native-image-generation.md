@@ -148,43 +148,30 @@ Qwen Image RGB·SDXL·FLUX.1·FLUX.2·Anima·Z-Image 체크포인트에 VAE가 �
 소비자는 OS 실행 권한을 잃기 전에 `setPaused(true)`, 복귀하면 `setPaused(false)`를 호출한다. 엔진의 기존 텐서 적재·연산 구간 경계에서 조건 변수로 대기하므로 이미 제출한 GPU 호출이 반환되기까지는 시간이 필요하다. latent·모델 컨텍스트·seed를 유지하며 작업을 재시작하지 않는다. 정지 시간은 추론 제한 시간에서 제외하고, 여러 적재 스레드가 동시에 기다려도 한 번만 계산한다. 정지 중에도 기존 취소 토큰을 확인하므로 취소/소비자 파괴가 대기에 갇히지 않는다. OS의 프로세스 종료나 메모리 회수 이후 복원은 제공하지 않는다.
 
 `NativeResultTests`는 실제 어댑터와 제어된 C API로 연산 경계 대기, 제한 시간보다 긴 정지 후 같은 요청 완료, 정지 중 취소와 자원 해제를 검증한다. 백그라운드 GPU 실행 허용 여부와 앱의 OS 작업 등록은 소비자가 담당한다.
-# Anima desktop worker bridge
+<a id="anima-desktop-worker-bridge"></a>
 
-`NativeImageBridge.hpp` exposes a versioned C request/result boundary for the SDK
-Python worker. `iild_native_generate_v1` wraps the existing native generator and
-its cache; RGB storage and JSON diagnostics remain owned by the library until
-`iild_native_free_v1`. C++ exceptions do not cross this boundary, incompatible
-request sizes are rejected, and the progress callback can request cancellation.
-`prepareNativeImageModel` retains the same validated context without prompt
-encoding, sampling or PNG creation; first generation still performs lazy tensor
-placement. Existing request/result structures and generation entry points keep
-their ABI. No new third-party dependency is required.
-The C bridge's `timeout_milliseconds` is zero by default: desktop work may exceed
-15 minutes while decoding a large image. Zero maps to the C++ API's maximum
-integer budget; positive limits remain explicit and cancellation is unchanged.
-The bridge tests compare the same delayed computation under zero and a short
-positive deadline, without waiting 15 minutes in a unit test.
+# Anima 데스크톱 작업자 브리지
 
-`NativeResultTests` verifies preparation does not sample, ten successive bridge
-calls reuse the prepared context, RGB dimensions/negative prompt are preserved,
-cancellation unwinds, and invalid ABI sizes return errors. `NativeImageTests`
-checks tensor-selected routing, unsupported options, missing components, a
-foreground command followed by ten ordered worker requests, provenance and
-all-or-nothing batch publication. `DownloadedModelTests` covers complete and
-denoiser-only Anima plus actual VAE-only files under misleading filenames.
+`NativeImageBridge.hpp`는 SDK Python 작업자를 위한 버전 지정 C 요청/결과 경계를 노출한다. `iild_native_generate_v1`는 기존 네이티브 생성기와 캐시를 감싸며, RGB 저장소와 JSON 진단 정보는 `iild_native_free_v1`를 호출할 때까지 라이브러리가 소유한다. C++ 예외는 이 경계를 넘지 않고, 호환되지 않는 요청 크기는 거부하며, 진행 콜백에서 취소를 요청할 수 있다. `prepareNativeImageModel`은 프롬프트 인코딩·샘플링·PNG 생성 없이 동일한 검증된 컨텍스트를 유지하며, 첫 생성에서는 텐서를 지연 배치한다. 기존 요청/결과 구조체와 생성 진입점은 ABI를 유지한다. 새로운 외부 의존성은 필요하지 않다. C 브리지의 `timeout_milliseconds` 기본값은 0이다. 대형 이미지를 디코딩하는 데스크톱 작업은 15분을 넘을 수 있기 때문이다. 0은 C++ API의 최대 정수 예산에 대응하며, 양수 제한은 명시적으로 유지하고 취소 동작은 바꾸지 않는다. 브리지 테스트는 단위 테스트에서 15분을 기다리지 않고, 제한이 0인 경우와 짧은 양수 마감 시간을 설정한 경우에 동일한 지연 연산을 비교한다.
 
-## Explicit CPU execution for background tasks
+`NativeResultTests`는 준비 단계에서 샘플링하지 않는지, 10회의 연속 브리지 호출이 준비된 컨텍스트를 재사용하는지, RGB 크기와 네거티브 프롬프트가 보존되는지, 취소 시 실행을 정리하는지, 잘못된 ABI 크기에 오류를 반환하는지 검증한다. `NativeImageTests`는 텐서에 따른 라우팅, 미지원 옵션, 누락된 구성요소, 포그라운드 명령 뒤에 이어지는 10개의 순서 있는 작업자 요청, 출처와 전체 성공 또는 전체 실패 방식의 배치 게시를 검사한다. `DownloadedModelTests`는 오해를 유발하는 파일명으로 된 완전한 Anima 모델과 디노이저 전용 Anima 모델, 실제 VAE 전용 파일을 다룬다.
 
-`generateNativeImageWithBackend(request, NativeComputeBackend::Cpu, cancelled, progress, control)` places every compute module and its parameter storage on CPU. The `Automatic` option preserves the existing platform placement. This entry point does not change existing request/result/options layouts or grant OS execution time; the consumer must obtain the appropriate background task and cooperate with cancellation/expiration. CPU placement is fixed before model loading, so a task never submits GPU compute under a CPU-only OS grant. The in-memory model identity includes the selected backend; changing it evicts incompatible residency. Disk model caches remain shared because their bytes are backend-independent.
+<a id="explicit-cpu-execution-for-background-tasks"></a>
 
-`NativeResultTests` and `NativeMobileResultTests` compile the production adapter against controlled upstream C API results. They verify full CPU compute/parameter selection, warm CPU reuse, and eviction across automatic/CPU transitions. Runtime performance and OS background grants require a separate device run.
+## 백그라운드 작업에 대한 명시적 CPU 실행
+
+`generateNativeImageWithBackend(request, NativeComputeBackend::Cpu, cancelled, progress, control)`는 모든 연산 모듈과 해당 매개변수 저장소를 CPU에 배치한다. `Automatic` 옵션은 기존 플랫폼 배치를 유지한다. 이 진입점은 기존 요청/결과/옵션의 레이아웃을 변경하거나 OS 실행 시간을 부여하지 않는다. 소비자는 적절한 백그라운드 작업을 확보하고 취소·만료 처리에 협조해야 한다. CPU 배치는 모델 로딩 전에 고정하므로, CPU 전용 OS 실행 권한 아래에서 GPU 연산을 제출하지 않는다. 메모리 내 모델 식별자에는 선택한 백엔드가 포함되며, 이를 변경하면 호환되지 않는 상주 상태를 제거한다. 디스크 모델 캐시의 바이트는 백엔드와 무관하므로 계속 공유한다.
+
+`NativeResultTests`와 `NativeMobileResultTests`는 제어된 상위 공급 측 C API 결과를 사용하여 제품 어댑터를 컴파일한다. 전체 CPU 연산/매개변수 선택, 준비된 CPU 상태의 재사용, 자동/CPU 전환 시 상주 상태 제거를 검증한다. 런타임 성능과 OS 백그라운드 실행 권한은 별도의 기기 실행으로 검증해야 한다.
 
 
-## Shared model storage (0.6.1)
+<a id="shared-model-storage-061"></a>
 
-Applications may keep all weights in a storage owner's container. Pass its absolute resource directory in `NativeGenerationOptions::resourceDirectory` and use the `generateNativeImageWithOptions(request, options, backend, ...)` overload to retain explicit CPU background placement. This does not change global environment variables or copy resources into the application. When no optional style resources are installed, disable `defaultModifiers`; a valid embedded VAE remains usable. A required external VAE is still selected and validated from the explicitly supplied resource directory. Missing resources never switch to a different application's package.
+## 공유 모델 스토리지(0.6.1)
 
-`NativeDiffusionTests` checks that explicit CPU placement preserves caller options, cancellation and invalid-model rejection without requiring package defaults. Existing API and structure layouts are unchanged.
+애플리케이션은 모든 가중치를 저장소 소유자의 컨테이너에 보관할 수 있다. 절대 리소스 디렉터리를 `NativeGenerationOptions::resourceDirectory`에 전달하고 `generateNativeImageWithOptions(request, options, backend, ...)` 오버로드를 사용하여 명시적인 CPU 백그라운드 배치를 유지한다. 이 동작은 전역 환경 변수를 변경하거나 리소스를 애플리케이션에 복사하지 않는다. 선택적인 스타일 리소스가 설치되지 않았다면 `defaultModifiers`를 비활성화한다. 유효한 내장 VAE는 계속 사용할 수 있다. 필수 외부 VAE는 명시적으로 제공한 리소스 디렉터리에서 계속 선택하고 검증한다. 리소스가 누락되어도 다른 애플리케이션의 패키지로 전환하지 않는다.
+
+`NativeDiffusionTests`는 명시적인 CPU 배치가 패키지 기본값을 요구하지 않으면서 호출자 옵션·취소·잘못된 모델 거부를 유지하는지 검사한다. 기존 API와 구조체 레이아웃은 변경하지 않는다.
 
 ### CPU 작업 내부의 진행과 정지
 
@@ -205,3 +192,16 @@ Applications may keep all weights in a storage owner's container. Pass its absol
 C 경계 `iild_native_generate_with_preview_v1`의 RGB 버퍼는 콜백이 반환할 때까지만 유효하다. Python worker는 이를 복사해 원자적 PNG와 `IILD_PREVIEW` 이벤트를 발행하며, prepare-only 호출은 프리뷰와 이미지를 만들지 않는다. 모델에 대응하는 엔진 투영이 없으면 프리뷰를 지어내지 않는다. 기존 Diffusers VAE 프리뷰 경로는 유지한다. `NativeResultTests`와 `NativeMobileResultTests`는 기본/보정 pass의 실제 테스트 픽셀·콜백 수명과 CPU/GPU 선택을 검사한다. `NativeImageTests`는 프리뷰 파일과 단계 리셋을 검사한다.
 
 데스크톱 worker에 `IILD_WORKER_PROGRESS=1`을 전달하면 최초 체크포인트 전체 해시 읽기가 `IILD_MODEL_PROGRESS`로 실제 읽은 바이트 수를 보고한다. 해시 캐시 적중 시 재읽기나 가상의 진행 이벤트를 만들지 않는다. `InferenceCacheTests`가 이 계약을 검증한다.
+
+
+## Krea2 img2img와 자동 샘플링
+
+단일 Krea2 참조 이미지는 `init_image`로만 전달한다. 일반 Krea2 체크포인트에서 참조 토큰을 동시에 주입하면 upstream의 `krea2_ostris_edit` 프리셋이 활성화되므로, 학습 방식이 확인되지 않은 베이스 체크포인트에는 이 경로를 사용하지 않는다. Krea2의 여러 입력 이미지는 현재 거부하며, 다른 검증된 편집 모델의 순서 있는 참조 계약은 유지한다.
+
+네이티브 자동 스케줄은 Python worker와 동일하게 Euler, 해상도 기반 `mu = .5 + (W/16 * H/16 - 256) * .65/6144`, 지수 이동 sigma 및 마지막 0을 사용한다. W/H는 64px 정렬된 내부 추론 크기이며, 요청된 최종 출력 크기와 중앙 크롭 계약은 유지한다. 명시적 sigma, 샘플러 및 고급 스케줄러 선택은 보존한다.
+
+`nativeImageParameterDefaults(modelPath)`는 가중치를 적재하지 않고 텐서 메타데이터를 검사한다. 일반 Krea2의 빠른 요청에는 Raw 품질 기본값 52 steps와 native CFG 7을 반환한다. CFG는 제품 설정으로 7을 사용하며, 단계 수는 [Krea 공식 추론 설정](https://github.com/krea-ai/krea-2/blob/main/README.md)을 기준으로 한다. 파일명으로 Raw/Turbo 학습 변형을 추정하지 않는다. 고급 요청은 사용자가 제출한 steps/CFG를 유지한다.
+
+Krea2 분류는 메타데이터 검사와 적재된 런타임의 `sd_get_model_family` 양쪽에 적용한다. 런타임이 `other`를 반환하면 img2img 전용 분기와 자동 스케줄이 우회되므로, `NativeRefinerSamplingTests`는 실제 엔진 소스를 컴파일하여 두 분류가 일치하는지 가중치 없이 검사한다.
+
+`NativeResultTests`와 `NativeMobileResultTests`는 Krea2 입력의 중복 편집 조건 방지와 해상도별 sigma 전달, 기존 편집 모델의 다중 참조 유지, 다른 모델로 기본값이 유출되지 않는지를 검사한다. 실제 체크포인트 검증에는 `NativeVaeRoundTripProbe`로 RGB→VAE→RGB를 분리하고 `NativeImg2ImgSmoke`로 인코더·확산·디코더 전체를 실행한다. 두 도구는 interleaved RGB 파일을 사용하며, 자동 CTest에 대형 모델 실행을 추가하지 않는다. 전체 추론 도구의 마지막 선택 인자 `prompt.txt`는 UTF-8 원래 프롬프트를 그대로 읽는다. 입력 RGB 크기와 출력 크기를 별도로 지정하여 원본 첨부의 네이티브 리사이즈 경로도 검증할 수 있다.

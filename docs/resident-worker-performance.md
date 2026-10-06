@@ -1,100 +1,40 @@
-# Desktop resident-weight execution
+<a id="desktop-resident-weight-execution"></a>
 
-Dreamscapes uses the component-aware C bridge (V2/V3), including Krea2's custom
-sampling schedule. These calls now use `generateNativeImageWithResidentWeights`
-for both preparation and generation. Previously only the separate Society host
-entry point requested anonymous weights; the desktop bridge still read file-backed
-weights again for each denoising segment.
+# 데스크톱 주민 가중치 실행
 
-The Python worker enforces `queued batch -> prepare-only -> anonymous storage
-confirmation -> generation`. A failed preload or an old SDK without the anonymous
-storage contract cannot start inference. Preparation is recorded separately in
-`performance.preparation`; source reuse avoids a second full preload. The legacy
-V1 C bridge now uses the same resident storage contract, including Anima routing.
-Telemetry records `load_step/load_total`, `resident-file-loaded` after each actual
-source copy and `resident_model_ready=1` only after context construction succeeds.
-The final ready marker is the preload barrier; an allocation or heartbeat alone
-does not mean the model is ready.
+Dreamscapes 는 컴포넌트 인식 C 브릿지 ( V2/V3 ) 를 사용하며, Krea2 의 사용자 정의 샘플링 일정을 포함합니다. 이러한 호출은 이제 준비 및 생성 모두에 `generateNativeImageWithResidentWeights` 를 사용합니다. 이전에는 별도의 Society 호스트 진입점만 익명 가중치를 요청했으며, 데스크톱 브릿지는 여전히 각 디노이징 섹먼트마다 파일 기반 가중치를 다시 읽었습니다.
 
-## Contract
+Python 워커는 `queued batch -> prepare-only -> anonymous storage confirmation -> generation` 를 강제합니다. 익명 저장 계약이 없는 실패한 프리로딩 또는 오래된 SDK 는 추론을 시작할 수 없습니다. 준비는 `performance.preparation` 에서 별도로 기록되며, 소스 재사용은 두 번째 전체 프리로딩을 피합니다. 레거시 V1 C 브릿지는 이제 동일한 거주 저장 계약을 사용하며, Anima 라우팅을 포함합니다. 텔레메트리 기록은 실제 소스 복사 후 `load_step/load_total`, `resident-file-loaded` 를 기록하며 컨텍스트 구축이 성공한 후에만 `resident_model_ready=1` 를 기록합니다. 최종 준비 마커는 프리로드 장벽이며 할당 또는 심박만으로는 모델이 준비되었다는 것을 의미하지 않습니다.
 
-- Read each model/component file into anonymous process memory before constructing
-  the execution context. The process runtime owns these pristine source buffers,
-  independently of that context. Subsequent tensor reads and segment reloads use that
-  memory, not `pread` of the original external checkpoint.
-- Preload is synchronous and completes before inference; it reports actual bytes
-  loaded through the existing loading callback. Cancellation is checked every
-  32 MiB during preload and every 8 MiB during subsequent memory copies.
-- Anonymous does not mean pinned or guaranteed physical RAM: the OS may compress
-  or swap pages. No application-owned disk cache, swap file or reduced-precision
-  derivative is introduced. The initial source read and final image publication
-  still require storage. Allocation/read failure is an error, not a silent
-  file-backed fallback.
-- Preparation and generation share one cached context; model/component identity,
-  backend and storage policy invalidate it. Existing C request structures and
-  exported symbols retain their layouts. Existing explicitly nonresident C++ APIs
-  retain their compatibility behavior; all C bridge versions use resident weights.
-- Preserve sampler, sigmas, seed, steps, output dimensions, source precision,
-  preview and cancellation contracts. Placement stays automatic (Metal where
-  supported); CPU is not run redundantly to inflate utilization.
-- `performance.weight_storage` is `anonymous` for V1/V2/V3. Native traces also record
-  the requested weight-storage policy. Backend labels describe module placement,
-  not per-operator GPU utilization. OS swap and GPU allocations remain separately
-  budgeted/observed; a 31.8 GB model on a 32 GiB machine can still exceed RAM.
+<a id="contract"></a>
 
-## Runtime lifetime and explicit release
+## 계약
 
-The native source pool has no memory-pressure eviction, idle timeout, background
-release or capacity-based eviction. Successful source loads remain retained across
-completed jobs, invalid execution contexts, backend changes, adapter destruction
-and model selection changes. File identity (canonical path, device/inode, size,
-mtime and ctime) prevents a changed source from reusing stale bytes; previously
-loaded versions remain owned until explicit release. A failed/partial preload is
-never published. No source checksum is recomputed merely to look up this pool.
+- 실행 컨텍스트를 구성하기 전에 각 모델/구성 요소 파일을 익명 프로세스 메모리로 읽어들입니다. 프로세스 런타임는 해당 상황과 무관하게 이러한 원시 소스 버퍼를 소유합니다. 후속 텐서 읽기와 세그먼트 재로드는 원래 외부 체크포인트의 `pread`가 아니라 해당 메모리를 사용합니다.
+- 프리로드는 동기식이며 추론 전에 완료됩니다; 기존 로딩 콜백을 통해 로드된 실제 바이트를 보고합니다. 취소는 사전 로드 중에 모든 32 MiB마다, 이후 메모리 복사 중에 모든 8 MiB에 대해 검사됩니다.
+- 익명은 고정된 물리적 RAM가 고정되었거나 보장된 것을 의미하지 않습니다: OS는 페이지를 압축하거나 교체할 수 있습니다. 응용 프로그램이 소유한 디스크 캐시, 스와프 파일 또는 정밀도 감소 파생이 도입되지 않습니다. 초기 소스 읽기와 최종 이미지 출판은 여전히 저장이 필요합니다. 할당/읽기 실패는 오류이며, 무음 파일 기반 대체 경로가 아닙니다.
+- 준비와 생성은 하나의 캐시된 컨텍스트를 공유하며, 모델/구성 요소 정체성, 백엔드 및 스토리지 정책이 이를 무효화합니다. 기존 C 요청 구조와 내보낸 심볼은 레이아웃을 유지합니다. 기존에 명시적으로 비거주형 C++ API는 호환성 동작을 유지하며, 모든 C 브리지 버전은 레지던트 가중치를 사용합니다.
+- 샘플러, 시그마, 시드, 단계, 출력 차원, 소스 정밀도, 미리보기 및 취소 계약을 보존합니다. 배치는 자동으로 유지됩니다(지원되는 경우 Metal); CPU는 활용도를 부풀리기 위해 중복 실행되지 않습니다.
+- `performance.weight_storage` 은 `anonymous` 입니다. V1/V2/V3 에 대한 것입니다. 네이티브 트레이스 또한 요청된 가중치 저장 정책을 기록합니다. 백엔드 레이블은 모듈 배치에 대한 설명이며, 개별 연산자 GPU 활용도를 설명하지 않습니다. OS swap 과 GPU 할당은 별도로 예산 편성/관찰됩니다; 31.8  GB 모델은 32  GiB 머신에서도 RAM 를 초과할 수 있습니다.
 
-Read-only execution contexts share the pristine anonymous allocation. Writable
-in-place LoRA contexts receive private memory copies so they cannot poison later
-generations. The source disk is still consulted for identity/header validation;
-this policy eliminates repeated **bulk weight reads**, not every metadata access.
+<a id="runtime-lifetime-and-explicit-release"></a>
 
-`releaseNativeDiffusionCache()` / `iild_native_release_v1()` releases execution and
-source residency immediately when idle or after the active request. Python worker
-protocol action `release` (empty arguments) and worker EOF are explicit lifecycle
-boundaries. Request errors clear unsafe execution state, not the source pool.
-The native library is held by the worker session, not a per-request Python adapter.
-Foreground without a selected model hides readiness without unloading weights.
+## 런타임 수명 및 명시적 릴리스
 
-The application never writes a swap file to the model volume. The OS chooses
-anonymous-page compression and swap placement; the SDK neither pins these pages
-nor reconfigures OS swap. Allocation failures remain errors, never file-backed
-fallbacks. Crash, forced process termination (including the existing desktop
-hard-cancel/watchdog path), or OS kill destroys the runtime; memory cannot survive
-that boundary. GPU working buffers may still have different paging restrictions.
-Keeping anonymous weights does not guarantee survival under iOS memory pressure.
+네이티브 원본 풀은 메모리 압박에 따른 제거·유휴 시간 제한·백그라운드 해제·용량에 따른 제거를 수행하지 않는다. 성공적으로 적재한 원본은 작업 완료·실행 컨텍스트 무효화·백엔드 변경·어댑터 소멸·모델 선택 변경 이후에도 유지한다. 파일 식별자(표준 경로·장치/inode·크기·mtime·ctime)는 변경된 원본이 오래된 바이트를 재사용하지 못하게 한다. 이전에 적재한 버전은 명시적으로 해제할 때까지 소유한다. 실패하거나 일부만 적재한 사전 로딩 결과는 게시하지 않는다. 단순히 이 풀을 조회하기 위해 원본 체크섬을 다시 계산하지 않는다.
 
-Dreamscapes retains its worker across idle/background transitions and no longer
-kills an ongoing preparation merely because the selected model changed. It waits
-for the current preparation boundary and then prepares the pending selection.
-Native memory-warning callbacks log pressure without calling release. Normal app
-shutdown remains the teardown owner.
+읽기 전용 실행 컨텍스트는 순수 익명 할당을 공유하며, LoRA 컨텍스트는 쓰기 가능 원위치로 인해 사적 메모리 복사를 받기 때문에 후속 세대를 오염시킬 수 없습니다. 소스 디스크는 여전히 식별자/헤더 유효성 검사를 위해 참조되며 이 정책은 반복적인 **벌크 중량 읽기**를 제거하며 모든 메타데이터 액세스를 제거하지는 않습니다.
 
-## Regression and performance verification
+`releaseNativeDiffusionCache()` / `iild_native_release_v1()`는 유휴 상태이면 즉시, 실행 중이면 현재 요청이 끝난 뒤 실행 상태와 원본 상주 상태를 해제한다. Python 작업자 프로토콜의 `release` 동작(빈 인자)과 작업자의 EOF는 명시적인 수명 주기 경계이다. 요청 오류는 안전하지 않은 실행 상태를 비우며 원본 풀은 비우지 않는다. 네이티브 라이브러리는 요청별 Python 어댑터가 아니라 작업자 세션이 유지한다. 선택한 모델이 없는 포그라운드 상태는 가중치를 내리지 않고 준비 상태를 숨긴다.
 
-`NativeResultTests` and `NativeMobileResultTests` check actual backend parameters
-for V2/V3, prepare-to-generate cache reuse, component binding changes, custom
-sigmas, output dimensions and CPU selection. `NativeBulkReadTests` checks preload
-progress, cancellation after a partial preload, bounded memory-copy cancellation,
-bounds and source truncation/removal. `NativeMappedMetalStorage` and
-`NativeMappedPrivateStorage` load a generated fixture, remove that fixture, then
-reload its segment and execute Metal twice, checking every output value.
-`NativeBulkReadTests` also verifies pointer reuse after wrapper destruction,
-private writable copies, explicit release with live readers, cancelled-load
-nonpublication and changed-source invalidation. `NativeResultTests` verifies that
-failed generation does not release runtime sources. `ForegroundInferenceTests`
-checks idle/selection transitions, explicit release, request failure and EOF.
+애플리케이션은 모델 볼륨에 스왑 파일을 기록하지 않는다. OS가 익명 페이지 압축과 스왑 위치를 선택하며, SDK는 페이지를 고정하거나 OS 스왑을 재구성하지 않는다. 할당 실패는 오류로 유지하며 파일 기반 대체 경로를 사용하지 않는다. 충돌·강제 프로세스 종료(기존 데스크톱 강제 취소/watchdog 경로 포함)·OS에 의한 종료는 런타임을 파괴하며, 메모리는 그 경계를 넘어 유지될 수 없다. GPU 작업 버퍼에는 다른 페이징 제약이 있을 수 있다. 익명 가중치 유지가 iOS 메모리 압박 아래에서 생존을 보장하지 않는다.
 
-Use real traces to compare total generation time and completed images; memory-copy
-benchmarks and fixtures alone do not establish an end-to-end speedup. Never start
-a second full-size model while the active worker already consumes constrained
-unified memory. A running worker retains its loaded dylib/context; new code cannot
-retroactively change its weight storage.
+Dreamscapes 는 비활성/배경 전환 중에도 작업자를 유지하며, 선택된 모델이 변경된다는 이유만으로 진행 중인 준비를 즉시 종료하지 않는다. 현재 준비 경계를 기다린 후 대기 중인 선택을 준비한다. 네이티브 메모리 경고 콜백은 릴리스를 호출하지 않고 압력을 로깅한다. 일반 앱 종료는 해체 소유자로 남는다.
+
+<a id="regression-and-performance-verification"></a>
+
+## 회귀 및 성능 검증
+
+`NativeResultTests` 와 `NativeMobileResultTests` 는 V2/V3 의 실제 백엔드 매개변수, 생성 준비 캐시 재사용, 구성 요소 바인딩 변경, 커스터마이즈된 시그마, 출력 차원 및 CPU 선택을 확인한다. `NativeBulkReadTests` 는 프리로드 진행 상황, 부분 프리로드 후 취소, 한계가 설정된 메모리 복사 취소, 범위 및 소스 절단/제거를 확인한다. `NativeMappedMetalStorage` 와 `NativeMappedPrivateStorage` 는 생성된 픽스처 를 로드한 후 해당 픽스처 를 제거하고, 그 섹션을 다시 로드한 다음 Metal 를 두 번 실행하며 모든 출력 값을 확인한다. `NativeBulkReadTests` 는 래퍼 파괴 후 포인터 재사용, 사적 가독성 복사, 라이브 리더가 있는 명시적 릴리스, 취소된 로드 비발표, 변경된 소스 무효화를 또한 확인한다. `NativeResultTests` 는 실패한 생성이 런타임 소스를 릴리스하지 않았음을 확인한다. `ForegroundInferenceTests` 는 비활성/선택 전환, 명시적 해제, 요청 실패 및 EOF 를 확인합니다.
+
+실제 트레이스를 사용하여 총 생성 시간과 완료된 이미지를 비교하세요; 메모리 복사 벤치마크와 픽스처 만으로는 엔드 투 엔드 속도 향상을 입증할 수 없습니다. 활성 워커가 이미 제한된 통합 메모리를 소비하는 동안 두 번째 전체 크기 모델을 시작하지 마십시오. 실행 중인 워커는 로드된 dylib/컨텍스트를 유지하며, 새로운 코드는 그 가중치 저장을 사후적으로 변경할 수 없습니다.

@@ -1,618 +1,179 @@
-# Editable image-generation parameters
+<a id="editable-image-generation-parameters"></a>
 
-`Generation/ImageParameters.hpp` is a header-only C++23 contract. It has no Qt,
-filesystem, model-loading, or inference dependency and does not change the native
-request ABI. `ImageParameters::defaults()` creates a detached draft;
-`imageParameterSpecs()` provides scalar types, ranges, choices, and defaults.
-`validateImageParameters(draft)` accepts incomplete editing (including an empty
-prompt). Pass `true` to require a nonblank prompt for submission.
+# 편집 가능한 이미지 생성 매개변수
 
-The contract covers Dreamscapes Figma `bn8O4AHKr1X9DWnhR1TgEy`, node `59:229`:
+`Generation/ImageParameters.hpp` 는 헤더 전용 C++23 계약입니다. Qt, 파일 시스템, 모델 로딩 또는 추론 의존성이 없으며 네이티브 요청 ABI 을 변경하지 않습니다. `ImageParameters::defaults()` 는 분리된 시안을 생성하고, `imageParameterSpecs()` 는 스칼라 타입, 범위, 선택지 및 기본값을 제공합니다. `validateImageParameters(draft)` 는 불완전한 편집 (비어 있는 프롬프트 포함) 을 허용하며, `true` 를 전달하여 제출을 위해 비어 있지 않은 프롬프트를 요구합니다.
 
-- Essentials: prompt, negative prompt, model ID, width, height, output count.
-- Composition: signed random-seed sentinel `-1`, tiling, transparent background.
-- References: up to 20 image sources, image strength, ordered ControlNet drafts
-  with stable IDs, process, image/model/mask sources, weight, IP-Adapter, regional
-  mask, and explicit applied state.
-- Sampling: sampler, scheduler, steps, CFG, CLIP skip, eta.
-- Fine-tuning: ordered LoRAs with independent weights, textual embeddings, VAE,
-  prompt weighting, FreeU.
-- Enhancement: refiner/switch, denoise strength, Hires, upscaler, face restoration,
-  detailer.
-- Output: color profile, metadata retention, watermark, safety filter.
+계약에는 Dreamscapes Figma `bn8O4AHKr1X9DWnhR1TgEy`, 노드 `59:229`가 포함됩니다.
 
-UI labels are not wire values: `DPM++ 2M` is `dpmpp_2m`, `Karras` is `karras`,
-`4× Ultra` is `4x-ultra`, and model-default VAE is an empty string. Figma examples
-are not declarations of installed model availability or inference support.
-Defaults use automatic sampler/scheduler, model-default CLIP skip (`0`), disabled optional enhancements, and
-`safetyFilter=off` because no safety classifier is connected. No filtering is
-implied. Width/height default to 1024, advanced count to 4, steps to 30, CFG to 7.
-These do not alter the separate QuickGenerate defaults.
+- 필수 사항: 프롬프트, 부정 프롬프트, 모델 ID, 너비, 높이, 출력 개수.
+- 구성: 서명된 무작위 시드 센티넬 `-1`, 타일링, 투명 배경.
+- 참조: 최대 20개의 이미지 원본, 이미지 강도, 고정 ID를 갖는 순서 있는 ControlNet 초안, 처리 방식, 이미지/모델/마스크 원본, 가중치, IP-Adapter, 영역 마스크 및 명시적으로 적용한 상태이다.
+- 샘플링: 샘플러, 스케줄러, 단계, CFG, CLIP 건너뛰기, eta.
+- 미세 조정: 독립 가중치를 포함한 LoRAs를 주문했으며, 텍스트 임베딩, VAE, 프롬프트 가중치, FreeU.
+- 향상: 정제기/스위치, 디노이즈 강도, Hires, 업스케일러, 얼굴 복원, 디테일러.
+- 출력: 색상 프로필, 메타데이터 보존, 워터마크, 안전 필터.
 
-All fields are strongly typed. Nonfinite numbers, unknown fields/selections,
-duplicate collection IDs, invalid ranges, and seed-sequence overflow are errors.
-Dimensions use an 8-pixel grid in [64,4096]; output count is [1,1000]; seed is
-`-1` or uint32 with room for the batch. Text limits are UTF-8 byte counts. Controls
-and LoRAs are bounded to 64 entries. Applied controls require their input image,
-model and process, plus a mask when regional masking is enabled. These structural
-checks do not load, download, or authenticate models.
+UI 레이블은 와이어 값이 아닙니다: `DPM++ 2M` 는 `dpmpp_2m`, `Karras` 는 `karras`, `4× Ultra` 는 `4x-ultra`, 그리고 모델 기본값 VAE 는 빈 문자열입니다. Figma 예시는 설치된 모델의 가용성이나 추론 지원에 대한 선언이 아닙니다. 기본값은 자동 샘플러/스케줄러, 모델 기본값 CLIP 스킵 ( `0` ), 비활성화 선택적 향상 기능, 및 `safetyFilter=off` 를 사용하며 안전 분류기가 연결되어 있지 않기 때문입니다. 필터링은 암시되지 않습니다. 너비/높이는 1024픽셀로 기본값이며, 고급 개수는 4, 단계는 30, CFG 는 7입니다. 이것들은 별도의 QuickGenerate 기본값을 변경하지 않습니다.
 
-## Execution boundary
+모든 필드는 강하게 타입화됩니다. 무한이 아닌 숫자, 알 수 없는 필드/선택지, 중복 컬렉션 ID, 유효하지 않은 범위, 및 시드 시퀀스 오버플로가 오류입니다. 차원은 8픽셀 그리드를 [64,4096]에서 사용하며, 출력 개수는 [1,1000], 시드는 `-1` 또는 배치에 여유가 있는 uint32 입니다. 텍스트 제한은 UTF-8 바이트 수입니다. 제어 항목과 LoRAs 는 한계가 설정된 한계가 설정된 에서 64 항목입니다. 적용된 컨트롤은 지역 마스킹이 활성화될 때 마스킹이 포함되지 않은 입력 이미지, 모델 및 프로세스를 요구합니다. 이 구조적 확인은 모델을 로드하거나 다운로드하거나 인증하지 않습니다.
 
-`nativeParameterIssues(draft, desktopWorker, poseAvailable=false)` is a conservative capability check,
-not a substitute for structural validation or the engine's architecture checks.
-Applied Pose controls require `poseDetector` and `poseModel`; callers explicitly
-pass native Pose availability. The legacy worker does not support Pose.
-Current native routes accept explicit dimensions up to 2048, steps, seed,
-negative prompt, CFG, automatic/Euler/Heun sampling, VAE and LoRAs. The desktop
-worker exposes one LoRA; the in-process API accepts multiple. The application
-implements color-profile conversion and metadata policy after inference.
+<a id="execution-boundary"></a>
 
-The in-process `generateNativeAdvancedImage` entry point additionally connects
-seamless X/Y tiling, all catalog samplers and schedulers, CLIP skip and Eta directly to the native C
-API. `dpmpp_sde` selects DPM++ 2M SDE; `ddim` selects DDIM trailing. `normal`
-selects the discrete schedule. Auto resolves against the loaded model. Hires
-uses half-size base diffusion, nearest/bilinear/bicubic/Lanczos pixel upscaling, and a second
-diffusion pass with the chosen denoise strength (must be > 0). Final requested
-dimensions still use alignment followed by center crop, never output resizing.
-The separate `NativeAdvancedControls` structure preserves existing ABI layouts.
-The entry point always uses runtime-resident anonymous model sources.
-The process worker's narrower capabilities remain unchanged.
-The managed `native-pixel-upscalers` patch adds the two pixel-space interpolation
-modes without renumbering existing engine enum values. These decode, interpolate,
-clamp RGB, encode and refine; they are not latent-space substitutes or learned
-4x-Ultra models. `NativePixelUpscalerTests` checks the actual backend numerical
-operations; `NativeResultTests` and its mobile variant check all four C API modes.
+## 실행 경계
 
-Learned `4x-ultra` Hires additionally requires `upscalerModel`: canonical local
-4x ESRGAN/RRDB weights (safetensors or GGUF in the product). The mode name does
-not assert a specific vendor checkpoint. The managed `native-learned-upscaler`
-patch eagerly loads its complete source into anonymous memory and prepares CPU
-parameter storage before base image generation. Compute follows the selected
-native backend; Metal remains available. The prepared runner is retained by the
-cached diffusion context, and source buffers belong to the existing explicit-
-release runtime residency pool. No model download, disk-backed fallback or
-interpolation substitution occurs on loading/inference failure. A wrong scale
-or incompatible tensor set fails before base sampling. Source identity joins
-cache invalidation and the post-generation source-change check.
+`nativeParameterIssues(draft, desktopWorker, poseAvailable=false)` 은 구조적 유효성 검사나 엔진의 구조적 확인을 대체하는 것이 아닌 보수적인 기능 확인입니다. 적용된 포즈 컨트롤은 `poseDetector` 과 `poseModel` 를 요구하며, 호출자는 네이티브 포즈 가용성을 명시적으로 전달합니다. 레거시 워커는 포즈를 지원하지 않습니다. 현재 네이티브 라우트는 2048까지 명시적인 차원, 단계, 시드, 부정적 프롬프트, CFG , 자동/오일러/휴엔 샘플링, VAE 및 LoRAs 를 명시적으로 허용합니다. 데스크톱 워커는 LoRA 하나를 노출하며, 프로세스 내 API 는 여러 개를 허용합니다. 애플리케이션은 추론 후 색상 프로필 변환 및 메타데이터 정책을 구현합니다.
 
-Hires keeps the common half-size base and requested final dimensions: ESRGAN
-performs genuine 4x inference, then its intermediate result is normalized to the
-requested Hires canvas before re-encoding and denoising. It does not multiply the
-user's output dimensions by four. `NativeLearnedUpscalerTests` runs a real
-one-block RRDB graph with two synthetic weight sets and known outputs, twice
-after removing each source file, on CPU and (on Apple) an explicitly verified
-Metal backend. This proves weight consumption and warm
-in-memory inference, not production checkpoint quality or performance.
+프로세스 내 `generateNativeAdvancedImage` 엔트리 포인트는 또한 원활한 X/Y 타일링, 모든 카탈로그 샘플러 및 스케줄러, CLIP 스킵 및 에타를 네이티브 C API 에 직접 연결합니다. `dpmpp_sde` 는 DPM ++ 2M SDE 를 선택하며, `ddim` 는 DDIM 후미부를 선택합니다. `normal` 는 이산 스케줄을 선택합니다. 자동은 로드된 모델에 대해 해결합니다. Hires 는 절반 크기의 기본 확산을 사용하고, 최근접/선형/이중 선형/Lanczos 픽셀 업스케일링을 사용하며, 선택된 노이즈 강도 ( 0 보다 커야 함) 로 두 번째 확산 단계를 수행합니다. 최종 요청된 차원은 여전히 정렬을 수행한 후 중앙 자르기 (center crop) 를 사용하며, 출력 리사이징은 절대 수행하지 않습니다. 별도의  `NativeAdvancedControls`  구조는 기존  ABI  레이아웃을 보존합니다. 엔트리 포인트는 항상  런타임 -resident 익명 모델 소스를 사용합니다. 프로세스 워커의 좁은 기능은 그대로 유지됩니다. 관리되는  `native-pixel-upscalers`  패치는 기존 엔진 열거형 값의 번호를 다시 매기지 않고  2  픽셀 공간 보간 모드를 추가합니다. 이 코드는 디코드, 보간,  RGB  클램프, 인코딩 및 정제를 수행하며, 잠재 공간 대체 또는 학습된  4x-Ultra 모델이 아닙니다. `NativePixelUpscalerTests` 는 실제 백엔드 수치 연산을 확인하고,  `NativeResultTests` 와 그 모바일 변형은 모든  4 C  API 모드를 확인합니다.
 
-Native reference inputs are caller-owned RGB buffers in submission order (up to
-20). The first is the img2img initial image; `imageStrength` is its denoising
-amount in [0, 1], not an attention weight. Editing architectures additionally
-receive the complete ordered reference list. The managed engine capacity query
-rejects multiple references on ordinary img2img models rather than silently
-ignoring them; capacity depends on the loaded architecture, not its filename.
-All dimensions and byte counts are validated before inference. The legacy
-process worker still rejects reference inputs.
+학습 기반 `4x-ultra` Hires에는 `upscalerModel`도 필요하다. 이는 표준 로컬 4x ESRGAN/RRDB 가중치이며 제품에서는 safetensors 또는 GGUF 형식이다. 모드 이름은 특정 공급자의 체크포인트를 뜻하지 않는다. 관리되는 `native-learned-upscaler` 패치는 기본 이미지 생성 전에 원본 전체를 익명 메모리에 즉시 적재하고 CPU 매개변수 저장소를 준비한다. 연산은 선택한 네이티브 백엔드를 따르며 Metal도 계속 사용할 수 있다. 준비된 실행기는 캐시된 확산 컨텍스트가 유지하며, 원본 버퍼는 기존의 명시적 해제 런타임 상주 풀에 속한다. 로딩/추론 실패 시 모델 다운로드·디스크 기반 대체 경로·보간 대체는 수행하지 않는다. 잘못된 배율이나 호환되지 않는 텐서 집합은 기본 샘플링 전에 실패한다. 원본 식별자는 캐시 무효화와 생성 후 원본 변경 검사에 참여한다.
 
-`promptWeighting=false` switches the conditioner parser to literal text (including
-brackets, escapes, explicit weight syntax and BREAK). It applies to positive and
-negative conditioning without rewriting the prompt or reloading model weights.
-Each native request reapplies its policy, so a cached literal-mode context cannot
-leak into legacy weighted generation. The managed `native-text-conditioning`
-patch routes all conditioner attention-parser callsites through that context policy.
+Hires는 공통의 절반 크기 기본 이미지와 요청한 최종 크기를 유지한다. ESRGAN는 실제 4x 추론을 수행한 후 중간 결과를 요청한 Hires 캔버스로 정규화하고 재인코딩·디노이징한다. 사용자 출력 크기를 4배로 만들지 않는다. `NativeLearnedUpscalerTests`는 합성 가중치 2세트와 알려진 출력을 사용하여 실제 단일 블록 RRDB 그래프를 실행한다. 각 원본 파일을 제거한 뒤 두 번씩 CPU와 Apple에서 명시적으로 검증한 Metal 백엔드에서 실행한다. 이 검사는 가중치 사용과 준비된 메모리 내 추론을 입증하며, 제품 체크포인트의 품질이나 성능을 입증하지는 않는다.
 
-Explicit textual embeddings register unique lowercase `[a-z][a-z0-9_]{0,127}`
-tokens and canonical local weight paths through `NativeAdvancedControls.embeddings`.
-They are eagerly loaded/validated against the active conditioner before sampling;
-unsupported architectures or invalid vectors fail instead of falling back to
-ordinary words. Their identities participate in the native context cache key.
-If a token is not already present in the positive or negative prompt, the native
-adapter appends it to positive conditioning. Explicit registration overrides a
-same-named default embedding and removes that token's automatic negative insertion.
-Resident native calls load embedding sources anonymously, and repeat token loads
-use cached vectors before reopening a file. Context release follows the existing
-runtime policy; the app does not force a disk-backed embedding reload between jobs.
-The managed `native-resident-alignment` patch aligns pristine and writable-copy
-anonymous buffers to the backend's queried alignment. Plain malloc was insufficient
-for small files and could abort the process at CPU buffer registration. Bulk-read
-tests cover tiny/odd source sizes and private copies; CLIP embedding loading remains
-part of the regression suite.
-The legacy process worker still rejects these two controls.
-`NativeTextConditioningTests` exercises the real parser and CLIP embedding loader
-with tiny generated F32 safetensors: exact vector values, mismatched dimensions,
-cached reuse while the fixture source is temporarily moved, and token weights in
-enabled/literal modes. It creates only CLIP tensor metadata and does not run a
-pretrained text encoder or diffusion model; full-model quality is separate evidence.
+네이티브 참조 입력은 제출 순서대로 호출자 소유의 RGB 버퍼이며 (최대 20 개까지입니다). 첫 번째는 img2img 초기 이미지이며, `imageStrength` 는 [0에서의 노이즈 제거량이고, 1]는 주의 가중치가 아닙니다. 편집 아키텍처는 또한 완전한 정렬된 참조 목록을 추가로 받습니다. 관리 엔진 용량 쿼리는 아무런 알림 없이 무시하는 대신 일반 img2img 모델에서 여러 참조를 거부합니다; 용량은 로드된 아키텍처에 의존하며 파일 이름에 의존하지 않습니다. 추론 전에 모든 차원과 바이트 수가 검증됩니다. 기존 프로세스 작업자는 참조 입력을 여전히 거부합니다.
 
-`freeU=true` enables the native UNet decoder's FreeU operations, not a prompt
-modifier or output filter. It follows the [Diffusers v0.40.0 tensor contract](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/utils/torch_utils.py):
-at each block of the first two decoder resolution stages, amplify the first
-half of backbone channels and apply the threshold-1 Fourier mask to the skip
-features before concatenation. ControlNet residuals are incorporated before
-FreeU, and the same policy applies in the Hires pass. It uses the constant
-backbone scaling variant, not the original repository's adaptive hidden-mean variant.
+`promptWeighting=false` 는 컨디셔너 파서를 리터럴 텍스트 (괄호, 이스케이프, 명시적 가중치 구문 및  BREAK 포함) 로 전환합니다. 프롬프트를 재작성하거나 모델 가중치를 다시 로드하지 않고 양성과 음성 컨디셔닝에 적용됩니다. 각 네이티브 요청은 정책을 다시 적용하므로 캐싱된 리터럴 모드 컨텍스트가 기존 가중치 생성으로 누출될 수 없습니다. 관리된  `native-text-conditioning` 패치는 모든 컨디셔너 주의-파서 호출 사이트를 해당 컨텍스트 정책을 통해 라우팅합니다.
 
-The boolean UI uses the [published Diffusers model profiles](https://huggingface.co/docs/diffusers/main/en/using-diffusers/freeu):
+명시적 텍스트 임베딩은 `NativeAdvancedControls.embeddings`를 통해 고유한 소문자 `[a-z][a-z0-9_]{0,127}` 토큰과 표준 로컬 가중치 경로를 등록한다. 샘플링 전에 즉시 적재하여 활성 컨디셔너에 대해 검증하며, 미지원 아키텍처나 잘못된 벡터는 일반 단어로 대체하지 않고 실패한다. 식별자는 네이티브 컨텍스트 캐시 키에 포함된다. 포지티브 또는 네거티브 프롬프트에 토큰이 없다면 네이티브 어댑터는 이를 포지티브 조건에 추가한다. 명시적 등록은 같은 이름의 기본 임베딩을 덮어쓰고 해당 토큰의 자동 네거티브 삽입을 제거한다. 상주 네이티브 호출은 임베딩 원본을 익명 메모리에 적재하며, 토큰의 반복 로딩은 파일을 다시 열기 전에 캐시된 벡터를 사용한다. 컨텍스트 해제는 기존 런타임 정책을 따르며 앱은 작업 사이에 디스크 기반 임베딩 재로딩을 강제하지 않는다. 관리되는 `native-resident-alignment` 패치는 변경되지 않은 익명 버퍼와 쓰기 가능한 복사본을 백엔드가 조회한 정렬 조건에 맞춘다. 일반 malloc은 작은 파일에 충분하지 않아 CPU 버퍼 등록 시 프로세스가 중단될 수 있었다. 일괄 읽기 테스트는 아주 작은 크기/홀수 크기의 원본과 비공개 복사본을 다루며, CLIP 임베딩 로딩은 회귀 스위트에 계속 포함된다. 레거시 프로세스 작업자는 이 2개 제어를 여전히 거부한다. `NativeTextConditioningTests`는 생성한 작은 F32 safetensors로 실제 파서와 CLIP 임베딩 로더를 검사한다. 정확한 벡터 값, 크기 불일치, 픽스처 원본을 임시 이동한 상태의 캐시 재사용, 활성/리터럴 모드의 토큰 가중치를 확인한다. CLIP 텐서 메타데이터만 만들며 사전 학습 텍스트 인코더나 확산 모델은 실행하지 않는다. 전체 모델 품질은 별도의 증거이다.
 
-| Native profile | b1 | b2 | s1 | s2 |
+`freeU=true` 는 네이티브 UNet 디코더의 FreeU 작업을 활성화하며, 프롬프트 수정자나 출력 필터가 아닙니다. 그것은 [Diffusers v0.40.0 텐서 계약](https://github.com/huggingface/diffusers/blob/v0.40.0/src/diffusers/utils/torch_utils.py)를 따르며, 첫 번째 2 디코더 해상도 단계의 각 블록에서 백본 채널의 첫 번째 절반을 증폭하고 연결 전에 임계값 -1 푸리에 마스크를 스킵 기능에 적용합니다. ControlNet 잔여값은 FreeU 전에 통합되며, 동일한 정책은 Hires 패스에서 적용됩니다. 그것은 상수 백본 스케일링 변형을 사용하며, 원래 저장소의 적응형 숨김 평균 변형이 아닙니다.
+
+부울 UI는 [게시된 Diffusers 모델 프로필](https://huggingface.co/docs/diffusers/main/en/using-diffusers/freeu)를 사용합니다.
+
+|네이티브 프로필| b1 | b2 | s1 | s2 |
 | --- | --- | --- | --- | --- |
 | SD 1.5 | 1.2 | 1.4 | 0.9 | 0.2 |
 | SD 2 | 1.1 | 1.2 | 0.9 | 0.2 |
 | SDXL | 1.1 | 1.2 | 0.6 | 0.4 |
 
-The managed `native-freeu` patch owns the profile table and numerical graph helper
-in a separate `model/diffusion/freeu.hpp`; UNet only calls that helper. The skip
-filter evaluates the four modified Fourier bins directly, including the real
-projection of the reference's asymmetric mask. This is the same linear transform,
-not a blur approximation. Backbone operations remain ordinary backend graph ops;
-the frequency kernel uses the CPU fallback and parallelizes across channels/batches.
-This may add CPU work/device transitions; no zero-overhead or quality guarantee is
-claimed. Enabling does not download models, train weights or rebuild the model
-context. Every request reapplies the flag, including legacy requests disabling it.
-Non-UNet, tiny UNet and animated models reject enabled FreeU before sampling.
-The legacy process worker remains unsupported. Numerical tests compare with an
-independently written full DFT/inverse-DFT oracle and run real graph computation;
-full-model output quality remains a separate verification requirement.
+관리되는 `native-freeu` 패치는 별도의 `model/diffusion/freeu.hpp`에 프로필 표와 수치 그래프 보조 함수를 소유하며, UNet은 이 보조 함수만 호출한다. skip 필터는 참조 비대칭 마스크의 실수 투영을 포함하여 수정된 Fourier bin 4개를 직접 평가한다. 이는 동일한 선형 변환이며 블러 근사가 아니다. backbone 연산은 일반 백엔드 그래프 연산으로 유지하고, 주파수 커널은 CPU 대체 경로를 사용하여 채널/배치 전반에 병렬화한다. 이 동작은 CPU 작업/장치 전환을 추가할 수 있으며, 오버헤드 0이나 품질을 보장한다고 주장하지 않는다. 활성화해도 모델 다운로드·가중치 학습·모델 컨텍스트 재빌드는 수행하지 않는다. 이를 비활성화하는 레거시 요청을 포함하여 모든 요청이 플래그를 다시 적용한다. UNet가 아닌 모델·아주 작은 UNet·애니메이션 모델은 활성화한 FreeU를 샘플링 전에 거부한다. 레거시 프로세스 작업자는 계속 미지원이다. 수치 테스트는 독립적으로 작성한 전체 DFT/역 DFT 기준과 비교하고 실제 그래프 연산을 실행한다. 전체 모델 출력 품질은 별도의 검증 요구사항이다.
 
-Up to 64 ordered applied Canny/Tile ControlNets are connected for SD 1.5 and SDXL base models.
-`NativeAdvancedControls.controls` supplies a canonical local model, owned RGB hint
-(at most 2048 per side), process and finite weight in [0,2]. Canny uses the engine's
-real CPU edge detector (high/low 0.08, weak 0.8, strong 1, not inverted) on a private
-copy; Tile passes RGB unchanged. The hint is resized by the engine for each base/
-Hires canvas. The model's architecture/tensor validation runs during context
-assembly; unsupported families and a missing ControlNet fail before inference.
-Weights join the anonymous resident model loader and the context identity;
-changing image/process/weight reuses the context, replacing/removing the model
-does not. This does not promise identical output for distinct control models.
-The managed `native-controlnet-fail-closed` patch propagates ControlNet compute
-failure out of sampling instead of continuing without the requested conditioning.
-`native-controlnet-hires-hint` rebuilds the hint at the target Hires canvas size
-instead of reusing a base-resolution hint with the enlarged latent.
-`NativeControlPreprocessingTests` runs actual Canny on synthetic pixels;
-the `native-canny-preprocessing` patch corrects zero-gradient thresholding,
-gradient-direction range comparisons and complete eight-neighbor weak-edge
-hysteresis. Tests cover a black image, rectangle edges, all direction bins and
-a reverse-diagonal weak chain disconnected from an isolated weak edge.
-Adapter fixture tests cover forwarding, cache identity, isolation and rejection.
-They are not full-model ControlNet output/quality verification.
+최대 64 개의 정렬된 적용된 Canny/Tile ControlNets 는 SD 1.5 및 SDXL 기본 모델에 연결됩니다. `NativeAdvancedControls.controls` 는 정통 로컬 모델을 공급하며, RGB 힌트 (각 측마다 최대 2048 개), 프로세스 및 [0,2]의 유한 가중치를 소유합니다. Canny 는 엔진의 실제 CPU 에지 검출기 (높음/낮음 0.08, 약함 0.8, 강함 1, 반전되지 않음) 를 사본에 적용하고, Tile 은 RGB 를 그대로 전달합니다. 힌트는 엔진에 의해 각 기본/Hires 캔버스마다 리사이즈됩니다. 모델의 아키텍처/텐서 검증은 컨텍스트 조립 중에 실행되며, 지원되지 않는 계열과 누락된 ControlNet 는 추론 전에 실패합니다. 가중치는 익명 거주 모델 로더와 컨텍스트 식별자에 연결되며, 이미지/프로세스/가중치를 변경하면 컨텍스트를 재사용하고, 모델을 교체하거나 제거하면 컨텍스트가 변경되지 않습니다. 이것은 서로 다른 제어 모델에 대해 동일한 출력을 보장하지 않습니다. 관리되는 `native-controlnet-fail-closed` 패치는 요청된 조건 없이 계속하는 대신 ControlNet 계산 실패를 샘플링에서 전파합니다. `native-controlnet-hires-hint` 는 확대된 잠재 표현을 재사용하는 대신 타겟 Hires 캔버스 크기에 힌트를 재구성합니다. `NativeControlPreprocessingTests` 는 합성 픽셀에 실제 Canny 를 실행하며, `native-canny-preprocessing` 패치는 0-기울기 임계값 처리, 기울기 방향 범위 비교 및 완전한 8-인접 약한 에지 히스테리시스를 수정합니다. 테스트는 검은색 이미지, 직사각형 모서리, 모든 방향 바이너스 및 고립된 약한 에지에서 분리된 역 대각선 약한 연쇄를 포함합니다. 어댑터 픽스처 테스트는 전달, 캐시 동일성, 격리 및 거부를 포함합니다. 그것들은 전체 모델 ControlNet 출력/품질 검증이 아닙니다.
 
-The managed `native-multi-controlnet` patch prepares every selected model before
-sampling. Each has its own model manager and resident parameter storage; a disk
-parameter backend is rejected. In each Base UNet evaluation, models execute in
-submitted order. Every residual is independently masked and multiplied by that
-model's weight, then **summed without averaging**. The aggregate reaches the UNet
-with strength 1, so weights are not applied twice. A zero-weight selected model
-still executes and validates; it is not silently removed from the request.
-Failed model preparation, hint processing, computation, mismatched residual
-shapes, non-finite values or cancellation abort the entire request. No successful
-subset is published. Each hint is resized to the current latent canvas, including
-Hires; Base control residuals are not passed into the Refiner branch.
-Seamless convolution axes are applied/reset on every selected model. Registered
-inputs activate the public image generation API directly, without also requiring
-a duplicate legacy `control_image` argument; the first owned hint supplies that
-compatibility image internally.
+관리되는 `native-multi-controlnet` 패치는 샘플링 전에 각 선택된 모델을 준비합니다. 각각은 자체 모델 관리자와 거주 파라미터 저장소가 있으며 디스크 파라미터 백엔드는 거절됩니다. 각 Base UNet 평가에서 모델은 제출된 순서대로 실행됩니다. 각각의 잔여는 독립적으로 마스킹되고 해당 모델의 가중치에 곱한 후 **평균 없이**합산됩니다. 총합은 UNet 에 도달하며 1강도를 가지므로 가중치가 두 번 적용되지 않습니다. 0-가 선택된 모델은 여전히 실행되고 유효성을 검증하며, 요청에서 아무런 알림 없이 삭제되지 않습니다. 모델 준비, 힌트 처리, 계산, 불일치한 잔여 형상, 비유한 값 또는 취소는 전체 요청을 중단합니다. 성공적인 하위 집합은 게시되지 않습니다. 각 힌트는 Hires 를 포함하여 현재 잠재 표현 캔버스에 크기가 조정되며, 기본 제어 잔여치는 리파이너 분지로 전달되지 않습니다. 연속된 합성곱 축은 선택된 모든 모델에 적용되거나 초기화됩니다. 등록된 입력은 중복된 레거시 API 인수를 요구하지 않고 직접 공개 이미지 생성 `control_image` 을 활성화합니다; 첫 번째 소유 힌트는 내부적으로 해당 호환성 이미지를 제공합니다.
 
-The additive C API `sd_prepare_control_nets(ctx, paths, count)` atomically prepares
-models. Repeating the same ordered paths reuses resident models. Standalone C API
-callers replacing a file at the same path must explicitly clear/reprepare; the SDK
-already fingerprints every selected model and invalidates the context if any
-changes. `sd_set_control_net_inputs` copies independently owned RGB/mask inputs.
-Count zero disables inputs without releasing weights; prepare count zero explicitly
-releases the models. End-of-pass cleanup releases calculation scratch, not weights.
-Changing only hints, masks, processes or weights reuses the SDK's model context.
-`NativeMultiControlTests` verifies numerical weighted sums, independent masks,
-source ownership, resize, failure, cancellation and shape validation.
-`NativeRefinerSamplingTests` exercises the real production sampler with controlled
-neural compute to verify aggregate residual injection, no double scaling, later
-layer failure, seamless axes/reset, cleanup and changed canvas size. It also runs
-the public generation API through batches, Hires and Refiner switches with the
-registered inputs alone. Desktop/mobile adapter fixtures
-verify all inputs and every model identity. These are not real-checkpoint quality
-or throughput measurements.
+가산 C API `sd_prepare_control_nets(ctx, paths, count)` 는 원자적으로 모델을 준비합니다. 동일한 순서된 경로를 반복하면 거주하는 모델을 재사용합니다. 동일한 경로에서 파일을 대체하는 독립형 C API 호출자는 명시적으로 지우기/재준비를 해야 하며, SDK 는 이미 선택된 모든 모델에 지문 정보를 부여하고 변경 사항이 있으면 컨텍스트를 무효화합니다. `sd_set_control_net_inputs` 는 독립적으로 소유된 RGB /마스크 입력을 복사합니다. 개수 0 는 가중치를 해제하지 않고 입력을 비활성화하며, 준비 개수 0 는 모델을 명시적으로 해제합니다. 패스 종료 정리 작업은 계산 임시 파일을 해제하며, 가중치는 해제되지 않습니다. 힌트, 마스크, 프로세스 또는 가중치만 변경하는 경우 SDK 의 모델 컨텍스트를 재사용합니다. `NativeMultiControlTests` 는 수치 가중 합, 독립적인 마스크, 소스 소유권, 리사이즈, 실패, 취소 및 형식 검증을 확인합니다. `NativeRefinerSamplingTests` 는 제어된 신경 계산을 통해 실제 프로덕션 샘플러를 실행하여 집계 잔여 주입, 이중 스케일링, 후기 레이어 실패, 원활한 축/리셋, 정리 및 변경된 캔버스 크기를 검증합니다. 또한 등록된 입력만 사용하여 공개 생성 API 를 배치, Hires 및 리파이너 스위치를 통해 실행합니다. 데스크탑/모바일 어댑터 픽스처 는 모든 입력과 각 모델 식별자를 확인합니다. 이것은 실제 체크포인트 품질이나 처리량 측정치가 아닙니다.
 
-Regional masks for each connected Canny/Tile ControlNet use the optional
-`NativeAdvancedControls::ControlNet::mask` RGB coverage image. An empty image
-disables masking. The SDK validates dimensions and byte count before sampling,
-copies coverage through `sd_set_control_net_mask` (single) or the per-layer input
-setter (multiple), and clears it for every later
-unmasked/legacy request even when the model context is cached. Changing mask
-pixels does not reload model weights. The old process-worker route still rejects
-regional masks.
+각 연결된 Canny/Tile ControlNet 에 대한 지역 마스크는 선택적인 `NativeAdvancedControls::ControlNet::mask` RGB 커버리지 이미지를 사용합니다. 빈 이미지는 마스크를 비활성화합니다. SDK 는 샘플링 전에 차원과 바이트 수를 검증하며, `sd_set_control_net_mask` (단일) 또는 레이어별 입력 세터를 통해 커버리지를 복사하고, 모델 컨텍스트가 캐시되어 있더라도 모든 후기 미삭제/레거시 요청에 대해 이를 지웁니다. 마스크 픽셀을 변경하면 모델 가중치를 다시 로드하지 않습니다. 기존 프로세스 워커 라우트는 여전히 지역 마스크를 거부합니다.
 
-The managed `native-controlnet-region-mask` patch multiplies every ControlNet
-output residual spatially before it reaches the UNet. This applies to conditional
-and unconditional evaluations and every base/Hires residual resolution, not to
-the input hint or final RGB. White means full influence, black means zero and
-gray means proportional influence. It is not an inpainting mask and does not
-guarantee that final pixels outside the mask are unchanged: the UNet remains a
-spatially coupled model. Refiner and Detailer crop passes without ControlNet do
-not acquire this mask.
+관리되는 `native-controlnet-region-mask` 패치는 UNet 에 도달하기 전에 모든 ControlNet 출력 잔여를 공간적으로 곱합니다. 이는 조건부 및 무조건 평가와 모든 기본/Hires 잔여 해상도에 적용되며, 입력 힌트나 최종 RGB 에는 적용되지 않습니다. 흰색은 전체 영향력을, 검은색은 영의 영향력을, 회색은 비례된 영향력을 의미합니다. 그것은 인페인팅 마스크가 아니며, 마스크 밖의 최종 픽셀이 변경되지 않았음을 보장하지 않습니다: UNet 는 여전히 공간적으로 결합된 모델로 남아있습니다. ControlNet 없이 Refiner 와 Detailer 의 크롭 패스는 이 마스크를 획득하지 않습니다.
 
-Coverage is RGB luminance `(77R + 150G + 29B) / (256 * 255)`; the public C API
-also accepts one-channel or RGBA pixels (alpha multiplies coverage). Pixel-center
-bilinear interpolation stretches normalized mask coordinates to each residual
-plane. Per-resolution coverage is cached within the request and repeated across
-feature channels and batch. All shapes are validated before residual mutation.
-The product decoder already combines alpha into grayscale RGB coverage.
-`NativeControlMaskTests` checks numerical interpolation, channel/batch broadcast,
-source ownership, alpha, black/white endpoints, cache replacement and malformed
-shape atomicity. The actual setter is covered in `NativeRefinerSamplingTests`;
-adapter fixtures check forwarding, failure and reset. These are not full-model
-regional generation quality tests.
+커버지는 RGB  휘도 `(77R + 150G + 29B) / (256 * 255)` 입니다; 공개 C API 도 단일 채널 또는 RGBA 픽셀을 허용합니다 (알파가 커버지를 곱합니다). 픽셀 중심 선형 보간은 정규화된 마스크 좌표를 각 잔여 평면에 늘립니다. 해당 분해능에 대한 커버리지는 요청 내에서 캐싱되며, 기능 채널과 배치에 걸쳐 반복됩니다. 모든 모양은 잔여 변형 전에 검증됩니다. 제품 디코더는 이미 알파를 회색조 RGB 커버리지로 결합합니다. `NativeControlMaskTests` 수치적 보간, 채널/배치 브로드캐스트, 소스 소유권, 알파, 검정/흰색 끝점, 캐시 교체 및 잘못된 형식 원자성을 확인합니다. 실제 세터는 `NativeRefinerSamplingTests` 에서 다루어지며, 어댑터 픽스처 의 전달, 실패 및 초기화도 포함됩니다. 이것은 전체 모델 지역 생성 품질 테스트가 아닙니다.
 
-`detailer=true` requires `detailerModel`, a canonical local converted YOLOv8
-detection checkpoint. This follows the native [ADetailer contract](https://github.com/leejet/stable-diffusion.cpp/blob/d04e8950c1ec8d30248cbe996682b3182fb1adf6/docs/adetailer.md):
-fused convolution/BatchNorm weights, not a raw Ultralytics pickle, segmentation
-checkpoint or MediaPipe model. No model is downloaded or automatically converted.
-The managed `native-resident-detailer` patch loads anonymous source bytes and CPU
-parameter storage eagerly before base generation. The detector computes on the
-selected backend and shares explicit cache-release ownership with diffusion.
-Source identity participates in cache invalidation and the final consistency check.
+`detailer=true` 는 `detailerModel`, 표준적인 로컬 변환된 YOLOv8 탐지 체크포인트를 필요로 합니다. 이는 네이티브 [ADetailer 계약](https://github.com/leejet/stable-diffusion.cpp/blob/d04e8950c1ec8d30248cbe996682b3182fb1adf6/docs/adetailer.md)에 따릅니다: 합쳐진 합성곱/ BatchNorm 가중치, 원시 Ultralytics 피클, 분할 체크포인트 또는 MediaPipe 모델이 아닙니다. 모델은 다운로드되거나 자동으로 변환되지 않습니다. 관리되는 `native-resident-detailer` 패치는 기본 생성 전에 익명 소스 바이트와 CPU 매개변수 저장을 즉시 로드합니다. 탐지기는 선택된 백엔드에서 계산을 수행하며 확산과 명시적인 캐시 방출 소유권을 공유합니다. 소스 식별자는 캐시 무효화와 최종 일관성 검사에 참여합니다.
 
-After generation/Hires, actual YOLO detection and NMS produce masks, each cropped
-region is regenerated at 512x512 with the main prompt, negative prompt, sampler,
-steps, CFG and LoRAs, then feathered back into the original canvas. The submitted
-`denoiseStrength` controls crop regeneration and must be positive when enabled.
-Native detector defaults remain confidence 0.3, NMS 0.45, at most 100 detections,
-four-pixel dilation/feathering and 32-pixel crop padding. Crops do not inherit
-whole-image references, ControlNet hints or Hires. Output dimensions remain fixed.
-Crop-only previews are suppressed; completion publishes the composited canvas.
+생성/Hires 이후, 실제 YOLO 탐지와 NMS 는 마스키를 생성하며, 각 잘린 영역은 512x512 에서 메인 프롬프트, 부정 프롬프트, 샘플러, 단계, CFG 와 LoRAs 로 다시 생성된 후 원래 캔버스에 깃털 처리되어 다시 합쳐집니다. 제출된 `denoiseStrength` 는 잘린 영역 재생을 제어하며 활성화될 때 양수여야 합니다. 네이티브 탐지기의 기본값은 신뢰도 0.3, NMS 0.45, 최대 100 개의 탐지, 4픽셀의 팽창/깃털 처리 및 32픽셀의 잘린 패딩입니다. 잘린 영역은 전체 이미지 참조, ControlNet 힌트 또는 Hires 를 상속하지 않습니다. 출력 차원은 고정되어 있습니다. 잘린 영역만 포함된 미리보기는 억제되며, 완료는 합성된 캔버스를 게시합니다.
 
-Zero detections is a valid unchanged image. Detector graph failure/malformed or
-nonfinite output is distinct and fails the job. Masked generation failure or
-cancellation also fails/cancels instead of publishing the unmodified base image.
-Abort/pause callbacks are observed before detection and between detected regions.
-Both base and refinement image allocations are owned and released on failures.
-`NativeDetailerTests` uses real CPU/Metal YOLO graphs and production mask/composite
-code with only the diffusion sampler substituted. Controlled weights verify
-detection/no-detection, source removal, repeat execution, feathered composition,
-input isolation, failure and cancellation. It is not real-checkpoint quality proof.
+0 검출은 유효한 변경되지 않은 이미지입니다. 검출 그래프 실패/형식 오류 또는 무한대 출력은 구별되며 작업을 실패시킵니다. 마스크 생성 실패 또는 취소도 게시되지 않은 기본 이미지를 게시하거나 취소하는 대신 실패/취소를 수행합니다. 중단/일시정지 콜백은 검출 전 및 검출된 영역 사이에 관찰됩니다. 기본 및 개선 이미지 할당은 실패 시 소유되고 해제됩니다. `NativeDetailerTests` 은 실제  CPU / Metal   YOLO  그래프와 프로덕션 마스크/ 합성  코드를 사용하며 확산 샘플러만 대체됩니다. 제어된 가중치는 검출/비검출, 소스 제거, 반복 실행, 깃털 모양 합성, 입력 격리, 실패 및 취소를 확인합니다. 그것은 실제 체크포인트 품질 증명입니다.
 
-Other control preprocessors, alpha output,
-face restoration and safety filters are currently reported as unsupported. Draft values
-for inactive dependent controls are retained without enabling their parent feature.
-Do not discard unsupported active fields and report a successful generation.
+기타 제어 전처리기, 알파 출력, 얼굴 복원 및 안전 필터는 현재 지원되지 않는 것으로 보고됩니다. 비활성 종속 컨트롤의 초안 값은 상위 기능을 활성화하지 않고도 유지됩니다. 지원되지 않는 활성 필드를 삭제하지 말고 성공적인 생성을 보고하십시오.
 
-### Final-image watermark compositing
+<a id="final-image-watermark-compositing"></a>
 
-`Generation/ImageWatermark.hpp` exports the Qt-free C++23
-`compositeImageWatermark` operation. The caller supplies borrowed straight-alpha
-RGBA8 source/destination buffers in one color space, independent row strides,
-a fully contained target rectangle and opacity in [0,1]. It resizes using
-premultiplied-alpha bilinear interpolation and performs source-over compositing.
-Transparent source colors cannot bleed into edges; destination alpha and row
-padding are preserved correctly. It changes only covered pixels, allocates no
-image-sized temporary buffer, and retains no pointers after returning.
+### 최종 이미지 워터마크 합성
 
-Validation precedes all writes: malformed/truncated buffers, overflowing row
-layout, invalid geometry, nonfinite opacity and aliased storage fail with an
-error and unchanged destination. Zero opacity is a validated no-op. The SDK
-does not know Dreamscapes branding, placement defaults, file codecs or profiles.
+`Generation/ImageWatermark.hpp` 는  Qt -free  C++23   `compositeImageWatermark`  작업을 내보냅니다. 호출자는 빌려온 직선 알파  RGBA8 소스/대상 버퍼를 하나의 색상 공간, 독립적인 행 스트라이드, 완전히 포함된 대상 직사각형 및  [0,1]에서의 불투명도를 제공합니다. 그것은 프리멀티플라이드 알파 쌍선형 보간을 사용하여 크기를 조정하며 소스-오버  합성 를 수행합니다. 투명한 소스 색상이 가장자리로 새어 들어갈 수 없습니다; 대상 알파와 행 패딩이 올바르게 보존됩니다. 피복된 픽셀만 변경하고, 이미지 크기의 임시 버퍼를 할당하지 않으며, 반환 후 포인터를 유지하지 않습니다.
 
-`watermark` is a publication effect, like color profile and metadata retention;
-it is now accepted for either supported product-native route. Raw inference
-APIs do not automatically brand their returned RGB. Dreamscapes invokes the
-compositor after final inference/refinement/cropping, before atomic history
-publication. It supplies its existing common brand PNG, applies the selected
-color profile to both images, and uses a bottom-right square at 1/16 of the
-short side (1..128 pixels), a 1/64 margin (fitted to small images), and 55%
-opacity. These defaults are product policy, independent of the reusable SDK.
-It is a visible brand mark, not invisible provenance or a tamper-proof signature.
+모든 쓰기가 검증에 선행됩니다: 변형/단축된 버퍼, 행 레이아웃 초과, 유효하지 않은 기하 구조, 비유한 투명도 및 대조된 저장소는 오류로 실패하고 대상은 변경되지 않습니다. 0 투명도는 검증된 무작위 작업입니다. SDK 는 Dreamscapes 브랜드, 배치 기본값, 파일 코덱 또는 프로파일을 알 수 없습니다.
 
-Watermark is off by default. It does not change output size, previews, metadata
-policy or the raw engine output file. Queued snapshots own the switch value;
-later draft edits cannot change already queued outputs. Missing assets and
-compositing/encoding failures prevent publication instead of silently omitting
-the requested mark. Real inference quality is orthogonal to these pixel tests.
+`watermark` 는 색상 프로파일 및 메타데이터 유지와 같은 출판 효과입니다; 이제 지원되는 제품 네이티브 경로 중 어느 하나에도 받아들여집니다. 원시 추론 API 는 반환된 RGB 에 자동으로 브랜드를 붙이지 않습니다. Dreamscapes 는 최종 추론/정제/자르기 후 원자적 역사 출판 전에 컴포지터를 호출합니다. 기존 공통 브랜드 PNG 를 제공하고 선택된 색상 프로파일을 두 이미지에 적용하며, 짧은 쪽의 1/16 ( 1..128 픽셀) 에 있는 오른쪽 아래 사각형을 사용하고, 1/64 여백 (작은 이미지에 맞춤) 과 55% 투명도를 사용합니다. 이 기본값은 제품 정책이며 재사용 가능한 SDK 와는 독립적입니다. 이는 가시적인 브랜드 표시이며, 보이지 않는 출처 또는 변조 방지 서명이 아닙니다.
 
-Verification on 2026-09-29: the library and new public compositor test rebuilt;
-all 23 selected SDK suites passed in 27.20 seconds
-(`build/watermark-final-sdk-tests.log`). Exact tests cover opaque/translucent
-source-over, premultiplied edge interpolation, transparent/zero-opacity no-ops,
-independent strides/padding, aliased/truncated/overflowing buffers, invalid
-geometry and atomic failure. The staged dylib has the same Mach-O UUID as the
-built library. Product tests additionally decode the real bundled brand PNG,
-check final pixels/profiles/metadata and byte-for-byte engine source retention,
-and verify both in-process and worker queue publication with later draft edits.
+워터마크는 기본적으로 꺼져 있습니다. 출력 크기, 미리보기, 메타데이터 정책 또는 원시 엔진 출력 파일을 변경하지 않습니다. 대기 중인 스냅샷이 스위치 값을 소유하며, 이후 초안 편집은 이미 대기 중인 출력을 변경할 수 없습니다. 누락된 자산과 합성 /인코딩 실패는 아무런 알림 없이 요청된 표시를 생략하는 대신 출판을 방지합니다. 실제 추론 품질은 이 픽셀 테스트와 직교합니다.
 
-### Independent IP-Adapter attention and regional coverage
+2026-09-29에서 검증: 라이브러리와 새 공개 컴포지터가 재빌드되었고, 모든 23 선택된 SDK 스위트가 27.20 초 ( `build/watermark-final-sdk-tests.log` ) 동안 통과했습니다. 정확한 테스트는 불투명/반투명 오버레이, 사전 곱해진 가장자리 보간, 투명/0-불투명성 무작동, 독립적인 스트라이드/패딩, 별칭/잘림/과부하 버퍼, 유효하지 않은 기하 구조 및 원자적 실패를 모두 다룹니다. 단계화된 dylib 는 빌드된 라이브러리와 동일한 Mach-O UUID 를 가집니다. 제품 테스트는 실제 번들 브랜드 PNG 를 추가로 디코딩하고, 최종 픽셀/프로필/메타데이터를 확인하며, 바이트 단위의 엔진 소스 보존을 검증하고, 프로세스 내 및 워커 큐 발행을 후기 초안 편집과 함께 확인합니다.
 
-The managed `native-multi-ip-attention` follow-up adds a private native UNet
-input vector. Each entry names a distinct slot (0–63), projected image tokens,
-finite strength in [0,2], and optional spatial coverage. Its K/V parameters use
-`<unet-attn2>.ip_adapters.<slot>.to_k.weight` and `to_v.weight`; widths and token
-counts may differ across adapters. Legacy single-adapter names remain supported,
-but mixing legacy tokens and indexed inputs in one request is rejected.
+<a id="independent-ip-adapter-attention-and-regional-coverage"></a>
 
-Each adapter computes its own image softmax from the shared query, applies its
-own regional coverage and strength, and adds its contribution to text attention
-before the common output projection. There is no token concatenation, averaging,
-text masking or second application on self-attention. A single image-token batch
-broadcasts explicitly to the latent batch; an incompatible batch is rejected.
-SpatialTransformer supplies actual width/height and restores prior state on
-success or error, so rectangular and multi-resolution attention do not infer a
-square from token count. Per-slot/per-resolution mask graph inputs are reused.
+### 독립적인 IP-어댑터 관심 및 지역 적용 범위
 
-ControlNet residuals and image attention share `ControlRegionMask::coverage`'s
-pixel-center bilinear interpolation. The request owns the source mask and cached
-float arrays; these borrowed arrays must remain alive and unchanged until graph
-execution finishes. No mask callback means full coverage; a callback returning
-null, wrong-sized, non-finite or out-of-range coverage is a failed request.
-Missing K/V pairs, duplicate/unbound slots and malformed/non-finite CPU tokens
-also fail, including at zero strength. UNet catches typed attention-input errors
-and returns an empty result through normal graph cleanup, rather than propagating
-an exception or silently generating without the requested condition.
+관리된 `native-multi-ip-attention` 후속 작업은 비공개 네이티브 UNet 입력 벡터를 추가합니다. 각 항목은 고유한 슬롯 ( 0 – 63 ), 투영된 이미지 토큰, [0,2]의 유한 강도, 그리고 선택적 공간 커버리지를 지정합니다. 그 K/V 파라미터는 `<unet-attn2>.ip_adapters.<slot>.to_k.weight` 와 `to_v.weight` 를 사용하며, 너비와 토큰 개수는 어댑터마다 다를 수 있습니다. 레거시 단일 어댑터 이름은 계속 지원되지만, 하나의 요청에서 레거시 토큰과 인덱스 입력을 혼합하는 것은 거부됩니다.
 
-`NativeIPAdapterTests` verifies independent K/V/softmax against numerical oracles,
-unequal token widths/counts, sparse/reordered slots, zero and nonzero strengths,
-rectangular regional masks, shared/per-image batches, and convolutional/linear
-SpatialTransformer paths on CPU and Metal. A reduced-width production UNet graph
-uses controlled resident weights to verify `DiffusionParams` forwarding through
-four spatial resolutions, mask-input reuse, fail-closed cleanup and a successful
-retry. Only pretrained-weight residency is substituted in that integration test.
-This is not checkpoint-quality or installed-product proof.
+각 어댑터는 공유 쿼리에서 자체 이미지 소프트맥스를 계산하고, 자체 지역 커버리지와 강도를 적용하며, 공통 출력 투영 전에 텍스트 주의력에 기여분을 더합니다. 토큰 연결, 평균화, 텍스트 마스킹 또는 자기 주의력 두 번째 적용은 없습니다. 단일 이미지 토큰 배치 는 명시적으로 잠재 배치로 브로드캐스트되며, 호환되지 않는 배치는 거부됩니다. SpatialTransformer 는 실제 너비/높이를 제공하고 성공 또는 오류 시 이전 상태를 복원하므로, 직사각형과 다중 해상도 주의력이 토큰 개수에서 정사각형을 추론하지 않습니다. 슬롯별/해상도별 마스크 그래프 입력은 재사용됩니다.
 
-This graph-level foundation alone did not enable the product capability.
-Independent adapter/vision resource loading, request preparation and SDK/product
-forwarding are now connected by the follow-ups below. The installed application
-has not been replaced by these source/test changes.
+ControlNet 잔여값과 이미지 주의력은 `ControlRegionMask::coverage` 의 픽셀 중심 쌍선형 보간을 공유합니다. 요청이 소스 마스크와 캐시된 부동소수점 배열을 소유하며, 이 빌려온 배열은 그래프 실행이 완료될 때까지 살아있고 변경되지 않아야 합니다. 마스크 콜백이 없으면 전체 범위를 커버하며, null 을 반환하거나 잘못된 크기, 비유한, 범위 밖의 범위를 반환하는 콜백은 실패한 요청입니다. K/V 쌍이 누락되거나 중복/결합되지 않은 슬롯 및 형식화되지 않거나 CPU 토큰도 실패하며, 0 강도에서도 마찬가지입니다. UNet 는 타입화된 주의력 입력 오류를 포착하고 예외를 전파하거나 아무런 알림 없이 요청된 조건 없이 생성하는 대신 정상적인 그래프 정리를 통해 빈 결과를 반환합니다.
 
-Verification on 2026-09-29 rebuilt the native library and selected targets;
-21 SDK suites passed (130.19 seconds), including CPU and MTL0 execution. Exact
-patch reversal checks and repeated CMake configuration passed. After staging only
-to `build/install` and relinking product consumers, both product suites passed
-an unchanged rerun (39.19 seconds). The first product run's existing CPU-progress
-watchdog failure is retained in `multi-ip-product-tests.log`; the passing rerun
-is `multi-ip-final-product-tests.log`. This change does not claim to resolve that
-timing sensitivity. Optional real-model fixture cases remain skipped.
+`NativeIPAdapterTests` 는 독립적인 K/V/softmax 를 수치 오라클, 불균형 토큰 너비/개수, 희소/재배열된 슬롯, 영 및 영이 아닌 강도, 직사각형 지역 마스크, 공유/이미지별 배치, 합성곱/선형 SpatialTransformer 경로 및 CPU 와 Metal 에 대해 검증합니다. 축소된 너비 프로덕션 UNet 그래프는 제어된 거주 중량을 사용하여 `DiffusionParams` 전파를 4 공간 해상도, 마스크 입력 재사용, 안전하게 거부하는 정리 및 성공적인 재시도 를 통해 검증합니다. 그 통합 테스트에서는 사전 학습된 중량 거주성만 대체됩니다. 이는 체크포인트 품질이나 설치된 제품 증거가 아닙니다.
 
-### SDK and product IP-Adapter forwarding
+이 그래프 수준의 기반만으로는 제품 기능이 활성화되지 않았습니다. 독립적인 어댑터/비전 리소스 로딩, 요청 준비 및 SDK/제품 전달은 이제 아래 후속 작업으로 연결됩니다. 설치된 애플리케이션은 이러한 소스/테스트 변경으로 대체되지 않았습니다.
 
-`NativeAdvancedControls::ipAdapters` carries independent `{model, vision, image,
-weight, mask}` entries, up to 64. This is separate from `controls`: IP receives
-unprocessed reference RGB while a concurrent Canny ControlNet uses its own copy.
-Each entry requires canonical local weights, an owned RGB image at most 2048
-per side, finite [0,2] strength and optional same-bounds RGB coverage. The SDK
-uses the additive resident factory, checks the SD 1.5/SDXL Base family before
-loading, and resets copied native inputs on every request, including legacy
-requests that reuse the context. Base-only conditioning is already excluded
-from Refiner steps in the native sampler.
+2026-09-29 에서의 검증은 네이티브 라이브러리를 재구성하고 선택된 타겟을 통과시켰으며, 21 SDK 스위트가 통과했습니다 (130.19 초), CPU 및 MTL0 실행을 포함합니다. 정확한 패치 반전 확인과 반복 CMake 구성이 통과했습니다. 스테이지 단계에서 `build/install` 로만 제한하고 제품 소비자를 다시 연결한 후, 두 제품 스위트는 변경되지 않은 재실행 (39.19 초) 을 통과했습니다. 첫 번째 제품 실행의 기존 CPU -진행 감시자 실패는 `multi-ip-product-tests.log` 에 유지되며, 통과한 재실행은 `multi-ip-final-product-tests.log` 입니다. 이 변경은 해당 시간 민감성을 해결한다고 주장하지 않습니다. 선택적 실제 모델 픽스처 사례는 여전히 건너뜀.
 
-Before Detailer crop regeneration, the SDK clears indexed IP/ControlNet inputs
-and regional coverage, not their loaded resources. Whole-image mask/hint
-coordinates cannot be reused on a detected crop. The next Base request sets
-its inputs again. A regression first reproduced the leak with IP plus two
-ControlNets and Detailer, then verifies crop isolation and warm-request recovery.
+<a id="sdk-and-product-ip-adapter-forwarding"></a>
 
-Model/vision identities, order and count invalidate IP resource reuse; image,
-mask and strength changes do not. A same-Base request with no IP inputs retains
-the loaded context and disables conditioning, so re-enabling unchanged resources
-does not reload them. A different Base/other resource configuration can rebuild
-the context through existing cache rules. Both source identities are rechecked
-after inference; replacement fails the request and discards RGB output. Failures
-use the existing cache cleanup path; explicit runtime release retains its meaning.
+### SDK 및 제품 IP-어댑터 전달
 
-The parameter document adds `ipAdapterModel` and `ipAdapterVision` to each control.
-Missing fields in older presets default to empty; active submission reports the
-missing resources instead of corrupting or dropping old data. Process `None` or
-`IP-Adapter` with the toggle on uses only IP; `Canny`/`Tile` can use both branches.
-Unsupported detectors still fail even with IP enabled. The product independently
-canonicalizes weight sources and atomically decodes both input lists. Native
-resource loading, not a file extension, determines actual checkpoint compatibility.
+`NativeAdvancedControls::ipAdapters` 는 독립적인 `{model, vision, image, weight, mask}` 엔트리를 최대 64개까지 포함합니다. 이는 `controls` 와 별개이며: IP 는 처리되지 않은 참조 RGB 를 받지만 동시 Canny ControlNet 는 자체 복사본을 사용합니다. 각 엔트리는 정통 로컬 가중치가 필요하며, 소유된 RGB 이미지는 최대 2048 개씩, 유한한 [0,2] 강도와 선택적 동일 범위 RGB 커버리지가 필요합니다. SDK 는 가산 거주 팩토리를 사용하며, 로딩 전에 SD 1.5/SDXL 기본 계열을 확인한 후, 컨텍스트를 재사용하는 레거시 요청을 포함하여 모든 요청마다 복사된 네이티브 입력을 초기화합니다. 기본만 조건부는 네이티브 샘플러의 리파이너 단계에서 이미 제외되었습니다.
 
-SDK adapter tests substitute only the upstream C API and verify path/input
-forwarding, warm reuse, disable/re-enable and legacy reset, CPU placement,
-resource replacement, and failures before sampling. Separate native numerical
-and sampler tests exercise production attention and orchestration. Product tests
-exercise immutable queued snapshots and real bounded image decoding; GUI tests
-exercise the existing LVRS toggle and two-stage file selection. None substitutes
-for a real-checkpoint final artifact or installed-app verification.
+디테일러 작물 재생성 전에 SDK 는 인덱스된 IP / ControlNet 입력과 지역 커버리지를 지우며, 로드된 리소스는 아닙니다. 전체 이미지 마스크/힌트 좌표는 감지된 작물에서 재사용할 수 없습니다. 다음 기본 요청은 입력을 다시 설정합니다. 회귀 는 처음 IP 와 2 ControlNets 및 디테일러로 누수를 재현한 다음 작물 격리 및 온-요청 복구를 확인합니다.
 
-Forwarding verification on 2026-09-29 rebuilt the SDK library and passed all
-22 selected suites in 32.42 seconds (`build/ip-forward-final-sdk-tests.log`).
-The staged `build/install` library was relinked into product consumers:
-AdvancedParameters and Generation passed 2/2 in 44.01 seconds, with 12 and 61
-individual cases passing respectively; two optional real-model cases skipped.
-The unchanged product rerun passed after the earlier timing-sensitive watchdog
-failure; that failure is retained in `ip-forward-product-tests.log` and is not
-claimed fixed. Two focused GUI cases also passed (4 including setup/cleanup),
-covering independent inputs, two-stage cancellation/commit and workspace scroll
-retention. No global SDK or installed app was replaced.
+모델/시각 정체성, 순서 및 개수는 IP 리소스 재사용을 무효화하며, 이미지, 마스크 및 강도 변경은 아닙니다. IP 입력이 없는 동일한 기본 요청은 로드된 컨텍스트를 유지하고 조건부를 비활성화하므로, 변경되지 않은 리소스를 다시 활성화하면 다시 로드하지 않습니다. 다른 기본/다른 리소스 구성은 기존 캐시 규칙을 통해 컨텍스트를 다시 구축할 수 있습니다. 추론 후 두 소스 정체성이 다시 확인되며, 대체는 요청을 실패시키고 RGB 출력을 폐기합니다. 실패는 기존 캐시 정리 경로를 사용하며, 명시적인 런타임 릴리스는 그 의미를 유지합니다.
 
-### Resident IP-Adapter resources and request preparation
+파라미터 문서에는 각 컨트롤에 `ipAdapterModel` 와 `ipAdapterVision` 가 추가됩니다. 오래된 프리셋의 누락된 필드는 빈 값으로 기본값이며, 활성 제출은 기존 데이터를 손상시키거나 떨어뜨리는 대신 누락된 리소스를 보고합니다. 토글이 켜진 상태에서 `None` 또는 `IP-Adapter` 를 처리하면 IP 만 사용하며, `Canny` / `Tile` 는 두 가지 분기를 모두 사용할 수 있습니다. 지원되지 않는 탐지기는 IP 가 활성화되어 있더라도 여전히 실패합니다. 제품은 중량 소스를 독립적으로 정규화하고 두 입력 목록을 원자적으로 디코딩합니다. 실제 체크포인트 호환성을 결정하는 것은 파일 확장자가 아닌 네이티브 리소스 로딩입니다.
 
-The managed `native-ip-adapter-resources` patch adds
-`new_sd_ctx_with_ip_adapters(params, models, count)` without changing the existing
-`sd_ctx_params_t` ABI. Each of 1–64 descriptors supplies a local adapter and CLIP
-vision checkpoint. Only SD 1.5 and SDXL Base are accepted. Projection parameters
-and attention K/V weights use independent slot namespaces; an adapter cannot
-replace unrelated Base weights. The loader imports converted metadata atomically,
-preserves source offsets, rebases file indices and deduplicates repeated paths.
-Identical vision paths share one encoder. Incompatible/missing projection,
-vision or attention parameters abort context creation, never return a partial
-resource set. Legacy and indexed IP model configuration cannot be mixed.
+SDK 어댑터 테스트는 상위 공급 측 C API 만 대체하며 경로/입력 전달, 온난 재사용, 비활성화/재활성화 및 레거시 초기화, CPU 배치, 리소스 교체 및 샘플링 전 실패를 검증합니다. 별도의 네이티브 수치 및 샘플러 테스트는 프로덕션 어텐션 및 오케스트레이션을 연습합니다. 제품 테스트는 불변 대기열 스냅샷과 실제 한계가 설정된 이미지 디코딩을 연습하며, GUI 테스트는 기존 LVRS 토글과 2단계 파일 선택을 연습합니다. 실제 체크포인트 최종 아티팩트 또는 설치된 앱 검증은 None 으로 대체됩니다.
 
-The factory forces eager anonymous-memory model residency and disables file
-mapping; disk-backed diffusion/vision parameter placement is rejected. Inputs
-and transient runner scratch have separate lifetimes from context-owned model
-resources. Disabling inputs does not unload the models. Memory pressure remains
-subject to the OS, including its normal swap policy; this does not reserve RAM
-or guarantee successful allocation on an undersized machine.
+2026-09-29 에서의 전달 검증은 SDK 라이브러리를 재구성하고 22 선택된 모든 수트를 32.42 초 ( `build/ip-forward-final-sdk-tests.log` ) 내에 통과시켰습니다. `build/install` 라이브러리가 제품 소비자로 재링크되었으며, AdvancedParameters 와 Generation 은 44.01 초 내에 2/2 를 통과했고, 12 와 61 개별 사례는 각각 통과했으며, 2 선택적 실제 모델 사례는 건너뛰었습니다. 이전 타이밍 민감도 감시자 실패 후 변경되지 않은 제품이 재실행되어 통과했으며, 해당 실패는 `ip-forward-product-tests.log` 에 유지되어 수정되었다고 주장되지 않았습니다. 2 에 초점을 맞춘 GUI 사례도 통과했으며 ( 4 포함 설정/정리), 독립적인 입력, 2단계 취소/커밋 및 워크스페이스 스크롤 유지 범위를 커버했습니다. 전역 SDK 또는 설치된 앱이 교체되지 않았습니다.
 
-CLIP vision L/14, H/14 and bigG/14 are selected from checked weight dimensions,
-including the checkpoint's projection width. The vision encoder explicitly uses
-QuickGELU for L and GELU for H/bigG; the existing text-encoder activation behavior
-is unchanged. Unsupported shapes fail rather than guessing another architecture.
+<a id="resident-ip-adapter-resources-and-request-preparation"></a>
 
-`sd_set_ip_adapter_inputs(ctx, inputs, count)` copies slot, RGB image, optional
-regional mask and finite [0,2] strength between generations. Duplicate/absent
-slots, malformed images and masks fail atomically, preserving the prior input
-set; callers must check its return value. Count zero clears inputs and prepared
-tokens, retaining resources. All requested Classic/Plus positive and unconditional
-tokens are prepared before sampling. Failure or cancellation cannot publish a
-partial token set. Classic uses zero pooled unconditional embeddings; Plus uses
-the zero-normalized-pixel vision branch. Base, batch and Hires sampling reuse
-the prepared views; Base image conditioning is not applied to Refiner steps.
+### 상주 IP-어댑터 리소스 및 요청 준비
 
-`NativeIPResourceTests` loads real small safetensors fixtures, imports multiple
-slots, deletes only its own fixture weight files, and twice reads exact values
-through the production loader from resident memory. It also checks collision
-rollback, repeated-path reuse, malformed public descriptors and actual vision
-MLP graph activation selection. `NativeRefinerSamplingTests` covers copied-input
-ownership, independent Classic/Plus preparation, cancellation/retry, and
-batch/Hires/Refiner orchestration. These tests do not establish real-checkpoint
-image quality, throughput, or installed-product functionality. The product
-IP-Adapter capability is now accepted by the in-process product route with
-explicit model and vision sources, as documented below.
+관리된 `native-ip-adapter-resources` 패치는 기존 `sd_ctx_params_t` ABI 를 변경하지 않고 `new_sd_ctx_with_ip_adapters(params, models, count)` 를 추가합니다. 각 1 – 64 설명자는 로컬 어댑터와 CLIP 비전 체크포인트를 제공합니다. SD 1.5 와 SDXL Base 만 허용됩니다. 투영 매개변수와 주의 K/V 가중치는 독립적인 슬롯 네임스페이스를 사용하며, 어댑터는 관련 없는 Base 가중치를 대체할 수 없습니다. 로더는 변환된 메타데이터를 원자적으로 가져오고, 소스 오프셋을 보존하며, 파일 인덱스를 재베이스하고, 반복된 경로를 중복 제거합니다. 동일한 비전 경로는 하나의 인코더를 공유합니다. 비호환/누락된 투영, 비전 또는 주의 매개변수는 컨텍스트 생성을 중단하며, 부분 리소스 집합을 반환하지 않습니다. 레거시 및 인덱스 IP 모델 구성은 혼합될 수 없습니다.
 
-Verification on 2026-09-29 rebuilt the SDK library and 22 selected test targets;
-all 22 suites passed in 89.82 seconds (`build/ip-resources-sdk-tests.log`).
-Repeated configuration and the exact managed-patch reverse-check passed. After
-staging only to `build/install` and rebuilding product consumers, Dreamscapes
-AdvancedParameters and Generation passed 2/2 in 54.81 seconds. The additional
-headless product contract covers independent per-control toggles, unsupported
-effect preset retention and nonmutating field-specific capability errors.
-Optional real-model tests are skipped; no global SDK or app reinstall occurred.
+팩터리는 모델 전체를 익명 메모리에 즉시 상주시키고 파일 매핑을 비활성화한다. 디스크 기반 확산/비전 매개변수 배치는 거부한다. 입력과 실행기의 임시 작업 공간은 컨텍스트가 소유한 모델 리소스와 수명이 다르다. 입력을 비활성화해도 모델을 내리지 않는다. 메모리 압박은 일반 스왑 정책을 포함하여 OS의 제어를 받는다. 이 동작은 RAM을 예약하거나 자원이 부족한 기기에서 할당 성공을 보장하지 않는다.
 
-### IP-Adapter native execution foundation
+CLIP 시각 L/14, H/14 와 bigG/14 는 체크된 가중치 차원, 포함 체크포인트의 투영 너비에서 선택됩니다. 시각 인코더는 명시적으로 L 에 QuickGELU 를 사용하고 H/ bigG 에 GELU 를 사용합니다. 기존 텍스트 인코더 활성화 동작은 변경되지 않습니다. 지원되지 않는 형식은 추측하는 대신 원자적으로 실패합니다.
 
-The managed `native-ip-adapter-execution` patch makes the existing native engine's
-IP-Adapter image preparation fail closed. Requested images require both adapter
-and CLIP-Vision resources, RGB dimensions in [1,2048] and finite strength in [0,2].
-Encoding/projection failures, non-finite embeddings, incompatible token shapes
-and cancellation stop public image generation before sampling; no unconditioned
-image is published as a successful IP-Adapter result. Conditional/unconditional
-tokens commit together, and all previous request tokens clear before preparation.
-An empty image disables conditioning without releasing the loaded model objects.
-Runner scratch ends on both success and failure.
-Context creation also checks that every UNet cross-attention layer has compatible
-image K/V tensors. A projection-only or partially attached checkpoint fails instead
-of preparing image tokens that some or all layers would ignore.
+`sd_set_ip_adapter_inputs(ctx, inputs, count)` 슬롯을 복사하고, RGB 이미지, 선택적 지역 마스크 및 유한한 [0,2] 강도를 세대 간에 유지합니다. 중복/결여된 슬롯, 잘못된 형식의 이미지 및 마스크는 원자적으로 실패하며 이전 입력 집합을 보존합니다; 호출자는 반환 값을 확인해야 합니다. 카운트 0 는 입력과 준비된 토큰을 지우고 리소스를 유지합니다. 모든 요청된 클래식/플러스 긍정 및 무조건 토큰은 샘플링 전에 준비됩니다. 실패 또는 취소는 부분 토큰 집합을 게시할 수 없습니다. 클래식은 0 풀링된 무조건 임베딩을 사용하며, 플러스는 0-정규화된 픽셀 시각 분지를 사용합니다. 베이스, 배치 및 hires 샘플링은 준비된 뷰를 재사용하며, 베이스 이미지 조건화는 리파이너 단계에 적용되지 않습니다.
 
-Classic uses projected pooled CLIP embeddings and a zero unconditional embedding.
-Plus uses penultimate CLIP hidden states; its unconditional branch encodes **zero
-normalized pixel values** through CLIP before projection, not zero embeddings or
-black RGB pixels normalized afterward. This follows the
-[official IP-Adapter implementation](https://github.com/tencent-ailab/IP-Adapter/blob/main/ip_adapter/ip_adapter.py)
-inspected on 2026-09-29. The existing SD/SDXL decoupled image attention remains the
-native graph path; image strength scales that attention contribution before its
-shared output projection, not the image tokens or text conditioning.
+`NativeIPResourceTests` 는 실제 작은 safetensors 픽스처 를 로드하여 여러 슬롯을 가져오고, 자신의 픽스처 가중치 파일만 삭제하며, 거주 메모리에서 프로덕션 로더를 통해 정확한 값을 두 번 읽습니다. 또한 충돌 롤백, 반복 경로 재사용, 잘못된 공인 설명자 및 실제 비전 MLP 그래프 활성화 선택을 확인합니다. `NativeRefinerSamplingTests` 는 복사된 입력 소유권, 독립적인 클래식/플러스 준비, 취소/재시도, 및 배치/하이어스/리파이너 오케스트레이션을 포함합니다. 이 테스트들은 실제 체크포인트 이미지 품질, 처리량, 또는 설치된 제품 기능을 확립하지 않습니다. 문서에 명시된 대로 프로세스 내 제품 라우트에 의해 명시적인 모델 및 비전 소스와 함께 제품 IP -어댑터 기능은 이제 승인됩니다.
 
-`NativeIPAdapterTests` runs actual Classic linear/layer-norm, one-layer Plus
-Resampler and decoupled attention graphs on CPU and Metal. Controlled weights are
-compared with independent numerical formulas, including repeated inputs, zero
-embeddings, separate text/image softmax and strengths 0/0.5/1/2. Production-engine
-preparation tests substitute only neural compute to inspect Classic/Plus branch
-inputs, token atomicity, invalid data, runner cleanup and public failure propagation.
-Sampler integration tests combine IP-Adapter, multiple ControlNets, batches, Hires
-and Refiner endpoints; each Base UNet evaluation must receive the correct positive
-or negative image tokens and strength, while Refiner receives neither.
-This is a backend foundation, not real-checkpoint quality/performance proof or
-the completed Dreamscapes feature. The graph follow-up described above provides
-indexed K/V attention and regional masks; independent model/vision resource
-preparation, SDK forwarding and product selection have since been connected by
-the resource and forwarding follow-ups. Real-checkpoint output remains separately
-unverified.
-The 2026-09-29 verification rebuilt the native library and related test targets:
-21 SDK suites and both product regression suites passed. SDK staging was limited
-to `build/install`; no global dependency or installed application was replaced.
+2026-09-29 에서의 검증은 SDK 라이브러리를 재구성하고 22 테스트 타겟을 선택했으며, 모든 22 스위트가 89.82 초 ( `build/ip-resources-sdk-tests.log` ) 내에 통과했습니다. 반복 구성 및 정확한 관리 패치 역방향 확인이 통과했습니다. 스테이지링을 `build/install` 로만 수행하고 제품 소비자를 재구성한 후, Dreamscapes AdvancedParameters 및 생성이 2/2 에서 54.81 초 내에 통과했습니다. 추가 헤드리스 제품 계약은 독립적인 컨트롤 토글, 지원되지 않는 효과 프리셋 유지, 및 비변환 필드별 기능 오류를 포함합니다. 선택적 실제 모델 테스트는 건너뜀; 전역 SDK 또는 앱 재설치가 발생하지 않았습니다.
 
-### SDXL Refiner architecture preparation
+<a id="ip-adapter-native-execution-foundation"></a>
 
-The managed `native-sdxl-refiner` patch adds architecture-based recognition,
-not filename detection, for the official 384-channel, four-stage SDXL Refiner
-UNet with 1280-wide cross-attention and a 2560-wide ADM input. Original checkpoint
-and Diffusers UNet names map to the same native parameter layout. A single bigG
-text encoder replaces the base model's CLIP-L plus bigG pair. Refiner conditioning
-uses pooled bigG, original height/width, crop coordinates, and aesthetic score
-(positive 6.0, negative 2.5); it does not append the base model's target size.
-Negative conditioning is explicit, including an empty negative prompt, rather
-than inferred from the base model's empty-prompt zeroing policy.
+### IP-Adapter 네이티브 실행 기반
 
-Architecture and conditioning follow Stability-AI's
-[Refiner config](https://github.com/Stability-AI/generative-models/blob/main/configs/inference/sd_xl_refiner.yaml)
-and [reference sampling demo](https://github.com/Stability-AI/generative-models/blob/main/scripts/demo/sampling.py).
-`NativeRefinerTests` checks tensor-shape detection, name conversion, the actual
-UNet/CLIP parameter metadata, and numerical ADM construction. It does not allocate
-or infer the full pretrained weights. This is a prerequisite only: `refiner=true`
-remains rejected until resident second-context ownership and product model
-selection are connected and verified. No RGB decode/re-encode pass is substituted
-for a Refiner.
+관리 `native-ip-adapter-execution` 패치는 기존 네이티브 엔진의 IP -어댑터 이미지 준비를 안전하게 거부한다 합니다. 요청된 이미지는 어댑터 및 CLIP -비전 리소스, RGB 차원, [1,2048] 및 [0,2]의 유한 강도를 모두 필요로 합니다. 인코딩/투영 실패, 비유한 임베딩, 호환되지 않는 토큰 형식 및 취소는 샘플링 전에 공개 이미지 생성을 중단하며, 성공적인 IP -Adapter 결과로 조건부 없는 이미지가 게시되지 않습니다. 조건부/조건부 없는 토큰은 함께 커밋되며, 모든 이전 요청 토큰은 준비 전에 초기화됩니다. 빈 이미지는 조건부 설정을 비활성화하되 로드된 모델 객체를 해제하지 않습니다. 러너 스크래치는 성공과 실패 모두에서 종료됩니다. 맥락 생성 또한 모든 UNet 크로스-주의 레이어가 호환되는 이미지 K/V 텐서를 갖는지 확인합니다. 투영 전용 또는 부분적으로 연결된 체크포인트는 일부 또는 모든 레이어가 무시할 토큰을 준비하는 대신 실패합니다.
 
-### Native same-latent Refiner sampling
+클래식은 투영된 풀링된 CLIP 임베딩과 0 조건부 없는 임베딩을 사용하며, 플러스는 마지막 CLIP 은닉 상태를 사용하며, 그 조건부 없는 분지는 **0 정규화된 픽셀 값** 을 CLIP 을 통해 투영 전에 인코딩하며, 0 임베딩이나 나중에 정규화된 검은 RGB 픽셀이 아닙니다. 이는 다음을 따릅니다.
+[공식 IP -Adapter 구현](https://github.com/tencent-ailab/IP-Adapter/blob/main/ip_adapter/ip_adapter.py) 은 2026-09-29에서 검사되었으며, 기존 SD / SDXL 디커플링 이미지 주의는 네이티브 그래프 경로로 남아 있으며, 이미지 강도는 공유 출력 투영 전에 그 주의 기여도를 스케일링하며, 이미지 토큰이나 텍스트 조건부가 아닙니다.
 
-The managed `native-refiner-sampling` patch adds `sd_ctx_can_refine` and
-`generate_image_with_refiner` without changing existing request-structure layouts
-or the legacy `generate_image` signature. Both contexts are borrowed for the call;
-their caller must own the resident model resources for the application runtime.
-SDXL Base/SSD-1B/Vega with epsilon or CompVis v-prediction can pair with an epsilon
-SDXL Refiner. Other architectures, EDM noise contracts, inpaint/Pix2Pix variants
-and aliased contexts fail preflight. Refiner is reported as `sdxl-refiner` while
-its VAE family remains `sdxl-base`.
+`NativeIPAdapterTests` 는 실제 클래식 선형/레이어-정규화, 한 레이어 플러스 리샘플러 및 디커플링 주의 그래프를 CPU 와 Metal 에서 실행합니다. 제어된 가중치는 독립적인 수치 공식을 포함하여 반복 입력, 0 임베딩, 별도의 텍스트/이미지 소프트맥스 및 강도 0/0.5/1/2와 비교됩니다. Production-engine 준비 테스트는 신경 계산을 대체하여 Classic/Plus 브랜치 입력, 토큰 원자성, 유효하지 않은 데이터, 러너 정리 및 공개 실패 전파를 검사합니다. Sampler 통합 테스트는 IP -Adapter, 여러 ControlNets , 배치, Hires 및 Refiner 엔드포인트를 결합하며, 각 Base UNet 평가는 올바른 긍정 또는 부정 이미지 토큰과 강도를 받아야 하고 Refiner 는 둘 다 받아서는 안 됩니다. 이는 백엔드 기반이며 실제 체크포인트 품질/성능 증명이나 완료된 Dreamscapes 기능이 아닙니다. 위에서 설명한 그래프 후속 작업은 인덱싱된 K/V 주의와 지역 마스킹을 제공하며, 독립적인 모델/비전 리소스 준비, SDK 포워딩 및 제품 선택은 리소스와 포워딩 후속 작업에 의해 연결되었습니다. 실제 체크포인트 출력은 별도로 검증되지 않았습니다. The 2026-09-29 검증은 네이티브 라이브러리와 관련 테스트 타겟을 재구성했으며, 21 SDK 스위트와 두 제품 회귀 스위트가 통과했습니다. SDK 스테이지는 `build/install` 로 제한되었으며, 전역 의존성이나 설치된 애플리케이션이 대체되지 않았습니다.
 
-One original sampler invocation retains the same latent, sigma schedule, RNG,
-multistep solver history and initial-latent mask anchor. The first
-`ceil(step_count * switch_at)` steps use Base, the remainder use Refiner;
-float rounding tolerance preserves exact decimal boundaries. Zero selects
-Refiner for every step; one never selects it. Predictor and corrector evaluations
-use the same model (the backend signals them with negative/positive step numbers).
-Each selected model supplies its own text conditions, timestep mapping and
-prediction scaling. CFG/eta and the selected sampler remain unchanged.
+<a id="sdxl-refiner-architecture-preparation"></a>
 
-Base-specific ControlNet, IP-Adapter and generation extensions are not passed to
-the differently shaped Refiner. Base LoRAs remain attached to the Base runner.
-Cross-step model-output caches are rejected for this API, so cached Base
-predictions cannot cross the model boundary. Ordinary model-resource residency
-is unaffected. If Hires is enabled, its initial pass remains entirely Base and
-the switch applies to the final Hires pass, with final-size Refiner conditions.
-There is no intermediate VAE decode, new noise injection or sampler restart at
-the switch. A failed/cancelled Refiner pass cannot publish the completed Base as
-a successful refinement.
+### SDXL 리파이너 아키텍처 준비
 
-`NativeRefinerSamplingTests` compiles the production orchestration with controlled
-network runners and checks actual Euler, Euler-A, Heun, DPM++ 2M, DPM++ 2M SDE and
-DDIM solvers against an independent denoiser oracle for epsilon and v-prediction
-bases, masked and unmasked latents and both switch endpoints. It also exercises
-the public generation API with controlled VAE/conditioner/network compute to check
-batch output, final-pass Hires selection, conditioning sizes, decode/encode counts,
-Refiner failure and cancellation on the last compute before publication.
-These are execution-contract tests, not pretrained-checkpoint quality or
-performance proof.
+관리된 `native-sdxl-refiner` 패치는 공식 384-채널, 4-스테이지 SDXL Refiner UNet 에 대해 파일명 감지가 아닌 아키텍처 기반 인식을 추가하며, 1280-wide 크로스 주의와 2560-wide ADM 입력을 포함합니다. 원본 체크포인트와 Diffusers UNet 이름은 동일한 네이티브 매개변수 레이아웃에 맵핑됩니다. 단일 bigG 텍스트 인코더는 기본 모델의 CLIP-L plus bigG 쌍을 대체합니다. Refiner 조건은 풀링된 bigG , 원본 높이/너비, 자르기 좌표, 미적 점수 (긍정 6.0, 부정 2.5 ) 를 사용하며, 기본 모델의 목표 크기를 추가하지 않습니다. 부정 조건화는 명시적이며, 기본 모델의 빈 프롬프트 제로화 정책에서 추론되는 것이 아니라 빈 부정 프롬프트를 포함합니다.
 
-### Refiner request adapter and runtime ownership
+아키텍처 및 컨디셔닝은 Stability-AI를 따릅니다.
+[리파이너 설정](https://github.com/Stability-AI/generative-models/blob/main/configs/inference/sd_xl_refiner.yaml) 과 [는 샘플링 데모](https://github.com/Stability-AI/generative-models/blob/main/scripts/demo/sampling.py)를 참조합니다. `NativeRefinerTests` 는 텐서 형식 감지, 이름 변환, 실제 UNet / CLIP 매개변수 메타데이터, 그리고 수치 ADM 생성을 확인합니다. 그것은 전체 사전 학습된 가중치를 할당하거나 추론하지 않습니다. 이는 전제 조건일 뿐입니다: `refiner=true` 은 거주 컨텍스트 소유권과 제품 모델 선택이 연결되고 검증될 때까지 거부됩니다. 리파이너 대신 RGB 디코드/재인코딩 패스가 대체되지 않습니다.
 
-`NativeAdvancedControls.refiner`, `refinerSwitch` and `refinerModel` connect
-the parameter document to this API. The source must be a canonical local complete
-SDXL Refiner checkpoint including its bigG encoder. Its VAE can be embedded or
-use the selected/shared SDXL fallback VAE. Architecture, compatible noise contract,
-source identity and explicit embedding compatibility are checked before sampling.
-The legacy desktop process worker still rejects Refiner requests.
+<a id="native-same-latent-refiner-sampling"></a>
 
-The second model context is owned by the native runtime cache and prepared with
-the same anonymous-memory and compute placement policy as Base. Changing only
-the switch, temporarily disabling Refiner, or using switch=1 retains the warm
-second context without executing it. Replacing weights changes its identity.
-Explicit cache release releases both contexts; failure cleanup follows the existing
-native context policy. Anonymous source-buffer ownership remains governed by the
-runtime resident pool, not an external-disk fallback.
+### 네이티브 동일 잠재성 구체화 샘플링
 
-The new C API's final optional `negative_prompt_override` argument keeps
-Base-specific automatic negative embeddings out of Refiner conditioning. A null
-pointer inherits the request's negative prompt; a non-null empty string means an
-explicit empty negative. The SDK supplies the user's negative text. Explicit
-embeddings are registered on both models and must contain compatible Refiner
-bigG vectors. FreeU and prompt-weighting policy are reapplied on both contexts
-for every active request; Base LoRAs and ControlNet remain Base-only.
+관리되는 `native-refiner-sampling` 패치는 기존 요청 구조 레이아웃이나 레거시 `generate_image` 서명을 변경하지 않고 `sd_ctx_can_refine` 와 `generate_image_with_refiner` 를 추가합니다. 두 컨텍스트는 호출을 위해 빌려오며, 그들의 호출자는 애플리케이션 런타임 의 주거 모델 리소스를 소유해야 합니다. SDXL 기본/ SSD-1B /베가 또는 CompVis v-예측은 SDXL 리파이너와 짝을 이룰 수 있습니다. 다른 아키텍처, EDM 노이즈 계약, 인페인트/픽2픽 변형 및 별칭 컨텍스트는 사전 검사 에서 실패합니다. 리파이너는 `sdxl-refiner` 로 보고되며, 그 VAE 가족은 `sdxl-base` 로 유지됩니다.
 
-`NativeResultTests` and its mobile-policy variant exercise the production
-adapter with controlled C API fixtures: forwarding, warm reuse, switch endpoints,
-per-request conditioning, failure/cancellation, source replacement, incompatible
-embeddings and explicit release. They do not prove full-checkpoint inference.
+원본 샘플러 호출은 동일한 잠재 표현, 시그마 일정, RNG , 다단계 솔버 역사 및 초기 잠재 마스크 앵커를 유지합니다. `ceil(step_count * switch_at)` 단계의 첫 번째는 Base 를, 나머지는 Refiner 를 사용하며, 부동소수점 반올림 허용도는 정확한 십진수 경계를 유지합니다. 0 모든 단계에서 Refiner 를 선택합니다; 한 번도 선택하지 않습니다. 예측기와 보정기 평가는 동일한 모델을 사용하며 (백엔드가 음수/양수 단계 번호로 이를 신호합니다). 각 선택된 모델은 고유한 텍스트 조건, 타임스텝 매핑 및 예측 스케일링을 제공합니다. CFG /eta 및 선택된 샘플러는 유지됩니다.
 
-This module does not implement those missing inference algorithms. Callers can
-edit/store all fields now and connect additional engines later without changing
-the view-facing parameter document. Anonymous model residency and explicit
-release remain governed by the existing native runtime.
+Base 전용 ControlNet, IP-Adapter와 생성 확장은 형태가 다른 Refiner에 전달하지 않는다. Base LoRAs는 Base 실행기에 계속 연결된다. 이 API는 스텝 간 모델 출력 캐시를 거부하므로 캐시된 Base 예측은 모델 경계를 넘지 못한다. 일반 모델 리소스의 상주 상태에는 영향이 없다. Hires가 활성화되어 있다면 첫 패스는 전부 Base로 실행하며, 전환은 최종 크기의 Refiner 조건을 사용하여 마지막 Hires 패스에 적용한다. 전환 시 중간 VAE 디코딩·새 노이즈 주입·샘플러 재시작은 없다. Refiner 패스가 실패하거나 취소되면 완료된 Base를 성공한 보정 결과로 게시할 수 없다.
 
-Validation: `cmake --build build --target ImageParametersTests` followed by
-`ctest --test-dir build -R '^ImageParametersTests$' --output-on-failure`.
+`NativeRefinerSamplingTests` 는 제어된 네트워크 러너로 프로덕션 오케스트레이션을 컴파일하고, 실제 Euler, Euler-A, Heun, DPM ++ 2M, DPM ++ 2M SDE 및 DDIM 솔버를 독립적인 디노이저 오라클에 대해 에파손과 v-예측 베이스로 검사하며, 마스킹된 및 미마스킹된 잠재 표현과 두 가지 스위치 엔드포인트를 확인합니다. 또한 공개 생성 API 을 제어된 VAE /조건부/네트워크 컴퓨트로 실행하여 배치 출력, 최종 패스 Hires 선택, 조건부 크기, 디코드/인코드 횟수, Refiner 실패 및 출판 전 마지막 컴퓨팅에서의 취소 등을 확인합니다. 이는 실행 계약 테스트이며, 사전 학습된 체크포인트 품질이나 성능 증명입니다.
+
+<a id="refiner-request-adapter-and-runtime-ownership"></a>
+
+### 구체화 요청 어댑터 및 런타임 소유권
+
+`NativeAdvancedControls.refiner`, `refinerSwitch` 및 `refinerModel` 는 매개변수 문서를 이 API 에 연결합니다. 소스는 그 bigG 인코더를 포함하는 정통 로컬 완전한 SDXL Refiner 체크포인트여야 합니다. VAE 은 임베딩되거나 선택된/공유된 SDXL 대체 경로 VAE 를 사용할 수 있습니다. 샘플링 전에 아키텍처, 호환성 있는 노이즈 계약, 소스 신원 및 명시적 임베딩 호환성이 확인됩니다. 레거시 데스크톱 프로세스 워커는 여전히 Refiner 요청을 거부합니다.
+
+두 번째 모델 컨텍스트는 네이티브 런타임 캐시가 소유하며 Base와 동일한 익명 메모리 및 연산 배치 정책으로 준비한다. 전환 지점만 변경하거나 Refiner를 임시 비활성화하거나 switch=1을 사용해도 준비된 두 번째 컨텍스트는 실행 없이 유지한다. 가중치를 교체하면 식별자가 바뀐다. 명시적 캐시 해제는 두 컨텍스트를 모두 해제하며, 실패 정리는 기존 네이티브 컨텍스트 정책을 따른다. 익명 원본 버퍼의 소유권은 외장 디스크 대체 경로가 아니라 런타임 상주 풀이 관리한다.
+
+새 C API 의 최종 선택적 `negative_prompt_override` 인수는 Base 특유의 자동 부정 임베딩을 리파이너 조건부에서 제외합니다. 널 포인터는 요청의 부정 프롬프트를 상속하며, 널이 아닌 빈 문자열은 명시적인 빈 부정임을 의미합니다. The SDK 는 사용자의 부정 텍스트를 공급합니다. 명시적 임베딩은 두 모델에 모두 등록되며 호환 가능한 리파이너 bigG 벡터를 포함해야 합니다. FreeU 와 프롬프트 가중치 정책은 모든 활성 요청에 대해 두 컨텍스트에서 재적용되며, Base LoRAs 와 ControlNet 는 Base 전용으로 유지됩니다.
+
+`NativeResultTests` 와 그 모바일 정책 변형은 제어된 C API 픽스처 : 전달, 온난 재사용, 엔드포인트 전환, 요청별 조건부, 실패/취소, 소스 대체, 호환되지 않는 임베딩 및 명시적 릴리스를 통해 프로덕션 어댑터를 실행하며, 전체 체크포인트 추론을 증명하지 않습니다.
+
+이 모듈은 누락된 추론 알고리즘을 구현하지 않습니다. 호출자는 이제 모든 필드를 편집/저장할 수 있으며 나중에 보기 방향 매개변수 문서를 변경하지 않고도 추가 엔진을 연결할 수 있습니다. 익명 모델 상주 및 명시적 릴리스는 기존 네이티브 런타임에 의해 관리됩니다.
+
+검증: `cmake --build build --target ImageParametersTests` 다음에 `ctest --test-dir build -R '^ImageParametersTests$' --output-on-failure`가 옵니다.

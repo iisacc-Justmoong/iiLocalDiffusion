@@ -1,19 +1,15 @@
-# Automatic local image workflows
+<a id="automatic-local-image-workflows"></a>
 
-`reference/diffusers/comfyui_image_workflow.py` assembles a ComfyUI API graph from
-a Civitai base-model name, registered local weight names, prompt, explicit
-generation inputs, and the running server's `/object_info`. Users do not need to
-author or export a workflow for these recipes. The builder has no additional
-Python dependency, performs no filesystem/network I/O, and does not import Torch
-or ComfyUI. Runtime setup, file registration, submission and artifact publication
-belong to the caller.
+# 자동 로컬 이미지 워크플로
+
+`reference/diffusers/comfyui_image_workflow.py`는 Civitai 기본 모델 이름, 등록된 로컬 가중치 이름, 프롬프트, 명시적 생성 입력과 실행 중인 서버의 `/object_info`로 ComfyUI API 그래프를 조립한다. 이 레시피에서 사용자가 워크플로를 작성하거나 내보낼 필요는 없다. 빌더는 추가 Python 의존성이 없고 파일 시스템/네트워크 I/O를 수행하지 않으며 Torch 또는 ComfyUI를 가져오지 않는다. 런타임 설정, 파일 등록, 제출과 아티팩트 공개는 호출자의 책임이다.
 
 ```python
 from comfyui_image_workflow import build_workflow
 
 graph = build_workflow(
     base_model="Illustrious",
-    model_name="my-illustrious.safetensors",  # exact server inventory name
+    model_name="my-illustrious.safetensors",  # 정확한 서버 인벤토리 이름
     components={},
     prompt="a lighthouse above a quiet bay, painted illustration",
     object_info=client.json("/object_info"),
@@ -22,121 +18,79 @@ graph = build_workflow(
 )
 ```
 
-`workflow_requirements(base_model)` exposes the recipe, baseline resolution,
-sampling defaults, text-loader type, and required split-component roles without
-starting a server. It describes the recipe, not an inference result. The Civitai
-label declares intended architecture; ComfyUI's tensor loader verifies the files
-when the submitted graph executes.
+`workflow_requirements(base_model)` 는 서버를 시작하지 않고 레시피, 기준 해상도, 샘플링 기본값, 텍스트 로더 유형, 및 필수 분할 컴포넌트 역할을 노출하며, 이는 레시피를 설명하는 것이며 추론 결과가 아닙니다. Civitai 라벨은 의도된 아키텍처를 선언하고, ComfyUI 의 텐서 로더는 제출된 그래프가 실행될 때 파일들을 확인합니다.
 
-## Weight roles
+<a id="weight-roles"></a>
 
-A `checkpoint` uses `CheckpointLoaderSimple` outputs MODEL, CLIP and VAE. Explicit
-components replace its encoder/VAE outputs without replacing the checkpoint's
-denoiser. A `diffusion_model` uses `UNETLoader` and requires separate encoder and
-VAE files. `model_type="auto"` checks both live inventories; if a name occurs in
-both inventories, the caller must specify `checkpoint` or `diffusion_model`.
+## 가중치 역할
 
-`components` accepts these exact keys:
+A `checkpoint` 는 `CheckpointLoaderSimple` 출력 MODEL, CLIP 및 VAE 를 사용합니다. 명시적 구성 요소는 체크포인트의 디노이저를 대체하지 않고 인코더/ VAE 출력을 대체합니다. A `diffusion_model` 는 `UNETLoader` 를 사용하며 별도의 인코더 및 VAE 파일이 필요합니다. `model_type="auto"` 는 라이브 재고 양쪽을 모두 확인하며, 이름이 두 재고 모두에 나타나면 호출자는 `checkpoint` 또는 `diffusion_model` 를 지정해야 합니다.
 
-| Key | Role |
+`components`는 다음과 같은 정확한 키를 허용합니다.
+
+|키|역할|
 | --- | --- |
-| `vae` | Decoder VAE; for Stable Cascade this is stage A |
-| `text_encoder` | First encoder or the sole encoder |
-| `text_encoder_2` | Second encoder |
-| `text_encoder_3` | Third encoder |
-| `text_encoder_4` | Fourth encoder |
-| `model_negative` | Ideogram4's separate unconditional denoiser |
-| `decoder` | Stable Cascade's stage-B denoiser |
+| `vae` |디코더 VAE ; 스테이블 캐스케이드용으로 이것은 A 단계입니다.|
+| `text_encoder` |첫 번째 인코더 또는 단독 인코더|
+| `text_encoder_2` |두 번째 인코더|
+| `text_encoder_3` |세 번째 인코더|
+| `text_encoder_4` |네 번째 엔코더|
+| `model_negative` |Ideogram4의 별도 무조건 디노이저|
+| `decoder` |안정적인 캐스케이드의 B단계 잡음 제거기|
 
-Encoder keys must be consecutive. Flux.1 uses CLIP-L + T5XXL; SDXL uses CLIP-L +
-CLIP-G. SD3 accepts one, two or three matching encoders through its upstream
-single/dual/triple loaders. HiDream-I1 accepts the upstream single/dual/quadruple
-forms; the full form is CLIP-L, CLIP-G, T5XXL and Llama 3.1. Reduced forms still
-need the correct encoder tensors for their role.
+인코더 키는 연속적이어야 한다. Flux.1은 CLIP-L + T5XXL을 사용하며 SDXL은 CLIP-L + CLIP-G을 사용한다. SD3은 상위 공급 측의 단일/이중/삼중 로더를 통해 하나, 2개 또는 3개의 일치하는 인코더를 받는다. HiDream-I1은 상위 공급 측의 단일/이중/사중 형식을 받는다. 전체 형식은 CLIP-L, CLIP-G, T5XXL와 Llama 3.1이다. 축소 형식도 각 역할에 맞는 올바른 인코더 텐서가 필요하다.
 
-GGUF denoisers select `UnetLoaderGGUF`. GGUF text encoders select the matching
-`CLIPLoaderGGUF`, `DualCLIPLoaderGGUF`, `TripleCLIPLoaderGGUF` or
-`QuadrupleCLIPLoaderGGUF`. A missing loader or unsupported architecture/enum fails
-before submission. File extension alone is not proof of the optional GGUF
-loader's tensor compatibility. The builder does not install custom nodes.
+GGUF 디노이저는 `UnetLoaderGGUF` 를 선택합니다. GGUF 텍스트 인코더는 일치하는 `CLIPLoaderGGUF`, `DualCLIPLoaderGGUF`, `TripleCLIPLoaderGGUF` 또는 `QuadrupleCLIPLoaderGGUF` 를 선택합니다. 누락된 로더 또는 지원되지 않는 아키텍처/열거형은 제출 전에 실패합니다. 파일 확장자만은 선택적 GGUF 로더의 텐서 호환성을 증명하지 않습니다. 빌더는 커스텀 노드를 설치하지 않습니다.
 
-## Recipes and baseline defaults
+<a id="recipes-and-baseline-defaults"></a>
 
-| Base family | Image latent / special behavior | Baseline |
+## 레시피 및 기준 기본값
+
+|베이스 제품군|이미지 잠재/특수 동작|베이스라인|
 | --- | --- | --- |
-| SD1 | Four-channel SD latent | 512, 20 steps, CFG 7 |
-| SD2 | SD latent; `768` categories use 768 | 512 or 768, 20, CFG 7 |
-| SDXL, Pony, Illustrious, NoobAI | SDXL latent and bundled or dual encoders | 1024, 25, CFG 7 |
-| SD3 / 3.5 | 16-channel latent; single/dual/triple SD3 encoder | 1024, 28, CFG 5 |
-| Flux.1 dev / Krea | 16-channel latent; separate embedded guidance 3.5 | 1024, 20, CFG 1 |
-| Flux.1 Schnell | No embedded guidance | 1024, 4, CFG 1 |
-| Flux.2 dev | 128-channel Flux2 latent and `Flux2Scheduler`; embedded guidance 4 | 1024, 20, CFG 1 |
-| Flux.2 Klein | Flux2 latent/scheduler; distilled and base settings differ | Distilled 4 / CFG 1; base 20 / CFG 5 |
-| AuraFlow / Pony V7 | Four-channel latent, T5-XL encoder detected by upstream | 1024, 30, CFG 3.5 |
-| Chroma | T5 padding disabled, shift 1, beta schedule | 1024, 26, CFG 3.5 |
-| PixArt Alpha / Sigma | Alpha additionally encodes resolution; Sigma does not | 1024, 30, CFG 4.5 |
-| HunyuanDiT | Bundled checkpoint and BERT/MT5 prompt encoding | 1024, 30, CFG 6 |
-| HiDream-I1 | 16-channel latent and native encoder forms | 1024, 50, CFG 5 |
-| HiDream-O1 | Bundled checkpoint, native pixel-space latent/conversion VAE | 2048, 40, CFG 5 |
-| Qwen Image | 16-channel latent, Qwen encoder and shift 3.1 | 1328, 20, CFG 4 |
-| Lumina | Lumina2 encoder and its `superior` system prompt | 1024, 30, CFG 4 |
-| ZImageBase / Turbo | Lumina2 loader detects Qwen3 encoder; 16-channel latent | Base 25 / CFG 4; Turbo 8 / CFG 1 |
-| Anima | Qwen3-0.6B encoder detected by upstream, matching image VAE | 1024, 30, CFG 4 |
-| Ernie | Ministral encoder and Flux2 latent/VAE | 1024, 20, CFG 4 |
-| Boogu | Boogu encoder and native denoiser; baseline is Turbo | 1024, 4, CFG 1 |
-| Krea 2 | Krea2 encoder and native denoiser; baseline is Turbo | 1024, 8, CFG 1 |
-| Lens | Flux2 latent/VAE, size-aware Flux shift, pre-CFG norm | 1440, 20, CFG 5 |
-| MageFlow | Native encoder supplies both conditioning and matching latent | 1024, 30, CFG 5 |
-| Ideogram4 | Separate conditional/unconditional models and native scheduler | 1024, 20, CFG 7 |
-| Stable Cascade | Stage C sampling → stage B conditioning/sampling → stage A VAE | 1024; C 20 / CFG 4; B 10 / CFG 1 |
+| SD1 |4채널 SD 잠재|512, 20 단계, CFG 7|
+| SD2 |SD 잠재 표현 ; `768` 카테고리는 768를 사용합니다|512 또는 768, 20, CFG 7|
+|SDXL, Pony, Illustrious, NoobAI|SDXL 잠재 및 번들 또는 듀얼 인코더| 1024, 25, CFG 7 |
+| SD3 / 3.5 |16채널 잠재; 싱글/듀얼/트리플 SD3 인코더| 1024, 28, CFG 5 |
+|Flux.1 dev / Krea|16채널 잠재성; 별도의 내장 지침 3.5| 1024, 20, CFG 1 |
+|Flux.1 Schnell|내장된 안내 없음| 1024, 4, CFG 1 |
+|Flux.2 dev|128채널 Flux2 잠재 및 `Flux2Scheduler`; 내장형 안내 4| 1024, 20, CFG 1 |
+|Flux.2 Klein|Flux2 잠재/스케줄러; 증류수와 기본 설정이 다름|증류수 4 / CFG 1; 베이스 20 / CFG 5|
+|AuraFlow / 포니 V7|4채널 잠재성, T5-XL 인코더가 상위 공급 측| 1024, 30, CFG 3.5 |
+|크로마|T5 패딩 비활성화됨, 1이동, 베타 일정| 1024, 26, CFG 3.5 |
+|PixArt 알파 / 시그마|Alpha는 추가로 해석을 인코딩하고, Sigma는 인코딩하지 않습니다.| 1024, 30, CFG 4.5 |
+| HunyuanDiT |번들 체크포인트 및 BERT/MT5 프롬프트 인코딩| 1024, 30, CFG 6 |
+| HiDream-I1 |16채널 잠재 및 네이티브 인코더는| 1024, 50, CFG 5 |
+| HiDream-O1 |번들 체크포인트, 네이티브 픽셀 공간 잠재/변환 VAE| 2048, 40, CFG 5 |
+|Qwen 이미지|16채널 잠재, Qwen 인코더 및 시프트 3.1| 1328, 20, CFG 4 |
+|Lumina|Lumina2 인코더 및 해당 `superior` 시스템 프롬프트| 1024, 30, CFG 4 |
+|ZImageBase / Turbo|Lumina2 로더는 Qwen3 인코더를 감지합니다. 16채널 잠재|기본 25 / CFG 4; 터보 8 / CFG 1|
+|Anima|Qwen3-0.6B 인코더가 상위 공급 측에 의해 감지되었으며, 이미지 VAE| 1024, 30, CFG 4 |
+|Ernie|Ministral 인코더 및 Flux2 latent/VAE| 1024, 20, CFG 4 |
+|Boogu|Boogu 인코더와 네이티브 디노이저; 베이스라인은 Turbo입니다.| 1024, 4, CFG 1 |
+| Krea 2 |Krea2 인코더와 네이티브 디노이저; 베이스라인은 Turbo입니다.| 1024, 8, CFG 1 |
+|렌즈|Flux2 잠재/VAE, 크기 인식 Flux 시프트, 사전 CFG 표준| 1440, 20, CFG 5 |
+| MageFlow |네이티브 인코더는 조정 및 매칭을 모두 제공합니다 잠재 표현| 1024, 30, CFG 5 |
+|이데오그램4|조건부/무조건 모델 및 네이티브 스케줄러를 분리하십시오.| 1024, 20, CFG 7 |
+|안정적인 캐스케이드|C 단계 샘플링 → B 단계 컨디셔닝/샘플링 → A 단계 VAE| 1024; C 20 / CFG 4; B 10 / CFG 1 |
 
-These settings are editable baselines, not guarantees for every fine-tune,
-distillation variant or model version sharing a Civitai category. In particular,
-LCM, Turbo, Lightning, Hyper, HiDream fast/dev and Krea2 raw variants have
-checkpoint-specific sampling contracts. Exact model-card settings take precedence
-through explicit arguments. `Lumina` here means Lumina2; a Lumina1 bundle still
-requires its own compatible pipeline. HunyuanDiT's split BERT/MT5 route is not
-advertised because current built-in `DualCLIPLoader` does not expose a
-`hunyuan_dit` enum. HiDream-O1 uses its checkpoint-injected tokenizer and
-pixel-space conversion VAE.
+이 설정들은 모든 파인튜닝, 증류 변형 또는 Civitai 카테고리를 공유하는 모델 버전의 보장을 위한 것이 아니라 편집 가능한 기준선입니다. 특히, LCM, Turbo, Lightning, Hyper, HiDream fast/dev 및 Krea2 raw 변형은 체크포인트별 샘플링 계약을 갖습니다. 명시적 인수를 통해 정확한 모델 카드 설정이 우선순위를 가집니다. 여기서 `Lumina` 는 Lumina2 를 의미하며, Lumina1 번드도 자체 호환 파이프라인이 필요합니다. HunyuanDiT 의 BERT/MT5 라우트는 현재 내장된 `DualCLIPLoader` 가 `hunyuan_dit` 열거형을 노출하지 않기 때문에 광고되지 않습니다. HiDream-O1 는 체크포인트 주입 토크나이저와 픽셀 공간 변환 VAE 를 사용합니다.
 
-## Validation and explicit controls
+<a id="validation-and-explicit-controls"></a>
 
-The builder checks every generated node/input against live `/object_info`,
-including hosted-node exclusion, required inputs, model and sampler enums,
-scalar types/ranges, and connection output types. Unknown component keys and
-unconsumed options fail. It checks dimension divisibility before constructing
-latent nodes; it never silently rounds a requested image size.
+## 검증 및 명시적 통제
 
-Optional arguments include `negative_prompt`, `width`, `height`, `seed`, `steps`,
-`cfg`, `sampler_name`, `scheduler`, `batch_size`, `prediction_type`, `model_type`,
-`guidance`, `sampling_shift`, `zsnr`, and `clip_skip`. Omitted values retain the
-recipe or checkpoint defaults, except `seed`: omission selects a fresh random
-32-bit seed for the graph. Explicit seeds, including zero, are preserved; all
-refinement passes share that graph's seed. `guidance` is Flux's embedded guidance and is
-separate from CFG. Flux2 and Ideogram4 require their native named schedules.
-`prediction_type` supports `epsilon`, `v_prediction`, `sample`, and `lcm` only
-for SD1/2/SDXL; `zsnr=True` requires an explicit prediction type. NoobAI is not
-assumed to be V-prediction solely because of its category. `clip_skip=0` means
-the final CLIP layer, and `clip_skip=1` selects the penultimate layer.
+빌더는 라이브 `/object_info` 와 연결 출력 타입, 포함된 노드 제외, 필수 입력, 모델 및 샘플러 열거형, 스칼라 타입/범위를 포함한 모든 생성된 노드/입력에 대해 확인합니다. 알 수 없는 구성 요소 키와 소모되지 않은 옵션은 안전하게 거부됩니다. 잠재 표현 노드를 구성하기 전에 차원 나누어 떨어지는지 확인하며, 요청된 이미지 크기를 아무런 알림 없이 아무런 알림 없이 반올림하지 않습니다.
 
-The builder requires text-to-image task capability. Image editing, upscaling,
-video, audio and 3D resources require their own input/output workflows. Hosted
-and unknown categories fail explicitly. Kolors has no verified native ComfyUI
-recipe in this module and remains available through its matching local
-Diffusers pipeline. A LoRA, embedding or VAE file is a component, not a complete
-denoiser/checkpoint.
+선택적 인수는 `negative_prompt`, `width`, `height`, `seed`, `steps`, `cfg`, `sampler_name`, `scheduler`, `batch_size`, `prediction_type`, `model_type`, `guidance`, `sampling_shift`, `zsnr`, 및 `clip_skip` 입니다. 제외된 값은 레시피 또는 체크포인트 기본값을 유지하며, `seed` 를 제외하면: 제외는 그래프에 대한 새 랜덤 32비트 시드를 선택합니다. 시드 0를 포함한 명시적 시드는 보존되며, 모든 정제 패스는 해당 그래프의 시드를 공유합니다. `guidance` 는 Flux 의 내장 가이드이며 CFG 와는 별개입니다. Flux2 와 Ideogram4 는 네이티브 이름 지정 스케줄을 요구합니다. `prediction_type` 는 `epsilon`, `v_prediction`, `sample`, 및 `lcm` 을 SD1/2/SDXL 에만 지원하며, `zsnr=True` 는 명시적 예측 타입을 요구합니다. NoobAI 은 범주 때문에 오직 V-예측으로만 가정되지 않습니다. `clip_skip=0` 는 최종 CLIP 레이어를 의미하며, `clip_skip=1` 는 바로 앞의 레이어를 선택합니다.
 
-`tests/ComfyUIImageWorkflowTests.py` verifies encoder arity, component replacement,
-latent choice, sample/conditioning flow, NoobAI prediction overrides, Flux2
-schedule, two-stage Cascade, Ideogram4 unconditional model, GGUF node boundaries,
-and schema errors without downloading or loading weights. These tests establish
-graph contracts, not actual generation or visual-quality evidence.
+빌더는 텍스트-이미지 작업 능력을 요구합니다. 이미지 편집, 업스케일링, 비디오, 오디오 및 3D 리소스는 각각 자체 입력/출력 워크플로우를 필요로 합니다. 호스팅된 및 알 수 없는 범주는 명시적으로 실패합니다. Kolors 는 이 모듈에서 검증된 네이티브 ComfyUI 레시피가 없으며, 일치하는 로컬 Diffusers 파이프라인을 통해 계속 이용 가능합니다. LoRA , 임베딩 또는 VAE 파일은 구성 요소이며, 완전한 노이즈 제거기/체크포인트가 아닙니다.
 
-Sources checked against ComfyUI commit
+`tests/ComfyUIImageWorkflowTests.py` 는 인코더의 아리티, 구성 요소 교체, 잠재 표현 선택, 샘플/조건부 흐름, NoobAI 예측 오버라이드, Flux2 일정, 2-단계 캐스케이드, Ideogram4 조건부 없는 모델, GGUF 노드 경계 및 스키마 오류를 다운로드하거나 가중치를 로드하지 않고 확인합니다. 이 테스트들은 그래프 계약을 수립하며, 실제 생성 또는 시각적 품질 증거가 아닙니다.
+
+ComfyUI 커밋에 대해 소스 확인
 [`e80c1570b6b44a2557d5d8e341e05782d18c9bbb`](https://github.com/Comfy-Org/ComfyUI/tree/e80c1570b6b44a2557d5d8e341e05782d18c9bbb):
-[loaders](https://github.com/Comfy-Org/ComfyUI/blob/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/nodes.py),
-[text encoder dispatch](https://github.com/Comfy-Org/ComfyUI/blob/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/comfy/sd.py),
-[model contracts](https://github.com/Comfy-Org/ComfyUI/blob/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/comfy/supported_models.py),
-[native image/sampler nodes](https://github.com/Comfy-Org/ComfyUI/tree/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/comfy_extras),
-and [official workflow templates](https://github.com/Comfy-Org/workflow_templates/tree/main/templates).
+[로더](https://github.com/Comfy-Org/ComfyUI/blob/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/nodes.py),
+[텍스트 인코더 파견](https://github.com/Comfy-Org/ComfyUI/blob/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/comfy/sd.py),
+[모델 계약](https://github.com/Comfy-Org/ComfyUI/blob/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/comfy/supported_models.py),
+[네이티브 이미지/샘플러 노드](https://github.com/Comfy-Org/ComfyUI/tree/e80c1570b6b44a2557d5d8e341e05782d18c9bbb/comfy_extras)및 [공식 워크플로 템플릿](https://github.com/Comfy-Org/workflow_templates/tree/main/templates).

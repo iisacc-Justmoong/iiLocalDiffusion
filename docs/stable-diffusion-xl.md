@@ -1,21 +1,21 @@
-# Stable Diffusion XL Base reference contract
+<a id="stable-diffusion-xl-base-reference-contract"></a>
 
-## Canonical reference
+# 안정 확산 XL 기본 참조 계약
 
-The SDXL oracle is the official Hugging Face repository
-[`stabilityai/stable-diffusion-xl-base-1.0`](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0)
-at immutable revision:
+<a id="canonical-reference"></a>
+
+## 정식 참조
+
+SDXL 오라클은 공식 Hugging Face 저장소입니다.
+불변 개정판의 [`stabilityai/stable-diffusion-xl-base-1.0`](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0):
 
 ```text
 462165984030d82259a11f4367a4eed129e94a7b
 ```
 
-The repository declares the CreativeML Open RAIL++-M license. The revision pin
-makes the oracle reproducible; it does not transfer or broaden the model
-license. SDXL 0.9 has different access and license terms and is not this
-profile.
+저장소는 CreativeML Open RAIL++-M 라이선스를 선언합니다. 개정 핀은 오라클을 재현 가능하게 만듭니다. 모델 라이센스를 양도하거나 확대하지 않습니다. SDXL 0.9는 액세스 및 라이센스 조건이 다르며 이 프로필이 아닙니다.
 
-The accepted Diffusers layout is:
+허용되는 Diffusers 레이아웃은 다음과 같습니다.
 
 ```text
 model-root/
@@ -38,94 +38,76 @@ model-root/
     └── scheduler_config.json
 ```
 
-Each tokenizer directory must retain its own `tokenizer_config.json`,
-`vocab.json`, and `merges.txt`. The two tokenizers share vocabulary content in
-the pinned repository but have different padding configuration, so an
-inference implementation must not collapse them into one configured object.
+각 토크나이저 디렉토리는 자신의 `tokenizer_config.json`, `vocab.json`, 및 `merges.txt` 을 유지해야 합니다. 2 토크나이저는 고정된 저장소에서 어휘 내용을 공유하지만 패딩 구성이 다르므로 추론 구현은 이를 하나의 구성된 객체로 축소해서는 안 됩니다.
 
-## Component metadata
+<a id="component-metadata"></a>
 
-The C++ `StableDiffusionXLBase` profile validates the official Base 1.0
-prompt-to-image package contract:
+## 구성요소 메타데이터
 
-| Component | Class | Contract used by the inspector |
+C++ `StableDiffusionXLBase` 프로필은 공식 Base 1.0 프롬프트 이미지 패키지 계약을 검증합니다.
+
+|컴포넌트|클래스|검사자가 사용하는 계약|
 |---|---|---|
-| Tokenizer 1 | `CLIPTokenizer` | maximum sequence length 77 |
-| Tokenizer 2 | `CLIPTokenizer` | maximum sequence length 77 |
-| Text encoder 1 | `CLIPTextModel` | hidden width 768; projection width 768; maximum positions 77 |
-| Text encoder 2 | `CLIPTextModelWithProjection` | hidden and projection width 1,280; maximum positions 77 |
-| Denoiser | `UNet2DConditionModel` | latent channels 4; sample size 128; cross-attention width 2,048; `text_time` added conditioning |
-| Image codec | `AutoencoderKL` | RGB input/output; latent channels 4; sample size 1,024; scale 0.13025; forced upcast |
-| Scheduler | `EulerDiscreteScheduler` | 1,000 training steps; beta 0.00085 to 0.012; scaled-linear schedule; epsilon prediction; leading timestep spacing |
+| Tokenizer 1 | `CLIPTokenizer` |최대 시퀀스 길이 77|
+| Tokenizer 2 | `CLIPTokenizer` |최대 시퀀스 길이 77|
+|텍스트 인코더 1| `CLIPTextModel` |숨겨진 너비 768; 투사 폭 768; 최대 위치 77|
+|텍스트 인코더 2| `CLIPTextModelWithProjection` |숨겨진 및 투영 너비 1,280; 최대 위치 77|
+|디노이저| `UNet2DConditionModel` |잠재 표현 채널 4 ; 샘플 크기 128 ; 교차 주의 폭 2,048 ; `text_time` 추가 컨디셔닝|
+|이미지 코덱| `AutoencoderKL` |RGB 입력/출력; 잠재 채널 4; 샘플 크기 1,024; 0.13025 규모; 강제 업캐스트|
+|스케줄러| `EulerDiscreteScheduler` |1,000 훈련 단계; 베타 0.00085 ~ 0.012; 확장된 선형 일정; 엡실론 예측; 선행 시간 간격|
 
-The UNet's `addition_time_embed_dim` is 256 and its
-`projection_class_embeddings_input_dim` is 2,816. These values encode two
-cross-component invariants:
+UNet의 `addition_time_embed_dim`는 256이며, `projection_class_embeddings_input_dim`는 2,816입니다. 이 값들은 2 교차 구성 요소 불변량을 인코딩합니다:
 
 ```text
 768 + 1280 = 2048
 6 * 256 + 1280 = 2816
 ```
 
-The first is the concatenated token-conditioning width. The second combines
-six micro-conditioning values with the pooled projection from text encoder 2.
-The inspector also requires `force_zeros_for_empty_prompt=true` from the
-pipeline index and `use_linear_projection=true` from the UNet.
+첫 번째는 연결된 토큰 조절 너비입니다. 두 번째는 6개의 마이크로 컨디셔닝 값을 텍스트 인코더 2의 풀링된 투영과 결합합니다. 또한 검사관은 파이프라인 인덱스의 `force_zeros_for_empty_prompt=true`와 UNet의 `use_linear_projection=true`를 요구합니다.
 
-## Tensor flow
+<a id="tensor-flow"></a>
 
-For prompt batch `B`, effective image batch `E`, and classifier-free guidance
-factor `G` (`2` when enabled, otherwise `1`):
+## 텐서 흐름
+
+프롬프트 배치 `B`, 유효 이미지 배치 `E` 및 분류자 없는 안내 요소 `G`(활성화된 경우 `2`, 그렇지 않은 경우 `1`)의 경우:
 
 ```text
-token IDs from each tokenizer                    [B, 77]
-text encoder 1 penultimate hidden state          [B, 77, 768]
-text encoder 2 penultimate hidden state          [B, 77, 1280]
-concatenated prompt embeddings                   [G*E, 77, 2048]
-pooled embeddings from text encoder 2            [G*E, 1280]
-micro-conditioning IDs                           [G*E, 6]
-initial latent                                   [E, 4, H/8, W/8]
-UNet latent input and noise prediction           [G*E, 4, H/8, W/8]
-guided latent                                    [E, 4, H/8, W/8]
-VAE-decoded image                                [E, 3, H, W]
+각 토크나이저의 토큰 ID                          [B, 77]
+텍스트 인코더 1의 끝에서 두 번째 은닉 상태       [B, 77, 768]
+텍스트 인코더 2의 끝에서 두 번째 은닉 상태       [B, 77, 1280]
+이어 붙인 프롬프트 임베딩                        [G*E, 77, 2048]
+텍스트 인코더 2의 풀링된 임베딩                  [G*E, 1280]
+미세 조건 ID                                    [G*E, 6]
+초기 잠재 표현                                  [E, 4, H/8, W/8]
+UNet 잠재 표현 입력과 노이즈 예측                [G*E, 4, H/8, W/8]
+guidance가 적용된 잠재 표현                      [E, 4, H/8, W/8]
+VAE로 디코딩한 이미지                           [E, 3, H, W]
 ```
 
-The six micro-conditioning values are original height, original width, top
-crop, left crop, target height, and target width. At the canonical 1,024 by
-1,024 resolution, the latent spatial size is 128 by 128. VAE decode divides
-the latent by 0.13025 and uses float32 because `force_upcast` is true.
+6 미조절 값은 원래 높이, 원래 너비, 상단 자르기, 좌측 자르기, 목표 높이, 및 목표 너비입니다. 정준 1,024 by 1,024 해상도에서 잠재 공간 크기는 128 by 128입니다. VAE 디코드는 잠재를 0.13025 로 나누고 `force_upcast` 가 참이므로 부동소수점32 을 사용합니다.
 
-## Fixed reference fixture
+<a id="fixed-reference-fixture"></a>
+
+## 고정 참조 픽스처
 
 ```text
-Prompt:             a red cube on a white table
-Negative prompt:    empty string
-Seed:               42
-Resolution:         1024 x 1024
-Inference steps:    20
+프롬프트:           a red cube on a white table
+부정 프롬프트:      빈 문자열
+시드:               42
+해상도:             1024 x 1024
+추론 단계:          20
 Guidance scale:     5.0
-Scheduler:          EulerDiscreteScheduler from the pinned repository
-Watermarker:        explicitly disabled
+스케줄러:           고정된 저장소의 EulerDiscreteScheduler
+워터마커:           명시적으로 비활성화
 ```
 
-Twenty steps are an iiLocalDiffusion smoke/reference choice, not the
-Diffusers call default. An empty negative prompt is also intentional: in SDXL
-it is not equivalent to `None`, because the pinned pipeline zeros negative
-embeddings only when the prompt is absent.
+20단계는 Diffusers 호출 기본값이 아니라 iiLocalDiffusion 연기/참조 선택입니다. 빈 부정 프롬프트도 의도적인 것입니다. SDXL에서는 고정된 파이프라인이 프롬프트가 없는 경우에만 부정 임베딩을 0으로 설정하기 때문에 `None`와 동일하지 않습니다.
 
-## Compatibility boundary
+<a id="compatibility-boundary"></a>
 
-`StableDiffusionXLBase` means that the canonical Base 1.0 package metadata and
-required artifact paths match. It does not mean that safetensors bodies were
-parsed, a coherent fp16/fp32 variant was selected, or inference ran. The
-single-file checkpoint, ONNX, OpenVINO, Flax, auxiliary VAE, SDXL Refiner,
-img2img, and arbitrary derivative contracts are outside this C++ metadata
-profile.
+## 호환성 경계
 
-The Python oracle performs the stronger next check: Diffusers loads actual
-weights, verifies component classes and critical tensor configuration, and
-can generate the fixed 1,024 by 1,024 MPS fixture. It records that SDXL Base
-has no safety checker and whether any watermarker was present rather than
-claiming an unperformed safety step. Its independent single-file model, VAE,
-and LoRA composition boundary is documented in
+`StableDiffusionXLBase` 는 정준 Base 1.0 패키지 메타데이터와 필요한 아티팩트 경로가 일치한다는 것을 의미합니다. safetensors 본문이 파싱되었거나 일관된 fp16/fp32 변형이 선택되었거나 추론이 실행되었다는 것을 의미하지는 않습니다. 단일 파일 체크포인트, ONNX, OpenVINO, Flax, 보조 VAE, SDXL 리파이너, img2img, 및 임의의 파생 계약은 이 C++ 메타데이터 프로파일에 포함되지 않습니다.
+
+Python 오라클은 더 강력한 다음 검사를 수행합니다: Diffusers 는 실제 가중치를 로드하고 구성 요소 클래스 및 중요한 텐서 구성을 확인하며, 1,024 를 1,024 MPS 픽스처 로 생성할 수 있습니다. SDXL Base 에 안전 검사기가 없고 어떤 워터마커가 있었는지 여부를 기록하며, 수행되지 않은 안전 단계를 주장하지 않습니다. 독립적인 단일 파일 모델인 VAE 와 LoRA 조합 경계는 문서화되어 있습니다.
 [model-inputs.md](model-inputs.md).

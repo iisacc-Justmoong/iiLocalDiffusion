@@ -711,6 +711,39 @@ int main(int argc, char **argv) {
                 NativeComputeBackend::Automatic, cancelled);
             require(multiple.error.empty() && actualReferenceMarkers == std::vector<int>({11, 22}),
                 "Ordered reference pixels did not reach the editing model: " + multiple.error);
+            // Krea2 base weights support img2img, not the upstream default
+            // Ostris edit preset. One source must not also become edit tokens.
+            modelFamily = "krea2"; releaseNativeDiffusionCache();
+            const auto kreaDefaults = nativeImageParameterDefaults(request.modelPath);
+            require(std::get<std::int64_t>(kreaDefaults.values.at("steps")) == 52
+                && std::get<double>(kreaDefaults.values.at("cfgScale")) == 7.0,
+                "Quick Krea2 defaults did not retain CFG 7 and 52 steps");
+            advanced.references.resize(1); advanced.imageStrength = .65f;
+            advanced.sampler = advanced.scheduler = "auto";
+            expectedReferenceCount = 0;
+            const auto kreaImage = generateNativeAdvancedImage(request, modifiers, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(kreaImage.error.empty() && actualReferenceMarkers.empty(),
+                "Krea2 img2img unexpectedly activated edit conditioning: " + kreaImage.error);
+            require(actualSampler == EULER_SAMPLE_METHOD && actualSigmas.size() == std::size_t(request.steps + 1)
+                && actualSigmas.front() == 1.f && actualSigmas.back() == 0.f,
+                "Krea2 auto sampling omitted the published flow schedule");
+            const int canvasWidth = (request.width + 63) / 64 * 64;
+            const int canvasHeight = (request.height + 63) / 64 * 64;
+            const double mu = .5 + ((canvasWidth / 16) * (canvasHeight / 16) - 256) * (.65 / 6144);
+            const double sigma = double(request.steps - 1) / request.steps;
+            const double shifted = std::exp(mu) * sigma / (1 + (std::exp(mu) - 1) * sigma);
+            require(std::abs(actualSigmas[1] - shifted) < 1e-6,
+                "Krea2 timestep shift was not derived from the internal canvas");
+            advanced.sampler = "heun"; advanced.scheduler = "karras";
+            const auto explicitKrea = generateNativeAdvancedImage(request, modifiers, components, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(explicitKrea.error.empty() && actualSampler == HEUN_SAMPLE_METHOD
+                && actualScheduler == KARRAS_SCHEDULER && actualSigmas.empty(),
+                "Krea2 auto defaults replaced an explicit advanced sampler/scheduler");
+            modelFamily = "sdxl-base"; releaseNativeDiffusionCache();
+            require(nativeImageParameterDefaults(request.modelPath) == ImageParameters::defaults(),
+                "Krea2 defaults leaked into another model family");
             advanced.references.front().rgb.pop_back();
             require(!generateNativeAdvancedImage(request, modifiers, components, advanced,
                 NativeComputeBackend::Automatic, cancelled).error.empty(), "Truncated reference RGB was accepted");

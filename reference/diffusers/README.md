@@ -10,7 +10,7 @@ the Anima denoiser before its embedded VAE. A VAE-only file remains a component;
 an incomplete Anima reports missing companions. See the [worker contract](../../docs/inference-worker.md#complete-anima-checkpoints)
 for supported arguments, cache residency, outputs and preview limitations.
 
-Qwen Image RGB·SDXL·FLUX.1·FLUX.2 파이프라인에 VAE가 없으면 계열별 기본 VAE를 자동 사용한다. SDXL/FLUX.1 프리셋과 VAE가 빠진 SDXL 단일 체크포인트에도 같은 폴백을 적용한다. `--vae` 생략이 기본이며 명시하려면 로컬 Diffusers VAE 디렉터리를 전달한다. 내장 VAE를 우선하고 `--no-default-modifiers`에서도 디코더 폴백은 유지한다. 각 파이프라인에 호환되는 VAE를 선택하며 RGBA Layered는 제외한다. [리비전·해시·재다운로드·검증](../../docs/generation-defaults.md#vae-자동-폴백)을 참고한다.
+When Qwen Image RGB, SDXL, FLUX.1, or FLUX.2 pipelines lack a VAE, the default VAE for the family is used automatically. The same fallback applies to SDXL/FLUX.1 presets and SDXL single checkpoints without a VAE. Omitting `--vae` is the default; to specify one explicitly, pass a local Diffusers VAE directory. An embedded VAE takes precedence, and the decoder fallback remains active with `--no-default-modifiers`. A compatible VAE is selected for each pipeline, excluding RGBA Layered. Refer to [revisions, hashes, redownload, and verification](../../docs/generation-defaults.md#vae-자동-폴백).
 
 The unified launcher and image/video runners accept local `--model-path`
 (legacy `--model`), direct `--model-api`, or remote `--model-cloud` with

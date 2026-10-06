@@ -1,6 +1,6 @@
 # iiLocalDiffusion
 
-Qwen Image RGB·SDXL·FLUX.1·FLUX.2 모델에서 VAE 인자를 생략하고 모델에도 VAE가 없으면, 네이티브와 Diffusers 로더가 [계열별 VAE 폴백](docs/generation-defaults.md#vae-자동-폴백)을 자동 사용한다. 원본 가중치·설정·배포 라이선스 및 출처를 번들에 포함한다. 내장 VAE와 명시적 선택을 우선하며, 서로 다른 잠재 공간의 VAE를 혼용하지 않으며 RGBA Layered는 제외한다.
+Qwen Image RGB · SDXL · FLUX.1 · FLUX.2 model omits the VAE parameter and if the model also lacks a VAE, the native and Diffusers loaders automatically use the per-family [VAE](docs/generation-defaults.md#vae-자동-폴백). It includes original weights, settings, deployment licenses, and sources in the bundle. Built-in VAE and explicit selection take precedence, different latent space VAEs are not mixed, and RGBA Layered is excluded.
 
 Image generation uses [bundled negative embeddings](docs/generation-defaults.md).
 SDXL automatically loads all seven negative embeddings; no LoRA is selected automatically.
@@ -487,8 +487,15 @@ are stored in this repository.
 
 Native progress now distinguishes weight loading, denoising and image decoding. The pinned backend patch and cooperative cancellation/deadline contract are described in [native-image-generation.md](docs/native-image-generation.md).
 
-네이티브 생성은 선택적으로 원본을 보존한 Q8/VAE F16 모델 사본을 디스크에 캐싱하고, 성공한 최근 모델의 엔진과 mmap을 메모리에 유지한다. Apple의 기기별 GPU 예산·전체 CPU 코어·직접 mmap 업로드와 캐시 해제 계약은 [네이티브 문서](docs/native-image-generation.md)를 참조한다.
+Native generation optionally caches a copy of the Q8/VAE F16 model on disk preserving the original, and keeps the engine and mmap of the most recent successful model in memory. Apple's per-device GPU budget, total CPU core, direct mmap upload, and cache invalidation contract are referenced in the [native documentation](docs/native-image-generation.md).
 
 `generateNativeImageWithBackend` adds explicit CPU-only image inference for consumers with a background CPU grant and no GPU access. Existing APIs keep automatic placement and ABI layouts. See [native execution](docs/native-image-generation.md#explicit-cpu-execution-for-background-tasks) for resource and cache behavior.
 
-네이티브 VAE는 전체 텐서 구조를 검증한 뒤 마운트하고, SDXL 타일 크기를 메모리 예산에 맞춰 자동 조절한다. 비정상 잠재값·디코딩 값은 RGB 저장 전에 오류로 차단한다. [VAE 검증과 자동 최적화](docs/native-image-generation.md#vae-마운트-검증과-자동-최적화)에 정책과 실제 가중치 수치 비교 방법을 기록했다.
+Native VAE validates the full tensor structure before mounting, and automatically adjusts the SDXL tile size according to the memory budget. Abnormal latent values and decoding values are blocked as errors before saving to RGB. Policies and methods for comparing actual weight values are recorded for [VAE validation and automatic optimization](docs/native-image-generation.md#vae-마운트-검증과-자동-최적화).
+## Native model packaging
+
+The Qt-free `iiLocalDiffusion::ModelPackaging` module bundles a model folder,
+Safetensors shards, LoRA/VAE and original GGUF/assets into one verified
+Safetensors container. It streams weights without casting them and provides
+byte-identical original-file restoration. See [model packaging](docs/model-packaging.md)
+for the format, C++ API, `iild-model-package` CLI and validation contract.

@@ -1,12 +1,8 @@
-# Resident inference session
+<a id="resident-inference-session"></a>
 
-`iild-generate --worker` keeps one SDK Python process alive for sequential
-requests. Python imports and dependency discovery are initialized once on first
-use. The SDK also retains one compatible prepared image pipeline in memory.
-Applications own their queue and send the next request after completion; the
-worker writes no queue, cache database or Society state. No additional library
-dependency is introduced: this uses Python's standard library and the existing
-Diffusers/PyTorch installation.
+# 주민설명회
+
+`iild-generate --worker` 은 순차적 요청을 위해 하나의 SDK Python 프로세스를 계속 살아있게 유지합니다. Python 와 의존성 발견은 첫 사용 시 한 번 초기화됩니다. The SDK 또한 메모리에 호환 가능한 준비된 이미지 파이프라인 하나를 계속 보유합니다. 애플리케이션은 자신의 큐를 소유하며 완료 후 다음 요청을 보냅니다; 워커는 큐, 캐시 데이터베이스 또는 Society 상태를 작성하지 않습니다. 추가 라이브러리 의존성이 도입되지 않습니다: 이는 Python 의 표준 라이브러리와 기존 Diffusers / PyTorch 설치만 사용합니다.
 
 기본 로컬 이미지 요청의 너비·높이는 최종 결과이다. 네이티브 및 프리셋 이미지 경로는
 각 변을 절반으로 줄여 생성한 뒤 Hires fix로 목표 크기에 도달한다. 사전 준비는 여전히
@@ -15,274 +11,99 @@ Diffusers/PyTorch installation.
 미리보기는 두 단계의 denoising audit와 함께 실행하며 하나의 연속 파일 번호를 사용한다.
 각 단계의 스텝 번호는 해당 스케줄을 따르고, 최종 산출물은 보정 완료 후 게시한다.
 
-### Complete Anima checkpoints
+<a id="complete-anima-checkpoints"></a>
 
-`--backend local` recognizes Anima's LLM cross-attention adapter tensor signature
-before classifying standalone VAE files. Complete checkpoints containing the
-denoiser, text encoder and VAE run through `native_image.py` and the installed
-`NativeImageBridge` C ABI in this same worker process. Diffusers routes for other
-families remain unchanged. No ComfyUI server or new dependency is introduced.
-The pinned native stable-diffusion.cpp implementation supplies Anima inference;
-the bridge contains no model mathematics.
+### 아니마 체크포인트를 완료하세요
 
-Foreground preparation validates and retains a native context without encoding
-or sampling. Weights are placed lazily on first use, so residency reports
-`device: native-auto`, `offload: managed`, and `gpu_resident: false`; `ready`
-means the context is prepared. Sequential jobs reuse this context, including
-changes to prompt, seed and image extent. Worker teardown, failure or switching
-to another model releases its native owner. Model/result hashes and atomic batch
-publication follow the same standalone output contract. `generation.json` reports
-`backend: native`, model identity, original dimensions, per-image seed and native
-cache/load/generation measurements. The embedded VAE is preserved.
-`--work-dir/request.json` and `--print-config` contain replayable native arguments
-only; they do not require a Diffusers model-selection object or preset defaults.
-The desktop bridge does not inherit the C++ request's 15-minute wall-clock
-default. It uses the native API's maximum budget, preserving the existing
-desktop worker's long-generation behavior and process cancellation. A separate
-C bridge caller may set `timeout_milliseconds` to a positive explicit limit;
-zero selects the maximum budget. The original C++ request's default is unchanged.
+`--backend local` 는 Anima 의 LLM 크로스 어텐션 어댑터 텐서 서명을 분류하기 전에 인식하며, 독립형 VAE 파일을 인식합니다. denoiser, 텍스트 인코더 및 VAE 를 포함하는 체크포인트를 완료하여 이 같은 워커 프로세스에서 `native_image.py` 와 설치된 `NativeImageBridge` C ABI 를 통해 실행합니다. Diffusers 라우터는 다른 패밀리에는 변경되지 않습니다. ComfyUI 서버 또는 새로운 의존성이 도입되지 않습니다. 고정된 네이티브 stable-diffusion.cpp 구현은 Anima 추론을 공급하며, 브릿지에는 모델 수학이 포함되어 있지 않습니다.
 
-This route accepts complete local Anima safetensors, prompt/negative prompt,
-8-pixel dimensions in 64–2048, steps/count in 1–1000, seed/seed stride, local LoRA
-and scale, default-modifier resources, lossless PNG/output controls, and
-`--device auto`. Explicit unsupported overrides (including `--vae`, Diffusers
-samplers, dtype and guidance overrides) fail before loading instead of being
-silently ignored. Denoising-stage progress is emitted as `IILD_NATIVE_PROGRESS`;
-native per-step latent previews are currently unavailable. A denoiser-only
-Anima is identified as such and reports its missing text encoder and VAE.
+포그라운드 준비는 인코딩이나 샘플링 없이 네이티브 컨텍스트를 유효성 검사하고 유지합니다. 무게는 처음 사용 시 게으르게 배치되므로, 거주 보고서는 `device: native-auto`, `offload: managed`, `gpu_resident: false` 를 보고하며 `ready` 는 컨텍스트가 준비되었음을 의미합니다. 순차적 작업은 프롬프트, 시드 및 이미지 범위에 대한 변경 사항을 포함하여 이 컨텍스트를 재사용합니다. 워커 해체, 실패 또는 다른 모델로 전환하는 경우 네이티브 소유자가 해제됩니다. 모델/결과 해시 및 원자적 배치 게시는 동일한 독립형 출력 계약을 따릅니다. `generation.json` 는 `backend: native`, 모델 식별자, 원래 차원, 이미지별 시드 및 네이티브 캐시/로드/생성 측정치를 보고합니다. 임베딩된 VAE 는 보존됩니다. `--work-dir/request.json` 와 `--print-config` 는 재생 가능한 네이티브 인수만 포함하며 Diffusers 모델 선택 객체 또는 기본 설정을 요구하지 않습니다. 데스크톱 브릿지는 C++ 요청의 15분 시계 기본값을 상속하지 않습니다. 그것은 네이티브 API 의 최대 예산을 사용하여 기존 데스크톱 워커의 긴 생성 동작과 프로세스 취소 동작을 유지합니다. 별도의 C 브릿저 호출자는 `timeout_milliseconds` 를 명시적인 양의 제한으로 설정할 수 있으며, 0 는 최대 예산을 선택합니다. 원본 C++ 요청의 기본값은 변경되지 않습니다.
 
-## Foreground preparation
+이 경로는 완전한 로컬 Anima safetensors, 프롬프트/네거티브 프롬프트, 64–2048범위의 8픽셀 단위 크기, 1–1000범위의 스텝/개수, seed/seed stride, 로컬 LoRA와 강도, 기본 수정자 리소스, 무손실 PNG/출력 제어와 `--device auto`를 받는다. `--vae`, Diffusers 샘플러, dtype와 가이던스 덮어쓰기 등 명시한 미지원 옵션은 아무런 알림 없이 무시하지 않고 로딩 전에 실패한다. 디노이징 단계 진행률은 `IILD_NATIVE_PROGRESS`로 출력하며, 네이티브 스텝별 latent 프리뷰는 현재 사용할 수 없다. 디노이저 전용 Anima는 해당 유형으로 식별하고 누락된 텍스트 인코더와 VAE를 보고한다.
 
-The SDK advertises `foreground-residency` in `IILD_READY.capabilities`. A client
-must check this capability before sending lifecycle controls; older workers
-could otherwise interpret their arguments as a generation request.
+<a id="foreground-preparation"></a>
+
+## 전경 준비
+
+SDK 는 `IILD_READY.capabilities` 에서 `foreground-residency` 를 광고합니다. 클라이언트는 수명 주기 제어를 보내기 전에 이 기능을 확인해야 하며, 그렇지 않으면 이전 워커들이 자신의 인수를 생성 요청으로 해석할 수 있습니다.
 
 ```json
 {"schema":"iild-worker-request-v1","id":"focus-1","action":"foreground","foreground":true,"arguments":["--backend","local","--model-path","/models/model.safetensors","--device","auto","--cache-dir","/app-temp/session/cache"]}
 ```
 
-The foreground command resolves and verifies the selected local model, loads
-Python dependencies, constructs the supported image pipeline and applies its
-execution placement. It does not run denoising, encode a prompt, create an image,
-emit a preview or write a generation/request record. Its cache directory must
-belong to the app's worker session, outside Society. Normal generation later
-uses the same prepared model and device placement even when its output paths,
-prompt, seed or image size differ. No second model/weight cache belongs to the app.
+전경 명령은 선택된 로컬 모델을 해결하고 검증하며, Python 의존성을 로드하고 지원되는 이미지 파이프라인을 구성하여 실행 위치를 적용합니다. 그것은 디노이징을 실행하거나 프롬프트를 인코딩하거나 이미지를 생성하거나 미리보기를 방출하거나 생성/요청 기록을 작성하지 않습니다. 그의 캐시 디렉토리는 앱의 워커 세션에 속해야 하며, Society 바깥에 있어야 합니다. 일반 생성은 나중에 동일한 준비된 모델과 장치 배치를 사용하며, 출력 경로, 프롬프트, 시드 또는 이미지 크기가 다르더라도 마찬가지입니다. 앱에 속하는 두 번째 모델/가중치 캐시는 없습니다.
 
-Every `IILD_RESULT` includes `action` and `residency`: `foreground`, `ready`,
-`state`, and, for a prepared model, `device`, `offload`, `model`, `gpu_resident`.
-The initial `IILD_READY` only means the transport has started; wait for the
-foreground command's successful result with `residency.ready` before declaring
-the model ready. `gpu_resident` is true for a resident CUDA/ROCm or MPS placement;
-an explicit CPU choice or CPU offload is reported accurately rather than being
-labelled GPU residency. The existing device/offload/memory policy is respected.
+각  `IILD_RESULT` 는  `action` 와  `residency` :  `foreground` ,  `ready` ,  `state` 와, 준비된 모델의 경우  `device` ,  `offload` ,  `model` ,  `gpu_resident` 를 포함합니다. 초기  `IILD_READY` 는 전송이 시작되었음을 의미할 뿐이며,  `residency.ready` 와 함께 전경 명령의 성공 결과를 기다린 후에 모델을 준비되었다고 선언해야 합니다. `gpu_resident` 는 거주  CUDA /ROCm 또는  MPS 배치에 대해 참이며, 명시적인  CPU 선택 또는  CPU 오프로딩이 정확하게 보고되도록  GPU 거주로 표시되는 대신 처리됩니다. 기존 장치/오프로딩/메모리 정책이 존중됩니다.
 
-Once prepared, the SDK blocks waiting on stdin without generating dummy frames,
-polling the GPU or releasing the model when the app queue becomes empty. The app
-forwards foreground state and model selection; all preparation and readiness
-decisions are owned by `InferenceSession` and the SDK backends. A Python caller
-can use `InferenceSession.set_foreground(True, callback)` with the same generator
-entry point; `is_preparing()` selects the preparation-only execution path.
+준비된 후에는  SDK 블록이 stdin 에서 대기하며 가짜 프레임을 생성하지 않고,  GPU 를 폴링하거나 앱 큐가 비어지면 모델을 해제합니다. 앱은 전경 상태와 모델 선택을 전달하며, 모든 준비 및 준비 상태 결정은  `InferenceSession` 와  SDK 백엔드에 의해 관리됩니다.  Python 호출자는 동일한 생성자 진입점으로  `InferenceSession.set_foreground(True, callback)` 를 사용할 수 있으며,  `is_preparing()` 는 준비 전용 실행 경로를 선택합니다.
 
 ```json
 {"schema":"iild-worker-request-v1","id":"focus-2","action":"foreground","foreground":false}
 ```
 
-Background notification does not cancel a running generation or discard the
-existing session caches. It does not initiate a new preparation. Foreground with
-no arguments means no model is selected and releases the previous prepared model.
-Foreground with a different model/configuration uses the normal invalidation
-rules. Failed preparation clears readiness and returns an error; it never
-silently creates a generation job. Unsupported remote/media/adapter paths are
-rejected for foreground preparation before generation can run. Applications
-coalesce lifecycle/model updates and send at most one outstanding command.
+배경 알림은 실행 중인 생성을 취소하거나 기존 세션 캐시를 삭제하지 않습니다. 새로운 준비를 시작하지 않습니다. 전경에 인수가 없는 경우 모델이 선택되지 않으며 이전 준비된 모델을 해제합니다. 다른 모델/구성으로 전경이 있는 경우 일반적인 무효화 규칙을 사용합니다. 실패한 준비는 준비 상태를 지우고 에러를 반환하며, 아무런 알림 없이 생성 작업을 생성하지 않습니다. 생성 실행 전에 백그라운드 준비를 위해 지원되지 않는 원격/미디어/어댑터 경로는 거부됩니다. 애플리케이션은 수명 주기/모델 업데이트를 병합하여 최대 하나의 진행 중인 명령만 보냅니다.
 
-## Transport
+<a id="transport"></a>
 
-The worker prints `IILD_READY {"schema":"iild-worker-v1","pid":123}` to stdout.
-Send UTF-8 JSON, one object per line, on stdin (maximum 1 MiB per request):
+## 운송
+
+작업자는 `IILD_READY {"schema":"iild-worker-v1","pid":123}`를 stdout에 인쇄합니다. stdin에서 UTF-8 JSON(한 줄에 하나의 개체)를 보냅니다(요청당 최대 1 MiB).
 
 ```json
 {"schema":"iild-worker-request-v1","id":"job-1","arguments":["--backend","local","--model-path","/models/model.safetensors","--prompt","a red cube","--output-dir","/app-temp/job-1/output","--cache-dir","/app-temp/job-1/cache"]}
 ```
 
-`arguments` uses the existing generation CLI contract without a shell. Each job
-must have its own output, work and preview paths. Existing `IILD_PREVIEW` events
-belong to the single active request. Logs/progress may also appear on stdout.
-Completion is a flushed `IILD_RESULT` JSON object with schema
-`iild-worker-result-v1`, the matching `id`, `ok`, `exit_code`, `error`, `pid`,
-`elapsed_seconds`, and per-request `cache` counters: `model_hashes`,
-`model_hash_hits`, `model_bytes_hashed`, `pipeline_loads`, `pipeline_hits`,
-`configuration_reads`, `configuration_hits`, `device_placements`,
-`device_placement_hits`. Reads/loads/placements count initialization calls;
-hits count requests reusing each corresponding stage.
-An ordinary inference error evicts the prepared pipeline and leaves the worker
-available for the next request. Recursive `--worker` requests are rejected.
+`arguments` 는 쉘 없이 기존 생성 CLI 계약을 사용합니다. 각 작업은 고유한 출력, 작업 및 미리보기 경로를 가져야 합니다. 기존 `IILD_PREVIEW` 이벤트는 단일 활성 요청에 속합니다. 로그/진행 상태는 stdout 에 나타날 수도 있습니다. 완료는 스키마 `iild-worker-result-v1`, 일치하는 `id`, `ok`, `exit_code`, `error`, `pid`, `elapsed_seconds`, 및 요청별 `cache` 카운터인 `IILD_RESULT` JSON 객체로 플러시됩니다: `model_hashes`, `model_hash_hits`, `model_bytes_hashed`, `pipeline_loads`, `pipeline_hits`, `configuration_reads`, `configuration_hits`, `device_placements`, `device_placement_hits` 입니다. 읽기/로딩/배치 호출 횟수는 초기화 호출을 세고, 히트 횟수는 각 해당 단계를 재사용하는 요청을 세습니다. 일반 추론 오류는 준비된 파이프라인을 제거하고 다음 요청을 위해 작업자를 사용할 수 있게 합니다. 재귀적으로 `--worker` 요청은 거부됩니다.
 
-Closing stdin releases the session after its current request. To cancel running
-inference, terminate the worker (and its process group when applicable), wait for
-exit, then start a new worker for subsequent requests. Cancellation/crashes lose
-memory caches. They never restore or resume a job from disk. Send only one
-outstanding request so cancellation cannot accidentally run a queued request.
+stdin 을 닫으면 현재 요청 이후 세션을 해제합니다. 실행 중인 추론을 취소하려면 작업자 (적용 가능한 경우 프로세스 그룹 포함) 를 종료하고 출력을 기다린 후, 이후 요청을 위해 새 작업자를 시작합니다. 취소/충돌은 메모리 캐시를 잃습니다. 그들은 디스크에서 작업을 복원하거나 재개하지 않습니다. 취소가 대기 중인 요청을 실수로 실행하지 않도록 최대 하나의 진행 중인 요청만 보내세요.
 
-## Cache identity and lifetime
+<a id="cache-identity-and-lifetime"></a>
 
-Full model SHA-256 values are cached in process memory, with at most 1,024 current
-file identities. Every lookup checks the resolved path, device, inode/file ID,
-size, nanosecond write time and metadata-change time. Windows uses
-[`FILE_BASIC_INFO.ChangeTime`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_basic_info)
-because Python's Windows `st_ctime` describes creation time. Access time is not
-part of identity. Changed files are hashed again; hashing itself checks identity
-before/after reading and never caches a changing file. Verification of a captured
-request still rejects a changed digest, missing file or redirected symlink.
-The same cache serves checkpoint/VAE/LoRA/ControlNet identities, Civitai sidecar
-hash matching and generic Diffusers directory weights. Output images and external
-generation inputs retain their own verification.
+## 캐시 ID 및 수명
 
-This optimization relies on the filesystem reporting file identity and change
-metadata correctly; it is not tamper-proof attestation against forged metadata.
-Process restart or bounded-cache eviction also requires a fresh hash.
+전체 모델 SHA-256 값은 최대 1,024 현재 파일 ID로 프로세스 메모리에 캐시됩니다. 모든 조회에서는 확인된 경로, 장치, inode/파일 ID, 크기, 나노초 쓰기 시간 및 메타데이터 변경 시간을 확인합니다. Windows는 다음을 사용합니다.
+[`FILE_BASIC_INFO.ChangeTime`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_basic_info) 입니다. Python 의 Windows `st_ctime` 이 생성 시간을 설명합니다. 접근 시간은 신원 정보의 일부가 아닙니다. 변경된 파일은 다시 해시되며, 해싱 자체는 읽기 전/후에 신원을 확인하고 변경되는 파일을 캐시하지 않습니다. 포착된 요청의 검증은 여전히 변경된 다이제스트, 누락된 파일 또는 리디렉션된 심볼릭 링크를 거부합니다. 동일한 캐시는 체크포인트/ VAE / LoRA / ControlNet 신원 정보, Civitai 사이드카 해시 매칭 및 일반 Diffusers 디렉토리 가중치를 제공합니다. 출력 이미지와 외부 생성 입력은 자체 검증을 유지합니다.
 
-Model composition and execution placement are separate cache stages for ordinary
-SD 1.x, SDXL and FLUX image requests, including complete Diffusers directories:
+이 최적화는 파일 시스템 보고 파일 ID 및 변경 메타데이터를 올바르게 사용합니다. 이는 위조된 메타데이터에 대한 변조 방지 증명이 아닙니다. 프로세스를 다시 시작하거나 한계가 설정된 캐시 제거에도 새로운 해시가 필요합니다.
 
-- The constructed pipeline retains its denoiser, VAE, encoders, tokenizers and
-  initial scheduler configuration. Construction identity uses actual loader
-  arguments and model/configuration/VAE file identities. A new prompt, sampler,
-  prediction setting, clip-skip, seed, size or step count does not reload weights.
-- Placement retains the device/index, effective offload policy, attention slicing
-  and VAE slicing/tiling configuration. An unchanged placement does not call the
-  SDK's device-placement initialization again. Changing only placement uses the
-  existing model components; obsolete offload hooks and slicing settings are
-  removed before applying the new placement. A dtype or weight-variant change
-  reconstructs weights to preserve their precision and source identity.
-- Model inspection and model-index parsing use a separate bounded memory cache
-  of 16 configurations. Every lookup checks source identity, including optional
-  sidecar absence, addition, replacement and removal. Results are copied so
-  callers cannot mutate the cached configuration. No configuration cache is
-  written to disk.
+모델 구성 및 실행 배치는 전체 Diffusers 디렉터리를 포함하여 일반 SD 1.x, SDXL 및 FLUX 이미지 요청에 대한 별도의 캐시 단계입니다.
 
-Model/configuration/VAE files are checked on every request, including directory
-additions/removals. Changing those files releases the old composition and
-placement before reconstruction. A fresh scheduler is constructed from the
-model's original cached configuration for each request so neither sampling
-history nor the previous request's scheduler overrides can leak into the next
-request. Runtime metadata reports `model_configuration_cache_hit`,
-`device_placement_cache_hit`, and their conjunction `pipeline_cache_hit`.
+- 구성된 파이프라인은 디노이저인 VAE, 인코더, 토크나이저 및 초기 스케줄러 구성을 유지합니다. 구성 아이덴티티는 실제 로더 인수와 model/configuration/ VAE 파일 ID를 사용합니다. 새로운 프롬프트, 샘플러, 예측 설정, 클립 스킵, 시드, 크기 또는 걸음 수는 가중치를 다시 로드하지 않습니다.
+- 배치는 장치/인덱스, 유효한 오프로드 정책, 주의 슬라이싱 및 VAE 슬라이싱/타일링 구성을 유지합니다. 변경되지 않은 배치는 SDK 의 장치 배치 초기화를 다시 호출하지 않습니다. 배치만 변경하면 기존 모델 구성 요소를 사용하며, 적용하기 전에 구식 오프로드 후크 및 슬라이싱 설정이 제거됩니다. 데이터 형식이나 가중치 변형 변경은 정밀도와 출처 신원을 보존하기 위해 가중치를 재구성합니다.
+- 모델 검사와 모델 인덱스 파싱은 16 구성의 별도 한계가 설정된 메모리 캐시를 사용합니다. 모든 조회는 소스 신원을 확인하며, 선택적인 사이드카 부재, 추가, 교체 및 제거를 포함합니다. 결과가 복사되어 호출자는 캐시된 구성을 변경할 수 없습니다. 구성 캐시가 디스크에 기록되지 않습니다.
 
-CPU offload layouts also retain their models and preparation policy between
-requests. Offload still moves weights during inference, according to the selected
-Diffusers/Accelerate policy; it does not promise permanent GPU residency. Changing
-from offload to resident execution materializes/removes the old hooks using
-Diffusers' `remove_all_hooks` before device placement. Placement failure evicts
-the partially moved pipeline.
-Generation and preview decoding use `torch.no_grad` so weights replaced by
-offload/VAE hooks retain tensor version counters. `torch.inference_mode` would
-leave some restored parameters unusable during a later placement change or
-MPS convolution. Gradient recording remains disabled without copying the model.
-See [PyTorch inference-mode constraints](https://docs.pytorch.org/docs/stable/generated/torch.autograd.grad_mode.inference_mode.html).
+모델/구성/ VAE 파일은 모든 요청에서 확인되며, 디렉토리 추가/제거도 포함됩니다. 해당 파일이 변경되면 재구성 전에 이전 컴포지션과 배치가 해제됩니다. 각 요청마다 모델의 원래 캐시된 구성에서 새로운 스케줄러가 생성되므로 샘플링 이력이나 이전 요청의 스케줄러 오버라이드가 다음 요청으로 누출되지 않습니다. 런타임 메타데이터는 `model_configuration_cache_hit`, `device_placement_cache_hit` 및 그 결합인 `pipeline_cache_hit` 을 보고합니다.
 
-LoRA and textual-inversion image requests now retain their prepared modifiers.
-Their file identities, strength, token names, and encoder selections participate
-in the construction key; repeated jobs do not register the same tokens twice.
-See [bundled generation defaults](generation-defaults.md).
+CPU 오프로딩 배치도 요청 사이에 모델과 준비 정책을 유지한다. 오프로딩은 선택한 Diffusers/Accelerate 정책에 따라 추론 중 가중치를 계속 이동하며, 영구적인 GPU 상주를 보장하지 않는다. 오프로딩에서 상주 실행으로 바꾸면 장치 배치 전에 Diffusers의 `remove_all_hooks`를 사용하여 기존 훅이 관리하던 가중치를 실체화하고 훅을 제거한다. 배치 실패는 일부 이동한 파이프라인을 제거한다. 생성과 프리뷰 디코딩은 `torch.no_grad`를 사용하여 오프로딩/VAE 훅이 교체한 가중치에 텐서 버전 카운터를 유지한다. `torch.inference_mode`를 사용하면 복원된 일부 매개변수를 나중의 배치 변경이나 MPS 컨볼루션에서 사용할 수 없게 된다. 모델을 복사하지 않으면서 기울기 기록은 계속 비활성화한다. [PyTorch 추론 모드 제약](https://docs.pytorch.org/docs/stable/generated/torch.autograd.grad_mode.inference_mode.html)을 참고한다.
 
-The generic Diffusers image runner also registers LoRA before placement, stores
-the verified activation with its retained pipeline, and keys construction by
-adapter identity and scale. A scale/file change reloads; an unchanged request
-reuses the adapter. Generic media pipelines outside the retained image classes
-still load adapters through the common loader for each request.
+LoRA 와 텍스트 인버전 이미지 요청은 이제 준비된 수정자를 유지합니다. 파일 식별자, 강도, 토큰 이름, 그리고 인코더 선택은 구성 키에 참여하며, 반복 작업은 동일한 토큰을 두 번 등록하지 않습니다. [번들 생성 기본값을 참조하세요](generation-defaults.md).
 
-ControlNet, external-tensor, CPU text-encoding,
-and multi-stage animation/HiRes requests retain their existing pipeline
-initialization paths; they still reuse Python imports and unchanged model hashes.
-Other generic media pipelines likewise do not reuse a prepared pipeline yet.
-This prevents retaining task-specific mutable conditioning or hooks across jobs.
-The ordinary one-shot CLI is unchanged and shares hashes within that process.
+일반적인 Diffusers 이미지 런너도 배치 전에 LoRA 를 등록하고, 유지된 파이프라인과 함께 검증된 활성화 상태를 저장하며, 어댑터 식별자와 스케일로 구성을 키웁니다. 스케일/파일 변경 시 다시 로드되며, 변경되지 않은 요청은 어댑터를 재사용합니다. 유지된 이미지 클래스 외부의 일반 미디어 파이프라인은 여전히 각 요청을 위해 공통 로더를 통해 어댑터를 로드합니다.
 
-The caller must keep the worker's working directory and TMPDIR/TEMP/TMP valid
-for the entire session: imported libraries may retain JIT/temp paths. Per-job
-files can be removed after `IILD_RESULT`; session runtime temporary files are
-removed after worker exit. Keep both outside Society. Use
-`PYTHONDONTWRITEBYTECODE=1` to avoid new bytecode files while reading installed
-`__pycache__` files. Do not point `PYTHONPYCACHEPREFIX` at a new empty directory:
-[Python ignores the existing cache tree when that prefix is set](https://docs.python.org/3/library/sys.html#sys.pycache_prefix).
+ControlNet , 외부 텐서, CPU 텍스트 인코딩, 및 다단계 애니메이션/ HiRes 요청은 기존 파이프라인 초기화 경로를 유지하며, Python 임포트와 변경되지 않은 모델 해시를 여전히 재사용합니다. 기타 일반 미디어 파이프라인도 아직 준비된 파이프라인을 재사용하지 않습니다. 이는 작업 간 작업별 가변 조건부나 후크를 유지하는 것을 방지합니다. 일반적인 원샷 CLI 는 변경되지 않았으며 해당 프로세스 내에서 해시를 공유합니다.
 
-## Verification
+호출자는 세션 전체 동안 작업자의 작업 디렉터리와 TMPDIR / TEMP / TMP 를 유효하게 유지해야 합니다: 임포트된 라이브러리는 JIT /temp 경로를 유지할 수 있습니다. 작업별 파일은 `IILD_RESULT` 이후에 제거할 수 있으며, 세션 런타임 임시 파일은 작업자 종료 후 제거됩니다. Society 외부에 둘 것을 유지하세요. `PYTHONDONTWRITEBYTECODE=1` 를 사용하여 설치된 `__pycache__` 파일을 읽을 때 새 바이트코드 파일을 피하세요. `PYTHONPYCACHEPREFIX` 를 새 빈 디렉터리에 가리키지 마십시오:
+[Python는 해당 접두사가 set](https://docs.python.org/3/library/sys.html#sys.pycache_prefix)인 경우 기존 캐시 트리를 무시합니다.
 
-`InferenceCacheTests` covers repeated verification with one full hash, equal-size
-edits with restored write time, atomic replacement, symlink retargeting, mutation
-during hashing, shared sidecar/ControlNet digests, directory changes, pipeline
-reuse/eviction, scheduler reset, protocol errors and EOF. `ModelLoadingTests`,
-`StandaloneImageTests` and `GenericDiffusersTests` retain output and mutation
-checks. Real-model warm-request timing is a separate integration measurement.
-`ModelPreparationCacheTests` verifies independent composition/placement reuse,
-sampler changes and restoration, device changes, offload-to-resident transitions,
-placement failure eviction, configuration/dtype invalidation, cached model-index
-parsing and sidecar changes.
-`ForegroundInferenceTests` covers preparation before a queue exists, retained GPU
-placement for the next request, background/foreground transitions, removing a
-model selection, malformed controls, unsupported preparation and absence of
-generated images/request files. Direct Python session calls also clear prior
-readiness when a replacement preparation raises or returns a failure code.
-The opt-in `ModelPreparationCacheTests` regression generates previews while moving the same
-FP32 model through CPU, MPS, model offload, sequential offload and resident
-execution, and verifies that the CPU roundtrip preserves output pixels:
+<a id="verification"></a>
+
+## 검증
+
+`InferenceCacheTests`는 전체 해시 한 번으로 반복 검증, 쓰기 시각을 복원한 동일 크기 편집, 원자적 교체, 심볼릭 링크 대상 변경, 해싱 중 변경, 공유 사이드카/ControlNet 다이제스트, 디렉터리 변경, 파이프라인 재사용/제거, 스케줄러 초기화, 프로토콜 오류와 EOF를 다룬다. `ModelLoadingTests`, `StandaloneImageTests`, `GenericDiffusersTests`는 출력과 변경 검사를 유지한다. 실제 모델의 준비된 상태 요청 시간은 별도의 통합 측정이다. `ModelPreparationCacheTests`는 구성/배치의 독립적 재사용, 샘플러 변경과 복원, 장치 변경, 오프로딩에서 상주 상태로의 전환, 배치 실패 시 제거, 구성/dtype 무효화, 모델 인덱스 파싱 캐시와 사이드카 변경을 검증한다. `ForegroundInferenceTests`는 대기열 생성 전 준비, 다음 요청을 위한 GPU 배치 유지, 백그라운드/포그라운드 전환, 모델 선택 제거, 잘못된 제어, 미지원 준비와 생성 이미지/요청 파일의 부재를 다룬다. 직접 Python 세션을 호출한 경우도 교체 준비에서 예외가 발생하거나 실패 코드를 반환하면 이전 준비 상태를 비운다. 선택적으로 실행하는 `ModelPreparationCacheTests` 회귀 검사는 동일한 FP32 모델을 CPU, MPS, 모델 오프로딩, 순차 오프로딩, 상주 실행 사이로 이동하며 프리뷰를 생성하고 CPU 왕복 전환이 출력 픽셀을 보존하는지 검증한다:
 
 ```sh
 IILD_PLACEMENT_MODEL=/path/to/local/tiny-sd1-diffusers-model \
   reference/diffusers/.venv/bin/python -B tests/ModelPreparationCacheTests.py
 ```
 
-This test requires MPS and an already available local SD1 Diffusers model; it
-never downloads weights. Without that environment variable, the deterministic
-cache tests still run and the real-model regression is skipped.
+이 테스트에는 MPS와 이미 사용 가능한 로컬 SD1 Diffusers 모델이 필요합니다. 가중치를 다운로드하지 않습니다. 해당 환경 변수가 없으면 결정적 캐시 테스트가 계속 실행되고 실제 모델 회귀를 건너뜁니다.
 
-On 2026-09-08, the installed worker generated three 512×512, 3-step SDXL images
-from `redLilyIllu_v10.safetensors` (6,938,042,184 bytes) on an M1 Max with PyTorch
-MPS FP16. Time to first preview was 31.749 s for the initial request, then
-1.326 s and 1.263 s using the same process/model. Model hash counts were 1, 0, 0;
-pipeline load counts were 1, 0, 0. Repeating the same prompt/seed produced the
-same PNG bytes; changing both produced a different image. EOF and temporary
-cleanup passed. These are SDK-request timings, not a quality benchmark or a
-guarantee for other hardware, models or request options. Raw measurements are
-in the checkout's `build/inference-worker-validation/`.
+2026-09-08에서 설치된 작업자는  `redLilyIllu_v10.safetensors` 에서  3   512×512,  3-단계  SDXL  이미지 ( 6,938,042,184  바이트) 를 생성했으며  M1  Max 에  PyTorch   MPS   FP16  있습니다. 초기 요청에 대한 첫 번째 미리보기 시간은  31.749  초였으며, 동일한 프로세스/모델을 사용하여  1.326  초와  1.263  초였습니다. 모델 해시 카운트는 1, 0, 0 이었고; 파이프라인 로드 카운트는 1, 0, 0였습니다. 동일한 프롬프트/시드를 반복하면 동일한 PNG 바이트가 생성되었고; 둘 다 변경하면 다른 이미지가 생성됩니다. EOF 와 임시 정리 작업이 통과했습니다. 이것들은 SDK 요청 타이밍이며, 다른 하드웨어, 모델 또는 요청 옵션에 대한 품질 벤치마크나 보장이 아닙니다. 원시 측정값은 체크아웃의 `build/inference-worker-validation/` 에 있습니다.
 
-The subsequent composition/placement extension was verified with six SDXL
-requests in one installed worker, changing the scheduler, restoring it, changing
-prompt/seed, and changing then reusing VAE slicing. Total model construction and
-full checkpoint hashing were each one. Configuration reads were 2 initially and
-0 thereafter. Placement initialization occurred once initially and once for the
-explicit layout change. Restoring the scheduler reproduced the original PNG.
-Final first-preview times were 87.997 s initially and 1.254–1.483 s subsequently;
-the preceding run of the same implementation had an 85.334 s first request.
-Stage timestamps put 77.993 s before dependency/device preflight completed,
-6.982 s in model construction/placement, then 3.022 s to the first preview.
-Repeated requests reached completed placement in 11–64 ms. The initial startup
-cost remains separate from the verified reuse and is not promised to disappear.
+이후의 구성/배치 확장 작업은 설치된 워커 하나에서 6 SDXL 요청으로 검증되었으며, 스케줄러를 변경하고 복원한 후, 프롬프트/시드를 변경하고 VAE 슬라이싱을 다시 재사용했습니다. 모델 구성과 전체 체크포인트 해싱은 각각 한 번 수행되었습니다. 구성 읽기는 처음에 2 번이고 이후에는 0 번이었습니다. 배치 초기화는 처음에 한 번이고 명시적인 레이아웃 변경을 위해 한 번 수행되었습니다. 스케줄러를 복원하면 원래 PNG 가 재현됩니다. 최종 첫 번째 미리보기 시간은 처음에 87.997 초이고 이후에는 1.254 – 1.483 초이며, 동일한 구현의 이전 실행은 85.334 초의 첫 번째 요청을 가졌습니다. 스테이지 타임스탬프는 의존성/장치 사전 검사 완료 77.993 초 전에, 모델 구성/배치에는 6.982 초, 첫 번째 미리보기까지 3.022 초가 소요되었습니다. 반복 요청이 완료된 배치에 도달하는 데 11 – 64 ms 가 걸렸습니다. 초기 시작 비용은 검증된 재사용과 별개로 유지되며 사라질 것을 약속하지 않습니다.
 
-Real CPU/MPS/model-offload/sequential-offload/resident transitions retained one
-FP32 SD1 pipeline across nine installed-runtime requests and preserved CPU
-roundtrip pixels. A regression with previews also passed for the same transitions.
-SDK CTest 75/75, the opt-in model preparation tests 8/8, actual Torch preview
-tests 6/6, Dreamscapes CTest 4/4 and its two-request installed-SDK consumer passed.
-Evidence and limitations: `build/model-preparation-validation/REPORT.md`.
+실제 CPU / MPS /model-offload/sequential-offload/resident 전환은 FP32 SD1 파이프라인을 9 설치된- 런타임 요청에서 유지하고 CPU 왕복 픽셀을 보존했습니다. 미삭제 회귀 와 미리보기도 동일한 전환에 대해 통과했습니다. SDK CTest 75/75, 옵인 모델 준비 테스트 8/8, 실제 Torch 미리보기 테스트 6/6, Dreamscapes CTest 4/4 및 그 2-요청 설치된- SDK 소비자가 통과했습니다. 증거와 제한 사항: `build/model-preparation-validation/REPORT.md` 입니다.
 
-The foreground extension was then exercised against the installed worker using
-the same SDXL checkpoint. Before submitting any image request, preparation took
-114.100 s and reported MPS resident execution. An idle interval and two later
-foreground notifications retained the same PID and pipeline. Across preparation,
-two 512×512, 3-step image requests and background/foreground transitions, the
-checkpoint was fully hashed once, the model constructed once and the device
-placement initialized once. Preparation emitted no previews, images or request
-records. The first generated preview arrived in 2.473 s, then 1.367 s for the
-second request; identical prompts/seeds reproduced identical PNG bytes. Initial
-preparation is moved before the queue, not eliminated, and a request submitted
-before it completes still waits for it. These timings were measured while a
-separate tiny-model consumer verification was running on the same machine.
+포그라운드 확장은 같은 SDXL 체크포인트를 사용하여 설치된 워커에 대해 실행되었습니다. 이미지 요청 제출 전에 준비는 114.100 초를 소요되었고 MPS 설치된 실행을 보고했습니다. 비활성 구간과 2 이후 포그라운드 알림은 동일한 PID 와 파이프라인을 유지했습니다. 준비, 2 512×512, 3단계 이미지 요청 및 배경/포그라운드 전환 과정에서 체크포인트는 한 번 완전히 해시되었고, 모델은 한 번 구성되었으며, 장치 배치는 한 번 초기화되었습니다. 준비는 미리보기, 이미지 또는 요청 기록을 출력하지 않았습니다. 생성된 첫 번째 미리보기는 2.473 초 만에 도착했고, 두 번째 요청은 1.367 초; 동일한 프롬프트/시드는 동일한 PNG 바이트를 재현했습니다. 초기 준비가 큐 앞에 이동되지만 제거되지 않으며, 완료되기 전에 제출된 요청은 여전히 이를 기다립니다. 이 타이밍은 동일한 머신에서 별도의 작은 모델 소비자 검증이 실행 중일 때 측정되었습니다.
 
-The Dreamscapes consumer independently prepared an actual SD1 Diffusers model on
-MPS before creating a job, then reused its worker, composition and placement for
-the first generation. A native macOS Qt Quick window verified foreground event
-delivery separately. Reproduction logs and assertions are in
-`build/foreground-validation/REPORT.md`.
+The Dreamscapes 소비자는 작업을 생성하기 전에 SD1 Diffusers 모델을 MPS 에서 독립적으로 준비한 다음, 첫 번째 세대를 위해 그 워커, 컴포지션 및 배치 를 재사용했습니다. 네이티브 macOS Qt 퀵 창은 프론트그라운드 이벤트 전달을 별도로 검증했습니다. 재현 로그와 어설션은 `build/foreground-validation/REPORT.md` 에 있습니다.

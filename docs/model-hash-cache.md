@@ -1,63 +1,25 @@
-# Persistent model hash cache
+<a id="persistent-model-hash-cache"></a>
 
-`cached_model_sha256` retains verified SHA-256 values across worker restarts.
-The identity includes canonical path, device, inode, size, nanosecond mtime and
-metadata change time (Windows uses ChangeTime). A cache miss still reads every
-byte; a changed identity always invalidates the entry. Before publishing a hash,
-the signature is checked again. Publisher manifests never seed this cache.
+# 영구 모델 해시 캐시
 
-SQLite stores at most 1024 paths. macOS defaults to
-`~/Library/Caches/iiLocalDiffusion/model-hashes.sqlite3`; other platforms use
-`$XDG_CACHE_HOME/iiLocalDiffusion` or `~/.cache/iiLocalDiffusion`.
-`IILD_MODEL_HASH_CACHE` overrides the file; `off` disables persistent caching.
-The in-process cache remains bounded. Cache I/O failure, corruption, or a lock
-lasting more than 50 ms falls back to a full content hash. This cache is a local
-performance aid, not protection from an attacker who can modify the same user's
-cache. Output digests continue to use uncached `file_sha256`.
+`cached_model_sha256`  검증된  SHA-256  값을 작업자 재시작을 통해 유지합니다. 식별자는 표준 경로, 디바이스, 인노드, 크기, 나노초 수정 시간 및 메타데이터 변경 시간 ( Windows 는  ChangeTime 을 사용함) 을 포함합니다. 캐시 누수는 모든 바이트를 읽으며, 변경된 식별자는 항상 항목을 무효화합니다. 해시를 게시하기 전에 서명이 다시 확인됩니다. 게시자 매니페스트는 이 캐시를 결코 시드하지 않습니다.
 
-Full reads reuse one 8 MiB buffer rather than allocating 1 MiB blocks repeatedly.
-Progress still reports actual bytes. First verification and model loading remain
-real work; an unchanged cache hit reads no tensor bytes.
+SQLite 은 최대 1024 개의 경로를 저장합니다. macOS 은 기본적으로 `~/Library/Caches/iiLocalDiffusion/model-hashes.sqlite3` 로 설정되며, 다른 플랫폼은 `$XDG_CACHE_HOME/iiLocalDiffusion` 또는 `~/.cache/iiLocalDiffusion` 를 사용합니다. `IILD_MODEL_HASH_CACHE` 파일의 값을 덮어씁니다; `off` 영속성 캐싱을 비활성화합니다. 처리 중인 캐시는 한계가 설정된 입니다. 캐시 I/O 실패, 손상, 또는 50 ms 보다 오래 지속되는 잠금에 대해서는 전체 콘텐츠 해시로 회귀합니다. 이 캐시는 공격자가 같은 사용자의 캐시를 수정할 수 있는 공격으로부터의 보호가 아닌, 로컬 성능을 위한 보조 수단입니다. 출력 요약은 계속 `file_sha256` 을 캐싱하지 않은 상태로 유지합니다.
 
-Build/check: compile the Python sources with `python3 -m compileall`, then run
-`tests/PersistentModelHashTests.py` and `tests/InferenceCacheTests.py`. The former
-is also registered with CTest. Tests cover reuse in a new process, same-size edits
-with restored mtime, inode replacement, mutation during hashing, corrupt and
-unavailable cache files. Tests isolate all generated files under `build/`.
+전체 읽기는 1 MiB 블록을 반복적으로 할당하는 대신 하나의 8 MiB 버퍼를 재사용합니다. 진행 상황은 여전히 ​​실제 바이트를 보고합니다. 첫 번째 검증과 모델 로딩은 여전히 ​​실제 작업입니다. 변경되지 않은 캐시 적중은 텐서 바이트를 읽지 않습니다.
 
-## Metadata-only interactive generation
+빌드/확인: Python 소스를 `python3 -m compileall` 로 컴파일한 다음 `tests/PersistentModelHashTests.py` 와 `tests/InferenceCacheTests.py` 를 실행합니다. 전자는 CTest 에도 등록됩니다. 테스트는 새 프로세스에서의 재사용, 복원된 mtime 을 가진 동일한 크기 편집, 해싱 중의 변형, 손상된 및 사용할 수 없는 캐시 파일에 대한 재사용을 다룹니다. 테스트는 `build/` 하에 생성된 모든 파일을 격리합니다.
 
-Dreamscapes sets `IILD_MODEL_VALIDATION=metadata` on its inference worker and
-inherited runtime subprocesses. `model_content_sha256` then returns `None` after
-checking file metadata; it never consults the checksum cache or reads model
-contents. This applies on the first request, not only cache hits. Local model
-provenance records `sha256: null` and `validation: metadata` rather than inventing
-or trusting a checksum. Checkpoint, LoRA, VAE, ControlNet and generic directory
-model inputs use this policy. Unified packages read their small manifest, check
-canonical member paths and nonempty regular files, and proceed to the native
-loader without matching member SHA-256 or published member sizes.
+<a id="metadata-only-interactive-generation"></a>
 
-Legacy conversion still performs the necessary weights-only deserialization and
-writes converted tensors. In metadata mode its cache key is explicitly prefixed
-`metadata-` and derived from the source file signature. It does not perform extra
-whole-file checksum passes; strict conversion caches remain separate. The
-weights-only loader and path containment rules are unchanged.
+## 메타데이터 전용 대화형 생성
 
-Content/architecture failures from the real loader or generator propagate to
-the caller. Generated output checksums remain real checksums. Strict SDK callers
-and import/merge checksum APIs retain full verification unless they explicitly
-select metadata mode. The persistent cache above serves those strict callers.
+Dreamscapes 는 `IILD_MODEL_VALIDATION=metadata` 를 추론 작업자에 설정하고 상속된 런타임 서브프로세스에 설정합니다. `model_content_sha256` 는 파일 메타데이터를 확인한 후 `None` 를 반환하며, 체크섬 캐시를 참조하거나 모델 내용을 읽지 않습니다. 이는 첫 번째 요청에만 적용되며, 캐시 히트에만 적용되는 것이 아닙니다. 로컬 모델 기원 기록은 `sha256: null` 와 `validation: metadata` 를 기록하며, 체크섬을 발명하거나 신뢰하지 않습니다. 체크포인트, LoRA, VAE, ControlNet 및 일반 디렉터리 모델 입력은 이 정책을 사용합니다. 유니파드 패키지는 작은 매니페스트를 읽으며, 정형화된 멤버 경로와 비어 있지 않은 일반 파일을 확인한 후 SHA-256 멤버와 게시된 멤버 크기와 일치하지 않고도 네이티브 로더로 진행합니다.
 
-`MetadataValidationTests` guards the hash API with an exception and verifies
-first-use resolution, generic models, safetensors conversion entry points and a
-bad-checksum package reaching the loader. `CheckpointConversionTests` verifies
-metadata conversion/reuse without stream checksums while retaining weights-only
-loading. Dreamscapes tests the worker policy during preparation and generation.
+레거시 변환은 여전히 필요한 가중치만 역직렬화 수행하고 변환된 텐서를 작성합니다. 메타데이터 모드에서 캐시 키는 명시적으로 `metadata-` 접두사가 붙고 소스 파일 서명에서 파생됩니다. 추가 전체 파일 체크섬 패스는 수행하지 않으며, 엄격한 변환 캐시는 별도로 유지됩니다. 가중치만 로더와 경로 포함 규칙은 변경되지 않았습니다.
 
-The native C++ `modelIdentity` defaults to metadata validation, and also honors
-an explicit `IILD_MODEL_VALIDATION=metadata`. This uses file stat identity for
-package members and external VAEs, avoiding a second full-model FNV pass after
-the Python preflight. Native offline tools requiring content identity must set
-`IILD_MODEL_VALIDATION=content`. Unknown explicit values retain strict behavior.
-The Python checksum APIs described above keep their existing strict default;
-Dreamscapes explicitly selects metadata mode for that layer.
+실제 로더 또는 생성기에서 비롯된 콘텐츠/아키텍처 실패는 호출자에게 전파됩니다. 생성된 출력 체크섬은 실제 체크섬으로 유지됩니다. 엄격한 SDK 호출자와 import/merge 체크섬 API 은 명시적으로 메타데이터 모드를 선택하지 않는 한 전체 검증을 유지합니다. 위의 영구 캐시는 이러한 엄격한 호출자를 위해 사용됩니다.
+
+`MetadataValidationTests` 는 해시 API 를 예외로 감싸고 첫 사용 해결, 일반 모델, safetensors 변환 진입점 및 로더에 도달하는 잘못된 체크섬 패키지를 검증합니다. `CheckpointConversionTests` 는 스트림 체크섬 없이 메타데이터 변환/재사용을 검증하면서 가중치만 로드하는 방식을 유지합니다. Dreamscapes 는 준비 및 생성 중 작업자 정책을 테스트합니다.
+
+네이티브 C++ `modelIdentity` 의 기본값은 메타데이터 검증이며, 명시적인 `IILD_MODEL_VALIDATION=metadata` 도 존중합니다. 이는 패키지 멤버와 외부 VAE 에 대한 파일 상태 동일성을 사용하여 Python 사전 검사 이후 두 번째 전체 모델 FNV 패스를 피합니다. 콘텐츠 동일성을 요구하는 네이티브 오프라인 도구는 `IILD_MODEL_VALIDATION=content` 를 설정해야 합니다. 알 수 없는 명시적 값은 엄격한 동작을 유지합니다. 위에서 설명한 Python 체크섬 API 는 기존 엄격한 기본값을 유지하며, Dreamscapes 는 해당 레이어에 대해 명시적으로 메타데이터 모드를 선택합니다.

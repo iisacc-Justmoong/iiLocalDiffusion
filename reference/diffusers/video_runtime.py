@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import json
+import os
 from pathlib import Path
 import time
 
@@ -12,6 +13,13 @@ from hardware import accelerator_preflight, select_device
 from video_options import configuration
 from video_interpolator import interpolate_video, preflight_interpolator
 from weight_files import file_sha256
+
+
+def report_progress(stage, step=0, total=0):
+    """Emit verified stage/step boundaries for the installed desktop worker."""
+    if os.environ.get("IILD_WORKER_PROGRESS") == "1":
+        print("IILD_VIDEO_PROGRESS " + json.dumps({"schema":"iild-video-progress-v1",
+            "stage":stage,"step":step,"total":total}), flush=True)
 
 
 def model_contract(directory):
@@ -165,10 +173,11 @@ def validate_captions(pipeline, args):
 
 
 class VideoDenoisingAudit:
-    def __init__(self, torch, expected_device):
+    def __init__(self, torch, expected_device, total_steps=0):
         self.torch = torch
         self.expected_device = expected_device
         self.steps = []
+        self.total_steps = total_steps
 
     def __call__(self, pipeline, step, timestep, values):
         latents = values["latents"]
@@ -178,6 +187,8 @@ class VideoDenoisingAudit:
             raise RuntimeError(f"Video denoising ran on {latents.device.type}, expected {self.expected_device}.")
         self.steps.append({"step": step, "timestep": float(timestep), "shape": list(latents.shape),
                            "device": str(latents.device), "finite": True})
+        if self.total_steps:
+            report_progress("denoising",step+1,self.total_steps)
         return values
 
 
@@ -193,7 +204,8 @@ def render_shots(pipeline, args, torch, device, embeddings, keyframes, output, i
                                         strength=condition["strength"]) for condition in shot["conditions"]]
         if shot["continue_previous"]:
             conditions.insert(0, LTXVideoCondition(image=previous, frame_index=0, strength=1.0))
-        audit = VideoDenoisingAudit(torch, device)
+        audit = VideoDenoisingAudit(torch, device,args.steps)
+        report_progress("denoising",0,args.steps)
         call = {"conditions": conditions or None, "height": args.height, "width": args.width,
                 "num_frames": shot["sample_frames"], "frame_rate": shot["sampling_fps"], "num_inference_steps": args.steps,
                 "guidance_scale": args.guidance_scale, "max_sequence_length": args.max_sequence_length,
@@ -209,6 +221,7 @@ def render_shots(pipeline, args, torch, device, embeddings, keyframes, output, i
             call.update(prompt=shot["effective_prompt"], negative_prompt=shot["negative_prompt"])
         with torch.inference_mode():
             frames = np.asarray(pipeline(**call).frames)
+        report_progress("decoding",shot["index"]+1,len(args.shots))
         expected = (1, shot["sample_frames"], args.height, args.width, 3)
         if frames.shape != expected or not np.issubdtype(frames.dtype, np.floating):
             raise RuntimeError(f"Unexpected decoded video shape/dtype: {frames.shape}, {frames.dtype}; expected {expected}.")
@@ -236,6 +249,7 @@ def render_shots(pipeline, args, torch, device, embeddings, keyframes, output, i
 
 
 def generate_video(args):
+    report_progress("loading")
     environment = preflight_animation(args)
     preflight_interpolator(args, environment)
     keyframes, keyframe_metadata = load_keyframes(args, environment["Image"])
@@ -251,20 +265,25 @@ def generate_video(args):
     with AnimationOutput(args) as output:
         pipeline, model, stamps = load_pipeline(args, torch, dtype)
         validate_captions(pipeline, args)
+        report_progress("encoding")
         embeddings, execution = prepare_execution(pipeline, args, torch, device, dtype)
         shots, source_frames = render_shots(pipeline, args, torch, device, embeddings, keyframes,
                                             output, environment["Image"])
         verify_model_files(stamps)
         del pipeline, embeddings
         gc.collect()
+        if device == "mps": torch.mps.empty_cache()
+        elif device == "cuda": torch.cuda.empty_cache()
         stages = [{"name": "LTX", "method": "joint-spatiotemporal-diffusion",
                    "output_frames": len(source_frames), "verified_finite_denoising": True}]
         interpolation = {"enabled": False, "reason": "fps-at-most-12"}
         frames = source_frames
         if args.interpolation_enabled:
+            report_progress("interpolating")
             frames, interpolation = interpolate_video(args, shots, source_frames, output, environment)
             stages.append({"name": "Interpolator", **interpolation})
         verify_model_files(stamps)
+        report_progress("encoding-video")
         encoded = encode_video(output.frames, output.video, args, environment)
         report = {"schema": "iild-temporal-video-v1", "status": "complete", "model": model,
                   "method": ("joint-spatiotemporal-diffusion+motion-interpolation" if args.interpolation_enabled
@@ -276,4 +295,5 @@ def generate_video(args):
                   "versions": {**environment["versions"], "torch": torch.__version__,
                                "diffusers": diffusers.__version__}}
         output.commit(report)
+        report_progress("complete",args.max_frames,args.max_frames)
     return report

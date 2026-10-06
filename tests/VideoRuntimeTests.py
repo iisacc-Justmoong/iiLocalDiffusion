@@ -100,6 +100,24 @@ class VideoTensorTests(unittest.TestCase):
                 load_pipeline(args, self.torch, self.torch.float32)
             hash_file.assert_not_called()
 
+    def test_worker_progress_reports_only_verified_steps(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from video_runtime import VideoDenoisingAudit, report_progress
+        output = StringIO()
+        with patch.dict("os.environ", {"IILD_WORKER_PROGRESS":"0"}), redirect_stdout(output):
+            report_progress("loading")
+        self.assertEqual(output.getvalue(), "")
+        audit = VideoDenoisingAudit(self.torch,"cpu",2)
+        with patch.dict("os.environ", {"IILD_WORKER_PROGRESS":"1"}), redirect_stdout(output):
+            audit(None,0,1,{"latents":self.torch.zeros((1,2,4))})
+            with self.assertRaises(RuntimeError):
+                audit(None,1,0,{"latents":self.torch.tensor([float("nan")])})
+        lines = output.getvalue().splitlines()
+        self.assertEqual(len(lines),1)
+        event=json.loads(lines[0].removeprefix("IILD_VIDEO_PROGRESS "))
+        self.assertEqual(event,{"schema":"iild-video-progress-v1","stage":"denoising","step":1,"total":2})
+
     def test_finite_audit_rejects_corrupt_latents(self):
         from video_runtime import VideoDenoisingAudit
         audit = VideoDenoisingAudit(self.torch, "cpu")

@@ -1,6 +1,7 @@
 #pragma once
 #include "Export.hpp"
 #include "NativeExecutionControl.hpp"
+#include "ImageParameters.hpp"
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -11,6 +12,9 @@
 #include <vector>
 
 namespace iiLocalDiffusion {
+// Metadata-only defaults for a quick request. Advanced callers retain their
+// explicitly submitted values. Bare Krea2 checkpoints use the Raw quality preset.
+IILD_EXPORT ImageParameters nativeImageParameterDefaults(const std::filesystem::path &modelPath);
 struct NativeGenerationRequest {
     // A checkpoint file, packaged .iildmodel file, or legacy unified directory.
     std::filesystem::path modelPath;

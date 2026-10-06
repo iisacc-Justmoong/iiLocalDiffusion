@@ -586,6 +586,15 @@ void generation(ggml_backend_t backend) {
 
 int main() {
     try {
+        // Exercise the real engine getter, without pretrained weight loading.
+        // Metadata recognition alone must not hide an unknown runtime family.
+        StableDiffusionGGML krea;
+        krea.version = VERSION_KREA2;
+        sd_ctx_t krea_context{&krea};
+        require(std::string(sd_get_model_family(&krea_context)) == "krea2",
+            "Krea2 runtime family was lost after metadata inspection");
+        require(std::string(sd_vae_contract(VERSION_KREA2).model_family) == "krea2",
+            "Krea2 metadata family disagrees with runtime family");
         auto backend = std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)>(ggml_backend_cpu_init(), &ggml_backend_free);
         require(bool(backend), "CPU fixture backend");
         sampling(backend.get());
