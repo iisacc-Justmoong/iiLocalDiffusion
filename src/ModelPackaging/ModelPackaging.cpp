@@ -379,9 +379,29 @@ std::string inferRole(const Source &source) {
     if (source.format == "gguf" || has(path,"text_encoder") || prefix(source,"text_model.")) return "text_encoder";
     return source.format == "safetensors" ? "model" : "other";
 }
+fs::path resolvedSource(const fs::path &path) {
+#ifdef _WIN32
+    const auto handle = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) fail("Cannot resolve model source");
+    struct Close { HANDLE value; ~Close() { CloseHandle(value); } } close{handle};
+    const auto length = GetFinalPathNameByHandleW(handle, nullptr, 0, FILE_NAME_NORMALIZED);
+    if (!length) fail("Cannot resolve model source name");
+    std::wstring name(length, L'\0');
+    const auto written = GetFinalPathNameByHandleW(handle, name.data(), length, FILE_NAME_NORMALIZED);
+    if (!written || written >= length) fail("Cannot resolve model source name");
+    name.resize(written);
+    return fs::path(name);
+#else
+    return fs::canonical(path);
+#endif
+}
 void stamp(const Source &source) {
-    if (fs::canonical(source.logical) != source.actual || fs::file_size(source.actual) != source.size ||
-        fs::last_write_time(source.actual) != source.time) fail("Source changed during packaging: " + source.relative);
+    const auto name = source.relative.empty() ? source.logical.filename().string() : source.relative;
+    if (resolvedSource(source.logical) != source.actual) fail("Source changed during packaging (identity): " + name);
+    if (fs::file_size(source.actual) != source.size) fail("Source changed during packaging (size): " + name);
+    if (fs::last_write_time(source.actual) != source.time) fail("Source changed during packaging (modified time): " + name);
 }
 struct Entry { std::size_t source, tensor; };
 struct Plan {
@@ -422,7 +442,7 @@ Plan scan(const fs::path &input, std::span<const std::string> excluded, std::sto
     std::sort(paths.begin(),paths.end());
     for (const auto &path : paths) {
         progress(observer,stop,"scan",path.filename().string(),plan.files.size(),paths.size());
-        Source source; source.logical = path; source.actual = fs::canonical(path);
+        Source source; source.logical = path; source.actual = resolvedSource(path);
         source.relative = path.lexically_relative(plan.input).generic_string();
         if (!safeRelative(fs::path(source.relative))) fail("Invalid source path");
         source.size = fs::file_size(source.actual); source.time = fs::last_write_time(source.actual);
@@ -735,7 +755,7 @@ struct Verified {
 };
 Verified verify(const fs::path &input,std::stop_token stop,const ModelPackagingObserver &observer) {
     Verified value;
-    value.file.logical=fs::absolute(input); value.file.actual=fs::canonical(input);
+    value.file.logical=fs::absolute(input); value.file.actual=resolvedSource(input);
     value.file.size=fs::file_size(input); value.file.time=fs::last_write_time(input); readSafetensors(value.file);
     if (!value.file.metadata.contains("iild_package_schema") || value.file.metadata.at("iild_package_schema").str()!=schema)
         fail("This file is not an iiLocalDiffusion model package");

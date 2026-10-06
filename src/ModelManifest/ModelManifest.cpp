@@ -107,9 +107,9 @@ bool requiredBoolean(
 void requireNonEmptyFile(const fs::path &path, const std::string &description)
 {
     iild::detail::requireFile(path, description);
-    std::error_code sizeError;
-    const auto size = fs::file_size(path, sizeError);
-    if (sizeError || size == 0)
+    // Inspect the opened target, not a Windows symlink's reparse-point size.
+    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    if (!input || input.tellg() <= 0)
     {
         iild::detail::fail(
             iild::ModelManifestErrorCode::invalidPackage,

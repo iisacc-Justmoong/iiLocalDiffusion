@@ -109,10 +109,12 @@ int main(int argc, char **argv) {
             write(config.get());
             const auto before = iiLocalDiffusion::native_detail::loadFallbackVae(root, family).identity;
             const auto size = std::filesystem::file_size(root / "config.json");
+            const auto modified = std::filesystem::last_write_time(root / "config.json");
             json_object_object_add(config.get(), "sample_size", json_object_new_int(2048));
             // Keep the manifest bytes and timestamps unchanged: only the config
             // may account for this identity change.
             save(root / "config.json", config.get());
+            std::filesystem::last_write_time(root / "config.json", modified);
             require(std::filesystem::file_size(root / "config.json") == size
                 && iiLocalDiffusion::native_detail::loadFallbackVae(root, family).identity != before,
                 "Same-size VAE configuration edits must invalidate the native cache");

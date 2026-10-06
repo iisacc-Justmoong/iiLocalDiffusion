@@ -121,7 +121,7 @@ class GenericDiffusersTests(unittest.TestCase):
                                        None, self.args(), self.fake_images, None)
         self.assertEqual([item["kind"] for item in outputs].count("text"), 3)
         text_outputs = [item for item in outputs if item["kind"] == "text"]
-        self.assertEqual([Path(item["path"]).read_text() for item in text_outputs], ["한 문장", "a", "b"])
+        self.assertEqual([Path(item["path"]).read_text(encoding="utf-8") for item in text_outputs], ["한 문장", "a", "b"])
 
     def test_remote_models_are_rejected_even_with_an_immutable_revision(self):
         for revision in (None, 'main', 'abcdef', 'A' * 40, 'a' * 40):

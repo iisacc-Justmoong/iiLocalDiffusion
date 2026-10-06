@@ -10,6 +10,10 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 namespace
 {
@@ -740,7 +744,18 @@ void acceptsResolvedWeightSymlinks(const fs::path &workDirectory)
     createValidFixture(root);
     writeFile(blob, "shared test weights");
     fs::remove(root / "unet" / "diffusion_pytorch_model.safetensors");
+#ifdef _WIN32
+    const auto link = root / "unet" / "diffusion_pytorch_model.safetensors";
+    if (!CreateSymbolicLinkW(link.c_str(), blob.c_str(), SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)) {
+        if (GetLastError() == ERROR_PRIVILEGE_NOT_HELD) {
+            std::cout << "SKIP symlink fixture: Windows Developer Mode or symlink privilege is required\n";
+            return;
+        }
+        throw TestFailure("Cannot create Windows symlink fixture");
+    }
+#else
     fs::create_symlink(blob, root / "unet" / "diffusion_pytorch_model.safetensors");
+#endif
 
     static_cast<void>(iild::StableDiffusionModelManifest::load(root));
 }

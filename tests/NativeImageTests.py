@@ -3,6 +3,7 @@
 import io
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -174,8 +175,8 @@ class NativeImageTests(unittest.TestCase):
 
     def test_installed_library_is_resolved_from_its_own_prefix(self):
         prefix = self.directory / "installed"
-        filename = "libiiLocalDiffusion.dylib"
-        path = prefix / "lib" / filename
+        filename = "libiiLocalDiffusion.dll" if os.name == "nt" else "libiiLocalDiffusion.dylib"
+        path = prefix / ("bin" if os.name == "nt" else "lib") / filename
         path.parent.mkdir(parents=True)
         path.touch()
         with patch.object(native_image, "__file__", str(prefix / "share/iiLocalDiffusion/reference/diffusers/native_image.py")), \

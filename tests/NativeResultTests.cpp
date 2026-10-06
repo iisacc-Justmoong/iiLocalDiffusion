@@ -465,8 +465,8 @@ int main(int argc, char **argv) {
     using namespace iiLocalDiffusion;
     try {
         if (argc != 2) return 1;
-        const auto directory = std::filesystem::path(argv[1]);
-        std::filesystem::create_directories(directory);
+        std::filesystem::create_directories(std::filesystem::path(argv[1]));
+        const auto directory = std::filesystem::canonical(std::filesystem::path(argv[1]));
         const auto model = directory / "result-fixture.safetensors";
         { std::ofstream file(model); file << "C API fixture"; }
         NativeGenerationRequest request;

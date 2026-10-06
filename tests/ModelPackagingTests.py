@@ -215,6 +215,7 @@ class PackagingTests(unittest.TestCase):
         self.run_tool("create", "--input", self.input, "--output", output)
         self.run_tool("extract", "--input", output, "--output", self.root / "restored")
         self.assertEqual((self.root / "restored" / "model.safetensors").read_bytes(), (self.root / "weights.safetensors").read_bytes())
+        self.assertFalse((self.root / "restored" / "weights.safetensors").exists())
 
     def test_invalid_shape_offsets_duplicate_keys_and_path_traversal_fail(self):
         for header in [

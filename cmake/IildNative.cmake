@@ -25,6 +25,10 @@ if(IILD_ENABLE_NATIVE_DIFFUSION)
         set(GGML_METAL_USE_BF16 OFF CACHE BOOL "" FORCE)
         set(CMAKE_POSITION_INDEPENDENT_CODE ON)
         FetchContent_MakeAvailable(iild_sdcpp)
+        if(WIN32 AND MINGW)
+            target_compile_options(ggml-cpu PRIVATE
+                "-include" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/WindowsThreadPower.h")
+        endif()
         # Match the pinned backend's public ggml_tensor layout in its consumers.
         target_compile_definitions(stable-diffusion INTERFACE GGML_MAX_NAME=160)
         # Also apply with FETCHCONTENT_SOURCE_DIR_IILD_SDCPP (PATCH_COMMAND is

@@ -57,10 +57,12 @@ int main(int argc, char **argv) {
     const auto replacement = dir / "replacement";
     { std::ofstream out(replacement); out << "modified"; }
     std::filesystem::last_write_time(replacement, time);
+    std::filesystem::remove(model);
     std::filesystem::rename(replacement, model);
     if (written != modelIdentity(model)) return 15; // Identical replacement keeps the content identity.
     { std::ofstream file(replacement); file << "replaced"; }
     std::filesystem::last_write_time(replacement, time);
+    std::filesystem::remove(model);
     std::filesystem::rename(replacement, model);
     if (written == modelIdentity(model)) return 6; // Different bytes, same size/mtime.
 #if defined(__unix__) || defined(__APPLE__)

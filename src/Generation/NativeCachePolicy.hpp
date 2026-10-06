@@ -93,7 +93,10 @@ inline std::string modelIdentity(const std::filesystem::path &path) {
     {
         const std::lock_guard lock(mutex);
         const auto found = cache.find(name);
+#if defined(__unix__) || defined(__APPLE__)
         if (found != cache.end() && found->second.metadata == metadata) return found->second.content;
+#endif
+        // Without inode/ctime metadata, restored mtime cannot prove unchanged bytes.
     }
     // FNV-1a is already used for the cache. Hash every byte so same-size writes
     // with restored mtime are detected; this is not an authentication signature.

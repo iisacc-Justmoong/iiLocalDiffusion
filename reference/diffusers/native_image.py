@@ -89,6 +89,8 @@ def library_path():
     prefix = here.parents[4] if here.parents[2].name == "iiLocalDiffusion" else None
     candidates = ([prefix / ("bin" if os.name == "nt" else "lib") / name] if prefix else [])
     candidates.append(here.parents[2] / "build" / name)
+    if os.name == "nt":
+        candidates.extend(path.with_name("libiiLocalDiffusion.dll") for path in list(candidates))
     for path in candidates:
         if path.is_file():
             return path.resolve()

@@ -93,7 +93,7 @@ class VaeDefaultsTests(unittest.TestCase):
                     selected, status = self.resolve()
                     self.assertEqual(status, "fallback")
                     self.assertEqual(selected.class_name, cls)
-                    self.assertIn("/vae/" + family + "/", selected.directory + "/")
+                    self.assertIn("/vae/" + family + "/", Path(selected.directory).as_posix() + "/")
                     self.assertEqual(json.loads(Path(selected.config_path).read_text())["latent_channels"], channels)
 
     def test_flux1_vae_is_not_accepted_by_sdxl_or_flux2(self):

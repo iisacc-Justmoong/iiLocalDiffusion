@@ -41,7 +41,11 @@ def main():
         sys.exit(f"iiLocalDiffusion requires Python 3.10 or newer; selected {interpreter}. "
                  "Configure runtime-python.json or IILD_PYTHON_EXECUTABLE with the SDK environment.")
     # Keep virtual-environment paths intact; resolving their symlinks loses the environment.
-    os.execv(str(interpreter), [str(interpreter), str(entry), *sys.argv[1:]])
+    command = [str(interpreter), str(entry), *sys.argv[1:]]
+    if os.name == "nt":
+        # Windows execv can detach redirected handles before CMake reads output.
+        sys.exit(subprocess.call(command))
+    os.execv(str(interpreter), command)
 
 
 if __name__ == "__main__":

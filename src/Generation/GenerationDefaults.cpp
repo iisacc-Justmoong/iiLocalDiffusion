@@ -7,6 +7,7 @@
 #include <memory>
 #include <regex>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #if defined(_WIN32)
 #include <windows.h>
@@ -140,7 +141,17 @@ std::string validateVaeConfig(const std::filesystem::path &root, json_object *it
         }
     }
     if (modelIdentity(path) != before) throw std::runtime_error("VAE configuration changed while reading.");
-    return before;
+    // Configuration is small and can be edited while preserving size and mtime.
+    // Hash its validated JSON content rather than relying on checkpoint metadata.
+    std::uint64_t content = 14695981039346656037ull;
+    const std::string serialized(json_object_to_json_string_ext(config.get(), JSON_C_TO_STRING_PLAIN));
+    for (const auto byte : serialized) {
+        content ^= static_cast<unsigned char>(byte);
+        content *= 1099511628211ull;
+    }
+    std::ostringstream identity;
+    identity << before << ":config=" << std::hex << content;
+    return identity.str();
 }
 }
 

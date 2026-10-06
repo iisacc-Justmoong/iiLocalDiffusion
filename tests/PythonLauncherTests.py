@@ -37,8 +37,8 @@ class PythonLauncherTests(unittest.TestCase):
         self.assertEqual(self.run_launcher().returncode, 0)
 
     def test_old_interpreter_fails_before_entry_import(self):
-        old = self.root / "old-python"
-        old.write_text("#!/bin/sh\nexit 1\n")
+        old = self.root / ("old-python.cmd" if os.name == "nt" else "old-python")
+        old.write_text("@exit /b 1\n" if os.name == "nt" else "#!/bin/sh\nexit 1\n")
         old.chmod(0o755)
         self.env["IILD_PYTHON_EXECUTABLE"] = str(old)
         result = self.run_launcher()
