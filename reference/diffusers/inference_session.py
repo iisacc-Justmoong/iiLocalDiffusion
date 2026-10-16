@@ -1,3 +1,4 @@
+from _file_provider import provider
 """SDK-owned, single-pipeline memory cache for sequential inference requests."""
 
 from contextvars import ContextVar
@@ -19,7 +20,7 @@ def source_signature(sources, *, missing_ok=False):
             records.append((str(path), None))
             continue
         if path.is_dir():
-            files = sorted(p for p in path.rglob("*") if p.is_file()
+            files = sorted(p for p in provider.rglob(path, "*") if p.is_file()
                            and not any(part.startswith(".") or part == "__pycache__"
                                        for part in p.relative_to(path).parts))
             records.append((str(path), str(path.resolve()),

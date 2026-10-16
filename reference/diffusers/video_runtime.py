@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import gc
 import json
 import os
@@ -65,7 +67,7 @@ def load_pipeline(args, torch, dtype):
     index = model_contract(directory)
     # Tokenizer conversion must succeed before hashing/loading multi-GB weights.
     tokenizer = load_tokenizer(directory, index)
-    files = sorted(path for path in directory.rglob("*") if path.is_file()
+    files = sorted(path for path in provider.rglob(directory, "*") if path.is_file()
                    and (path.suffix in (".safetensors", ".json", ".model", ".txt") or path.name == "README.md")
                    and ".cache" not in path.relative_to(directory).parts)
     identity, stamps = [], {}
@@ -232,12 +234,12 @@ def render_shots(pipeline, args, torch, device, embeddings, keyframes, output, i
         folder = output.frames
         if args.interpolation_enabled:
             folder = folder / "ltx" / f"shot-{shot['index']:04d}"
-            folder.mkdir(parents=True)
+            provider.mkdir(folder, parents=True)
         for local_index, position in enumerate(shot["source_positions"]):
             index = shot["start_frame"] + position
             image = image_module.fromarray(np.rint(frames[0, local_index] * 255).astype(np.uint8))
             path = folder / f"frame-{local_index if args.interpolation_enabled else index:06d}.png"
-            image.save(path, format="PNG")
+            provider.save_image(image, path, format="PNG")
             frame_records.append({"index": index, "shot": shot["index"], "source_index": local_index,
                                   "file": str(path.relative_to(output.frames)),
                                   "sha256": file_sha256(path)})

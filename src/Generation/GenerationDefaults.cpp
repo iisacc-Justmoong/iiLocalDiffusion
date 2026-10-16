@@ -100,7 +100,7 @@ std::string validateVaeConfig(const std::filesystem::path &root, json_object *it
             || !std::isfinite(json_object_get_double(value)) || std::abs(json_object_get_double(value) - expected) > 1e-6)
             throw std::runtime_error("Incompatible " + family + " VAE configuration: " + name);
     };
-    if (family == "qwen-image") {
+    if (family == "qwen-image" || family == "wan") {
         number("z_dim", 16);
         number("input_channels", 3, true);
         number("in_channels", 3, true);
@@ -273,6 +273,7 @@ DefaultVae loadFallbackVae(const std::filesystem::path &directory, const std::st
             if (!json_object_is_type(value, json_type_string)) throw std::runtime_error("Invalid VAE family.");
             const auto member = canonicalLoraFamily(json_object_get_string(value));
             const std::string expected = member == "qwen-image" ? "AutoencoderKLQwenImage"
+                : member == "wan" ? "AutoencoderKLWan"
                 : member == "flux2" ? "AutoencoderKLFlux2"
                 : (member == "sdxl-base" || member == "flux1") ? "AutoencoderKL" : "";
             if (expected.empty() || architecture != expected)
@@ -297,6 +298,45 @@ DefaultVae loadFallbackVae(const std::filesystem::path &directory, const std::st
     if (modelIdentity(manifestPath) != before)
         throw std::runtime_error("Generation defaults changed while reading.");
     return {path, before + ':' + modelIdentity(path) + ':' + configIdentity};
+}
+
+DefaultLlm loadFallbackLlm(const std::filesystem::path &directory, const std::string &family) {
+    if (family != "krea2") throw std::runtime_error("No verified default text encoder for " + family + '.');
+    const auto root = manifestRoot(directory, "Required Qwen3-VL-4B text encoder resources for " + family);
+    const auto manifestPath = root / "generation-defaults.json";
+    const auto before = modelIdentity(manifestPath);
+    std::unique_ptr<json_object, decltype(&json_object_put)> manifest(
+        json_object_from_file(manifestPath.string().c_str()), json_object_put);
+    if (!manifest || json_object_get_int(field(manifest.get(), "version", json_type_int)) != 1)
+        throw std::runtime_error("Unsupported generation-defaults resource manifest.");
+    json_object *entries = nullptr, *selected = nullptr;
+    if (json_object_object_get_ex(manifest.get(), "fallback_llms", &entries)) {
+        if (!json_object_is_type(entries, json_type_array) || json_object_array_length(entries) > 64)
+            throw std::runtime_error("Invalid fallback text encoder catalog.");
+        std::set<std::string> seen;
+        for (std::size_t i = 0; i < json_object_array_length(entries); ++i) {
+            auto *item = json_object_array_get_idx(entries, i);
+            if (std::string(json_object_get_string(field(item, "class_name", json_type_string)))
+                != "Qwen3VLForConditionalGeneration")
+                throw std::runtime_error("Incompatible fallback text encoder architecture.");
+            auto *families = field(item, "families", json_type_array);
+            if (!json_object_array_length(families)) throw std::runtime_error("Missing text encoder families.");
+            for (std::size_t j = 0; j < json_object_array_length(families); ++j) {
+                auto *value = json_object_array_get_idx(families, j);
+                if (!json_object_is_type(value, json_type_string)
+                    || std::string(json_object_get_string(value)) != "krea2")
+                    throw std::runtime_error("Unverified fallback text encoder family.");
+                const std::string member = json_object_get_string(value);
+                if (!seen.insert(member).second) throw std::runtime_error("Duplicate fallback text encoder family: " + member);
+                if (member == family) selected = item;
+            }
+        }
+    }
+    if (!selected) throw std::runtime_error("Missing Qwen3-VL-4B text encoder for " + family
+        + "; add or sync the SDK generation resources, then try again.");
+    const auto path = resource(root, selected);
+    if (modelIdentity(manifestPath) != before) throw std::runtime_error("Generation defaults changed while reading.");
+    return {path, before + ':' + modelIdentity(path)};
 }
 
 std::string appendNegativeTokens(std::string prompt, const std::vector<std::string> &tokens) {

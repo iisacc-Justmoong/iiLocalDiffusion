@@ -6,6 +6,13 @@ project(
     DESCRIPTION "A local generative-model pipeline runtime"
     LANGUAGES CXX
 )
+# File creation is owned by iiFileProvider.
+find_package(iiFileProviderNative 0.6 CONFIG REQUIRED HINTS "$ENV{IIFILEPROVIDER_PREFIX}" "$ENV{HOME}/.local/SDK/iiFileProvider")
+link_libraries(iiFileProvider::Native)
+
+
+
+
 
 if(PROJECT_IS_TOP_LEVEL AND CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(_sdk_home "$ENV{HOME}")
@@ -253,7 +260,18 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         add_test(NAME NativeBulkReadTests COMMAND NativeBulkReadTests "${CMAKE_CURRENT_BINARY_DIR}/native-bulk-read.bin")
         add_executable(NativeKrea2NamesTests tests/NativeKrea2NamesTests.cpp)
         target_link_libraries(NativeKrea2NamesTests PRIVATE stable-diffusion)
-        add_test(NAME NativeKrea2NamesTests COMMAND NativeKrea2NamesTests)
+        target_compile_features(NativeKrea2NamesTests PRIVATE cxx_std_23)
+        add_test(NAME NativeKrea2NamesTests COMMAND NativeKrea2NamesTests
+            "${CMAKE_CURRENT_BINARY_DIR}/native-krea2-mount-contract")
+        add_executable(NativeLlmConfigTests tests/NativeLlmConfigTests.cpp src/Generation/GenerationDefaults.cpp)
+        target_include_directories(NativeLlmConfigTests PRIVATE src)
+        target_compile_features(NativeLlmConfigTests PRIVATE cxx_std_23)
+        target_link_libraries(NativeLlmConfigTests PRIVATE ${IILD_JSON_C_TARGET} ${CMAKE_DL_LIBS})
+        add_test(NAME NativeLlmConfigTests COMMAND NativeLlmConfigTests
+            "${CMAKE_CURRENT_BINARY_DIR}/native-llm-config-contract")
+        add_executable(NativeComponentMountIntegration tests/NativeComponentMountIntegration.cpp)
+        target_link_libraries(NativeComponentMountIntegration PRIVATE iiLocalDiffusion)
+        target_compile_features(NativeComponentMountIntegration PRIVATE cxx_std_23)
         add_executable(NativeLoggingTests tests/NativeLoggingTests.cpp)
         target_link_libraries(NativeLoggingTests PRIVATE stable-diffusion)
         add_test(NAME NativeLoggingTests COMMAND NativeLoggingTests)
@@ -406,8 +424,10 @@ if(IILD_BUILD_TOOLS)
         "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
     if(APPLE)
         set_property(TARGET iild-run PROPERTY INSTALL_RPATH "@loader_path/${iild_lib_from_bin}")
+        set_property(TARGET iild-model-package PROPERTY INSTALL_RPATH "@loader_path/${iild_lib_from_bin}")
     elseif(UNIX)
         set_property(TARGET iild-run PROPERTY INSTALL_RPATH "$ORIGIN/${iild_lib_from_bin}")
+        set_property(TARGET iild-model-package PROPERTY INSTALL_RPATH "$ORIGIN/${iild_lib_from_bin}")
     endif()
 endif()
 
@@ -422,6 +442,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
     if(UNIX AND Python3_Interpreter_FOUND)
         add_test(NAME iiLocalDiffusion.InstallScript
             COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${Python3_EXECUTABLE}"
+                "IILD_INSTALL_SCRIPT_TEST_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/install-script-test"
                 bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallScriptTest.sh")
     endif()
 
@@ -669,6 +690,12 @@ install(FILES cmake/IildGenerationResources.cmake
 
 if(IILD_INSTALL_PYTHON_REFERENCE)
     set(iild_reference_directory "${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/reference")
+    if(NOT EXISTS "${iiFileProviderNative_PYTHON_DIRECTORY}/ii_file_provider/__init__.py")
+        message(FATAL_ERROR "The iiFileProviderNative package must include its Python worker adapter")
+    endif()
+    install(DIRECTORY "${iiFileProviderNative_PYTHON_DIRECTORY}/ii_file_provider"
+        DESTINATION ${iild_reference_directory}/diffusers COMPONENT Runtime
+        FILES_MATCHING PATTERN "*.py" PATTERN "__pycache__" EXCLUDE)
     file(RELATIVE_PATH IILD_REFERENCE_FROM_BINDIR
         "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}"
         "${CMAKE_INSTALL_PREFIX}/${iild_reference_directory}")
@@ -707,6 +734,18 @@ if(IILD_INSTALL_PYTHON_REFERENCE)
         PATTERN ".venv" EXCLUDE PATTERN "__pycache__" EXCLUDE)
     install(DIRECTORY reference/diffusers/configs DESTINATION ${iild_reference_directory}/diffusers COMPONENT Runtime)
 endif()
+
+get_target_property(iild_provider_kind iiFileProvider::Native TYPE)
+get_target_property(iild_provider_imported iiFileProvider::Native IMPORTED)
+foreach(iild_provider_component IN ITEMS Runtime ModelPackaging)
+    if(iild_provider_imported AND iild_provider_kind STREQUAL "SHARED_LIBRARY")
+        install(IMPORTED_RUNTIME_ARTIFACTS iiFileProvider::Native
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT ${iild_provider_component}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ${iild_provider_component})
+    endif()
+    install(DIRECTORY "${iiFileProviderNative_LICENSE_DIRECTORY}/"
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/iiFileProviderNative COMPONENT ${iild_provider_component})
+endforeach()
 
 install(
     FILES

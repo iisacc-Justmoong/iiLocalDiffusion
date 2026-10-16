@@ -5,3 +5,6 @@
 /reference/diffusers/__pycache__/
 *.pyc
 /resources/vae/**/.cache/
+# This pinned upstream encoder exceeds GitHub's maximum LFS object size.
+# Keep its identity in generation-defaults.json and provision it as documented.
+/resources/text_encoders/qwen3vl_4b_bf16.safetensors

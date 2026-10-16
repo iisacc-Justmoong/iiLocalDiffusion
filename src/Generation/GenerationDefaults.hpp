@@ -23,7 +23,12 @@ struct DefaultVae {
     std::filesystem::path path;
     std::string identity;
 };
+struct DefaultLlm {
+    std::filesystem::path path;
+    std::string identity;
+};
 DefaultVae loadFallbackVae(const std::filesystem::path &directory, const std::string &family);
+DefaultLlm loadFallbackLlm(const std::filesystem::path &directory, const std::string &family);
 std::string canonicalLoraFamily(const std::string &family);
 GenerationDefaults loadGenerationDefaults(const std::filesystem::path &directory);
 std::filesystem::path generationResourceDirectory();

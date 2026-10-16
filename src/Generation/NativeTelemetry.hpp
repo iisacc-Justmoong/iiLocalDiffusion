@@ -1,3 +1,4 @@
+#include <iiFileProviderStorage.h>
 #pragma once
 #include <json-c/json.h>
 #include <algorithm>
@@ -36,7 +37,7 @@ class NativeTelemetry {
     std::mutex mutex;
     std::condition_variable wake;
     std::thread sampler;
-    std::ofstream file;
+    iiFileProvider::native::OutputFile file;
     std::string path, phase = "model-load", operation = "initializing";
     std::map<std::string, std::string> backends;
     Clock::time_point started = Clock::now(), phaseStarted = started, stepStarted = started, lastProgress = started;
@@ -110,7 +111,7 @@ public:
         lastNativeTrace().elapsedMs = 0;
         if (!directory || !*directory) return;
         try {
-            std::filesystem::create_directories(directory);
+            iiFileProvider::native::createDirectories(directory);
             const auto stamp = std::chrono::system_clock::now().time_since_epoch().count();
             path = (std::filesystem::path(directory) / ("inference-" + std::to_string(stamp) + ".jsonl")).string();
             file.open(path, std::ios::out | std::ios::app);

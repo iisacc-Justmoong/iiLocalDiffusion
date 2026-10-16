@@ -1,3 +1,4 @@
+#include <iiFileProviderStorage.h>
 #include "ModelPackaging/ModelPackaging.hpp"
 
 #include <json-c/json.h>
@@ -381,7 +382,7 @@ std::string inferRole(const Source &source) {
 }
 fs::path resolvedSource(const fs::path &path) {
 #ifdef _WIN32
-    const auto handle = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+    const auto handle = iiFileProvider::native::createFile(path.c_str(), FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
         OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
     if (handle == INVALID_HANDLE_VALUE) fail("Cannot resolve model source");
@@ -715,31 +716,31 @@ struct Temporary {
 };
 void createExclusive(const fs::path &path) {
 #ifdef _WIN32
-    const auto handle=CreateFileW(path.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+    const auto handle=iiFileProvider::native::createFile(path.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
     if (handle==INVALID_HANDLE_VALUE) fail("Could not create temporary output"); CloseHandle(handle);
 #else
-    const int descriptor=::open(path.c_str(),O_WRONLY|O_CREAT|O_EXCL,0600);
+    const int descriptor=iiFileProvider::native::openFile(path.c_str(),O_WRONLY|O_CREAT|O_EXCL,0600);
     if (descriptor<0) fail("Could not create temporary output: "+path.string()); ::close(descriptor);
 #endif
 }
 void syncFile(const fs::path &path) {
 #ifdef _WIN32
-    const auto handle=CreateFileW(path.c_str(),GENERIC_WRITE,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    const auto handle=iiFileProvider::native::createFile(path.c_str(),GENERIC_WRITE,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
     if (handle==INVALID_HANDLE_VALUE) fail("Could not synchronize the output");
     const auto ok=FlushFileBuffers(handle); CloseHandle(handle); if (!ok) fail("Output synchronization failed");
 #else
-    const auto descriptor=::open(path.c_str(),O_RDONLY);
+    const auto descriptor=iiFileProvider::native::openFile(path.c_str(),O_RDONLY);
     if (descriptor<0) fail("Could not synchronize the output");
     const auto result=::fsync(descriptor); ::close(descriptor); if (result!=0) fail("Output synchronization failed");
 #endif
 }
 void commit(const fs::path &temporary,const fs::path &target) {
 #ifdef _WIN32
-    if (!MoveFileExW(temporary.c_str(),target.c_str(),MOVEFILE_WRITE_THROUGH)) fail("Could not save without overwriting an existing output");
+    if (!iiFileProvider::native::moveFile(temporary.c_str(),target.c_str(),MOVEFILE_WRITE_THROUGH)) fail("Could not save without overwriting an existing output");
 #elif defined(__APPLE__)
     if (::renamex_np(temporary.c_str(),target.c_str(),RENAME_EXCL)!=0) fail("Could not save without overwriting an existing output");
 #else
-    fs::create_hard_link(temporary,target); fs::remove(temporary);
+    iiFileProvider::native::createHardLink(temporary,target); fs::remove(temporary);
 #endif
 }
 void destination(const fs::path &target,U64 bytes) {
@@ -819,7 +820,7 @@ std::string createModelPackage(const fs::path &input,const fs::path &output,std:
     destination(target,add(add(8,header.size()),plan.payload));
     Temporary temporary{temporaryPath(target)};
     createExclusive(temporary.path);
-    std::fstream file(temporary.path,std::ios::binary|std::ios::in|std::ios::out);
+    iiFileProvider::native::ReadWriteFile file(temporary.path,std::ios::binary|std::ios::in|std::ios::out);
     if (!file) fail("Could not write the temporary output");
     const auto prefixBytes=sizeBytes(header.size());
     file.write(prefixBytes.data(),prefixBytes.size()); file.write(header.data(),static_cast<std::streamsize>(header.size()));
@@ -884,7 +885,7 @@ std::string extractModelPackage(const fs::path &input,const fs::path &output,std
         if (status=="included" || status=="duplicate") total=add(total,file.at("size").number());
     }
     destination(target,total); Temporary temporary{temporaryPath(target),true};
-    fs::create_directory(temporary.path);
+    iiFileProvider::native::createDirectory(temporary.path);
     std::map<std::string,const Tensor *> tensors;
     for (const auto &tensor : verified.file.tensors) tensors[tensor.key]=&tensor;
     std::ifstream source(input,std::ios::binary); std::vector<char> buffer(chunkSize); U64 done=0,countFiles=0;
@@ -892,8 +893,8 @@ std::string extractModelPackage(const fs::path &input,const fs::path &output,std
         const auto record=files.at(i);
         const auto status=record.at("status").str();
         if (status!="included" && status!="duplicate") continue;
-        const auto path=temporary.path/fs::path(record.at("path").str()); fs::create_directories(path.parent_path());
-        std::ofstream file(path,std::ios::binary); Hash hash;
+        const auto path=temporary.path/fs::path(record.at("path").str()); iiFileProvider::native::createDirectories(path.parent_path());
+        iiFileProvider::native::OutputFile file(path,std::ios::binary); Hash hash;
         if (record.at("format").str()=="safetensors") {
             const auto header=record.at("header").str();
             const auto bytes=sizeBytes(header.size());
@@ -919,14 +920,14 @@ std::string extractModelPackage(const fs::path &input,const fs::path &output,std
     stamp(verified.file); check(stop);
     if (fs::exists(target)) fail("Extraction destination already exists");
 #ifdef _WIN32
-    if (!MoveFileExW(temporary.path.c_str(),target.c_str(),MOVEFILE_WRITE_THROUGH)) fail("Could not save extracted directory");
+    if (!iiFileProvider::native::moveFile(temporary.path.c_str(),target.c_str(),MOVEFILE_WRITE_THROUGH)) fail("Could not save extracted directory");
 #elif defined(__APPLE__)
     if (::renamex_np(temporary.path.c_str(),target.c_str(),RENAME_EXCL)!=0) fail("Could not save extracted directory");
 #else
     // renameat2 is not available on every Unix platform; an empty reserved
     // directory prevents accidental replacement of existing user data.
-    if (!fs::create_directory(target)) fail("Extraction destination already exists");
-    try { fs::rename(temporary.path,target); } catch (...) { fs::remove(target); throw; }
+    if (!iiFileProvider::native::createDirectory(target)) fail("Extraction destination already exists");
+    try { iiFileProvider::native::renameFile(temporary.path,target); } catch (...) { fs::remove(target); throw; }
 #endif
     auto result=J::object(); result.set("schema",reportSchema); result.set("operation","extract"); result.set("verified",true);
     result.set("output",target.string()); result.set("file_count",countFiles); return result.dump();

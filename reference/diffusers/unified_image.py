@@ -1,4 +1,6 @@
 """Execute a portable unified model through the native ordered RGB cascade."""
+
+from _file_provider import provider
 import json
 import math
 import os
@@ -153,13 +155,13 @@ def main(argv=None):
         raise ValueError("Unified image output must end in .png.")
     output = args.output.expanduser().absolute() if args.output else empty_directory(args.output_dir or
         Path(__file__).resolve().parents[2] / "build/reference/unified-image" / uuid.uuid4().hex)
-    output.parent.mkdir(parents=True, exist_ok=True)
+    provider.mkdir(output.parent, parents=True, exist_ok=True)
     if args.work_dir:
         work = empty_directory(args.work_dir)
-        (work / "request.json").write_text(json.dumps(configuration, indent=2))
-    with tempfile.TemporaryDirectory(prefix=".iild-unified-", dir=output.parent) as temporary:
+        provider.write_text(work / "request.json", json.dumps(configuration, indent=2))
+    with provider.TemporaryDirectory(prefix=".iild-unified-", dir=output.parent) as temporary:
         staging = Path(temporary) / "images"
-        staging.mkdir()
+        provider.mkdir(staging)
         reports = []
         for index in range(args.num_images):
             seed = args.seed + index * args.seed_stride
@@ -174,7 +176,7 @@ def main(argv=None):
             report = {**configuration, "seed": seed, "prompt": args.prompt, "negative_prompt": args.negative_prompt,
                       "performance": performance, "output": {"path": str(output if args.output else output / name),
                       "width": args.width, "height": args.height, "sha256": file_sha256(target)}}
-            target.with_suffix(".json").write_text(json.dumps(report, indent=2))
+            provider.write_text(target.with_suffix(".json"), json.dumps(report, indent=2))
             reports.append(report)
         record_execution("native-auto", "managed", source)
         if args.output:
@@ -182,16 +184,16 @@ def main(argv=None):
             try:
                 for source, destination in ((staging / output.with_suffix(".json").name, output.with_suffix(".json")),
                                              (staging / output.name, output)):
-                    os.link(source, destination); published.append(destination)
+                    provider.link(source, destination); published.append(destination)
             except BaseException:
                 for path in published:
                     path.unlink()
                 raise
         else:
-            (staging / "generation.json").write_text(json.dumps({"schema": "iild-standalone-image-v1", "status": "complete",
+            provider.write_text(staging / "generation.json", json.dumps({"schema": "iild-standalone-image-v1", "status": "complete",
                 "backend": "unified", "output_directory": str(output), "outputs": [r["output"] for r in reports], "images": reports}, indent=2))
             if output.resolve() != output or output.is_symlink():
                 raise RuntimeError("Unified output directory was redirected.")
-            os.replace(staging, output)
+            provider.replace(staging, output)
     print(f"Generation: {output if args.output else output / 'generation.json'}")
     return 0

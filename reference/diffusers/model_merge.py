@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 from collections.abc import Sequence
 from contextlib import ExitStack
 from dataclasses import replace
@@ -388,7 +390,7 @@ def _refresh_legacy_package_manifest(staging, output_files):
             raise ValueError(f"A legacy .iildmodel stage is missing from the weighted output: {name}")
         stage["sha256"] = identity["sha256"]
         stage["size_bytes"] = identity["size_bytes"]
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    provider.write_text(manifest_path, json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
 def _execute_merge(request: MergeRequest) -> dict:
@@ -456,17 +458,17 @@ def _execute_merge(request: MergeRequest) -> dict:
                                       "nonfinite_material_examples": []},
             "runtime": {"torch": torch.__version__, "safetensors": safetensors.__version__},
         }
-        request.output.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix=f".{request.output.name}-", dir=request.output.parent) as temporary:
+        provider.mkdir(request.output.parent, parents=True, exist_ok=True)
+        with provider.TemporaryDirectory(prefix=".iild-merge-", dir=request.output.parent) as temporary:
             staging = Path(temporary) / "model"
-            staging.mkdir()
+            provider.mkdir(staging)
             directory = request.base_model.is_dir()
             for name, asset in models[0].assets.items():
                 if name == "merge.json":
                     continue
                 target = staging / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(asset.resolved_file, target)
+                provider.mkdir(target.parent, parents=True, exist_ok=True)
+                provider.copyfile(asset.resolved_file, target)
             output_files = []
             merged_count = 0
             changed_count = 0
@@ -485,14 +487,14 @@ def _execute_merge(request: MergeRequest) -> dict:
                     changed_count += int(changed)
                 relative = name if directory else request.output.name
                 target = staging / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
+                provider.mkdir(target.parent, parents=True, exist_ok=True)
                 metadata = {"format": "pt", "iild_merge": json.dumps(recipe, sort_keys=True),
                             "iild_merge_base_metadata": json.dumps(reader.metadata() or {}, sort_keys=True)}
                 # Retain architecture hints used by downstream checkpoint loaders.
                 for key in _ARCHITECTURE_HINTS:
                     if key in (reader.metadata() or {}):
                         metadata[key] = reader.metadata()[key]
-                serializer.save_file(tensors, str(target), metadata=metadata)
+                provider.encode_at(1, serializer.save_file, tensors, str(target), metadata=metadata)
                 verified = verify_saved_tensors(target, tensors, reader, safetensors.safe_open, torch)
                 for field, count in verified.items():
                     verification[field] += count
@@ -509,7 +511,7 @@ def _execute_merge(request: MergeRequest) -> dict:
                       "result_kind": "base-fallback" if not changed_count else "merged" if merged_count else "repaired-base",
                       "no_effect": changed_count == 0}
             if directory:
-                (staging / "merge.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+                provider.write_text(staging / "merge.json", json.dumps(report, indent=2) + "\n", encoding="utf-8")
             if verification["changed_tensor_count"] != changed_count:
                 raise ValueError("Saved output change count differs from the computed merge.")
             for model in all_models:
@@ -520,10 +522,10 @@ def _execute_merge(request: MergeRequest) -> dict:
             if directory:
                 # Completed nonempty directories are published with one rename.
                 # A competing completed merge cannot be replaced by os.rename.
-                os.rename(staging, request.output)
+                provider.rename(staging, request.output)
             else:
                 # Atomic no-clobber publication, including concurrent writers.
-                os.link(staging / request.output.name, request.output)
+                provider.link(staging / request.output.name, request.output)
             return report
 
 

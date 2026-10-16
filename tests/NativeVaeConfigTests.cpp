@@ -85,9 +85,9 @@ int main(int argc, char **argv) {
                 require(rejected, "Incompatible VAE configuration was accepted");
             };
             reject("_class_name", json_object_new_string("AutoencoderKLWrong"));
-            reject(family == "qwen-image" ? "z_dim" : "latent_channels", json_object_new_int(48));
+            reject(family == "qwen-image" || family == "wan" ? "z_dim" : "latent_channels", json_object_new_int(48));
             reject("out_channels", json_object_new_int(4));
-            if (family == "qwen-image") {
+            if (family == "qwen-image" || family == "wan") {
                 auto means = clone(get(config.get(), "latents_mean"));
                 json_object_array_put_idx(means.get(), 0, json_object_new_double(.1));
                 reject("latents_mean", means.release());

@@ -167,6 +167,7 @@ int main(int argc, char **argv) {
             {"qwen-image", "qwen-image/vae", VERSION_ANIMA, 16,
                 {"model.diffusion_model.llm_adapter.blocks.0.cross_attn.q_proj.weight"}},
             {"flux1", "flux1", VERSION_Z_IMAGE, 16, {"model.diffusion_model.cap_embedder.0.weight"}},
+            {"wan", "wan", VERSION_KREA2, 16, {"txtfusion.projector.weight", "first.weight"}},
         };
         const char *missing = nullptr;
         sd_model_vae_info_t info{};
@@ -176,7 +177,8 @@ int main(int argc, char **argv) {
                     && std::string(info.vae_family) == family.name,
                     "Input tensor metadata must identify a missing VAE independently of its filename");
             const auto modelFamily = family.version == VERSION_ANIMA ? "anima"
-                : family.version == VERSION_Z_IMAGE ? "z-image" : family.name;
+                : family.version == VERSION_Z_IMAGE ? "z-image"
+                : family.version == VERSION_KREA2 ? "krea2" : family.name;
             require(std::string(info.model_family) == modelFamily, "Model and VAE families must remain distinct");
             require(sd_model_missing_vae_family(model.string().c_str(), &missing) && std::string(missing) == family.name,
                     "Missing VAE must select the correct model family");

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import inspect
 import json
 from pathlib import Path
@@ -26,9 +28,9 @@ class DenoisingPreview:
         self.directory = Path(directory).expanduser().absolute()
         if self.directory.is_symlink() or self.directory.resolve() != self.directory:
             raise ValueError("The preview directory must not be redirected.")
-        if self.directory.exists() and (not self.directory.is_dir() or any(self.directory.iterdir())):
+        if self.directory.exists() and (not self.directory.is_dir() or any(provider.iterdir(self.directory))):
             raise ValueError("The preview directory must be empty.")
-        self.directory.mkdir(parents=True, exist_ok=True)
+        provider.mkdir(self.directory, parents=True, exist_ok=True)
         self.torch, self.width, self.height = torch, width, height
         self.sequence = 0
 

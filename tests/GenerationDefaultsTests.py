@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Public request defaults, replacement precedence, and packaged asset identity."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -85,6 +86,24 @@ class GenerationDefaultsTests(unittest.TestCase):
     def test_token_deduplication_does_not_confuse_substrings(self):
         self.assertEqual(append_default_tokens("x_token_extra", ["x_token"]), "x_token_extra, x_token")
         self.assertEqual(append_default_tokens("(x_token:0.8)", ["x_token"]), "(x_token:0.8)")
+
+    def test_resource_audit_verifies_text_encoders(self):
+        spec = importlib.util.spec_from_file_location("prepare_generation_defaults", ROOT / "scripts/prepare_generation_defaults.py")
+        audit = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(audit)
+        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+            root = Path(temporary)
+            payload = b"text encoder identity fixture"
+            (root / "encoder.safetensors").write_bytes(payload)
+            entry = {"file": "encoder.safetensors", "size": len(payload),
+                     "sha256": hashlib.sha256(payload).hexdigest()}
+            manifest = {"version": 1, "negative_embeddings": [], "fallback_llms": [entry]}
+            path = root / "generation-defaults.json"
+            path.write_text(json.dumps(manifest))
+            audit.prepare(root, check=True)
+            (root / entry["file"]).write_bytes(b"x" * len(payload))
+            with self.assertRaisesRegex(ValueError, "resource identity changed"):
+                audit.prepare(root, check=True)
 
 
 if __name__ == "__main__":

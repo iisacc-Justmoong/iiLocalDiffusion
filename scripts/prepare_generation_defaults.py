@@ -36,10 +36,11 @@ def prepare(root, check=False):
             save_file({"clip_l": vectors}, target, metadata={"token": item["token"],
                       "source_sha256": item["source_sha256"]})
     vaes = ([manifest["fallback_vae"]] if "fallback_vae" in manifest else []) + manifest.get("fallback_vaes", [])
-    for item in [*fallback_loras(manifest), *manifest["negative_embeddings"],
+    for item in [*fallback_loras(manifest), *manifest["negative_embeddings"], *manifest.get("fallback_llms", []),
                  *(resource for vae in vaes for resource in (vae, vae["config"]))]:
         path = root / item["file"]
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        with path.open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
         if check:
             if digest != item["sha256"] or path.stat().st_size != item["size"]:
                 raise ValueError(f"Bundled resource identity changed: {path}")

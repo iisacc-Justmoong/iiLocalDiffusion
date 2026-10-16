@@ -7,6 +7,8 @@ source identity only; it does not prove a checkpoint's model family or quality.
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 from collections import Counter
 from collections.abc import Mapping
 import hashlib
@@ -211,11 +213,11 @@ def materialize_safetensors(path: str | Path, cache_dir: str | Path) -> dict:
     tensors, wrapped = _tensor_state(loaded, torch)
     del loaded
     _verify_original(original)
-    cache.mkdir(parents=True, exist_ok=True)
-    temporary = Path(tempfile.mkdtemp(prefix=f".{directory.name}-", dir=cache))
+    provider.mkdir(cache, parents=True, exist_ok=True)
+    temporary = Path(provider.mkdtemp(prefix=f".{directory.name}-", dir=cache))
     try:
         converted_path = temporary / "model.safetensors"
-        safetensors_torch.save_file(tensors, str(converted_path), metadata={
+        provider.encode_at(1, safetensors_torch.save_file, tensors, str(converted_path), metadata={
             **({"original_sha256": original["sha256"]} if original["sha256"] is not None else {"source_validation": "metadata"}),
             "conversion": "iild-weights-only-v1",
         })
@@ -239,12 +241,12 @@ def materialize_safetensors(path: str | Path, cache_dir: str | Path) -> dict:
             "tensor_dtypes": dict(sorted(Counter(str(tensor.dtype) for tensor in tensors.values()).items())),
             "generation_verified": False,
         }
-        (temporary / "conversion.json").write_text(
+        provider.write_text(temporary / "conversion.json",
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
         _verify_original(original)
         try:
-            os.rename(temporary, directory)
+            provider.rename(temporary, directory)
         except OSError:
             # Another conversion of the same content may have won the rename.
             # Reuse it only after checking both its manifest and output hash.

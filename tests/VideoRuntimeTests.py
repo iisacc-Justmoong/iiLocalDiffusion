@@ -158,6 +158,24 @@ class VideoTensorTests(unittest.TestCase):
         self.assertEqual([call["frame_rate"] for call in calls], [24 * 4 / 7, 24 * 5 / 9])
         self.assertEqual([f["index"] for f in frames], [0, 2, 4, 6, 7, 8, 10, 12, 14, 16, 17])
 
+    def test_high_output_fps_is_not_forwarded_to_the_local_ltx_model(self):
+        from video_runtime import render_shots
+        for fps in (60, 120):
+            calls = []
+            args = resolve_options(local_parser(build_parser).parse_args([
+                "--fps", str(fps), "--frames", "9", "--width", "32", "--height", "32", "--steps", "1"]))
+            def pipeline(**kwargs):
+                calls.append(kwargs)
+                kwargs["callback_on_step_end"](None, 0, 1, {"latents": self.torch.zeros((1, 2, 4))})
+                return SimpleNamespace(frames=self.np.zeros((1, kwargs["num_frames"], 32, 32, 3), dtype=self.np.float32))
+            output = SimpleNamespace(frames=self.directory / str(fps))
+            output.frames.mkdir()
+            records, frames = render_shots(pipeline, args, self.torch, "cpu", [], {}, output, self.Image)
+            self.assertEqual(len(calls), 1)
+            self.assertLessEqual(calls[0]["frame_rate"], 25)
+            self.assertLess(len(frames), 9)
+            self.assertEqual(records[0]["frames"], 9)
+
     def test_bad_decoded_values_do_not_become_black_frames(self):
         from video_runtime import render_shots
         args = resolve_options(local_parser(build_parser).parse_args(["--frames", "9", "--width", "32", "--height", "32"]))

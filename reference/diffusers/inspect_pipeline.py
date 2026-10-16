@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import argparse
 import importlib.metadata
 import json
@@ -129,8 +131,8 @@ def package_versions() -> dict[str, str]:
 
 def write_json_atomically(path: Path, value: dict[str, Any]) -> None:
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    provider.write_text(temporary, json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    provider.replace(temporary, path)
 
 
 def main() -> int:
@@ -138,10 +140,10 @@ def main() -> int:
     if args.output.exists() and not args.overwrite:
         raise SystemExit(f"Refusing to overwrite existing inspection: {args.output}")
 
-    args.cache_dir.mkdir(parents=True, exist_ok=True)
-    args.xet_cache_dir.mkdir(parents=True, exist_ok=True)
+    provider.mkdir(args.cache_dir, parents=True, exist_ok=True)
+    provider.mkdir(args.xet_cache_dir, parents=True, exist_ok=True)
     os.environ["HF_XET_CACHE"] = str(args.xet_cache_dir.resolve())
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    provider.mkdir(args.output.parent, parents=True, exist_ok=True)
 
     torch, pipeline_classes = load_dependencies()
 

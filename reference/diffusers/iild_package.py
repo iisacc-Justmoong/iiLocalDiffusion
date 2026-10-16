@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import hashlib
 import json
 import os
@@ -109,26 +111,26 @@ def materialize_archive(path: str | Path, cache_directory: str | Path | None = N
 
     if valid(destination):
         return destination
-    cache.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=f".{key}-", dir=cache) as temporary:
+    provider.mkdir(cache, parents=True, exist_ok=True)
+    with provider.TemporaryDirectory(prefix=f".{key}-", dir=cache) as temporary:
         staging = Path(temporary) / "package"
-        staging.mkdir()
+        provider.mkdir(staging)
         with zipfile.ZipFile(source, "r") as archive:
             for name, info in entries.items():
                 target = staging / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with archive.open(info) as incoming, target.open("xb") as outgoing:
+                provider.mkdir(target.parent, parents=True, exist_ok=True)
+                with archive.open(info) as incoming, provider.open(target, "xb") as outgoing:
                     shutil.copyfileobj(incoming, outgoing, 8 * 1024 * 1024)
                 if target.stat().st_size != info.file_size:
                     raise RuntimeError("An .iildmodel member changed while extracting.")
-        (staging / ".iildmodel-source.json").write_text(json.dumps({"signature": list(signature)}))
+        provider.write_text(staging / ".iildmodel-source.json", json.dumps({"signature": list(signature)}))
         if file_signature(source) != signature:
             raise RuntimeError("The .iildmodel package changed while extracting.")
         if destination.exists():
             if valid(destination):
                 return destination
             raise RuntimeError("The existing .iildmodel extraction cache is invalid.")
-        os.rename(staging, destination)
+        provider.rename(staging, destination)
     if not valid(destination):
         raise RuntimeError("The extracted .iildmodel package failed validation.")
     return destination
@@ -137,15 +139,16 @@ def materialize_archive(path: str | Path, cache_directory: str | Path | None = N
 def write_archive(source_directory: str | Path, output: str | Path) -> None:
     root = Path(source_directory)
     destination = Path(output)
-    files = sorted(path for path in root.rglob("*") if path.is_file() and not path.is_symlink())
+    files = sorted(path for path in provider.rglob(root, "*") if path.is_file() and not path.is_symlink())
     if not files or len(files) > MAX_ENTRIES:
         raise ValueError("An .iildmodel package requires 1 to 1024 regular files.")
-    with zipfile.ZipFile(destination, "x", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
-        for path in files:
-            relative = _relative(path.relative_to(root).as_posix()).as_posix()
-            info = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_STORED
-            info.external_attr = (stat.S_IFREG | 0o444) << 16
-            info.flag_bits |= 0x800
-            with path.open("rb") as incoming, archive.open(info, "w", force_zip64=True) as outgoing:
-                shutil.copyfileobj(incoming, outgoing, 8 * 1024 * 1024)
+    with provider.staged_path(destination, overwrite=False) as output:
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
+            for path in files:
+                relative = _relative(path.relative_to(root).as_posix()).as_posix()
+                info = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_STORED
+                info.external_attr = (stat.S_IFREG | 0o444) << 16
+                info.flag_bits |= 0x800
+                with path.open("rb") as incoming, archive.open(info, "w", force_zip64=True) as outgoing:
+                    shutil.copyfileobj(incoming, outgoing, 8 * 1024 * 1024)

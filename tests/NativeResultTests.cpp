@@ -96,6 +96,8 @@ std::string modelFamily = "sdxl-base";
 bool missingVae = false;
 bool validExternalVae = true;
 int vaeValidationCalls = 0;
+bool embeddedLlm = true, validExternalLlm = true;
+int llmValidationCalls = 0;
 bool expectCpu = false;
 bool expectResidentModel = false;
 std::string selectedVae;
@@ -223,10 +225,13 @@ bool sd_model_inspect_vae(const char *path, sd_model_vae_info_t *info) {
         return true;
     }
     *info = {modelFamily.c_str(), modelFamily == "anima" ? "qwen-image"
-        : modelFamily == "z-image" ? "flux1" : modelFamily.c_str(), missingVae ? SD_VAE_MISSING : SD_VAE_EMBEDDED};
+        : modelFamily == "z-image" ? "flux1" : modelFamily == "krea2" ? "wan"
+        : modelFamily.c_str(), missingVae ? SD_VAE_MISSING : SD_VAE_EMBEDDED};
     return true;
 }
 bool sd_model_validate_vae(const char *, const char *) { ++vaeValidationCalls; return validExternalVae; }
+bool sd_model_has_embedded_llm(const char *, bool *embedded) { *embedded = embeddedLlm; return true; }
+bool sd_model_validate_krea2_llm(const char *) { ++llmValidationCalls; return validExternalLlm; }
 sample_method_t sd_get_default_sample_method(const sd_ctx_t *) { return static_cast<sample_method_t>(0); }
 int sd_ctx_reference_image_capacity(const sd_ctx_t *) { return referenceCapacity; }
 bool sd_ctx_has_control_net(const sd_ctx_t *) { return controlNetAvailable && !selectedControlNet.empty(); }
@@ -540,7 +545,8 @@ int main(int argc, char **argv) {
                 split.image.prepare_only = 0;
                 image = iild_native_generate_v2(&split, nullptr, nullptr, nullptr);
                 require(image && std::string(iild_native_metadata_v1(image)).find("\"error\":\"\"") != std::string::npos,
-                    "Component-aware native generation failed");
+                    std::string("Component-aware native generation failed: ")
+                        + (image ? iild_native_metadata_v1(image) : "null image"));
                 require(std::string(iild_native_metadata_v1(image)).find("\"model_cache_hit\":true") != std::string::npos
                     && std::string(iild_native_metadata_v1(image)).find("\"weight_storage\":\"anonymous\"") != std::string::npos
                     && std::string(iild_native_metadata_v1(image)).find("\"weight_lifetime\":\"runtime\"") != std::string::npos,
@@ -1269,13 +1275,15 @@ int main(int argc, char **argv) {
             }
             request.modelPath = previous;
             options.resourceDirectory.clear();
-            for (const auto &vaeFamily : {"qwen-image", "sdxl-base", "flux1", "flux2", "anima", "z-image"}) {
+            for (const auto &vaeFamily : {"qwen-image", "sdxl-base", "flux1", "flux2", "anima", "z-image", "krea2"}) {
             const auto qwenModel = directory / (std::string(vaeFamily) + "-result-fixture.safetensors");
             { std::ofstream file(qwenModel); file << "Qwen C API fixture"; }
             const auto previous = request.modelPath;
             request.modelPath = std::filesystem::canonical(qwenModel);
             missingVae = true;
             modelFamily = vaeFamily;
+            embeddedLlm = modelFamily != "krea2";
+            const auto llmValidationsBefore = llmValidationCalls;
             const auto validationsBefore = vaeValidationCalls;
             const auto first = generateNativeImageWithOptions(request, options, cancelled);
             require(first.error.empty() && !selectedVae.empty() && std::filesystem::is_regular_file(selectedVae),
@@ -1283,6 +1291,17 @@ int main(int argc, char **argv) {
             const auto second = generateNativeImageWithOptions(request, options, cancelled);
             require(second.error.empty() && second.modelCacheHit, "Unchanged fallback must keep the warm native context");
             require(vaeValidationCalls == validationsBefore + 1, "Cache hits must reuse the validated model/VAE pair");
+            if (modelFamily == "krea2") {
+                require(!selectedLlm.empty() && llmValidationCalls == llmValidationsBefore + 1,
+                        "Split Krea2 did not retain its verified Qwen3-VL encoder");
+                validExternalLlm = false;
+                { std::ofstream file(qwenModel); file << "Changed model metadata requiring text encoder revalidation"; }
+                const auto callsBefore = generationCalls;
+                const auto wrongEncoder = generateNativeImageWithOptions(request, options, cancelled);
+                require(wrongEncoder.error.find("Qwen3-VL-4B tensor contract") != std::string::npos
+                        && generationCalls == callsBefore, "Wrong text encoder reached image inference");
+                validExternalLlm = true;
+            }
             const auto beforeCalls = generationCalls;
             { std::ofstream file(qwenModel); file << "Changed model metadata requiring VAE revalidation"; }
             validExternalVae = false;
@@ -1290,6 +1309,7 @@ int main(int argc, char **argv) {
             require(!rejected.error.empty() && rejected.error.find("tensor contract") != std::string::npos
                 && generationCalls == beforeCalls, "An incompatible VAE must fail before inference starts");
             validExternalVae = true;
+            embeddedLlm = true;
             request.modelPath = previous;
             }
             {

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 from fractions import Fraction
 import json
 import os
@@ -124,7 +126,7 @@ def _encode_gif(frames: Path, output: Path, args: Any, environment: dict[str, An
                "-framerate", str(rate), "-start_number", "0", "-i", str(frames / "frame-%06d.png")]
     centiseconds = lambda count: int(count * 100 / rate + Fraction(1, 2))
     final_delay = centiseconds(args.max_frames) - centiseconds(args.max_frames - 1)
-    with tempfile.TemporaryDirectory(prefix=".iild-gif-", dir=output.parent) as temporary:
+    with provider.TemporaryDirectory(prefix=".iild-gif-", dir=output.parent) as temporary:
         palette = str(Path(temporary) / "palette.png")
         for invocation in (
             [*command, "-vf", f"trim=end_frame={args.max_frames},palettegen", "-frames:v", "1",
@@ -167,15 +169,15 @@ class AnimationOutput:
         self.temporary = None
 
     def __enter__(self):
-        self.args.output.parent.mkdir(parents=True, exist_ok=True)
-        with self.lock.open("x", encoding="utf-8") as stream:
+        provider.mkdir(self.args.output.parent, parents=True, exist_ok=True)
+        with provider.open(self.lock, "x", encoding="utf-8") as stream:
             stream.write(str(os.getpid()))
         try:
             check_targets(self.args)
-            self.temporary = tempfile.TemporaryDirectory(prefix=".iild-animation-", dir=self.args.output.parent)
+            self.temporary = provider.TemporaryDirectory(prefix=".iild-animation-", dir=self.args.output.parent)
             self.directory = Path(self.temporary.name)
             self.frames = self.directory / "frames"
-            self.frames.mkdir()
+            provider.mkdir(self.frames)
             self.video = self.directory / ("video" + self.args.output.suffix.lower())
         except BaseException:
             self.lock.unlink()
@@ -186,9 +188,9 @@ class AnimationOutput:
         video, report, frames = self.targets
         marker = {"schema": SCHEMAS[getattr(self.args, "animation_mode", "2D")],
                   "video": str(video.absolute()), "frame_count": self.args.max_frames}
-        (self.frames / "manifest.json").write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
+        provider.write_text(self.frames / "manifest.json", json.dumps(marker, indent=2) + "\n", encoding="utf-8")
         staged_report = self.directory / "report.json"
-        staged_report.write_text(json.dumps(metadata, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+        provider.write_text(staged_report, json.dumps(metadata, indent=2, allow_nan=False) + "\n", encoding="utf-8")
         check_targets(self.args)
         backups, published = [], []
         try:
@@ -196,12 +198,12 @@ class AnimationOutput:
             for index, target in enumerate((report, video, frames)):
                 if _exists(target):
                     backup = self.directory / f"previous-{index}"
-                    os.replace(target, backup)
+                    provider.replace(target, backup)
                     backups.append((backup, target))
-            frames.mkdir()  # Exclusive creation also protects against a competing producer.
+            provider.mkdir(frames)  # Exclusive creation also protects against a competing producer.
             published.append(frames)
-            for source in self.frames.iterdir():
-                os.replace(source, frames / source.name)
+            for source in provider.iterdir(self.frames):
+                provider.replace(source, frames / source.name)
             for source, target in ((self.video, video), (staged_report, report)):
                 publish_file(source, target, overwrite=False)
                 published.append(target)
@@ -212,7 +214,7 @@ class AnimationOutput:
                 else:
                     target.unlink()
             for backup, target in reversed(backups):
-                os.replace(backup, target)
+                provider.replace(backup, target)
             raise
 
     def __exit__(self, *exception):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 from bisect import bisect_right
 from fractions import Fraction
 import shutil
@@ -34,7 +36,7 @@ def _timeline(folder, positions, fps):
         lines.extend([f"file frame-{index:06d}.png", f"option framerate {rate}",
                       f"duration {(times[index + 1] - times[index]) / 1_000_000:.6f}"])
     path = folder / "timeline.ffconcat"
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    provider.write_text(path, "\n".join(lines) + "\n", encoding="utf-8")
     return path, rate
 
 
@@ -78,7 +80,7 @@ def interpolate_video(args, shots, source_frames, output, environment):
             if index in anchors:
                 # Keep actual LTX pixels at every anchor, without a YUV/RGB
                 # round-trip or changes to endpoint/keyframe provenance.
-                shutil.copyfile(output.frames / anchors[index]["file"], path)
+                provider.copyfile(output.frames / anchors[index]["file"], path)
             with environment["Image"].open(path) as image:
                 image.load()
                 if image.format != "PNG" or image.mode != "RGB" or image.size != (args.width, args.height):
@@ -97,12 +99,14 @@ def interpolate_video(args, shots, source_frames, output, environment):
                               fraction=(local_index - left_position) / (right_position - left_position))
             records.append(record)
         shot_reports.append({"shot": shot["index"], "input_frames": len(sources), "output_frames": shot["frames"],
+                             "source_fps": shot["sampling_fps"],
                              "inserted_frames": shot["frames"] - len(sources), "filter": filters,
                              "elapsed_seconds": time.monotonic() - shot_started})
     if len(records) != args.max_frames:
         raise RuntimeError("Interpolator output length does not match the requested video timeline.")
     return records, {"enabled": True, "engine": "ffmpeg-minterpolate", "device": "cpu",
-                     "method": "motion-compensated-frame-interpolation", "factor": args.interpolation_factor,
+                     "method": "motion-compensated-frame-interpolation", "factor": args.effective_interpolation_factor,
+                     "requested_factor": args.interpolation_factor, "source_fps_limit": args.source_fps_limit,
                      "input_frames": len(source_frames), "output_frames": len(records),
                      "inserted_frames": len(records) - len(source_frames), "fps": args.fps,
                      "duration_seconds": len(records) / args.fps, "anchors_preserved": True,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import os
 from pathlib import Path
 import tempfile
@@ -49,18 +51,13 @@ def resolve_output_paths(args: Any) -> list[Path]:
 
 def publish_file(temporary: Path, target: Path, *, overwrite: bool) -> None:
     if overwrite:
-        os.replace(temporary, target)
+        provider.replace(temporary, target)
     else:
         # Both paths are in the same directory. Hard-link publication is atomic
         # and fails if another generator creates this output after preflight.
-        os.link(temporary, target)
+        provider.link(temporary, target)
 
 
 def write_png(image: Any, path: Path, *, compress_level: int, optimize: bool, overwrite: bool) -> None:
-    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False) as stream:
-        temporary = Path(stream.name)
-    try:
+    with provider.staged_path(path, overwrite=overwrite) as temporary:
         image.save(temporary, format="PNG", compress_level=compress_level, optimize=optimize)
-        publish_file(temporary, path, overwrite=overwrite)
-    finally:
-        temporary.unlink(missing_ok=True)

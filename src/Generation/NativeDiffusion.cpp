@@ -51,6 +51,8 @@ struct EngineCache {
     sd_model_vae_info_t vaeInfo{};
     std::string missingVaeFamily;
     std::string validatedVaeIdentity;
+    bool embeddedLlm = false;
+    std::string validatedLlmIdentity;
     std::uint64_t budget = 0;
     std::vector<std::string> placementLogs;
 };
@@ -497,6 +499,11 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                 ? info.vae_family : "";
             cache.inspectedModelIdentity = effectiveIdentity;
             cache.validatedVaeIdentity.clear();
+            cache.validatedLlmIdentity.clear();
+            cache.embeddedLlm = false;
+            if (std::string_view(info.model_family) == "krea2"
+                && !sd_model_has_embedded_llm(model.c_str(), &cache.embeddedLlm))
+                throw std::runtime_error(callbacks.failure("Cannot inspect the local model's text encoder components."));
         }
         // A required decoder remains enabled even when style modifiers are off.
         // Inspect the actual mounted file, including prepared GGUF caches.
@@ -505,9 +512,8 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             : !cache.missingVaeFamily.empty()
                 ? native_detail::loadFallbackVae(options.resourceDirectory, cache.missingVaeFamily) : native_detail::DefaultVae{};
         if (!fallbackVae.path.empty() && cache.validatedVaeIdentity != fallbackVae.identity) {
-            // Newer engine families (for example Krea 2) have no SDK auto-mount
-            // contract. Their explicitly supplied VAE is validated as part of
-            // new_sd_ctx's full tensor assembly; never invent a fallback family.
+            // Families without an SDK auto-mount contract validate explicit
+            // decoders during full context assembly; never invent a family.
             if (cache.vaeInfo.state != SD_VAE_UNSUPPORTED
                 && !sd_model_validate_vae(model.c_str(), fallbackVae.path.string().c_str()))
                 throw std::runtime_error("The selected VAE does not match the " + std::string(cache.vaeInfo.vae_family)
@@ -518,7 +524,22 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                     cache.vaeInfo.model_family, cache.vaeInfo.vae_family,
                     explicitVae.empty() ? "fallback-validated" : "package-explicit", fallbackVae.path.string().c_str());
         }
-        auto modifierIdentity = defaults.identity + fallbackVae.identity;
+        const auto explicitLlm = components ? components->llm : std::filesystem::path{};
+        const auto fallbackLlm = !explicitLlm.empty()
+            ? native_detail::DefaultLlm{explicitLlm, identifyWeight(explicitLlm)}
+            : std::string_view(cache.vaeInfo.model_family) == "krea2" && !cache.embeddedLlm
+                ? native_detail::loadFallbackLlm(options.resourceDirectory, "krea2") : native_detail::DefaultLlm{};
+        if (!fallbackLlm.path.empty() && std::string_view(cache.vaeInfo.model_family) == "krea2"
+            && cache.validatedLlmIdentity != fallbackLlm.identity) {
+            if (!sd_model_validate_krea2_llm(fallbackLlm.path.string().c_str()))
+                throw std::runtime_error("The selected text encoder does not match the Krea2 Qwen3-VL-4B tensor contract: "
+                    + fallbackLlm.path.string());
+            cache.validatedLlmIdentity = fallbackLlm.identity;
+            if (std::getenv("IILD_NATIVE_DIAGNOSTICS"))
+                std::fprintf(stderr, "iiLocalDiffusion text encoder mount: model=krea2 source=%s path=%s\n",
+                    explicitLlm.empty() ? "fallback-validated" : "explicit", fallbackLlm.path.string().c_str());
+        }
+        auto modifierIdentity = defaults.identity + fallbackVae.identity + fallbackLlm.identity;
         for (const auto &lora : options.loras) modifierIdentity += ':' + identifyWeight(lora.path);
         const auto identity = sourceIdentity + ':' + effectiveIdentity + ':' + modifierIdentity + ':' + componentIdentity + embeddingIdentity + controlIdentity + upscalerIdentity + detailerIdentity
             + (components ? ":prediction=" + std::to_string(static_cast<int>(components->prediction)) : "")
@@ -577,7 +598,7 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         const auto clipL = components ? components->clipL.string() : std::string{};
         const auto clipG = components ? components->clipG.string() : std::string{};
         const auto t5 = components ? components->t5xxl.string() : std::string{};
-        const auto llm = components ? components->llm.string() : std::string{};
+        const auto llm = fallbackLlm.path.string();
         if (!clipL.empty()) contextParameters.clip_l_path = clipL.c_str();
         if (!clipG.empty()) contextParameters.clip_g_path = clipG.c_str();
         if (!t5.empty()) contextParameters.t5xxl_path = t5.c_str();
@@ -1045,6 +1066,10 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             finalModifierIdentity += identifyWeight(explicitVae);
         else if (!cache.missingVaeFamily.empty())
             finalModifierIdentity += native_detail::loadFallbackVae(options.resourceDirectory, cache.missingVaeFamily).identity;
+        if (!explicitLlm.empty())
+            finalModifierIdentity += identifyWeight(explicitLlm);
+        else if (std::string_view(cache.vaeInfo.model_family) == "krea2" && !cache.embeddedLlm)
+            finalModifierIdentity += native_detail::loadFallbackLlm(options.resourceDirectory, "krea2").identity;
         for (const auto &lora : options.loras) finalModifierIdentity += ':' + identifyWeight(lora.path);
         if (finalModifierIdentity != modifierIdentity)
             throw std::runtime_error("Generation defaults or LoRA changed during generation. Try again.");

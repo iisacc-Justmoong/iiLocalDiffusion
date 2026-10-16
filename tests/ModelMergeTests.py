@@ -170,7 +170,13 @@ class ModelMergeTensorTests(MergeWorkspace):
 
     def test_default_sum_and_original_bytes_are_preserved(self):
         before = [p.read_bytes() for p in (self.base, self.extra)]
-        result = self.merge()
+        directory = tempfile.TemporaryDirectory
+        with patch("tempfile.TemporaryDirectory", wraps=directory) as workspaces:
+            result = self.merge()
+        self.assertTrue(any(call.kwargs.get("prefix") == ".iild-merge-" and
+                            Path(call.kwargs.get("dir", ".")) == self.output.parent
+                            for call in workspaces.call_args_list))
+        self.assertFalse(list(self.output.parent.glob(".iild-merge-*")))
         self.assertEqual(self.load(self.output)["weight"].tolist(), [4, 6])
         self.assertEqual(before, [p.read_bytes() for p in (self.base, self.extra)])
         self.assertEqual(result["tensor_count"], 1)

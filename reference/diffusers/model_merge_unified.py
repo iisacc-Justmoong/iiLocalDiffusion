@@ -3,6 +3,8 @@
 The package is a cascade, never a fictitious cross-architecture weight average.
 Strict LoRAs require matching targets; synthetic policy explicitly adapts unmatched deltas.
 """
+
+from _file_provider import provider
 from contextlib import ExitStack
 import ctypes
 import json
@@ -118,7 +120,7 @@ def _copy(source, target):
         clone.restype = ctypes.c_int
         if clone(os.fsencode(source), os.fsencode(target), 0) == 0:
             return
-    shutil.copyfile(source, target)
+    provider.copyfile(source, target)
 
 
 def execute_unified(request):
@@ -134,16 +136,16 @@ def execute_unified(request):
         readers, layouts, kinds, _ = _open_models(models, stack, safetensors.safe_open, compatible=False)
         request = resolve_merge_weights(request, kinds[1:])
         planned = plan_stages(request, models, readers, layouts, kinds, stack, hash_content=True)
-        request.output.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix=f".{request.output.name}-", dir=request.output.parent) as temporary:
+        provider.mkdir(request.output.parent, parents=True, exist_ok=True)
+        with provider.TemporaryDirectory(prefix=".iild-merge-", dir=request.output.parent) as temporary:
             staging = Path(temporary) / "package"
-            staging.mkdir()
+            provider.mkdir(staging)
             stages, files = [], []
             for number, stage in enumerate(planned):
                 index = stage["source_index"]
                 relative = f"members/{number:03d}/model.safetensors"
                 target = staging / relative
-                target.parent.mkdir(parents=True)
+                provider.mkdir(target.parent, parents=True)
                 if stage["loras"]:
                     adapters = stage["loras"]
                     merged = merge_models(models[index].root, models[adapters[0]["source_index"]].root,
@@ -165,7 +167,7 @@ def execute_unified(request):
             manifest = {"_class_name": "IILDUnifiedCascade", "schema": SCHEMA, "container": CONTAINER,
                         "composition": "ordered-image-refinement", "stages": stages}
             manifest_path = staging / "model_index.json"
-            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+            provider.write_text(manifest_path, json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
             files.append({"name": "model_index.json", "sha256": file_sha256(manifest_path),
                           "size_bytes": manifest_path.stat().st_size})
             report = {"schema": "iild-model-merge-v1", "mode": "unified", "output": str(request.output),
@@ -184,7 +186,7 @@ def execute_unified(request):
                       "compatibility_bridge_count": sum("compatibility_bridge" in stage for stage in stages),
                       "compatibility_policy": request.as_dict()["compatibility_policy"],
                       "note": "Independent models, sequential image refinement; not a single-network weight merge."}
-            (staging / "merge.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+            provider.write_text(staging / "merge.json", json.dumps(report, indent=2) + "\n", encoding="utf-8")
             for model in all_models:
                 model.verify()
             if request.output.exists() or request.output.is_symlink():
@@ -199,7 +201,7 @@ def execute_unified(request):
                                               "copied_values": "byte-preserved; not numerically repaired"}
             if request.output.exists() or request.output.is_symlink():
                 raise FileExistsError(f"Merge output already exists: {request.output}")
-            os.link(archive, request.output)
+            provider.link(archive, request.output)
             report["package"] = {"container": CONTAINER, "sha256": file_sha256(request.output),
                                  "size_bytes": request.output.stat().st_size}
             return report

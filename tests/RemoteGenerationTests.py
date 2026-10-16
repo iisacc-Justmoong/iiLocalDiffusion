@@ -228,6 +228,18 @@ class RemoteGenerationTests(unittest.TestCase):
         self.assertFalse(report["interpolation"]["enabled"])
         self.assertEqual(report["video"]["fps"], 8)
 
+    def test_high_fps_remote_requests_share_the_model_rate_limit_and_interpolator(self):
+        self.make_video_response()
+        for fps in (60, 120):
+            with self.subTest(fps=fps):
+                args = self.video_args(fps=fps, output=str(self.directory / f"high-{fps}.mp4"))
+                report = remote_generation.generate_video(args)
+                self.assertLessEqual(self.requests[-1]["body"]["parameters"]["frame_rate"], 25)
+                self.assertEqual([stage["name"] for stage in report["stages"]], ["LTX", "Interpolator"])
+                self.assertEqual(report["video"]["fps"], fps)
+                self.assertEqual(report["video"]["frame_count"], 9)
+                self.assertTrue(report["interpolation"]["anchors_preserved"])
+
     def test_wrong_video_frame_count_never_publishes(self):
         self.make_video_response(frames=8)
         args = self.video_args()

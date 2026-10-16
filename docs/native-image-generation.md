@@ -81,6 +81,10 @@ reference/diffusers/.venv/bin/python tests/NativeVaeParitySmoke.py \
 
 `Generation/NativeDiffusion.hpp`는 같은 프로세스에서 로컬 체크포인트를 읽고 RGB 바이트를 반환한다. 모델 다운로드·기기 연결·동기화·출력 저장은 수행하지 않는다. 소비 앱이 작업 스레드에서 호출하고 결과를 자신의 저장소에 게시한다. 기존 데스크톱 Python worker는 별도로 유지한다.
 
+Krea2 분리형 denoiser는 접두사가 없는 원본/ComfyUI 텐서 이름과 `diffusion_model.`, `model.diffusion_model.`, `transformer.` 이름을 지원한다. 로더가 메모리 내 이름만 정규화하며 원본 체크포인트를 다시 쓰지 않는다. 텍스트 인코더와 VAE의 내장 이름 공간은 보존한다. 공식 Qwen3-VL 원본의 `model.language_model.` 텍스트 타워도 `model.`로 메모리 내 정규화한다. 부족한 Qwen3-VL-4B와 Wan2.1 VAE는 `generation-defaults.json`의 `fallback_llms`/`fallback_vaes`에서 연결한다. 선택된 외부 구성요소는 전체 필요 텐서의 크기와 Qwen4B의 2560차원·36층 규격을 확인한 뒤 마운트한다. 명시한 경로는 기본 리소스보다 우선하며, 내장 인코더가 부분적으로 존재하면 기본 인코더로 덮어쓰지 않는다. 필수 구성요소 연결은 `defaultModifiers=false`에서도 유지한다. Python native worker와 프로세스 내 C++ 경로가 같은 리소스 카탈로그를 사용한다.
+
+`NativeKrea2NamesTests`는 분리형/완전형 이름과 잘못된 백업 이름 공간을, `NativeLlmConfigTests`는 누락·중복·잘못된 아키텍처·경로 이탈을 검사한다. `NativeVaeFallbackTests`와 `NativeVaeConfigTests`는 Wan의 실제 텐서·정규화 규격을 검사한다. 실제 모델 검증은 `NativeComponentMountIntegration <checkpoint> <resource-directory> <build-output-directory>`로 원본 모델의 resident 준비와 캐시를 재사용한 128×128·1스텝 RGB 생성을 확인한다. 기본 CTest에 포함하지 않으며, 모델의 품질이나 기본 해상도에서의 생성 속도를 보증하지 않는다.
+
 `IILD_ENABLE_NATIVE_DIFFUSION=ON`은 stable-diffusion.cpp의 `d04e8950c1ec8d30248cbe996682b3182fb1adf6` 및 해당 ggml 커밋을 빌드한다. iOS의 새 구성에서는 기본 ON이다. 체크포인트/토크나이저/텐서 실행을 직접 구현하는 대신 이 라이브러리의 C API를 사용한다. upstream은 활발히 변경되므로 커밋을 고정했다. 두 프로젝트는 MIT이고 고지문을 SDK에 설치한다. 서버·Web UI·WebP/WebM 및 RPC는 제외한다. Apple은 내장 Metal 코드를 사용하고 나머지 환경은 CPU를 사용한다.
 
 한 번에 한 이미지를 실행하고 라이브러리의 전역 콜백 때문에 네이티브 호출을 직렬화한다. 모델 원본을 mmap으로 읽고 지원되는 실행 경로에서 다음 구간 프리페치를 사용한다. macOS에서는 Metal 권장 작업 세트에서 256 MiB를 제외한 값과 현재 사용 가능 메모리에서 여유 공간을 뺀 값 중 작은 값을 256 MiB 단위로 내림하여 관리 GPU 예산으로 사용한다. macOS의 여유 공간은 최소 768 MiB 또는 사용 가능 메모리의 1/6이며, iOS는 앞 절의 CPU VAE 메모리 여유 정책을 적용한다. iOS는 프로세스의 남은 한도, macOS는 현재 free+inactive 페이지를 조회한다. 전체 CPU 코어를 사용하며 Apple 작업 스레드는 생성 중 USER_INITIATED 우선순위로 실행하고 이전 우선순위를 복원한다. 이 예산은 전체 앱 메모리 상한이나 특정 iPhone에서 임의의 SDXL 모델이 실행된다는 보장이 아니다. 메모리 한계와 지원 체크포인트는 실제 기기로 별도 검증해야 한다. Diffusers 디렉터리는 현재 네이티브 API의 입력이 아니다.

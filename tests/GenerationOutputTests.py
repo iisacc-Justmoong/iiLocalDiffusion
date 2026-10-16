@@ -84,7 +84,8 @@ class GenerationOutputTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "encoding failed"):
                 generation_output.write_png(image, root / "image.png", compress_level=6,
                                             optimize=False, overwrite=False)
-            self.assertEqual(list(root.iterdir()), [])
+            self.assertEqual(list(generation_output.provider.iterdir(root)), [])
+            self.assertTrue(all(generation_output.provider.is_control_path(path) for path in root.iterdir()))
 
     def test_seed_stride_and_generator_device_are_forwarded(self):
         args = self.args("--num-images", "3", "--seed", "0", "--seed-stride", "2",

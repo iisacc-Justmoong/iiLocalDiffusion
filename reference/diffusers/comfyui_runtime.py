@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import argparse
 from copy import deepcopy
 import hashlib
@@ -84,7 +86,7 @@ class Client:
         digest, size = hashlib.sha256(), 0
         temporary = None
         try:
-            with tempfile.NamedTemporaryFile(dir=destination.parent, prefix=".download-", delete=False) as stream:
+            with provider.NamedTemporaryFile(dir=destination.parent, prefix=".download-", delete=False) as stream:
                 temporary = Path(stream.name)
                 with self._open("/view?" + query) as response:
                     while block := response.read(1024 * 1024):
@@ -234,10 +236,10 @@ def wait_for_history(client: Client, prompt_id: str, timeout: float, poll_interv
 
 
 def write_json(path: Path, data: dict) -> None:
-    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".metadata-", delete=False) as stream:
+    with provider.NamedTemporaryFile(dir=path.parent, prefix=".metadata-", delete=False) as stream:
         temporary = Path(stream.name)
     try:
-        temporary.write_text(json.dumps(data, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+        provider.write_text(temporary, json.dumps(data, indent=2, allow_nan=False) + "\n", encoding="utf-8")
         publish_file(temporary, path, overwrite=False)
     finally:
         temporary.unlink(missing_ok=True)
@@ -287,8 +289,8 @@ def run(args: argparse.Namespace) -> dict:
     if args.validate_only:
         return {**metadata, "status": "preflight_passed", "generation_verified": False}
     destination = (args.output_dir or ROOT / "build" / "reference" / ("comfyui-" + uuid.uuid4().hex)).expanduser().resolve()
-    destination.mkdir(parents=True, exist_ok=True)
-    if any(destination.iterdir()):
+    provider.mkdir(destination, parents=True, exist_ok=True)
+    if any(provider.iterdir(destination)):
         raise FileExistsError(f"Output directory must be empty: {destination}")
     submitted = client.json("/prompt", {"prompt": graph, "client_id": str(uuid.uuid4())})
     if submitted.get("error") or submitted.get("node_errors"):

@@ -1,3 +1,4 @@
+#include <iiFileProviderStorage.h>
 #pragma once
 #include "NativeCachePolicy.hpp"
 #include <atomic>
@@ -46,7 +47,7 @@ PreparedModel prepareQ8Cache(const std::filesystem::path &source, const std::fil
     namespace fs = std::filesystem;
     check();
     if (!directory.is_absolute()) throw std::runtime_error("Use an absolute app cache directory for Q8 models.");
-    fs::create_directories(directory);
+    iiFileProvider::native::createDirectories(directory);
     const auto cache = fs::canonical(directory);
     const auto key = std::string(q8Revision) + '-' + cacheKey(sourceIdentity);
     const auto output = cache / (key + ".gguf");
@@ -60,7 +61,7 @@ PreparedModel prepareQ8Cache(const std::filesystem::path &source, const std::fil
     do {
         staging = cache / (".prepare-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())
                            + '-' + std::to_string(sequence++));
-    } while (!fs::create_directory(staging));
+    } while (!iiFileProvider::native::createDirectory(staging));
     struct Cleanup {
         fs::path path;
         ~Cleanup() { std::error_code ignored; fs::remove_all(path, ignored); }
@@ -73,16 +74,16 @@ PreparedModel prepareQ8Cache(const std::filesystem::path &source, const std::fil
         throw std::runtime_error("The local model changed while preparing its Q8 cache. Try again.");
     // Another process may have completed the same deterministic conversion.
     if (validQ8Cache(output, manifest, sourceIdentity)) return {output, true, fs::file_size(output)};
-    fs::rename(temporary, output);
+    iiFileProvider::native::renameFile(temporary, output);
     const auto metadata = staging / "model.cache";
     {
-        std::ofstream file(metadata, std::ios::trunc);
+        iiFileProvider::native::OutputFile file(metadata, std::ios::trunc);
         file << std::quoted(q8Revision) << '\n' << std::quoted(sourceIdentity) << '\n'
              << std::quoted(modelIdentity(output)) << '\n';
         file.close();
         if (!file) throw std::runtime_error("Could not save the Q8 model cache metadata.");
     }
-    fs::rename(metadata, manifest);
+    iiFileProvider::native::renameFile(metadata, manifest);
     return {output, false, fs::file_size(output)};
 }
 }

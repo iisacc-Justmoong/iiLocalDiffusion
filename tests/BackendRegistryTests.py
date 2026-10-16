@@ -125,6 +125,27 @@ class BackendRegistryTests(unittest.TestCase):
         self.assertEqual(downloaded_model.inspect_downloaded_model(self.safetensors(foreign))
                          ['backend_plan']['missing_components'], ['llm'])
 
+    def test_split_krea2_mounts_catalog_components_with_modifiers_disabled(self):
+        import generation_defaults
+        llm, vae = self.component('qwen'), self.component('wan')
+        catalog = {'fallback_llms': [{'families': ['krea2'],
+            'class_name': 'Qwen3VLForConditionalGeneration', 'file': 'qwen.safetensors'}],
+            'fallback_vaes': [{'families': ['wan'], 'class_name': 'AutoencoderKLWan', 'file': 'wan.safetensors'}]}
+        def resource(root, item):
+            return type('Resource', (), {'path': llm if item['file'].startswith('qwen') else vae})()
+        with patch.object(generation_defaults, 'read_defaults', return_value=(Path(llm).parent, catalog)), \
+             patch.object(generation_defaults, 'checked_resource', side_effect=resource):
+            _, args = standalone_image.resolve_arguments(self.request('krea2', components={}))
+            self.assertEqual(args.components, {'llm': llm, 'vae': vae})
+            self.assertTrue(args.native_plan['ready_for_loading'])
+            self.assertFalse(args.default_modifiers)
+            _, explicit = standalone_image.resolve_arguments(self.request('krea2', components={'llm': llm}))
+            self.assertEqual(explicit.components['llm'], llm)
+            self.assertEqual(explicit.components['vae'], vae)
+            catalog['fallback_llms'][0]['class_name'] = 'Qwen3ForCausalLM'
+            with self.assertRaisesRegex(ValueError, 'Qwen3-VL-4B'):
+                standalone_image.resolve_arguments(self.request('krea2', components={}))
+
     def test_incompatible_component_slots_and_metadata_do_not_load(self):
         args = self.request("z-image")
         args.components["clip_l"] = self.component("clip_l")

@@ -50,7 +50,13 @@ class UnifiedModelMergeTests(unittest.TestCase):
 
     def test_archive_output_is_verified_after_writing(self):
         output = self.root / "verified.iildmodel"
-        report = merge_models(self.base, self.compatible_checkpoint(), output=output, mode="unified")
+        directory = tempfile.TemporaryDirectory
+        with patch("tempfile.TemporaryDirectory", wraps=directory) as workspaces:
+            report = merge_models(self.base, self.compatible_checkpoint(), output=output, mode="unified")
+        self.assertTrue(any(call.kwargs.get("prefix") == ".iild-merge-" and
+                            Path(call.kwargs.get("dir", ".")) == output.parent
+                            for call in workspaces.call_args_list))
+        self.assertFalse(list(output.parent.glob(".iild-merge-*")))
         self.assertEqual(report["output_verification"]["status"], "passed")
         self.assertEqual(report["output_verification"]["stage_count"], 2)
         self.assertEqual(report["preflight"]["output_contract"], "independent-network-cascade")

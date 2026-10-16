@@ -7,6 +7,8 @@ is not a learned architecture distillation and does not claim semantic parity.
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import argparse
 from contextlib import ExitStack
 import importlib
@@ -236,7 +238,7 @@ def convert_to_dit(source, target_dit, output, *, source_family="auto", target_f
     report["source_sha256"] = cached_model_sha256(Path(source_weight.resolved_file))
     report["target_template_sha256"] = cached_model_sha256(Path(target_weight.resolved_file))
     destination = Path(report["output"])
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    provider.mkdir(destination.parent, parents=True, exist_ok=True)
     with ExitStack() as stack, torch.no_grad():
         source_reader = stack.enter_context(safetensors.safe_open(source_weight.resolved_file, framework="pt", device="cpu"))
         target_reader = stack.enter_context(safetensors.safe_open(target_weight.resolved_file, framework="pt", device="cpu"))
@@ -266,9 +268,9 @@ def convert_to_dit(source, target_dit, output, *, source_family="auto", target_f
                          "iild.dit.template_sha256": report["target_template_sha256"],
                          "iild_dit_conversion": json.dumps(embedded, sort_keys=True)})
         metadata = dict(sorted(metadata.items()))
-        with tempfile.TemporaryDirectory(prefix=f".{destination.name}-", dir=destination.parent) as temporary:
+        with provider.TemporaryDirectory(prefix=f".{destination.name}-", dir=destination.parent) as temporary:
             staging = Path(temporary) / destination.name
-            serializer.save_file(tensors, str(staging), metadata=metadata)
+            provider.encode_at(1, serializer.save_file, tensors, str(staging), metadata=metadata)
             del tensors
             verify_weight_file(source_weight, "conversion source")
             verify_weight_file(target_weight, "DiT template")
@@ -278,7 +280,7 @@ def convert_to_dit(source, target_dit, output, *, source_family="auto", target_f
                 raise RuntimeError("DiT template changed while building the output.")
             if destination.exists() or destination.is_symlink():
                 raise FileExistsError(f"Conversion output already exists: {destination}")
-            os.link(staging, destination)
+            provider.link(staging, destination)
     report["output_sha256"] = file_sha256(destination)
     report["output_size_bytes"] = destination.stat().st_size
     return report

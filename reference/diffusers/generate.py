@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import argparse
 from contextlib import nullcontext
 from functools import lru_cache
@@ -453,10 +455,10 @@ def prepare_pipeline_with_adapters(
 
 def write_json_atomically(path: Path, value: dict[str, Any], *, overwrite: bool = True) -> None:
     text = json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n"
-    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False) as stream:
+    with provider.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False) as stream:
         temporary = Path(stream.name)
     try:
-        temporary.write_text(text, encoding="utf-8")
+        provider.write_text(temporary, text, encoding="utf-8")
         publish_file(temporary, path, overwrite=overwrite)
     finally:
         temporary.unlink(missing_ok=True)
@@ -841,11 +843,11 @@ def run(preset, args) -> int:
 
     if preparing:
         args.xet_cache_dir = args.cache_dir / "xet"
-    args.cache_dir.mkdir(parents=True, exist_ok=True)
-    args.xet_cache_dir.mkdir(parents=True, exist_ok=True)
+    provider.mkdir(args.cache_dir, parents=True, exist_ok=True)
+    provider.mkdir(args.xet_cache_dir, parents=True, exist_ok=True)
     os.environ["HF_XET_CACHE"] = str(args.xet_cache_dir.resolve())
     if not preparing:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
+        provider.mkdir(args.output.parent, parents=True, exist_ok=True)
 
     torch, pipeline_classes = load_dependencies()
     if args.cpu_threads is not None:

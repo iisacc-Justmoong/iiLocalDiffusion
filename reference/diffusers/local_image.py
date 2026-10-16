@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import argparse
 from contextlib import contextmanager
 import json
@@ -168,7 +170,7 @@ def stage_models(request, job):
                   else "vae" if name == "vae" else "text_encoders")
         suffix = path.suffix.lower()
         target = job / "models" / folder / (name + (".safetensors" if suffix == ".safetensor" else suffix))
-        target.parent.mkdir(parents=True, exist_ok=True)
+        provider.mkdir(target.parent, parents=True, exist_ok=True)
         target.symlink_to(path)
         identities[name]["staged_path"] = str(target)
         identities[name]["staged_target"] = str(path.resolve())
@@ -215,11 +217,11 @@ def managed_server(args, job):
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     for folder in ("input", "server-output", "user", "temp", "custom_nodes"):
-        (job / folder).mkdir(exist_ok=True)
+        provider.mkdir(job / folder, exist_ok=True)
     # The selected runtime's one pinned GGUF plugin remains visible when the
     # model and writable directories are isolated per invocation.
     config = job / "paths.json"
-    config.write_text(json.dumps({"iild": {"custom_nodes": str(args.runtime_source.resolve() / "custom_nodes")}}))
+    provider.write_text(config, json.dumps({"iild": {"custom_nodes": str(args.runtime_source.resolve() / "custom_nodes")}}))
     # Keep the venv executable path: resolving its symlink selects system Python
     # and discards the isolated runtime's installed dependencies.
     command = [str(args.runtime_python.expanduser().absolute()), str(args.runtime_source.resolve() / "main.py"),
@@ -240,7 +242,7 @@ def managed_server(args, job):
                        TORCH_HOME=str(cache / "torch-cache"),
                        PYTHONPYCACHEPREFIX=str(cache / "pycache" if args.cache_dir else ROOT / "build/pycache"))
     log = job / "runtime.log"
-    with log.open("w") as stream:
+    with provider.open(log, "w") as stream:
         process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT,
                                    cwd=args.runtime_source, env=environment)
         try:
@@ -264,7 +266,7 @@ def managed_server(args, job):
                 raise RuntimeError(f"Requested {args.device}, but local runtime selected {devices}.")
             if expected == "rocm" and "rocm" not in str(stats.get("system", {}).get("pytorch_version", "")).lower():
                 raise RuntimeError("Requested ROCm, but the runtime did not report a ROCm PyTorch build.")
-            (job / "object_info.json").write_text(json.dumps(objects))
+            provider.write_text(job / "object_info.json", json.dumps(objects))
             yield client.url, objects, stats
         finally:
             if process.poll() is None:
@@ -280,9 +282,9 @@ def prepare_work_directory(args):
     job = args.work_dir.expanduser().absolute() if args.work_dir else ROOT / "build/reference/local-image-jobs" / uuid.uuid4().hex
     if job.resolve() != job or job.is_symlink():
         raise ValueError("The work directory must not be redirected.")
-    if job.exists() and (not job.is_dir() or any(job.iterdir())):
+    if job.exists() and (not job.is_dir() or any(provider.iterdir(job))):
         raise ValueError("The work directory must be empty.")
-    job.mkdir(parents=True, exist_ok=True)
+    provider.mkdir(job, parents=True, exist_ok=True)
     return job
 
 
@@ -315,7 +317,7 @@ def main(argv=None):
                 hires_passes=args.hires_passes, hires_scale=args.hires_scale, hires_strength=args.hires_strength,
                 hires_steps=args.hires_steps, hires_upscaler=args.hires_upscaler)
             workflow = job / "workflow.json"
-            workflow.write_text(json.dumps(graph, indent=2))
+            provider.write_text(workflow, json.dumps(graph, indent=2))
             result = run_workflow(argparse.Namespace(
                 workflow=workflow, workflow_inputs={}, base_model=request["base_model"],
                 comfyui_url=url, output_dir=args.output_dir or job / "result", timeout=args.timeout,

@@ -255,7 +255,7 @@ class CheckpointConversionTests(unittest.TestCase):
         self.save_file.side_effect = mutate
         with self.assertRaisesRegex(RuntimeError, "Source checkpoint changed"):
             conversion.materialize_safetensors(source, self.cache)
-        self.assertEqual(list(self.cache.iterdir()), [])
+        self.assertEqual(list(conversion.provider.iterdir(self.cache)), [])
 
     def test_source_symlink_retargeting_is_detected(self):
         source = self.checkpoint()
@@ -269,7 +269,7 @@ class CheckpointConversionTests(unittest.TestCase):
         self.save_file.side_effect = retarget
         with self.assertRaisesRegex(RuntimeError, "Source checkpoint changed"):
             conversion.materialize_safetensors(link, self.cache)
-        self.assertEqual(list(self.cache.iterdir()), [])
+        self.assertEqual(list(conversion.provider.iterdir(self.cache)), [])
 
     def test_corrupted_output_is_rejected_and_not_overwritten(self):
         source = self.checkpoint()
@@ -316,29 +316,29 @@ class CheckpointConversionTests(unittest.TestCase):
         self.save_file.side_effect = fail
         with self.assertRaisesRegex(RuntimeError, "save failed"):
             conversion.materialize_safetensors(self.checkpoint(), self.cache)
-        self.assertEqual(list(self.cache.iterdir()), [])
+        self.assertEqual(list(conversion.provider.iterdir(self.cache)), [])
 
     def test_manifest_and_tensor_file_are_published_together(self):
-        rename = conversion.os.rename
+        rename = conversion.provider.rename
         def checked_rename(source, destination):
             self.assertTrue((source / "model.safetensors").is_file())
             self.assertTrue((source / "conversion.json").is_file())
             self.assertFalse(destination.exists())
             rename(source, destination)
-        with patch.object(conversion.os, "rename", side_effect=checked_rename) as renamed:
+        with patch.object(conversion.provider, "rename", side_effect=checked_rename) as renamed:
             result = conversion.materialize_safetensors(self.checkpoint(), self.cache)
         renamed.assert_called_once()
         self.assertTrue(Path(result["manifest_path"]).is_file())
-        self.assertEqual(len(list(self.cache.iterdir())), 1)
+        self.assertEqual(len(list(conversion.provider.iterdir(self.cache))), 1)
 
     def test_concurrent_cache_winner_is_validated_and_temporary_entry_removed(self):
         def competing_rename(source, destination):
             shutil.copytree(source, destination)
             raise FileExistsError("A concurrent conversion won publication")
-        with patch.object(conversion.os, "rename", side_effect=competing_rename):
+        with patch.object(conversion.provider, "rename", side_effect=competing_rename):
             result = conversion.materialize_safetensors(self.checkpoint(), self.cache)
         self.assertTrue(result["cache_hit"])
-        self.assertEqual(len(list(self.cache.iterdir())), 1)
+        self.assertEqual(len(list(conversion.provider.iterdir(self.cache))), 1)
 
 
 @unittest.skipUnless(os.environ.get("IILD_CHECKPOINT_REAL_RUNTIME_TESTS") == "1",

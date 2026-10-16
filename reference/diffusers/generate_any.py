@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import argparse
 import importlib.metadata
 import inspect
@@ -340,7 +342,7 @@ def file_identity(path: Path, relative_to: Path | None = None, *, model_file: bo
 
 
 def model_files(folder: Path) -> list[Path]:
-    return [path for path in sorted(folder.rglob("*"))
+    return [path for path in sorted(provider.rglob(folder, "*"))
             if path.is_file() and not any(part.startswith(".") for part in path.relative_to(folder).parts)
             and path.suffix not in UNSAFE_WEIGHTS | {".py", ".pyc"}]
 
@@ -384,7 +386,7 @@ def load_pipeline(args: argparse.Namespace, diffusers: Any, dtype: Any) -> tuple
     if args.source_kind == "single-file":
         if not hasattr(pipeline_class, "from_single_file"):
             raise ValueError(f"{pipeline_class.__name__} has no built-in single-file loader. Provide a complete Diffusers directory or use the workflow backend.")
-        unsafe = [str(path.relative_to(folder)) for path in folder.rglob("*")
+        unsafe = [str(path.relative_to(folder)) for path in provider.rglob(folder, "*")
                   if path.is_file() and path.suffix in UNSAFE_WEIGHTS]
         if unsafe:
             raise ValueError("Single-file configuration extras must contain safetensors weights only; remove/convert pickle weights: " + ", ".join(unsafe[:5]))
@@ -558,15 +560,9 @@ def as_image(value: Any, image_module: Any, np: Any) -> Any:
 
 
 def atomic_write(path: Path, writer: Any, overwrite: bool) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    os.close(descriptor)
-    temporary = Path(name)
-    try:
+    provider.mkdir(path.parent, parents=True, exist_ok=True)
+    with provider.staged_path(path, overwrite=overwrite) as temporary:
         writer(temporary)
-        publish_file(temporary, path, overwrite=overwrite)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def infer_sample_rate(pipeline: Any, requested: int | None) -> int:
@@ -603,7 +599,7 @@ def save_outputs(result: Any, pipeline: Any, args: argparse.Namespace, image_mod
     def save_image(value: Any, filename: str, kind: str) -> None:
         image = as_image(value, image_module, np)
         path = args.output_dir / filename
-        atomic_write(path, lambda temporary: image.save(temporary, format="PNG"), args.overwrite)
+        atomic_write(path, lambda temporary: provider.save_image(image, temporary, format="PNG"), args.overwrite)
         outputs.append({**file_identity(path), "kind": kind, "size": list(image.size), "mode": image.mode})
 
     images = None if "images" in tensor_specs else output_value(result, "images")
@@ -670,7 +666,7 @@ def save_outputs(result: Any, pipeline: Any, args: argparse.Namespace, image_mod
             path = args.output_dir / f"audio-{index + 1:04d}.wav"
 
             def write_wave(temporary: Path) -> None:
-                with wave.open(str(temporary), "wb") as stream:
+                with provider.open(temporary, "wb") as device, wave.open(device, "wb") as stream:
                     stream.setnchannels(pcm.shape[1])
                     stream.setsampwidth(2)
                     stream.setframerate(rate)
@@ -690,7 +686,7 @@ def save_outputs(result: Any, pipeline: Any, args: argparse.Namespace, image_mod
             raise ValueError(f"Text output {name!r} must be a string or a non-empty sequence of strings.")
         for index, item in enumerate(values):
             path = args.output_dir / f"{name}-{index + 1:04d}.txt"
-            atomic_write(path, lambda temporary, content=item: temporary.write_text(content, encoding="utf-8"), args.overwrite)
+            atomic_write(path, lambda temporary, content=item: provider.write_text(temporary, content, encoding="utf-8"), args.overwrite)
             outputs.append({**file_identity(path), "kind": "text", "field": name, "encoding": "UTF-8"})
     if not outputs:
         raise ValueError("The pipeline returned no supported media or typed generation outputs. Expected images, frames, audios/audio, text/texts, sequences/token_ids, or declared tensor outputs.")
@@ -702,13 +698,13 @@ def retire_previous_report(directory: Path) -> Path | None:
     previous = directory / "generation.json"
     if not previous.exists():
         return None
-    descriptor, name = tempfile.mkstemp(prefix="generation.previous-", suffix=".json", dir=directory)
+    descriptor, name = provider.mkstemp(prefix="generation.previous-", suffix=".json", dir=directory)
     os.close(descriptor)
     archive = Path(name)
     try:
         # The archive name was exclusively reserved by this process. Replace only
         # that empty reservation; no unrelated existing report can be clobbered.
-        os.replace(previous, archive)
+        provider.replace(previous, archive)
     except BaseException:
         archive.unlink(missing_ok=True)
         raise
@@ -749,7 +745,7 @@ def publish_generation(result: Any, pipeline: Any, args: argparse.Namespace, ima
         completed["previous_report"] = str(previous)
     report_path = args.output_dir / "generation.json"
     atomic_write(report_path,
-                 lambda path: path.write_text(json.dumps(completed, indent=2, ensure_ascii=False,
+                 lambda path: provider.write_text(path, json.dumps(completed, indent=2, ensure_ascii=False,
                                                         allow_nan=False) + "\n"),
                  args.overwrite)
     return report_path, outputs
@@ -761,7 +757,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.print_config:
             print(json.dumps(configuration(args), indent=2, ensure_ascii=False, allow_nan=False))
             return 0
-        if not is_preparing() and args.output_dir.exists() and not args.overwrite and any(args.output_dir.iterdir()):
+        if not is_preparing() and args.output_dir.exists() and not args.overwrite and any(provider.iterdir(args.output_dir)):
             raise ValueError(f"Output directory is not empty: {args.output_dir}; choose a fresh directory or pass --overwrite.")
         os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1")
         import torch

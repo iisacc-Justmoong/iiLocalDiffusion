@@ -499,3 +499,5 @@ Safetensors shards, LoRA/VAE and original GGUF/assets into one verified
 Safetensors container. It streams weights without casting them and provides
 byte-identical original-file restoration. See [model packaging](docs/model-packaging.md)
 for the format, C++ API, `iild-model-package` CLI and validation contract.
+
+Model merging uses the reserved `.iild-merge-<tempfile token>` workspace beneath the output directory and removes it on normal success or failure. Society holds a parent temporary lease while merging; its container maintenance can recognize an abandoned workspace without deriving temporary names from a user filename.

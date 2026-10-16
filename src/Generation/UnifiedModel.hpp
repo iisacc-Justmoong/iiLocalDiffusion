@@ -1,3 +1,4 @@
+#include <iiFileProviderStorage.h>
 #pragma once
 #include "NativeCachePolicy.hpp"
 #include <json-c/json.h>
@@ -78,10 +79,10 @@ inline std::filesystem::path materializeUnifiedModel(const std::filesystem::path
     static std::mutex mutex;
     const std::lock_guard lock(mutex);
     if (ready()) return fs::canonical(destination);
-    fs::create_directories(cache);
+    iiFileProvider::native::createDirectories(cache);
     const auto staging = cache / ("." + encoded.str() + "-" + std::to_string(
         std::chrono::steady_clock::now().time_since_epoch().count()));
-    fs::create_directories(staging);
+    iiFileProvider::native::createDirectories(staging);
     struct Archive { zip_t *value = nullptr; ~Archive() { if (value) zip_close(value); } } archive;
     try {
         archive.value = zip_open(package.string().c_str(), 0, 'r');
@@ -105,7 +106,7 @@ inline std::filesystem::path materializeUnifiedModel(const std::filesystem::path
             }
             total += size;
             const auto target = staging / fs::path(name);
-            fs::create_directories(target.parent_path());
+            iiFileProvider::native::createDirectories(target.parent_path());
             if (zip_entry_fread(archive.value, target.string().c_str()) != 0) {
                 close(); throw std::runtime_error("Cannot extract an .iildmodel package member.");
             }
@@ -115,9 +116,9 @@ inline std::filesystem::path materializeUnifiedModel(const std::filesystem::path
         }
         if (!names.contains("model_index.json")) throw std::runtime_error("The .iildmodel manifest is missing.");
         if (modelIdentity(package) != identity) throw std::runtime_error("The .iildmodel package changed while extracting.");
-        { std::ofstream output(staging / ".iildmodel-source", std::ios::binary); output << identity; }
+        { iiFileProvider::native::OutputFile output(staging / ".iildmodel-source", std::ios::binary); output << identity; }
         std::error_code error;
-        fs::rename(staging, destination, error);
+        iiFileProvider::native::renameFile(staging, destination, error);
         if (error && !ready()) throw std::runtime_error("Cannot publish the .iildmodel extraction cache.");
         if (error) fs::remove_all(staging);
     } catch (...) {

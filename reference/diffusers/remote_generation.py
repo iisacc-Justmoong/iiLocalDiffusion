@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import json
 from pathlib import Path
 import subprocess
@@ -70,12 +72,12 @@ def generate_image(args):
     remote = RemoteInference(args.model_input)
     reports = []
     # No output is published until every image in this request has been decoded.
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    provider.mkdir(args.output.parent, parents=True, exist_ok=True)
     lock = args.output.with_name("." + args.output.name + ".remote.lock")
-    with lock.open("x"):
+    with provider.open(lock, "x"):
         pass
     try:
-        with tempfile.TemporaryDirectory(prefix=".iild-remote-", dir=args.output.parent) as temporary:
+        with provider.TemporaryDirectory(prefix=".iild-remote-", dir=args.output.parent) as temporary:
             root = Path(temporary)
             staged = []
             for index, path in enumerate(paths):
@@ -85,7 +87,7 @@ def generate_image(args):
                 if image.size != (args.width, args.height):
                     raise RuntimeError("Remote image dimensions differ from the request.")
                 target = root / f"image-{index}.png"
-                image.convert("RGB").save(target, format="PNG", compress_level=args.png_compress_level,
+                provider.save_image(image.convert("RGB"), target, format="PNG", compress_level=args.png_compress_level,
                                            optimize=args.png_optimize)
                 report = {"schema": "iild-remote-image-v1", "status": "complete",
                           "model_input": args.model_input.metadata(), "configuration": image_configuration(args),
@@ -93,7 +95,7 @@ def generate_image(args):
                           "image": {"file": str(path), "seed": seed, "size": list(image.size),
                                     "sha256": file_sha256(target), "verified_decode": True}}
                 sidecar = root / f"image-{index}.json"
-                sidecar.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
+                provider.write_text(sidecar, json.dumps(report, indent=2, allow_nan=False) + "\n")
                 staged.extend(((target, path), (sidecar, path.with_suffix(".json"))))
                 reports.append(report)
             backups, published = [], []
@@ -103,7 +105,7 @@ def generate_image(args):
                         raise ValueError("Remote image targets cannot be symlinks or directories.")
                     if target.exists() and args.overwrite:
                         backup = root / f"backup-{index}"
-                        target.rename(backup)
+                        provider.rename(target, backup)
                         backups.append((backup, target))
                     publish_file(source, target, overwrite=False)
                     published.append(target)
@@ -111,7 +113,7 @@ def generate_image(args):
                 for target in reversed(published):
                     target.unlink()
                 for backup, target in reversed(backups):
-                    backup.rename(target)
+                    provider.rename(backup, target)
                 raise
     finally:
         lock.unlink(missing_ok=True)
@@ -176,9 +178,9 @@ def generate_video(args):
         source_frames, clips = [], []
         for shot in args.shots:
             folder = output.frames / "ltx" / f"shot-{shot['index']:04d}"
-            folder.mkdir(parents=True)
+            provider.mkdir(folder, parents=True)
             clip = folder / "source.mp4"
-            clip.write_bytes(remote.video(args, shot))
+            provider.write_bytes(clip, remote.video(args, shot))
             source_frames.extend(_decode_source(args, shot, clip, folder, environment))
             clips.append({"shot": shot["index"], "file": str(clip.relative_to(output.frames)),
                           "sha256": file_sha256(clip), "decoded_frames": shot["sample_frames"]})
@@ -192,7 +194,7 @@ def generate_video(args):
             frames = []
             for source in source_frames:
                 path = output.frames / f"frame-{source['index']:06d}.png"
-                shutil.copyfile(output.frames / source["file"], path)
+                provider.copyfile(output.frames / source["file"], path)
                 frames.append({**source, "file": path.name})
         encoded = encode_video(output.frames, output.video, args, environment)
         report = {"schema": "iild-temporal-video-v1", "status": "complete",

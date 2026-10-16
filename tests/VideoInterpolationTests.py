@@ -39,6 +39,7 @@ class VideoInterpolationPlanTests(unittest.TestCase):
             self.assertEqual(args.shots[0]["sampling_fps"], fps)
 
     def test_keyframes_are_exact_source_anchors_even_between_regular_samples(self):
+        # The same anchor contract applies after automatic high-FPS spacing.
         with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="interpolation-plan-") as temporary:
             image = Path(temporary) / "keyframe.png"
             image.write_bytes(b"decoded at runtime")
@@ -59,6 +60,38 @@ class VideoInterpolationPlanTests(unittest.TestCase):
         for factor in (0, 1, 9):
             with self.subTest(factor=factor), self.assertRaises(ValueError):
                 self.request("--interpolation-factor", str(factor))
+
+    def test_high_fps_automatically_increases_spacing_without_changing_output_time(self):
+        for fps, factor in ((60, 3), (120, 5)):
+            with self.subTest(fps=fps):
+                args = self.request("--fps", str(fps), "--duration", "5")
+                shot = args.shots[0]
+                self.assertTrue(args.interpolation_enabled)
+                self.assertEqual(args.interpolation_factor, 2)
+                self.assertEqual(args.effective_interpolation_factor, factor)
+                self.assertEqual(args.max_frames, fps * 5)
+                self.assertEqual(shot["source_positions"][0], 0)
+                self.assertEqual(shot["source_positions"][-1], fps * 5 - 1)
+                self.assertLessEqual(shot["sampling_fps"], 25)
+                self.assertLess(shot["ltx_frames"], shot["frames"])
+                replay = resolve_options(local_parser(build_parser).parse_values(configuration(args)))
+                self.assertEqual(replay.shots, args.shots)
+        args = self.request("--fps", "120", "--interpolation-factor", "8")
+        self.assertEqual(args.effective_interpolation_factor, 8)
+
+    def test_high_fps_short_shots_and_dense_keyframes_never_request_high_model_fps(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="high-fps-anchors-") as temporary:
+            image = Path(temporary) / "keyframe.png"
+            image.write_bytes(b"decoded at runtime")
+            storyboard = Path(temporary) / "shots.json"
+            storyboard.write_text(json.dumps({"shots": [{"frames": 9, "conditions": [
+                {"image": "keyframe.png", "frame": 1}, {"image": "keyframe.png", "frame": 4}]}]}))
+            for fps in (60, 120):
+                args = self.request("--fps", str(fps), "--storyboard", str(storyboard))
+                shot = args.shots[0]
+                self.assertLessEqual(shot["sampling_fps"], 25)
+                self.assertTrue({0, 1, 4, 8}.issubset(shot["source_positions"]))
+                self.assertEqual([c["frame"] for c in shot["conditions"]], [1, 4])
 
 
 AVAILABLE = importlib.util.find_spec("PIL") and shutil.which("ffmpeg") and shutil.which("ffprobe")
@@ -135,6 +168,7 @@ class VideoInterpolationMediaTests(unittest.TestCase):
                     self.assertEqual([f["index"] for f in frames], list(range(count)))
 
     def test_shot_cuts_are_not_blended_by_interpolation(self):
+        # Interpolation must remain confined to each shot at every output rate.
         from animation_video import AnimationOutput, preflight_animation
         from video_interpolator import interpolate_video
         storyboard = self.directory / "storyboard.json"
@@ -156,6 +190,28 @@ class VideoInterpolationMediaTests(unittest.TestCase):
         with patch("video_interpolator.subprocess.run", return_value=SimpleNamespace(returncode=0, stdout="Unknown filter", stderr="")):
             with self.assertRaisesRegex(ValueError, "minterpolate"):
                 preflight_interpolator(self.request(), {"ffmpeg": "ffmpeg"})
+
+    def test_real_high_fps_interpolation_encodes_the_requested_rate_and_duration(self):
+        from animation_video import AnimationOutput, preflight_animation, encode_video
+        from video_interpolator import interpolate_video, preflight_interpolator
+        from weight_files import file_sha256
+        for fps, factor in ((60, 3), (120, 5)):
+            with self.subTest(fps=fps):
+                args = self.request("--fps", str(fps), "--frames", "13")
+                environment = preflight_animation(args)
+                preflight_interpolator(args, environment)
+                with AnimationOutput(args) as output:
+                    sources = self.sources(args, output)
+                    frames, stage = interpolate_video(args, args.shots, sources, output, environment)
+                    self.assertEqual(len(frames), 13)
+                    self.assertEqual(stage["factor"], factor)
+                    self.assertEqual(stage["requested_factor"], 2)
+                    self.assertGreater(stage["inserted_frames"], 0)
+                    for source in sources:
+                        self.assertEqual(file_sha256(output.frames / f"frame-{source['index']:06d}.png"), source["sha256"])
+                    video = encode_video(output.frames, output.video, args, environment)
+                    self.assertEqual((video["frame_count"], video["fps"]), (13, fps))
+                    self.assertAlmostEqual(video["duration_seconds"], 13 / fps, places=5)
 
     def test_failed_second_stage_keeps_the_previous_bundle(self):
         from animation_video import AnimationOutput, preflight_animation

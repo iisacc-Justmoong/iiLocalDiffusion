@@ -11,6 +11,9 @@ from generation_config import ConfigurationArgumentParser, json_object
 from generation_seed import resolve_seed
 
 ROOT = Path(__file__).resolve().parents[2]
+# The supported LTX pipelines use 25 FPS as their nominal temporal coordinate
+# rate. Higher output rates are produced by the existing frame interpolator.
+LTX_SOURCE_FPS = 25.0
 CAMERA_MOTIONS = {
     "none": "",
     "static": "The camera remains stationary on a locked tripod.",
@@ -57,8 +60,8 @@ def build_parser():
     parser.add_argument("--duration", type=float, help="Seconds per shot (default: 5); rounded to output frames")
     parser.add_argument("--fps", type=float, default=24)
     parser.add_argument("--interpolation-factor", type=int, default=2,
-                        help="LTX source-frame spacing in output frames, 2..8 (default: 2); "
-                             "FPS > 12 uses the frame Interpolator after LTX")
+                        help="Minimum LTX source-frame spacing in output frames, 2..8 (default: 2); "
+                             "automatically increased for high FPS. FPS > 12 uses the frame Interpolator after LTX")
     parser.add_argument("--steps", type=int, default=30)
     parser.add_argument("--guidance-scale", type=float, default=3)
     parser.add_argument("--max-sequence-length", type=int, default=256)
@@ -190,14 +193,14 @@ def plan_shots(args):
             raise ValueError("A frame may have only one image condition, including continue_previous.")
         # Preserve the exact output timeline, including off-grid image anchors
         # and the last frame. Only intervening frames belong to the interpolator.
-        spacing = args.interpolation_factor if args.interpolation_enabled else 1
+        spacing = args.effective_interpolation_factor
         positions = sorted({*range(0, frames, spacing), frames - 1, *indices})
         for condition in conditions:
             condition["source_frame"] = positions.index(condition["frame"])
         source_count = len(positions)
         result.append({"index": index, "start_frame": offset, "frames": frames,
                        "source_positions": positions, "ltx_frames": source_count,
-                       "sampling_fps": args.fps * (source_count - 1) / (frames - 1),
+                       "sampling_fps": min(args.source_fps_limit, args.fps * (source_count - 1) / (frames - 1)),
                        "sample_frames": ((source_count - 1 + 7) // 8) * 8 + 1,
                        "seed": seed, "prompt": prompt, "negative_prompt": negative, "camera": list(camera),
                        "effective_prompt": (motion + " " + prompt.strip()).strip(),
@@ -247,6 +250,9 @@ def resolve_options(args):
     if args.output.suffix.lower() != ".mp4":
         raise ValueError("Video output must use the .mp4 extension.")
     args.interpolation_enabled = args.fps > 12
+    args.source_fps_limit = LTX_SOURCE_FPS
+    args.effective_interpolation_factor = (max(args.interpolation_factor, math.ceil(args.fps / args.source_fps_limit))
+                                         if args.interpolation_enabled else 1)
     args.shots = plan_shots(args)
     from animation_video import output_targets
     targets = [path.resolve() for path in output_targets(args.output)]

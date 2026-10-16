@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 import argparse
 from dataclasses import replace
 import json
@@ -254,9 +256,9 @@ def attach_controlnet(pipeline: Any, preset: PipelinePreset, args: Any,
                 else:
                     # Diffusers' normal package loader retains low-memory loading and
                     # strict missing-weight reporting for native component state dicts.
-                    with tempfile.TemporaryDirectory(prefix="controlnet-", dir=args.cache_dir) as temporary:
+                    with provider.TemporaryDirectory(prefix="controlnet-", dir=args.cache_dir) as temporary:
                         staging = Path(temporary)
-                        (staging / "config.json").write_text(json.dumps(config), encoding="utf-8")
+                        provider.write_text(staging / "config.json", json.dumps(config), encoding="utf-8")
                         (staging / "diffusion_pytorch_model.safetensors").symlink_to(path.resolve())
                         controlnet = _load_package(model_class, staging, load_args)
             identities.append(weight)

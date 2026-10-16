@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-work="${source_root}/build/install-script-test"
+work="${IILD_INSTALL_SCRIPT_TEST_DIRECTORY:-${source_root}/build/install-script-test}"
 mkdir -p "${work}/bin" "${work}/home/.local/SDK/iiPaintEngine/lib/cmake/iiPaintEngine"
 touch "${work}/home/.local/SDK/iiPaintEngine/lib/cmake/iiPaintEngine/iiPaintEngineConfig.cmake"
 cat > "${work}/bin/cmake" <<'MOCK'
@@ -52,7 +52,13 @@ import sys
 source, prefix = map(Path, sys.argv[1:])
 reference = prefix / "share/iiLocalDiffusion/reference"
 reference.mkdir(parents=True, exist_ok=True)
-shutil.copytree(source / "resources", reference.parent / "resources", dirs_exist_ok=True)
+# Exercise the installed launcher with its small embedding/configuration assets.
+# Backend model weights are not needed for --print-config and must not be copied.
+def large_models(directory, names):
+    return [name for name in names if (Path(directory) / name).is_file()
+            and (Path(directory) / name).stat().st_size > 64 * 1024 * 1024]
+shutil.copytree(source / "resources", reference.parent / "resources", dirs_exist_ok=True,
+                ignore=large_models)
 for entry in ("generate.py", "merge.py"):
     shutil.copy2(source / "reference" / entry, reference / entry)
 diffusers = source / "reference/diffusers"

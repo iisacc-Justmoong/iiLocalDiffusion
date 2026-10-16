@@ -3,6 +3,8 @@
 The persistent Python worker owns output publication; its loaded native library
 owns one reusable inference context with explicit companion weight bindings.
 """
+
+from _file_provider import provider
 from dataclasses import asdict
 import ctypes as C
 import json
@@ -58,9 +60,9 @@ class NativePreviewWriter:
         self.directory = Path(directory).expanduser().absolute()
         if self.directory.is_symlink() or self.directory.resolve() != self.directory:
             raise ValueError("The preview directory must not be redirected.")
-        if self.directory.exists() and (not self.directory.is_dir() or any(self.directory.iterdir())):
+        if self.directory.exists() and (not self.directory.is_dir() or any(provider.iterdir(self.directory))):
             raise ValueError("The preview directory must be empty.")
-        self.directory.mkdir(parents=True, exist_ok=True)
+        provider.mkdir(self.directory, parents=True, exist_ok=True)
         self.sequence = 0
 
     def __call__(self, step, total, width, height, pixels):
@@ -224,6 +226,10 @@ def resolve_arguments(args, inspection):
             raise ValueError("Conflicting --vae and --components VAE paths.")
         components["vae"] = str(args.vae)
     args.native_plan = plan_native(inspection, components)
+    if inspection.get("architecture") == "krea2" and args.native_plan["missing_components"]:
+        from generation_defaults import resolve_krea2_components
+        components = resolve_krea2_components(inspection, components, args.generation_resources)
+        args.native_plan = plan_native(inspection, components)
     if args.native_plan["missing_components"]:
         raise ValueError(f"{inspection['architecture']} checkpoint is missing components: "
                          + ", ".join(args.native_plan["missing_components"])
@@ -361,7 +367,7 @@ def publication_event(performance, event, started, error=""):
     if error:
         record["detail"] = str(error)[:1500]
     try:
-        with Path(trace).open("a", encoding="utf-8") as output:
+        with provider.open(Path(trace), "a", encoding="utf-8") as output:
             output.write(json.dumps(record) + "\n")
         print("IILD_NATIVE_TELEMETRY " + json.dumps(record), flush=True)
     except OSError as failure:
@@ -397,7 +403,7 @@ def run(_preset, args):
             for slot, weight in args.native_component_files.items():
                 verify_weight_file(weight, slot)
             verify_pipeline_sources()
-            path.parent.mkdir(parents=True, exist_ok=True)
+            provider.mkdir(path.parent, parents=True, exist_ok=True)
             write_png(image, path, compress_level=args.png_compress_level, optimize=args.png_optimize, overwrite=args.overwrite)
         except Exception as error:
             publication_event(performance, "publication-failed", publication_started, error)

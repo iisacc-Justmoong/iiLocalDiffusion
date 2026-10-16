@@ -1,5 +1,7 @@
 """Generate local checkpoints with the SDK's Diffusers/PyTorch or native image engine."""
 
+from _file_provider import provider
+
 import argparse
 import json
 import os
@@ -85,9 +87,9 @@ def empty_directory(path):
     path = path.expanduser().absolute()
     if path.is_symlink() or path.resolve() != path:
         raise ValueError("The output/work directory must not be redirected.")
-    if path.exists() and (not path.is_dir() or any(path.iterdir())):
+    if path.exists() and (not path.is_dir() or any(provider.iterdir(path))):
         raise ValueError("The output/work directory must be empty.")
-    path.mkdir(parents=True, exist_ok=True)
+    provider.mkdir(path, parents=True, exist_ok=True)
     return path
 
 
@@ -117,10 +119,10 @@ def main(argv=None):
         output = empty_directory(args.output_dir or ROOT / "build/reference/standalone-image" / uuid.uuid4().hex)
         if args.work_dir:
             work = empty_directory(args.work_dir)
-            (work / "request.json").write_text(json.dumps(configuration(args), indent=2))
+            provider.write_text(work / "request.json", json.dumps(configuration(args), indent=2))
         # Inference stays in this process. Publish the complete directory only
         # after images, hashes and per-image provenance have all been checked.
-        with tempfile.TemporaryDirectory(prefix=".iild-generation-", dir=output.parent) as temporary:
+        with provider.TemporaryDirectory(prefix=".iild-generation-", dir=output.parent) as temporary:
             stage = Path(temporary)
             args.output, args.output_was_default = stage / "image.png", False
             args.xet_cache_dir = args.cache_dir / "xet"
@@ -146,18 +148,18 @@ def main(argv=None):
                     raise RuntimeError("Generated image does not match its provenance.")
                 reports.append(relocate(report, stage, output))
             for path in stage.glob("*.json"):
-                path.write_text(json.dumps(relocate(json.loads(path.read_text()), stage, output), indent=2))
+                provider.write_text(path, json.dumps(relocate(json.loads(path.read_text()), stage, output), indent=2))
             manifest = {"schema": "iild-standalone-image-v1", "status": "complete", "backend": getattr(args, "engine", "diffusers"),
                         "output_directory": str(output), "outputs": [report["output"] for report in reports],
                         "images": reports}
             if getattr(args, "native_plan", None):
                 manifest["backend_plan"] = args.native_plan
                 manifest["architecture"] = args.architecture
-            (stage / "generation.json").write_text(json.dumps(manifest, indent=2))
+            provider.write_text(stage / "generation.json", json.dumps(manifest, indent=2))
             if output.resolve() != output or output.is_symlink():
                 raise RuntimeError("The output directory was redirected during generation.")
             # rename cannot replace a nonempty destination; concurrent output is preserved.
-            os.replace(stage, output)
+            provider.replace(stage, output)
         print(f"Generation: {output / 'generation.json'}")
         return 0
     except (ValueError, OSError, RuntimeError, ImportError) as error:

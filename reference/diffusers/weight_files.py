@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _file_provider import provider
+
 from contextlib import closing, contextmanager
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -95,9 +97,9 @@ def _persistent_model_hash(signature: tuple, digest: str | None = None) -> str |
     path = Path(configured).expanduser() if configured else root / "iiLocalDiffusion/model-hashes.sqlite3"
     identity = json.dumps(signature, separators=(",", ":"))
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        provider.mkdir(path.parent, parents=True, exist_ok=True)
         # A busy or unavailable cache must not delay generation or bypass hashing.
-        with closing(sqlite3.connect(path, timeout=0.05)) as database, database:
+        with closing(provider.sqlite_connect(path, timeout=0.05)) as database, database:
             database.execute("CREATE TABLE IF NOT EXISTS hashes_v1 (path TEXT PRIMARY KEY, identity TEXT NOT NULL, digest TEXT NOT NULL, touched INTEGER NOT NULL)")
             if digest is None:
                 row = database.execute("SELECT digest FROM hashes_v1 WHERE path=? AND identity=?", (signature[0], identity)).fetchone()
@@ -210,8 +212,8 @@ def checked_safetensors_path(
     if path.suffix == ".safetensors":
         yield path
     else:
-        staging_directory.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="weights-", dir=staging_directory) as temporary:
+        provider.mkdir(staging_directory, parents=True, exist_ok=True)
+        with provider.TemporaryDirectory(prefix="weights-", dir=staging_directory) as temporary:
             alias = Path(temporary) / "weights.safetensors"
             try:
                 alias.symlink_to(weight.resolved_file)

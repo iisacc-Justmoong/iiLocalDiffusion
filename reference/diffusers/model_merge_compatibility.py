@@ -1,3 +1,4 @@
+from _file_provider import provider
 """Resolve a LoRA's structural gap through a real, locally available checkpoint.
 
 Equivalent export namespaces are mapped by the existing target resolver. A
@@ -107,7 +108,7 @@ class LoraCompatibilityBridge:
                 if path.is_file() and path.resolve() not in excluded:
                     found.setdefault(path.resolve(), path)
         for directory in sorted(directories):
-            for path in sorted(directory.iterdir()):
+            for path in sorted(provider.iterdir(directory)):
                 if (not path.name.startswith(".") and not path.is_symlink() and path.is_file()
                         and path.suffix.lower() in SAFETENSORS_SUFFIXES and path.resolve() not in excluded):
                     found.setdefault(path.resolve(), path)

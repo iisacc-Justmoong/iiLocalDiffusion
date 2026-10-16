@@ -1,5 +1,12 @@
 @PACKAGE_INIT@
 include(CMakeFindDependencyMacro)
+find_dependency(iiFileProviderNative 0.6 CONFIG HINTS "$ENV{IIFILEPROVIDER_PREFIX}" "$ENV{HOME}/.local/SDK/iiFileProvider")
+
+
+
+
+
+
 find_dependency(OpenSSL COMPONENTS Crypto)
 find_package(json-c CONFIG QUIET)
 if(NOT TARGET json-c::json-c)
