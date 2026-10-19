@@ -14,12 +14,13 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 import local_image
+from _file_provider import provider
 
 
 class LocalImageTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(dir=ROOT / "build")
+        temporary = provider.TemporaryDirectory(dir=ROOT / "build")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.model = self.directory / "download.safetensors"

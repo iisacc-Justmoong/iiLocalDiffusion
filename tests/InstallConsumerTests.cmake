@@ -35,6 +35,9 @@ endif()
 # Run against a relocated prefix, including private runtime resources.
 file(RENAME "${stage_directory}" "${WORK_DIRECTORY}/relocated stage")
 set(stage_directory "${WORK_DIRECTORY}/relocated stage")
+if(CMAKE_HOST_WIN32)
+    set(ENV{PATH} "${stage_directory}/${BIN_DIRECTORY};$ENV{PATH}")
+endif()
 if(PYTHON_REFERENCE_ENABLED)
     if(NOT EXISTS "${stage_directory}/${REFERENCE_DIRECTORY}/diffusers/ii_file_provider/__init__.py")
         message(FATAL_ERROR "The relocated Python worker is missing its iiFileProvider adapter")
@@ -547,6 +550,7 @@ execute_process(
         -S "${source_directory}"
         -B "${binary_directory}"
         -G "${GENERATOR}"
+        "-DCMAKE_BUILD_TYPE=${CONFIG}"
         "-DCMAKE_PREFIX_PATH=${stage_directory}"
         "-DiiLocalDiffusion_DIR=${stage_directory}/lib/cmake/iiLocalDiffusion"
     RESULT_VARIABLE configure_result

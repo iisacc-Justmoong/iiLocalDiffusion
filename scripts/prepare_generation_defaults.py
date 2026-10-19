@@ -11,13 +11,12 @@ from generation_defaults import fallback_loras
 
 
 def prepare(root, check=False):
-    import torch
-    from safetensors.torch import load_file, save_file
-
     manifest = json.loads((root / "generation-defaults.json").read_text())
     for item in manifest["negative_embeddings"]:
         if "source" not in item:
             continue
+        import torch
+        from safetensors.torch import load_file, save_file
         source = root / item["source"]
         if hashlib.sha256(source.read_bytes()).hexdigest() != item["source_sha256"]:
             raise ValueError(f"Source embedding changed: {source}")

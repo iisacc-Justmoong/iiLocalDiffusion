@@ -13,6 +13,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 import generate
+from _file_provider import provider
 from generation_defaults import append_default_tokens, checked_resource, read_defaults, fallback_loras
 from generation_config import configuration_values
 
@@ -34,7 +35,7 @@ class GenerationDefaultsTests(unittest.TestCase):
         self.assertEqual(len(args.default_modifier_metadata["negative_tokens"]), 7)
 
     def test_custom_lora_replaces_fallback_but_keeps_default_negatives(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with provider.TemporaryDirectory(dir=ROOT / "build") as temporary:
             path = Path(temporary) / "custom.safetensors"
             path.write_bytes(b"local adapter identity fixture")
             args = self.request(lora=str(path), lora_scale=0.35, negative_prompt="blurred text")
@@ -70,7 +71,7 @@ class GenerationDefaultsTests(unittest.TestCase):
         self.assertEqual(args.negative_prompt, "")
 
     def test_missing_default_package_fails_instead_of_silent_fallback(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as directory:
+        with provider.TemporaryDirectory(dir=ROOT / "build") as directory:
             with self.assertRaisesRegex(SystemExit, "generation-defaults"):
                 self.request(generation_resources=directory)
 
@@ -91,7 +92,7 @@ class GenerationDefaultsTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("prepare_generation_defaults", ROOT / "scripts/prepare_generation_defaults.py")
         audit = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(audit)
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with provider.TemporaryDirectory(dir=ROOT / "build") as temporary:
             root = Path(temporary)
             payload = b"text encoder identity fixture"
             (root / "encoder.safetensors").write_bytes(payload)
@@ -100,10 +101,11 @@ class GenerationDefaultsTests(unittest.TestCase):
             manifest = {"version": 1, "negative_embeddings": [], "fallback_llms": [entry]}
             path = root / "generation-defaults.json"
             path.write_text(json.dumps(manifest))
-            audit.prepare(root, check=True)
-            (root / entry["file"]).write_bytes(b"x" * len(payload))
-            with self.assertRaisesRegex(ValueError, "resource identity changed"):
+            with patch.dict(sys.modules, {"torch": None, "safetensors.torch": None}):
                 audit.prepare(root, check=True)
+                (root / entry["file"]).write_bytes(b"x" * len(payload))
+                with self.assertRaisesRegex(ValueError, "resource identity changed"):
+                    audit.prepare(root, check=True)
 
 
 if __name__ == "__main__":

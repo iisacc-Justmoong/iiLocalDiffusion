@@ -55,27 +55,6 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _windows_change_time(path: Path) -> int:
-    # Python's Windows st_ctime is creation time, not the metadata-change clock.
-    import ctypes
-    from ctypes import wintypes
-    import msvcrt
-
-    class BasicInfo(ctypes.Structure):
-        _fields_ = [(name, ctypes.c_int64) for name in
-                    ("CreationTime", "LastAccessTime", "LastWriteTime", "ChangeTime")]
-        _fields_.append(("FileAttributes", wintypes.DWORD))
-
-    query = ctypes.WinDLL("kernel32", use_last_error=True).GetFileInformationByHandleEx
-    query.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
-    query.restype = wintypes.BOOL
-    info = BasicInfo()
-    with path.open("rb") as source:
-        if not query(msvcrt.get_osfhandle(source.fileno()), 0, ctypes.byref(info), ctypes.sizeof(info)):
-            raise ctypes.WinError(ctypes.get_last_error())
-    return info.ChangeTime
-
-
 def file_signature(path: Path) -> tuple:
     """Cheap identity check; no tensor bytes are read on an unchanged file."""
     resolved = path.resolve(strict=True)
@@ -83,11 +62,15 @@ def file_signature(path: Path) -> tuple:
     if not stat.S_ISREG(info.st_mode):
         raise ValueError(f"Model input is not a regular file: {path}")
     if os.name == "nt":
-        change_time = _windows_change_time(resolved)
+        change_time = provider.cache_change_token(resolved)
+        # NTFS alternate-stream writes temporarily change mtime before restoring
+        # it. The serialized native change token detects actual source edits.
+        modified = None
     else:
         seconds, nanos = divmod(info.st_ctime_ns, 1_000_000_000)
         change_time = provider.normalize_change_time(info.st_dev, info.st_ino, seconds, nanos)
-    return (str(resolved), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, change_time)
+        modified = info.st_mtime_ns
+    return (str(resolved), info.st_dev, info.st_ino, info.st_size, modified, change_time)
 
 
 

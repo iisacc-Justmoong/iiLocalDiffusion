@@ -13,6 +13,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 import unified_image
+from _file_provider import provider
 from iild_package import materialize_archive, write_archive
 from inference_session import InferenceSession
 from weight_files import file_sha256
@@ -20,7 +21,7 @@ from weight_files import file_sha256
 
 class UnifiedImageTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="unified-image-")
+        self.tmp = provider.TemporaryDirectory(dir=ROOT / "build", prefix="unified-image-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.package = self.root / "model.iildmodel"

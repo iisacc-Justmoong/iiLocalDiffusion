@@ -1,5 +1,19 @@
 # iiLocalDiffusion
 
+Windows model signatures snapshot their change token through iiFileProviderNative
+0.8.2 under its metadata publication lock. Provider preview metadata therefore does
+not invalidate an unchanged model, while content edits with restored timestamps
+still invalidate the cache. `InferenceCacheTests` covers both operations.
+Windows signatures use the serialized native change clock instead of a separate
+mtime sample, because NTFS alternate-stream publication restores mtime after its
+write. The normalized clock still detects restored-mtime content edits.
+The installed-consumer test inherits the SDK build configuration and on Windows
+loads DLLs from its relocated installation before other SDK installations.
+Worker test fixtures use provider temporary directories so cleanup cancels queued
+preview work before removing their outputs, including Windows NTFS companions.
+Hash-only resource audits load tensor libraries only when an embedding source
+requires tensor verification. Text encoder identity checks work without PyTorch.
+
 Package release: **0.6.2** (2026-10-19). This patch packages the current
 source snapshot; build, test and installation evidence is recorded in the SDK
 patch-release report. Earlier versioned feature notes remain historical.

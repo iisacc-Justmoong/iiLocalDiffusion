@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 import generate
+from _file_provider import provider
 import deforum_runtime as runtime
 from deforum_video import AnimationOutput, SCHEMA, output_targets
 from HiresRuntimeTests import Image, Pipeline, Torch
@@ -175,7 +176,7 @@ class DeforumRuntimeTests(unittest.TestCase):
 
 class AnimationPublicationTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="deforum-publication-")
+        temporary = provider.TemporaryDirectory(dir=ROOT / "build", prefix="deforum-publication-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.args = SimpleNamespace(output=self.directory / "movie.mp4", overwrite=False, max_frames=2)

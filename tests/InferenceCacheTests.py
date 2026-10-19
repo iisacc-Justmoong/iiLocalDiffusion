@@ -67,6 +67,16 @@ class InferenceCacheTests(unittest.TestCase):
             weight_files.verify_weight_file(replacement, "model")
             self.assertEqual(digest.call_count, 1)
 
+    def test_provider_preview_keeps_signature_but_same_size_content_edits_do_not(self):
+        import ii_file_provider as provider
+        before = weight_files.file_signature(self.model)
+        provider.presentation(self.model, prepare=True)
+        self.assertEqual(weight_files.file_signature(self.model), before)
+        state = self.model.stat()
+        self.model.write_bytes(b"modified")
+        os.utime(self.model, ns=(state.st_atime_ns, state.st_mtime_ns))
+        self.assertNotEqual(weight_files.file_signature(self.model), before)
+
     def test_atomic_replacement_and_symlink_retarget_invalidate_identity(self):
         before = self.model.stat()
         first = weight_files.resolve_weight_file(str(self.model), "--model")

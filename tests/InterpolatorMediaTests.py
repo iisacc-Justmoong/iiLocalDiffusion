@@ -15,12 +15,13 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 import generate
+from _file_provider import provider
 from animation_video import AnimationOutput, SCHEMAS, encode_video, output_targets, preflight_animation
 
 
 class InterpolatorPublicationTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="interpolator-media-")
+        temporary = provider.TemporaryDirectory(dir=ROOT / "build", prefix="interpolator-media-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         _, self.args = local_request({"animation_mode": "Interpolator", "max_frames": 3,
