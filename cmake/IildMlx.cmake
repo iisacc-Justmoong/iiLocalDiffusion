@@ -101,6 +101,15 @@ block()
     FetchContent_MakeAvailable(mlx)
 endblock()
 
+# Native file creation is linked into MLX by this SDK's directory policy. It
+# remains an implementation dependency of the shared DLL, not a public MLX
+# link-interface requirement for otherwise independent consumers.
+get_target_property(_iild_mlx_interface mlx INTERFACE_LINK_LIBRARIES)
+if(_iild_mlx_interface)
+    list(REMOVE_ITEM _iild_mlx_interface iiFileProvider::Native)
+    set_property(TARGET mlx PROPERTY INTERFACE_LINK_LIBRARIES "${_iild_mlx_interface}")
+endif()
+
 set_property(GLOBAL APPEND PROPERTY JOB_POOLS iild_mlx_compile=4)
 set_property(TARGET mlx PROPERTY JOB_POOL_COMPILE iild_mlx_compile)
 # The pinned pocketfft header uses exception_ptr/current_exception without

@@ -1,5 +1,7 @@
 # iiLocalDiffusion
 
+[Windows 빌드 및 실행](docs/WindowsBuildAndRun.md)
+
 Windows model signatures snapshot their change token through iiFileProviderNative
 0.8.2 under its metadata publication lock. Provider preview metadata therefore does
 not invalidate an unchanged model, while content edits with restored timestamps

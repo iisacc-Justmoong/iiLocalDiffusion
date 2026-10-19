@@ -11,3 +11,5 @@ CPU 네이티브 checkpoint 엔진은 IILD_ENABLE_NATIVE_DIFFUSION=ON으로 빌�
 VAE 설정의 캐시 동일성에는 검증된 JSON 내용의 해시를 포함한다. 같은 크기와 수정 시간을 유지한 설정 변경도 NativeVaeConfigTests에서 검증한다. 네이티브 입력·ControlNet fixture의 경로는 canonical 표현으로 비교하여 Windows 구분자 차이를 제거한다.
 
 병렬 로그 fixture는 thread-local 정수 식별자와 호출별 지역 문자열로 8개 스레드의 16,000개 메시지를 검사한다. MinGW의 동적 thread-local 문자열 수명에 대한 의존을 제거하면서 실제 로그 callback의 메시지 일관성 검사를 유지한다.
+
+최신 MSVC 구성과 실제 실행 결과는 [Windows 빌드 및 실행](WindowsBuildAndRun.md)에 기록한다. 이 문서의 개별 호환 구현 설명을 이번 전체 실행의 성공 증거로 대신하지 않는다.

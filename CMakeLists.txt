@@ -532,6 +532,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             "-DLIBTORCH_ENABLED=${IILD_ENABLE_LIBTORCH}"
             "-DCOREML_FIXTURE=${IILD_COREML_TEST_FIXTURE}"
             "-DBUILD_TOOLS=${IILD_BUILD_TOOLS}"
+            "-DMLX_ENABLED=${IILD_ENABLE_MLX}"
             "-DPYTHON_REFERENCE_ENABLED=${IILD_INSTALL_PYTHON_REFERENCE}"
             "-DPYTHON_EXECUTABLE=${Python3_EXECUTABLE}"
             "-DBIN_DIRECTORY=${CMAKE_INSTALL_BINDIR}"
@@ -667,6 +668,18 @@ install(
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+if(WIN32 AND IILD_ENABLE_MLX)
+    # MLX's Python-oriented install puts these DLLs at the prefix root. Native
+    # SDK consumers search bin alongside iiLocalDiffusion.dll instead.
+    install(FILES "$<TARGET_FILE:mlx>" DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
+    FetchContent_GetProperties(openblas SOURCE_DIR iild_openblas_source)
+    file(GLOB iild_openblas_runtime "${iild_openblas_source}/bin/*.dll")
+    if(NOT iild_openblas_runtime)
+        message(FATAL_ERROR "The MLX OpenBLAS runtime DLL is missing")
+    endif()
+    install(FILES ${iild_openblas_runtime} DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime)
+endif()
 
 if(IILD_BUILD_TOOLS)
     install(TARGETS iild-run RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
