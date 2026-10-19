@@ -182,3 +182,46 @@ CPU 프롬프트 인코딩과  RAM 오프로드 는 이미 고정된  PyTorch , 
 ## 일시적인 비디오 종속성 결정
 
 비디오 백엔드는 Diffusers 0.40.0 `LTXConditionPipeline` 와 유지되는 LTX 트랜스포머, 시간적 VAE , T5 및 플로우 매칭 스케줄러를 재사용합니다. 기존 PyTorch / Transformers /Accelerate 스택은 신경 추론 및 오프로드를 담당하며, 기존 Pillow / FFmpeg 유틸리티는 이미지 준비 및 검증된 MP4 게시를 담당합니다. `requirements-video.txt` 는 `protobuf==7.36.1` 의 Transformers ' 게시된 T5 SentencePiece 토크나이저 변환을 추가합니다. 이 유지되는 BSD-3 -Clause 패키지는 작은 네이티브 휠을 제공하고 커스텀 토크나이저 구현을 피하며, [고정된 릴리스](https://pypi.org/project/protobuf/7.36.1/)를 참조하세요. Tokenizer 로딩은 다중 GB 모델 가중치를 읽기 전에 확인됩니다. 이전에 검증된 LTX Video 2B 0.9.5 가중치는 별도의 Open RAIL-M 용어를 가지며, 호출자는 호환 가능한 로컬 가중치를 제공해야 합니다. 새로운 모델 버전은 다른 용어를 가집니다. 참고 워크플로우, 선택 근거 및 범위에 대한 [비디오 계약](temporal-video.md) 을 참조하십시오.
+
+### Pinned MLX header portability
+
+The pinned MLX/JACCL source uses `std::inserter` without directly including
+`<iterator>`. The JACCL and MLX targets privately force-include this standard header
+for C++ compilation, including MSVC, without changing the fetched archive,
+turning off distributed/MLX features, or adding a runtime dependency. The
+complete native build and existing compute regressions validate this fix.
+The MLX target also privately includes `<exception>` because its bundled
+pocketfft header uses `std::exception_ptr` and `std::current_exception` without
+including their defining header. These fixes preserve the pinned source and
+the selected CPU, Metal, and distributed runtime features.
+The pinned stable-diffusion.cpp ggml Metal target similarly includes `<memory>`
+privately for its `std::unique_ptr` declarations. All compatibility includes are
+limited to the affected third-party targets and C++ compilation.
+
+Native model-cache metadata identity uses the provider's normalized native
+change-time token. Publishing preview attributes must not invalidate an
+otherwise unchanged Q8 derivative. External writes still change its identity;
+the disk-cache regression forces preview publication before checking warm reuse,
+then retains corruption, cancellation and source-replacement checks.
+Reference media and merge fixtures use iiFileProvider temporary directories so
+cleanup first cancels pending preview publication. The payload, rollback and
+original-byte assertions remain active; background derivatives can no longer
+recreate a fixture directory while the test removes it. The merge workspace
+probe observes the provider factory used by the production merger.
+Native Pose sets the process-wide `ORT_DISABLE_TELEMETRY=1` before creating its
+first ONNX environment, then also disables non-essential events through the API.
+The API switch alone follows ORT's initialization event and does not prevent its
+1DS uploader from starting. The bundled 1.30 uploader crashed during process
+shutdown in the synthetic Pose regression. Applications that initialize another
+ORT consumer first should set this variable before that initialization, as
+described in the [upstream telemetry documentation](https://github.com/microsoft/onnxruntime/blob/main/docs/Privacy.md).
+Pose inference, cancellation and the selected CPU execution provider remain enabled.
+The reference RGB VAE selector accepts the known Wan resource manifest entry
+used by the native/video backend, while retaining its own supported pipeline
+boundary. Unrelated Wan resources no longer invalidate Qwen/SDXL/Flux defaults;
+this does not add a Wan route to the RGB loader.
+Publication regressions distinguish generated payloads from provider-owned
+preview companions and the persistent temporary-lease sentinel. The sentinel is
+retained to coordinate writers; transient application locks must still disappear.
+Installed-resource validation includes the existing Wan VAE alongside the three
+RGB-family defaults and verifies each resource's declared hash.

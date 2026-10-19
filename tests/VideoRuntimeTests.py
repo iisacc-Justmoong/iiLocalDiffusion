@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
+from _file_provider import provider
 from animation_video import AnimationOutput, output_targets, SCHEMAS
 from video_options import build_parser, resolve_options
 from video_runtime import model_contract, verify_model_files
@@ -21,7 +22,7 @@ from video_runtime import model_contract, verify_model_files
 class VideoModelTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="video-runtime-", dir=ROOT / "build")
+        temporary = provider.TemporaryDirectory(prefix="video-runtime-", dir=ROOT / "build")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 
@@ -77,7 +78,7 @@ class VideoModelTests(unittest.TestCase):
         self.assertEqual(video.read_bytes(), b"old")
         self.assertEqual(json.loads(report.read_text())["status"], "old")
         self.assertEqual(json.loads((frames / "manifest.json").read_text())["schema"], SCHEMAS["Video"])
-        self.assertFalse(list(self.directory.glob(".*.lock")))
+        self.assertFalse([path for path in self.directory.glob(".*.lock") if path.name != ".iisacc-temporary.lock"])
 
 
 @unittest.skipUnless(importlib.util.find_spec("torch") and importlib.util.find_spec("diffusers"),

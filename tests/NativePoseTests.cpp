@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <future>
 #include <iostream>
@@ -91,6 +92,8 @@ int main(int argc, char **argv)
             return 0;
         }
         NativePoseSession session(detectorPath,posePath,cancelled,2);
+        require(std::getenv("ORT_DISABLE_TELEMETRY") && std::string(std::getenv("ORT_DISABLE_TELEMETRY")) == "1",
+            "Pose must opt out before ONNX initialization");
         require(session.modelBytes() == det.size()+pose.size() && session.threads() == 2,"Resident model ownership/accounting");
         NativeReferenceImage source{128,128,std::vector<std::uint8_t>(128*128*3,99)};
         releaseNativePoseCache();

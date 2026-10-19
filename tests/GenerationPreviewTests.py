@@ -11,6 +11,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 from generation_preview import DenoisingPreview, attach_preview, validate_preview_location
+from _file_provider import provider
 import generate
 try:
     import torch
@@ -74,7 +75,7 @@ class GenerationPreviewTests(unittest.TestCase):
                 self.assertEqual(image.size, (64, 64))
                 images.append(image.tobytes())
         self.assertEqual(len(set(images)), 3)
-        self.assertEqual(len(list(callback.directory.iterdir())), 3)
+        self.assertEqual(len(list(provider.iterdir(callback.directory))), 3)
         self.assertFalse((callback.directory / "generation.json").exists())
 
     def test_explicit_mps_slicing_upcasts_scores_without_upcasting_weights(self):
@@ -189,7 +190,7 @@ class GenerationPreviewTests(unittest.TestCase):
         self.assertEqual([event["sequence"] for event in events], [1, 2])
         self.assertEqual([event["total_steps"] for event in events], [10, 3])
         self.assertEqual(preview.width, 64)
-        self.assertEqual(sorted(path.name for path in preview.directory.iterdir()),
+        self.assertEqual(sorted(path.name for path in provider.iterdir(preview.directory)),
                          ["step-000001.png", "step-000002.png"])
 
 

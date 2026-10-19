@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
+from _file_provider import provider
 import generate
 import remote_generation
 from remote_inference import RemoteInference
@@ -38,7 +39,7 @@ except ImportError:
 @unittest.skipIf(Image is None, "Pillow is required for decoded-media verification")
 class RemoteGenerationTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="remote-generation-", dir=ROOT / "build")
+        self.temporary = provider.TemporaryDirectory(prefix="remote-generation-", dir=ROOT / "build")
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
         self.requests = []

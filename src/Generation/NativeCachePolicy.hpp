@@ -1,4 +1,5 @@
 #pragma once
+#include <iiFileProviderPresentation.h>
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -67,12 +68,16 @@ inline std::string modelMetadataIdentity(const std::filesystem::path &path) {
 #if defined(__unix__) || defined(__APPLE__)
     struct stat info{};
     if (::stat(path.c_str(), &info) != 0) throw std::runtime_error("The local model is no longer available.");
-    key << ':' << info.st_dev << ':' << info.st_ino;
 #if defined(__APPLE__)
-    key << ':' << info.st_ctimespec.tv_sec << ':' << info.st_ctimespec.tv_nsec;
+    const auto changed = info.st_ctimespec;
 #else
-    key << ':' << info.st_ctim.tv_sec << ':' << info.st_ctim.tv_nsec;
+    const auto changed = info.st_ctim;
 #endif
+    // Provider-owned preview attributes change ctime without changing weights.
+    // Normalize only those known publications; external edits remain distinct.
+    key << ':' << iiFileProvider::native::Presentation::normalizeChangeTime(
+        static_cast<std::uint64_t>(info.st_dev), static_cast<std::uint64_t>(info.st_ino),
+        changed.tv_sec, changed.tv_nsec);
 #endif
     return key.str();
 }

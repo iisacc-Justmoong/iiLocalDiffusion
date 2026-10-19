@@ -15,6 +15,7 @@ from local_model_fixture import local_parser
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
+from _file_provider import provider
 from video_options import build_parser, configuration, resolve_options
 
 
@@ -40,7 +41,7 @@ class VideoInterpolationPlanTests(unittest.TestCase):
 
     def test_keyframes_are_exact_source_anchors_even_between_regular_samples(self):
         # The same anchor contract applies after automatic high-FPS spacing.
-        with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="interpolation-plan-") as temporary:
+        with provider.TemporaryDirectory(dir=ROOT / "build", prefix="interpolation-plan-") as temporary:
             image = Path(temporary) / "keyframe.png"
             image.write_bytes(b"decoded at runtime")
             storyboard = Path(temporary) / "shots.json"
@@ -80,7 +81,7 @@ class VideoInterpolationPlanTests(unittest.TestCase):
         self.assertEqual(args.effective_interpolation_factor, 8)
 
     def test_high_fps_short_shots_and_dense_keyframes_never_request_high_model_fps(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="high-fps-anchors-") as temporary:
+        with provider.TemporaryDirectory(dir=ROOT / "build", prefix="high-fps-anchors-") as temporary:
             image = Path(temporary) / "keyframe.png"
             image.write_bytes(b"decoded at runtime")
             storyboard = Path(temporary) / "shots.json"
@@ -102,7 +103,7 @@ class VideoInterpolationMediaTests(unittest.TestCase):
     def setUp(self):
         from PIL import Image, ImageDraw
         self.Image, self.ImageDraw = Image, ImageDraw
-        temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="video-interpolation-")
+        temporary = provider.TemporaryDirectory(dir=ROOT / "build", prefix="video-interpolation-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 

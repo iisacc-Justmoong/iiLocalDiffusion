@@ -14,6 +14,7 @@ from unittest.mock import Mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
+from _file_provider import provider
 import generate_any as generic
 
 
@@ -50,7 +51,7 @@ class FakeImage:
 class GenericDiffusersTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="generic-tests-")
+        self.temporary = provider.TemporaryDirectory(dir=ROOT / "build", prefix="generic-tests-")
         self.directory = Path(self.temporary.name)
         self.model = self.directory / "model"
         self.model.mkdir()

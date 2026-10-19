@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.31)
 
 project(
     iiLocalDiffusion
-    VERSION 0.6.1
+    VERSION 0.6.2
     DESCRIPTION "A local generative-model pipeline runtime"
     LANGUAGES CXX
 )

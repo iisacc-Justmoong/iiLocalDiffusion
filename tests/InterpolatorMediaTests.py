@@ -45,7 +45,7 @@ class InterpolatorPublicationTests(unittest.TestCase):
                     output.commit({"status": "new"})
         self.assertEqual(json.loads(report.read_text())["status"], "old")
         self.assertEqual(video.read_bytes(), b"fixture")
-        self.assertFalse(list(self.directory.glob(".*.lock")))
+        self.assertFalse([path for path in self.directory.glob(".*.lock") if path.name != ".iisacc-temporary.lock"])
 
     def test_deforum_and_interpolator_share_an_exclusive_output_lock(self):
         with AnimationOutput(self.args):

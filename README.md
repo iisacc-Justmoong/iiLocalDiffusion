@@ -1,5 +1,10 @@
 # iiLocalDiffusion
 
+Package release: **0.6.2** (2026-10-19). This patch packages the current
+source snapshot; build, test and installation evidence is recorded in the SDK
+patch-release report. Earlier versioned feature notes remain historical.
+
+
 Qwen Image RGB · SDXL · FLUX.1 · FLUX.2 model omits the VAE parameter and if the model also lacks a VAE, the native and Diffusers loaders automatically use the per-family [VAE](docs/generation-defaults.md#vae-자동-폴백). It includes original weights, settings, deployment licenses, and sources in the bundle. Built-in VAE and explicit selection take precedence, different latent space VAEs are not mixed, and RGBA Layered is excluded.
 
 Image generation uses [bundled negative embeddings](docs/generation-defaults.md).

@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
+from _file_provider import provider
 import generate_any as generic
 import generic_io
 
@@ -51,7 +52,7 @@ class GenericIOContractTests(unittest.TestCase):
 class GenericIORuntimeTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="generic-io-tests-")
+        self.temporary = provider.TemporaryDirectory(dir=ROOT / "build", prefix="generic-io-tests-")
         self.directory = Path(self.temporary.name)
         self.spec = {"semantic": "latents", "layout": "BSC", "representation_space": "vae-v1"}
 

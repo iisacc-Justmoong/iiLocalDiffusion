@@ -103,6 +103,22 @@ endblock()
 
 set_property(GLOBAL APPEND PROPERTY JOB_POOLS iild_mlx_compile=4)
 set_property(TARGET mlx PROPERTY JOB_POOL_COMPILE iild_mlx_compile)
+# The pinned pocketfft header uses exception_ptr/current_exception without
+# including <exception>; libc++ no longer provides that transitive include.
+foreach(_iild_mlx_target IN ITEMS mlx jaccl)
+    if(NOT TARGET ${_iild_mlx_target})
+        continue()
+    endif()
+    # JACCL's rdma.h is compiled both in JACCL and in MLX's distributed adapter.
+    if(MSVC)
+        target_compile_options(${_iild_mlx_target} PRIVATE
+            "$<$<COMPILE_LANGUAGE:CXX>:/FI${CMAKE_CURRENT_LIST_DIR}/MlxStandardHeaders.h>")
+    else()
+        target_compile_options(${_iild_mlx_target} PRIVATE
+            "$<$<COMPILE_LANGUAGE:CXX>:-include>"
+            "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_LIST_DIR}/MlxStandardHeaders.h>")
+    endif()
+endforeach()
 if(APPLE)
     set_property(TARGET mlx PROPERTY INSTALL_RPATH "@loader_path")
 else()

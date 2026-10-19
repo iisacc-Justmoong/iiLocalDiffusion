@@ -6,6 +6,7 @@
 #include <thread>
 #include <map>
 #include <tuple>
+#include <cstdlib>
 #if IILD_HAS_POSE
 #include <onnxruntime_cxx_api.h>
 #endif
@@ -13,6 +14,23 @@
 namespace iiLocalDiffusion {
 #if IILD_HAS_POSE
 namespace {
+Ort::Env localPoseEnvironment()
+{
+    // The API switch runs after ORT's essential initialization event. Opt out
+    // before CreateEnv so its 1DS uploader is never constructed by local Pose.
+    static std::once_flag configured;
+    std::call_once(configured, [] {
+#ifdef _WIN32
+        const auto result = ::_putenv_s("ORT_DISABLE_TELEMETRY", "1");
+#else
+        const auto result = ::setenv("ORT_DISABLE_TELEMETRY", "1", 1);
+#endif
+        if (result) throw std::runtime_error("Cannot disable ONNX telemetry before Pose initialization.");
+    });
+    Ort::Env environment{ORT_LOGGING_LEVEL_WARNING,"iiLocalDiffusion.Pose"};
+    environment.DisableTelemetryEvents();
+    return environment;
+}
 void runnable(const std::atomic_bool &cancelled, const std::shared_ptr<NativeExecutionControl> &control)
 {
     if (cancelled || (control && !control->waitUntilRunnable(cancelled))) throw std::runtime_error("Pose preprocessing cancelled.");
@@ -103,7 +121,7 @@ std::span<const float> tensorSpan(Ort::Value &value, const std::vector<int64_t> 
 }
 struct NativePoseSession::Impl {
     // Destruction order releases sessions before their source buffers and Env.
-    Ort::Env environment{ORT_LOGGING_LEVEL_WARNING,"iiLocalDiffusion.Pose"};
+    Ort::Env environment{localPoseEnvironment()};
     Ort::SessionOptions options;
     unsigned threadCount;
     std::unique_ptr<Model> detector, pose;

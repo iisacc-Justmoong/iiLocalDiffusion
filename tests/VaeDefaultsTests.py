@@ -113,6 +113,17 @@ class VaeDefaultsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Duplicate"):
                 self.resolve()
 
+    def test_native_video_resource_does_not_break_supported_rgb_fallbacks(self):
+        from generation_defaults import read_defaults
+        from vae_defaults import select_fallback_vae
+        root, manifest = read_defaults()
+        manifest["fallback_vaes"] = [item for item in manifest["fallback_vaes"] if "wan" not in item["families"]]
+        manifest["fallback_vaes"].append({"families": ["wan"], "class_name": "AutoencoderKLWan"})
+        with patch("vae_defaults.read_defaults", return_value=(root, manifest)):
+            self.assertEqual(self.resolve()[1], "fallback")
+            with self.assertRaisesRegex(ValueError, "Unsupported"):
+                select_fallback_vae("wan")
+
     def test_missing_fallback_fails_with_an_actionable_error(self):
         self.args.generation_resources = self.root
         (self.root / "generation-defaults.json").write_text('{"version":1}')

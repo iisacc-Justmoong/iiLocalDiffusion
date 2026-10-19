@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
+from _file_provider import provider
 import model_merge
 from model_merge_options import build_parser, resolve_merge_request, resolve_merge_weights
 
@@ -22,7 +23,7 @@ from model_merge_options import build_parser, resolve_merge_request, resolve_mer
 class MergeWorkspace(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="model-merge-", dir=ROOT / "build")
+        temporary = provider.TemporaryDirectory(prefix="model-merge-", dir=ROOT / "build")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.base = self.directory / "base.safetensors"
@@ -170,8 +171,8 @@ class ModelMergeTensorTests(MergeWorkspace):
 
     def test_default_sum_and_original_bytes_are_preserved(self):
         before = [p.read_bytes() for p in (self.base, self.extra)]
-        directory = tempfile.TemporaryDirectory
-        with patch("tempfile.TemporaryDirectory", wraps=directory) as workspaces:
+        directory = provider.TemporaryDirectory
+        with patch.object(model_merge.provider, "TemporaryDirectory", wraps=directory) as workspaces:
             result = self.merge()
         self.assertTrue(any(call.kwargs.get("prefix") == ".iild-merge-" and
                             Path(call.kwargs.get("dir", ".")) == self.output.parent

@@ -82,7 +82,11 @@ def file_signature(path: Path) -> tuple:
     info = resolved.stat()
     if not stat.S_ISREG(info.st_mode):
         raise ValueError(f"Model input is not a regular file: {path}")
-    change_time = _windows_change_time(resolved) if os.name == "nt" else info.st_ctime_ns
+    if os.name == "nt":
+        change_time = _windows_change_time(resolved)
+    else:
+        seconds, nanos = divmod(info.st_ctime_ns, 1_000_000_000)
+        change_time = provider.normalize_change_time(info.st_dev, info.st_ino, seconds, nanos)
     return (str(resolved), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, change_time)
 
 

@@ -39,6 +39,9 @@ VAE_PIPELINES = {
 }
 VAE_CLASSES = {"qwen-image": "AutoencoderKLQwenImage", "sdxl-base": "AutoencoderKL",
                "flux1": "AutoencoderKL", "flux2": "AutoencoderKLFlux2"}
+# Shared resources also serve the native/video backend. Validate its known
+# entry without routing an unsupported pipeline through an RGB VAE loader.
+VAE_RESOURCE_CLASSES = {**VAE_CLASSES, "wan": "AutoencoderKLWan"}
 
 
 def pipeline_vae_family(name):
@@ -130,6 +133,8 @@ def resolve_vae_selection(args, index, folder):
 
 def select_fallback_vae(family, directory=None):
     family = canonical_lora_family(family)
+    if family not in VAE_CLASSES:
+        raise ValueError(f"Unsupported fallback VAE pipeline family: {family}")
     root, manifest = read_defaults(directory)
     entries = manifest.get("fallback_vaes", [])
     if not isinstance(entries, list) or len(entries) > 64:
@@ -143,7 +148,7 @@ def select_fallback_vae(family, directory=None):
             if not isinstance(member, str):
                 raise ValueError("Invalid fallback_vae family.")
             member = canonical_lora_family(member)
-            if member not in VAE_CLASSES or item.get("class_name") != VAE_CLASSES[member]:
+            if member not in VAE_RESOURCE_CLASSES or item.get("class_name") != VAE_RESOURCE_CLASSES[member]:
                 raise ValueError("Incompatible fallback_vae architecture or family.")
             if member in registry:
                 raise ValueError("Duplicate fallback_vae family: " + member)

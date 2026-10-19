@@ -25,6 +25,11 @@ if(IILD_ENABLE_NATIVE_DIFFUSION)
         set(GGML_METAL_USE_BF16 OFF CACHE BOOL "" FORCE)
         set(CMAKE_POSITION_INDEPENDENT_CODE ON)
         FetchContent_MakeAvailable(iild_sdcpp)
+        if(TARGET ggml-metal)
+            # This pinned ggml Metal source uses std::unique_ptr without <memory>.
+            target_compile_options(ggml-metal PRIVATE
+                "$<$<COMPILE_LANGUAGE:CXX>:-include>" "$<$<COMPILE_LANGUAGE:CXX>:memory>")
+        endif()
         if(WIN32 AND MINGW)
             target_compile_options(ggml-cpu PRIVATE
                 "-include" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/WindowsThreadPower.h")

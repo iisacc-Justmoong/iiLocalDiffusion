@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
+from _file_provider import provider
 from model_merge import merge_models, inspect_merge_request
 from model_merge_options import resolve_merge_request
 from iild_package import materialize_archive, write_archive
@@ -21,7 +22,7 @@ class UnifiedModelMergeTests(unittest.TestCase):
         import torch
         from safetensors.torch import save_file
         self.torch, self.save = torch, save_file
-        self.tmp = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="unified-merge-")
+        self.tmp = provider.TemporaryDirectory(dir=ROOT / "build", prefix="unified-merge-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.base = self.root / "sdxl.safetensors"
@@ -50,8 +51,8 @@ class UnifiedModelMergeTests(unittest.TestCase):
 
     def test_archive_output_is_verified_after_writing(self):
         output = self.root / "verified.iildmodel"
-        directory = tempfile.TemporaryDirectory
-        with patch("tempfile.TemporaryDirectory", wraps=directory) as workspaces:
+        directory = provider.TemporaryDirectory
+        with patch.object(provider, "TemporaryDirectory", wraps=directory) as workspaces:
             report = merge_models(self.base, self.compatible_checkpoint(), output=output, mode="unified")
         self.assertTrue(any(call.kwargs.get("prefix") == ".iild-merge-" and
                             Path(call.kwargs.get("dir", ".")) == output.parent

@@ -21,6 +21,9 @@ int main(int argc, char **argv) {
     };
     const auto check = [] {};
     auto first = prepareQ8Cache(source, root / "cache", original, convert, check);
+    const auto derivativeIdentity = modelIdentity(first.path);
+    (void)iiFileProvider::native::Presentation::prepare(first.path);
+    if (modelIdentity(first.path) != derivativeIdentity) return 12;
     auto warm = prepareQ8Cache(source, root / "cache", original, convert, check);
     if (first.hit || !warm.hit || conversions != 1 || first.path != warm.path || first.bytes != 104) return 2;
     if (modelIdentity(source) != original) return 3;
