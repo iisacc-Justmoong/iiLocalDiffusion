@@ -175,7 +175,7 @@ CPU 프롬프트 인코딩과  RAM 오프로드 는 이미 고정된  PyTorch , 
 
 추론 라이브러리 라이선스는 모델 가중치를 포함하지 않습니다. 고정된 Stable Diffusion  1.5 미러는  CreativeML   OpenRAIL -M 을 선언합니다. 고정된 SDXL Base 1.0 저장소는 CreativeML Open RAIL ++-M 을 선언하며, 이는 별도의 SDXL 0.9 연구 용어와 혼동되어서는 안 됩니다. 고정된 FLUX.1 -schnell 저장소는 Apache-2.0 를 선언하며, FLUX.1 -dev 의 별도의 비상업적 라이선스와 혼동되어서는 안 됩니다. 모델 정체성, 수정본, 라이선스 메타데이터, 안전 검사기 상태, 그리고 워터마커 상태는 최종 생성 결과에 반드시 포함되어야 합니다.
 
-원본 코드와 iiLocalDiffusion 에 있는 문서는 GNU Affero General Public License 버전 3.0 만 ( `SPDX-License-Identifier: AGPL-3.0-only` ) 배포되며, 전체 라이선스 텍스트는 [LICENSE](../LICENSE) 에서 확인하세요. 제 3 자 코드, 라이브러리, 도구, 및 모델 가중치는 각각의 라이선스를 유지하며, [THIRD_PARTY_NOTICES .md](../THIRD_PARTY_NOTICES.md)에서 확인하세요.
+iiLocalDiffusion의 원본 코드와 문서는 MIT 라이선스(`SPDX-License-Identifier: MIT`)로 배포하며, 전체 라이선스 텍스트는 [LICENSE](../LICENSE)에서 확인할 수 있다. 제3자 코드, 라이브러리, 도구와 모델 가중치는 각각의 라이선스를 유지하며, [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)에서 확인할 수 있다.
 
 <a id="temporal-video-dependency-decision"></a>
 

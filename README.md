@@ -494,10 +494,10 @@ non-goals are recorded in:
 
 ## License
 
-SPDX-License-Identifier: AGPL-3.0-only
+SPDX-License-Identifier: MIT
 
 The original code and documentation in iiLocalDiffusion are distributed under
-the GNU Affero General Public License version 3.0 only. See [LICENSE](LICENSE)
+the MIT License. See [LICENSE](LICENSE)
 for the full license text.
 
 Third-party code, libraries, tools, and model weights retain their respective
