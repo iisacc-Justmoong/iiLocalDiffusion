@@ -83,6 +83,8 @@ add_library(iiLocalDiffusion SHARED
     src/Generation/GenerationIO.cpp
     src/Generation/NativeDiffusion.cpp
     src/Generation/NativeImageBridge.cpp
+    src/Generation/NativeVideo.cpp
+    src/Generation/NativeVideoBridge.cpp
     src/Generation/ImageWatermark.cpp
     src/Generation/PoseProcessing.cpp
     src/Generation/NativePose.cpp
@@ -172,6 +174,14 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
             target_link_libraries(${result_test} PRIVATE Threads::Threads ${IILD_JSON_C_TARGET} zip ${CMAKE_DL_LIBS})
             add_test(NAME ${result_test} COMMAND ${result_test} "${CMAKE_CURRENT_BINARY_DIR}/${result_test}-contract")
         endforeach()
+        add_executable(NativeVideoResultTests tests/NativeVideoResultTests.cpp
+            src/Generation/NativeVideo.cpp src/Generation/NativeVideoBridge.cpp)
+        target_include_directories(NativeVideoResultTests PRIVATE src
+            $<TARGET_PROPERTY:stable-diffusion,INTERFACE_INCLUDE_DIRECTORIES>)
+        target_compile_features(NativeVideoResultTests PRIVATE cxx_std_23)
+        target_compile_definitions(NativeVideoResultTests PRIVATE IILD_HAS_NATIVE_DIFFUSION=1 IILD_NATIVE_CPU_VAE=0 iiLocalDiffusion_EXPORTS)
+        target_link_libraries(NativeVideoResultTests PRIVATE iiLocalDiffusion::ModelPackaging iiFileProvider::Native Threads::Threads ${IILD_JSON_C_TARGET})
+        add_test(NAME NativeVideoResultTests COMMAND NativeVideoResultTests "${CMAKE_CURRENT_BINARY_DIR}/native-video-results")
         add_executable(NativeVaeConfigTests tests/NativeVaeConfigTests.cpp src/Generation/GenerationDefaults.cpp)
         target_include_directories(NativeVaeConfigTests PRIVATE src)
         target_compile_features(NativeVaeConfigTests PRIVATE cxx_std_20)
@@ -275,6 +285,10 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         add_executable(NativeLoggingTests tests/NativeLoggingTests.cpp)
         target_link_libraries(NativeLoggingTests PRIVATE stable-diffusion)
         add_test(NAME NativeLoggingTests COMMAND NativeLoggingTests)
+        add_executable(NativeMixedPrecisionTests tests/NativeMixedPrecisionTests.cpp)
+        target_link_libraries(NativeMixedPrecisionTests PRIVATE stable-diffusion)
+        target_compile_features(NativeMixedPrecisionTests PRIVATE cxx_std_23)
+        add_test(NAME NativeMixedPrecisionTests COMMAND NativeMixedPrecisionTests)
         add_executable(NativeVaeFallbackTests tests/NativeVaeFallbackTests.cpp)
         target_link_libraries(NativeVaeFallbackTests PRIVATE stable-diffusion)
         add_executable(NativeVaeDecodeProbe tests/NativeVaeDecodeProbe.cpp)
@@ -396,14 +410,16 @@ endif()
 target_compile_options(iiLocalDiffusion PRIVATE ${IILD_WARNING_OPTIONS})
 
 # Packaging is a small, Qt/Torch/Python-independent C++23 module.
-add_library(iiModelPackaging STATIC src/ModelPackaging/ModelPackaging.cpp)
+add_library(iiModelPackaging STATIC src/ModelPackaging/ModelPackaging.cpp src/ModelPackaging/ModelInspection.cpp)
 add_library(iiLocalDiffusion::ModelPackaging ALIAS iiModelPackaging)
 set_target_properties(iiModelPackaging PROPERTIES EXPORT_NAME ModelPackaging CXX_EXTENSIONS OFF)
 target_compile_features(iiModelPackaging PUBLIC cxx_std_23)
 target_include_directories(iiModelPackaging PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-target_link_libraries(iiModelPackaging PRIVATE ${IILD_JSON_C_TARGET} OpenSSL::Crypto)
+target_link_libraries(iiModelPackaging PRIVATE ${IILD_JSON_C_TARGET} OpenSSL::Crypto iiFileProvider::Native)
+set_target_properties(iiModelPackaging PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(iiLocalDiffusion PRIVATE iiLocalDiffusion::ModelPackaging)
 target_compile_options(iiModelPackaging PRIVATE ${IILD_WARNING_OPTIONS})
 
 if(IILD_BUILD_TOOLS)
@@ -433,11 +449,18 @@ endif()
 
 if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
     find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
+    add_executable(ModelInspectionCacheTests tests/ModelInspectionCacheTests.cpp)
+    target_compile_features(ModelInspectionCacheTests PRIVATE cxx_std_23)
+    target_link_libraries(ModelInspectionCacheTests PRIVATE iiLocalDiffusion::ModelPackaging iiFileProvider::Native)
+    add_test(NAME ModelInspectionCacheTests COMMAND ModelInspectionCacheTests "${CMAKE_CURRENT_BINARY_DIR}/model-inspection-cache-tests")
     if(Python3_Interpreter_FOUND AND TARGET iild-model-package)
         add_test(NAME iiLocalDiffusion.ModelPackaging
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/ModelPackagingTests.py"
                 "$<TARGET_FILE:iild-model-package>")
         set_tests_properties(iiLocalDiffusion.ModelPackaging PROPERTIES TIMEOUT 120)
+        add_test(NAME iiLocalDiffusion.ModelInspection
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/ModelInspectionTests.py"
+                "$<TARGET_FILE:iild-model-package>")
     endif()
     if(UNIX AND Python3_Interpreter_FOUND)
         add_test(NAME iiLocalDiffusion.InstallScript
@@ -592,7 +615,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
                 GenerationOptionsTests GenerationOutputTests GenerationSeedTests GenerationPreviewTests InferenceCacheTests MetadataValidationTests PersistentModelHashTests ModelPreparationCacheTests ForegroundInferenceTests
                 DeforumOptionsTests DeforumRuntimeTests DeforumMediaTests
                 InterpolatorOptionsTests InterpolatorRuntimeTests InterpolatorMediaTests
-                VideoOptionsTests VideoRuntimeTests VideoRoutingPolicyTests VideoInterpolationTests LocalGenerationTests StandaloneImageTests NativeImageTests
+                VideoOptionsTests VideoRuntimeTests VideoRoutingPolicyTests VideoInterpolationTests NativeVideoTests LocalGenerationTests StandaloneImageTests NativeImageTests
                 ModelSourceTests RemoteGenerationTests
                 GenericIOTests GenerationCompositionTests GenerationAdapterTests
                 GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests
@@ -688,7 +711,7 @@ endif()
 
 install(TARGETS iiModelPackaging EXPORT iiLocalDiffusionTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ModelPackaging)
-install(FILES src/ModelPackaging/ModelPackaging.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ModelPackaging COMPONENT ModelPackaging)
+install(FILES src/ModelPackaging/ModelPackaging.hpp src/ModelPackaging/ModelInspection.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ModelPackaging COMPONENT ModelPackaging)
 
 install(FILES README.md THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime)
 install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime FILES_MATCHING PATTERN "*.md")
@@ -781,7 +804,7 @@ install(
 )
 
 install(
-    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/NativeExecutionControl.hpp src/Generation/NativeImageBridge.hpp src/Generation/ImageParameters.hpp src/Generation/ImageWatermark.hpp src/Generation/NativePose.hpp
+    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/NativeExecutionControl.hpp src/Generation/NativeImageBridge.hpp src/Generation/NativeVideo.hpp src/Generation/NativeVideoBridge.hpp src/Generation/ImageParameters.hpp src/Generation/ImageWatermark.hpp src/Generation/NativePose.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Generation
 )
 

@@ -6,12 +6,16 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cerrno>
+#include <charconv>
+#include <csignal>
 #include <cstring>
 #include <fstream>
 #include <limits>
 #include <map>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <set>
 #include <stdexcept>
@@ -199,7 +203,10 @@ public:
 };
 std::string hashRange(const fs::path &path, U64 offset, U64 size, std::stop_token stop,
                       const ModelPackagingObserver &observer, const std::string &detail, Hash *whole = nullptr) {
-    std::ifstream file(path, std::ios::binary);
+    std::vector<char> inputBuffer(1024 * 1024);
+    std::ifstream file;
+    file.rdbuf()->pubsetbuf(inputBuffer.data(), static_cast<std::streamsize>(inputBuffer.size()));
+    file.open(path, std::ios::binary);
     file.seekg(static_cast<std::streamoff>(offset));
     std::vector<char> buffer(chunkSize); Hash hash;
     U64 done = 0;
@@ -210,6 +217,7 @@ std::string hashRange(const fs::path &path, U64 offset, U64 size, std::stop_toke
         hash.update(buffer.data(), count); if (whole) whole->update(buffer.data(), count);
         done += count;
     }
+    progress(observer, stop, "deduplicate", detail, done, size);
     check(stop);
     return hash.finish();
 }
@@ -707,7 +715,39 @@ fs::path temporaryPath(const fs::path &target) {
     std::string suffix;
     constexpr char hex[]="0123456789abcdef";
     for (unsigned i=0;i<32;++i) suffix+=hex[random()&15];
-    return target.parent_path()/("."+target.filename().string()+".partial-"+suffix);
+#ifdef _WIN32
+    const auto pid = GetCurrentProcessId();
+#else
+    const auto pid = ::getpid();
+#endif
+    return target.parent_path()/("."+target.filename().string()+".partial-"+std::to_string(pid)+"-"+suffix);
+}
+void removeAbandonedAssets(const fs::path &target) {
+    const auto prefix = "." + target.filename().string() + ".partial-";
+    for (const auto &entry : fs::directory_iterator(target.parent_path())) {
+        const auto name = entry.path().filename().string();
+        if (!name.starts_with(prefix) || entry.is_symlink() || !entry.is_regular_file()) continue;
+        const auto start = name.data() + prefix.size();
+        const auto end = name.data() + name.size();
+        std::uint32_t pid = 0;
+        const auto parsed = std::from_chars(start, end, pid);
+        if (parsed.ec != std::errc{} || !pid || parsed.ptr == end || *parsed.ptr != '-'
+            || end - parsed.ptr != 33 || !std::all_of(parsed.ptr + 1, end, [](char ch) {
+                return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'); })) continue;
+#ifdef _WIN32
+        const auto process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        bool abandoned = !process && GetLastError() == ERROR_INVALID_PARAMETER;
+        if (process) {
+            DWORD code = STILL_ACTIVE;
+            abandoned = GetExitCodeProcess(process, &code) && code != STILL_ACTIVE;
+            CloseHandle(process);
+        }
+#else
+        if (pid > static_cast<std::uint32_t>(std::numeric_limits<pid_t>::max())) continue;
+        const bool abandoned = ::kill(static_cast<pid_t>(pid), 0) == -1 && errno == ESRCH;
+#endif
+        if (abandoned) { std::error_code ignored; fs::remove(entry.path(), ignored); }
+    }
 }
 struct Temporary {
     fs::path path;
@@ -931,5 +971,82 @@ std::string extractModelPackage(const fs::path &input,const fs::path &output,std
 #endif
     auto result=J::object(); result.set("schema",reportSchema); result.set("operation","extract"); result.set("verified",true);
     result.set("output",target.string()); result.set("file_count",countFiles); return result.dump();
+}
+
+fs::path materializeModelPackageAsset(const fs::path &input, const fs::path &cacheDirectory,
+                                     const std::string &role, std::stop_token stop,
+                                     const ModelPackagingObserver &observer) {
+    Source source;
+    source.logical = fs::absolute(input); source.actual = resolvedSource(input);
+    source.size = fs::file_size(input); source.time = fs::last_write_time(input);
+    readSafetensors(source);
+    if (!source.metadata.contains("iild_package_schema") || source.metadata.at("iild_package_schema").str() != schema)
+        fail("This model has no embedded text encoder package; supply a local GGUF text encoder");
+    const auto manifest = parse(source.metadata.at("iild_package_manifest").str());
+    if (manifest.at("schema").str() != schema) fail("Unsupported model-package manifest");
+    const auto files = manifest.at("files");
+    if (!files.is(json_type_array) || files.size() > 10'000) fail("Invalid model-package file list");
+    std::optional<J> selected;
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        const auto file = files.at(i);
+        if (file.at("status").str() == "included" && file.at("role").str() == role && file.at("format").str() == "gguf") {
+            if (selected) fail("Multiple embedded text encoders; choose an explicit encoder");
+            selected = file;
+        }
+    }
+    if (!selected) fail("This model package has no embedded GGUF " + role);
+    const auto digest = selected->at("sha256").str();
+    if (digest.size() != 64 || !std::all_of(digest.begin(), digest.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }))
+        fail("Invalid embedded asset checksum");
+    const auto mapping = selected->at("tensors");
+    if (!mapping.is(json_type_array) || mapping.size() != 1) fail("Invalid embedded asset mapping");
+    const auto record = mapping.at(std::size_t{0});
+    const auto key = record.at("output_key").str();
+    const auto tensor = std::find_if(source.tensors.begin(), source.tensors.end(), [&](const auto &item) { return item.key == key; });
+    const auto bytes = selected->at("size").number();
+    if (!key.starts_with("__iild_assets__/") || tensor == source.tensors.end() || tensor->dtype != "U8"
+        || tensor->end - tensor->begin != bytes || record.at("begin").number() != 0
+        || record.at("end").number() != bytes || record.at("sha256").str() != digest)
+        fail("Invalid embedded asset size or checksum mapping");
+    const auto cache = fs::absolute(cacheDirectory).lexically_normal();
+    iiFileProvider::native::createDirectories(cache);
+    if (fs::canonical(cache) != cache) fail("The model asset cache must not be redirected");
+    const auto target = cache / (digest + ".gguf");
+    removeAbandonedAssets(target);
+    if (fs::exists(target)) {
+        if (fs::canonical(target) != target || !fs::is_regular_file(target) || fs::file_size(target) != bytes
+            || hashRange(target, 0, bytes, stop, observer, "Checking cached " + role) != digest)
+            fail("The cached text encoder has changed; remove the invalid cache asset and retry");
+        stamp(source); return target;
+    }
+    destination(target, bytes);
+    Temporary temporary{temporaryPath(target)}; createExclusive(temporary.path);
+    std::vector<char> inputBuffer(1024 * 1024), outputBuffer(1024 * 1024);
+    std::ifstream file;
+    file.rdbuf()->pubsetbuf(inputBuffer.data(), static_cast<std::streamsize>(inputBuffer.size()));
+    file.open(source.actual, std::ios::binary);
+    file.seekg(static_cast<std::streamoff>(source.base + tensor->begin));
+    iiFileProvider::native::OutputFile output;
+    output.rdbuf()->pubsetbuf(outputBuffer.data(), static_cast<std::streamsize>(outputBuffer.size()));
+    output.open(temporary.path, std::ios::binary | std::ios::trunc);
+    std::vector<char> buffer(chunkSize); U64 done = 0; Hash hash;
+    while (done < bytes) {
+        progress(observer, stop, "materialize", "Preparing embedded " + role, done, bytes);
+        const auto count = static_cast<std::size_t>(std::min<U64>(bytes - done, buffer.size()));
+        if (!file.read(buffer.data(), static_cast<std::streamsize>(count))) fail("Embedded asset is truncated");
+        output.write(buffer.data(), static_cast<std::streamsize>(count));
+        if (!output) fail("Cannot write the embedded text encoder cache");
+        hash.update(buffer.data(), count); done += count;
+    }
+    progress(observer, stop, "materialize", "Preparing embedded " + role, done, bytes);
+    output.close();
+    if (hash.finish() != digest) fail("Embedded text encoder checksum mismatch");
+    stamp(source); check(stop); syncFile(temporary.path);
+    if (fs::exists(target)) {
+        if (fs::canonical(target) != target || fs::file_size(target) != bytes
+            || hashRange(target, 0, bytes, stop, observer, "Checking cached " + role) != digest)
+            fail("Conflicting model asset cache publication");
+    } else commit(temporary.path, target);
+    return target;
 }
 }

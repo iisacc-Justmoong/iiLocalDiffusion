@@ -45,6 +45,22 @@ class VideoModelTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             verify_model_files(stamps)
 
+    def test_ltx2_components_select_video_and_gemma_contract(self):
+        index = {"_class_name": "LTX2ImageToVideoPipeline", "scheduler": ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+                 "text_encoder": ["transformers", "Gemma3ForConditionalGeneration"],
+                 "tokenizer": ["transformers", "GemmaTokenizerFast"],
+                 "transformer": ["diffusers", "LTX2VideoTransformer3DModel"],
+                 "vae": ["diffusers", "AutoencoderKLLTX2Video"],
+                 "audio_vae": ["diffusers", "AutoencoderKLLTX2Audio"],
+                 "connectors": ["diffusers", "LTX2TextConnectors"], "vocoder": ["diffusers", "LTX2Vocoder"]}
+        path = self.directory / "model_index.json"
+        path.write_text(json.dumps(index))
+        self.assertEqual(model_contract(self.directory), index)
+        index["transformer"] = ["custom", "VideoTransformer"]
+        path.write_text(json.dumps(index))
+        with self.assertRaisesRegex(ValueError, "component"):
+            model_contract(self.directory)
+
     def test_camera_caption_cannot_be_silently_truncated(self):
         from video_runtime import validate_captions
         pipeline = SimpleNamespace(tokenizer=lambda *a, **k: {"input_ids": list(range(70))})

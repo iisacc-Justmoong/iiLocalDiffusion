@@ -1,5 +1,10 @@
 # iiLocalDiffusion
 
+[Model inspection and user modality overrides](docs/ModelInspection.md) separate
+storage roles from image/video/audio/language outputs. LTX 2 single-file packages
+are recognized from bounded metadata and run through the [native video adapter](docs/NativeVideo.md),
+without introducing Qt dependencies or changing the image ABI.
+
 [Windows 빌드 및 실행](docs/WindowsBuildAndRun.md)
 
 Windows model signatures snapshot their change token through iiFileProviderNative

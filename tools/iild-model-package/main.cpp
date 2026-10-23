@@ -1,4 +1,5 @@
 #include "ModelPackaging/ModelPackaging.hpp"
+#include "ModelPackaging/ModelInspection.hpp"
 #include <chrono>
 #include <csignal>
 #include <iostream>
@@ -26,10 +27,12 @@ int main(int argc, char **argv) {
     std::signal(SIGINT, cancelSignal);
     std::signal(SIGTERM, cancelSignal);
     try {
-        if (argc < 2) throw std::runtime_error("Use scan|create|verify|extract --input PATH [--output PATH] [--exclude RELATIVE_FILE]");
+        if (argc < 2) throw std::runtime_error("Use scan|create|verify|extract|inspect|classify|materialize --input PATH [--output PATH] [--exclude RELATIVE_FILE] [--modalities image,video,audio,language|auto] [--role text_encoder]");
         const std::string command = argv[1];
         std::filesystem::path input,output;
         std::vector<std::string> excluded;
+        std::string modalitySelection;
+        std::string assetRole = "text_encoder";
         for (int i = 2; i < argc; ++i) {
             const std::string key = argv[i];
             if (i + 1 >= argc) throw std::runtime_error("Missing argument for " + key);
@@ -37,9 +40,39 @@ int main(int argc, char **argv) {
             if (key == "--input") input = value;
             else if (key == "--output") output = value;
             else if (key == "--exclude") excluded.push_back(value);
+            else if (key == "--modalities") modalitySelection = value;
+            else if (key == "--role") assetRole = value;
             else throw std::runtime_error("Unknown argument: " + key);
         }
         if (input.empty()) throw std::runtime_error("Choose an input folder or model package");
+        if (command == "inspect" || command == "classify") {
+            if (command == "classify") {
+                if (modalitySelection.empty()) throw std::runtime_error("Choose --modalities image,video,audio,language or auto");
+                std::vector<std::string> modalities;
+                if (modalitySelection != "auto") {
+                    std::size_t begin = 0;
+                    for (;;) {
+                        const auto end = modalitySelection.find(',', begin);
+                        modalities.push_back(modalitySelection.substr(begin, end - begin));
+                        if (end == std::string::npos) break;
+                        begin = end + 1;
+                    }
+                }
+                iild::setModelModalities(input, modalities);
+            }
+            auto report = iild::inspectModel(input);
+            std::cout << iild::modelInspectionJson(report) << '\n';
+            return 0;
+        }
+        if (command == "materialize") {
+            if (output.empty()) throw std::runtime_error("Choose an output cache directory");
+            std::stop_source assetStop;
+            const auto path = iild::materializeModelPackageAsset(input, output, assetRole, assetStop.get_token(),
+                [&](const auto &) { if (cancelled) assetStop.request_stop(); });
+            std::cout << "{\"schema\":\"iild-model-package-report-v1\",\"operation\":\"materialize\",\"verified\":true,\"output\":"
+                      << quote(path.string()) << "}\n";
+            return 0;
+        }
         std::stop_source stop;
         auto last = std::chrono::steady_clock::time_point::min();
         std::string lastPhase;

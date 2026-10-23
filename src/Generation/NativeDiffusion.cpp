@@ -6,6 +6,7 @@
 #include "NativeTelemetry.hpp"
 #include "GenerationDefaults.hpp"
 #include "UnifiedModel.hpp"
+#include "NativeEngineAccess.hpp"
 #include <cmath>
 #include <algorithm>
 #include <memory>
@@ -61,6 +62,27 @@ thread_local bool ownsEngine = false;
 }
 #endif
 bool nativeDiffusionAvailable() noexcept { return IILD_HAS_NATIVE_DIFFUSION; }
+namespace native_detail {
+std::timed_mutex &nativeEngineMutex() {
+#if IILD_HAS_NATIVE_DIFFUSION
+    return engineCache().mutex;
+#else
+    static std::timed_mutex mutex; return mutex;
+#endif
+}
+void nativeEngineOnThread(bool owns) {
+#if IILD_HAS_NATIVE_DIFFUSION
+    ownsEngine = owns;
+#else
+    (void)owns;
+#endif
+}
+void releaseImageCacheForVideoLocked() {
+#if IILD_HAS_NATIVE_DIFFUSION
+    engineCache().reset(); sd_release_resident_model_memory();
+#endif
+}
+}
 ImageParameters nativeImageParameterDefaults(const std::filesystem::path &modelPath) {
     auto defaults = ImageParameters::defaults();
 #if IILD_HAS_NATIVE_DIFFUSION

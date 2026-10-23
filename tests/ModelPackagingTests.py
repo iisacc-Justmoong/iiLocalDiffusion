@@ -119,6 +119,54 @@ class PackagingTests(unittest.TestCase):
         self.assertFalse((restored / "ltx-failed.safetensors").exists())
         self.assertEqual({p.name: p.read_bytes() for p in self.input.iterdir()}, original)
 
+    def test_materialize_only_verified_encoder_and_detect_cache_corruption(self):
+        fixture(self.input)
+        output = self.root / "package.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", output)
+        before = hashlib.sha256(output.read_bytes()).hexdigest()
+        cache = self.root / "assets"
+        report = self.run_tool("materialize", "--input", output, "--output", cache)
+        encoder = Path(report["output"])
+        self.assertEqual(encoder.read_bytes(), (self.input / "gemma-3.gguf").read_bytes())
+        self.assertEqual(list(cache.iterdir()), [encoder])
+        self.assertEqual(self.run_tool("materialize", "--input", output, "--output", cache)["output"], str(encoder))
+        encoder.write_bytes(b"x" * encoder.stat().st_size)
+        self.run_tool("materialize", "--input", output, "--output", cache, success=False)
+        self.assertEqual(hashlib.sha256(output.read_bytes()).hexdigest(), before)
+
+    def test_materialize_verifies_selected_blob_without_hashing_other_weights(self):
+        fixture(self.input)
+        output = self.root / "package.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", output)
+        header, base = read_header(output)
+        key = next(key for key in header if key.startswith("__iild_assets__/text_encoder/"))
+        # Corrupt the chosen blob; no cache result may be published.
+        with output.open("r+b") as file:
+            file.seek(base + header[key]["data_offsets"][0])
+            file.write(b"BAD!")
+        cache = self.root / "assets"
+        self.run_tool("materialize", "--input", output, "--output", cache, success=False)
+        self.assertEqual(list(cache.iterdir()), [])
+
+    def test_materialize_recovers_aborted_copy_without_removing_active_owner(self):
+        fixture(self.input)
+        output = self.root / "package.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", output)
+        cache = self.root / "assets"
+        encoder = Path(self.run_tool("materialize", "--input", output, "--output", cache)["output"])
+        finished = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"],
+                                  capture_output=True, text=True, check=True)
+        stale = cache / f".{encoder.name}.partial-{int(finished.stdout.strip())}-{'a' * 32}"
+        active = cache / f".{encoder.name}.partial-{os.getpid()}-{'b' * 32}"
+        unrelated = cache / "user-file.partial-unknown"
+        for path in (stale, active, unrelated):
+            path.write_bytes(b"preserve active or unrelated data")
+        self.run_tool("materialize", "--input", output, "--output", cache)
+        self.assertFalse(stale.exists())
+        self.assertEqual(active.read_bytes(), b"preserve active or unrelated data")
+        self.assertEqual(unrelated.read_bytes(), b"preserve active or unrelated data")
+        self.assertEqual(encoder.read_bytes(), (self.input / "gemma-3.gguf").read_bytes())
+
     def test_optional_component_exclusion_is_reflected_everywhere(self):
         fixture(self.input)
         excluded = "spatial_upscaler_x2.safetensors"

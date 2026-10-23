@@ -34,14 +34,25 @@ def model_contract(directory):
                 "text_encoder": ["transformers", "T5EncoderModel"],
                 "transformer": ["diffusers", "LTXVideoTransformer3DModel"],
                 "vae": ["diffusers", "AutoencoderKLLTXVideo"]}
-    if index.get("_class_name") not in ("LTXPipeline", "LTXConditionPipeline", "LTXImageToVideoPipeline"):
+    ltx2 = index.get("_class_name") in ("LTX2Pipeline", "LTX2ConditionPipeline", "LTX2ImageToVideoPipeline")
+    if ltx2:
+        expected = {"scheduler": ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+                    "text_encoder": ["transformers", "Gemma3ForConditionalGeneration"],
+                    "transformer": ["diffusers", "LTX2VideoTransformer3DModel"],
+                    "vae": ["diffusers", "AutoencoderKLLTX2Video"],
+                    "audio_vae": ["diffusers", "AutoencoderKLLTX2Audio"],
+                    "connectors": ["diffusers", "LTX2TextConnectors"],
+                    "vocoder": ["diffusers", "LTX2Vocoder"]}
+    elif index.get("_class_name") not in ("LTXPipeline", "LTXConditionPipeline", "LTXImageToVideoPipeline"):
         raise ValueError("The video backend requires an LTX temporal diffusion model package.")
     for name, component in expected.items():
         if index.get(name) != component:
             raise ValueError(f"Unsupported video model component: {name}.")
-    if index.get("tokenizer") not in (["transformers", "T5Tokenizer"], ["transformers", "T5TokenizerFast"],
-                                      ["transformers", "PreTrainedTokenizerFast"], ["transformers", "TokenizersBackend"]):
-        raise ValueError("The video backend requires a built-in T5-compatible tokenizer.")
+    tokenizers = (["transformers", "GemmaTokenizer"], ["transformers", "GemmaTokenizerFast"]) if ltx2 else (
+        ["transformers", "T5Tokenizer"], ["transformers", "T5TokenizerFast"],
+        ["transformers", "PreTrainedTokenizerFast"], ["transformers", "TokenizersBackend"])
+    if index.get("tokenizer") not in tokenizers:
+        raise ValueError("The video backend requires the built-in tokenizer for its declared LTX architecture.")
     if any(not key.startswith("_") and key not in {*expected, "tokenizer"} for key in index):
         raise ValueError("The video model declares unsupported additional components.")
     return index
@@ -63,8 +74,14 @@ def load_pipeline(args, torch, dtype):
     directory = Path(args.model).expanduser().resolve()
     if not directory.is_dir():
         raise ValueError("Video generation requires an existing local model directory.")
-    from diffusers import LTXConditionPipeline
     index = model_contract(directory)
+    ltx2 = index.get("_class_name", "").startswith("LTX2")
+    if ltx2:
+        from diffusers import LTX2ConditionPipeline as Pipeline
+        if args.image_cond_noise_scale:
+            raise ValueError("LTX 2 does not expose the LTX 1 image-condition noise parameter.")
+    else:
+        from diffusers import LTXConditionPipeline as Pipeline
     # Tokenizer conversion must succeed before hashing/loading multi-GB weights.
     tokenizer = load_tokenizer(directory, index)
     files = sorted(path for path in provider.rglob(directory, "*") if path.is_file()
@@ -81,7 +98,7 @@ def load_pipeline(args, torch, dtype):
     if not any(record["file"].startswith("transformer/") and record["file"].endswith(".safetensors")
                for record in identity):
         raise ValueError("The video package does not contain safe transformer weights.")
-    pipeline = LTXConditionPipeline.from_pretrained(str(directory), dtype=dtype,
+    pipeline = Pipeline.from_pretrained(str(directory), dtype=dtype,
                                                    local_files_only=True, use_safetensors=True,
                                                    low_cpu_mem_usage=True, tokenizer=tokenizer)
     verify_model_files(stamps)
@@ -196,16 +213,20 @@ class VideoDenoisingAudit:
 
 def render_shots(pipeline, args, torch, device, embeddings, keyframes, output, image_module):
     import numpy as np
-    from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
+    ltx2 = type(pipeline).__name__.startswith("LTX2")
+    if ltx2:
+        from diffusers.pipelines.ltx2.pipeline_ltx2_condition import LTX2VideoCondition as Condition
+    else:
+        from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition as Condition
     records, frame_records, previous = [], [], None
     for shot in args.shots:
         started = time.monotonic()
         print(f"Video shot {shot['index'] + 1}/{len(args.shots)}: "
               f"{shot['ltx_frames']} LTX source frames for {shot['frames']} output frames", flush=True)
-        conditions = [LTXVideoCondition(image=keyframes[condition["image"]], frame_index=condition["source_frame"],
+        conditions = [Condition(image=keyframes[condition["image"]], frame_index=condition["source_frame"],
                                         strength=condition["strength"]) for condition in shot["conditions"]]
         if shot["continue_previous"]:
-            conditions.insert(0, LTXVideoCondition(image=previous, frame_index=0, strength=1.0))
+            conditions.insert(0, Condition(image=previous, frame_index=0, strength=1.0))
         audit = VideoDenoisingAudit(torch, device,args.steps)
         report_progress("denoising",0,args.steps)
         call = {"conditions": conditions or None, "height": args.height, "width": args.width,
@@ -215,6 +236,8 @@ def render_shots(pipeline, args, torch, device, embeddings, keyframes, output, i
                 "decode_timestep": args.decode_timestep, "decode_noise_scale": args.decode_noise_scale,
                 "image_cond_noise_scale": args.image_cond_noise_scale, "output_type": "np",
                 "callback_on_step_end": audit, "callback_on_step_end_tensor_inputs": ["latents"]}
+        if ltx2:
+            call.pop("image_cond_noise_scale")
         if embeddings:
             # LTX's encode_prompt leaves caller-provided tensors where they
             # are. Move both embeddings and masks before the temporal loop.

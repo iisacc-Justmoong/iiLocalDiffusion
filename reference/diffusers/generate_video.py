@@ -24,7 +24,11 @@ def main(argv=None):
             return 0
         if args.model_input.kind == "local":
             os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1")
-            from video_runtime import generate_video
+            from pathlib import Path
+            if Path(args.model).is_file():
+                from native_video import generate_video
+            else:
+                from video_runtime import generate_video
         else:
             from remote_generation import generate_video
         generate_video(args)

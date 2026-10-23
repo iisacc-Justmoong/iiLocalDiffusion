@@ -43,7 +43,8 @@ def build_parser():
     parser.add_argument("--print-config", action="store_true")
     parser.add_argument("--list-camera-motions", action="store_true")
     from model_sources import add_model_arguments
-    add_model_arguments(parser, local_help="Local LTX Diffusers model directory")
+    add_model_arguments(parser, local_help="Local LTX Diffusers directory or native video checkpoint/package")
+    parser.add_argument("--text-encoder", type=Path, help="Optional GGUF text encoder for a native video checkpoint")
     parser.add_argument("--revision", help=argparse.SUPPRESS)
     parser.add_argument("--cache-dir", type=Path, default=ROOT / "build/reference/huggingface")
     parser.add_argument("--local-files-only", action=argparse.BooleanOptionalAction, default=True,
@@ -232,8 +233,8 @@ def resolve_options(args):
     args.model_input = resolve_model_input(args)
     if args.model_input.kind == "local":
         model = Path(args.model_input.location)
-        if not model.is_dir():
-            raise ValueError(f"--model must be an existing local LTX Diffusers directory: {args.model}")
+        if not model.is_dir() and not (model.is_file() and model.suffix.lower() in (".safetensors", ".safetensor", ".gguf")):
+            raise ValueError(f"--model must be a local LTX directory or native video checkpoint: {args.model}")
         args.model = str(model)
     elif args.model_input.family != "ltx":
         raise ValueError("Remote video requires --model-family ltx and an endpoint/provider serving LTX weights.")
@@ -242,6 +243,10 @@ def resolve_options(args):
     if not args.local_files_only:
         raise ValueError("Video generation requires local model files; --no-local-files-only is unsupported.")
     args.cache_dir = args.cache_dir.expanduser().resolve()
+    if args.text_encoder is not None:
+        args.text_encoder = args.text_encoder.expanduser().resolve(strict=True)
+        if not args.text_encoder.is_file() or args.text_encoder.suffix.lower() != ".gguf":
+            raise ValueError("The native video text encoder must be a local GGUF file.")
     for name in ("storyboard", "first_frame", "last_frame"):
         if getattr(args, name) is not None:
             setattr(args, name, getattr(args, name).expanduser().resolve())
