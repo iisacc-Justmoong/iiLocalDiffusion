@@ -9,7 +9,7 @@ import struct
 import time
 
 from animation_video import AnimationOutput, encode_video, preflight_animation
-from native_image import library_path, Progress
+from native_image import library_path, load_library, Progress
 from video_options import configuration
 from video_runtime import load_keyframes, report_progress, verify_model_files
 from video_interpolator import interpolate_video, preflight_interpolator
@@ -73,7 +73,7 @@ def model_metadata(path):
 
 class NativeVideoEngine:
     def __init__(self):
-        self.library = C.CDLL(str(library_path()))
+        self.library = load_library(library_path())
         try:
             self.generate = self.library.iild_native_video_generate_v1
             self.generate.argtypes, self.generate.restype = [C.POINTER(Request), Progress, Frame, C.c_void_p], C.c_void_p

@@ -81,7 +81,7 @@ class PackagingTests(unittest.TestCase):
         result = subprocess.run([str(PROGRAM), operation, *map(str, args)], text=True,
                                 capture_output=True, timeout=30)
         reports = [json.loads(line) for line in result.stdout.splitlines()]
-        self.assertTrue(reports, result.stderr)
+        self.assertTrue(reports, f"exit={result.returncode:#x}; stdout={result.stdout!r}; stderr={result.stderr!r}")
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
@@ -166,6 +166,17 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(active.read_bytes(), b"preserve active or unrelated data")
         self.assertEqual(unrelated.read_bytes(), b"preserve active or unrelated data")
         self.assertEqual(encoder.read_bytes(), (self.input / "gemma-3.gguf").read_bytes())
+
+    def test_successful_readonly_commands_always_emit_final_report(self):
+        fixture(self.input)
+        output = self.root / "package.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", output)
+        for iteration in range(16):
+            with self.subTest(iteration=iteration):
+                materialized = self.run_tool("materialize", "--input", output, "--output", self.root / "assets")
+                self.assertTrue(materialized["verified"])
+                inspected = self.run_tool("inspect", "--input", output)
+                self.assertEqual(inspected["schema"], "iild-model-inspection-v1")
 
     def test_optional_component_exclusion_is_reflected_everywhere(self):
         fixture(self.input)

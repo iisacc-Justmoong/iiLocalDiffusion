@@ -160,7 +160,7 @@ class UnifiedImageTests(unittest.TestCase):
         with patch.object(unified_image.NativeEngine, "image", side_effect=RuntimeError("stage failed")), patch.object(unified_image.NativeEngine, "__init__", return_value=None):
             with self.assertRaisesRegex(RuntimeError, "stage failed"):
                 unified_image.main(args)
-        self.assertFalse(any(failed.iterdir()))
+        self.assertFalse(failed.exists(), "A failed private batch must not create a public output directory")
 
     def test_auto_router_selects_unified_backend(self):
         spec = importlib.util.spec_from_file_location("unified_router_fixture", ROOT / "reference/generate.py")

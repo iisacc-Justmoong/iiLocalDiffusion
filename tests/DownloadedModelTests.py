@@ -17,12 +17,13 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference" / "diffusers"))
 import downloaded_model
+from _file_provider import provider
 
 
 class DownloadedModelTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="downloaded-model-", dir=ROOT / "build")
+        temporary = provider.TemporaryDirectory(prefix="downloaded-model-", dir=ROOT / "build")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 

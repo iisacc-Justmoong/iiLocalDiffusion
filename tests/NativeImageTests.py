@@ -156,7 +156,7 @@ class NativeImageTests(unittest.TestCase):
         with patch.object(native_image, "NativeEngine", Engine), self.assertRaisesRegex(SystemExit, "decoder failure"):
             standalone_image.main(["--model", str(self.model()), "--width", "64", "--height", "120",
                                    "--num-images", "10", "--output-dir", str(output)])
-        self.assertEqual(list(output.iterdir()), [])
+        self.assertFalse(output.exists(), "A failed private batch must not publish its output directory")
 
     def test_queue_refuses_generation_until_anonymous_preload_succeeds(self):
         for metadata in ({}, {"weight_storage": "file-backed"}):

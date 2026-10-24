@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
                 iild::setModelModalities(input, modalities);
             }
             auto report = iild::inspectModel(input);
-            std::cout << iild::modelInspectionJson(report) << '\n';
+            std::cout << iild::modelInspectionJson(report) << '\n' << std::flush;
             return 0;
         }
         if (command == "materialize") {
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
             const auto path = iild::materializeModelPackageAsset(input, output, assetRole, assetStop.get_token(),
                 [&](const auto &) { if (cancelled) assetStop.request_stop(); });
             std::cout << "{\"schema\":\"iild-model-package-report-v1\",\"operation\":\"materialize\",\"verified\":true,\"output\":"
-                      << quote(path.string()) << "}\n";
+                      << quote(path.string()) << "}\n" << std::flush;
             return 0;
         }
         std::stop_source stop;

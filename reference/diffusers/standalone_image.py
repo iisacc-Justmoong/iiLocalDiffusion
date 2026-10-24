@@ -83,13 +83,15 @@ def resolve_arguments(args):
     return preset, resolved
 
 
-def empty_directory(path):
+def empty_directory(path, *, defer_creation=False):
     path = path.expanduser().absolute()
     if path.is_symlink() or path.resolve() != path:
         raise ValueError("The output/work directory must not be redirected.")
     if path.exists() and (not path.is_dir() or any(provider.iterdir(path))):
         raise ValueError("The output/work directory must be empty.")
-    provider.mkdir(path, parents=True, exist_ok=True)
+    # A new batch is published by renaming its complete private stage. Creating
+    # its destination first prevents that rename on Windows.
+    provider.mkdir(path.parent if defer_creation and not path.exists() else path, parents=True, exist_ok=True)
     return path
 
 
@@ -116,7 +118,7 @@ def main(argv=None):
             return 0
         if is_preparing() or (args.output_dir is None and not args.output_was_default):
             return runner(preset, args)
-        output = empty_directory(args.output_dir or ROOT / "build/reference/standalone-image" / uuid.uuid4().hex)
+        output = empty_directory(args.output_dir or ROOT / "build/reference/standalone-image" / uuid.uuid4().hex, defer_creation=True)
         if args.work_dir:
             work = empty_directory(args.work_dir)
             provider.write_text(work / "request.json", json.dumps(configuration(args), indent=2))

@@ -152,6 +152,7 @@ class StandaloneImageTests(unittest.TestCase):
         from PIL import Image
         output = self.directory / "result"
         def render(preset, args):
+            self.assertFalse(output.exists(), "The public batch must remain absent until publication")
             for index in range(args.num_images):
                 path = args.output.with_stem(f"image-{index:04d}")
                 Image.new("RGB", (64, 64), "red").save(path)
@@ -179,7 +180,7 @@ class StandaloneImageTests(unittest.TestCase):
             return 0
         with patch("generate.run", side_effect=mutate), self.assertRaisesRegex(SystemExit, "changed"):
             standalone_image.main(["--model", str(model), "--output-dir", str(output)])
-        self.assertEqual(list(output.iterdir()), [])
+        self.assertFalse(output.exists(), "A changed model must not publish an output directory")
 
     def test_router_local_is_standalone_and_comfy_is_explicit(self):
         spec = importlib.util.spec_from_file_location("standalone_router", ROOT / "reference/generate.py")

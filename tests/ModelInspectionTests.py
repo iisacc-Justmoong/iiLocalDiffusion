@@ -1,6 +1,7 @@
 """Inspect metadata without loading weights; preserve manual Society classification."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import struct
 import subprocess
@@ -114,7 +115,37 @@ class InspectionTests(unittest.TestCase):
         path = self.root / "large.safetensors"
         safetensors(path, {"config": '{"_class_name":"LTX2Pipeline"}'})
         with path.open("r+b") as file:
-            file.truncate(40 * 1024**3)
+            if os.name == "nt":
+                import ctypes
+                from ctypes import wintypes
+                import msvcrt
+                kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+                ioctl = kernel.DeviceIoControl
+                ioctl.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                                  ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p]
+                ioctl.restype = wintypes.BOOL
+                returned = wintypes.DWORD()
+                handle = msvcrt.get_osfhandle(file.fileno())
+                if not ioctl(handle, 0x000900C4, None, 0, None, 0, ctypes.byref(returned), None):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                # The Windows CRT's truncate extension writes zero buffers even
+                # for sparse files. Extend the sparse EOF without those writes.
+                kernel.SetFilePointerEx.argtypes = [wintypes.HANDLE, ctypes.c_longlong, ctypes.c_void_p, wintypes.DWORD]
+                kernel.SetFilePointerEx.restype = wintypes.BOOL
+                kernel.SetEndOfFile.argtypes = [wintypes.HANDLE]
+                kernel.SetEndOfFile.restype = wintypes.BOOL
+                if not kernel.SetFilePointerEx(handle, 40 * 1024**3, None, 0) or not kernel.SetEndOfFile(handle):
+                    raise ctypes.WinError(ctypes.get_last_error())
+            else:
+                file.truncate(40 * 1024**3)
+        self.assertEqual(path.stat().st_size, 40 * 1024**3)
+        if os.name == "nt":
+            self.assertTrue(path.stat().st_file_attributes & 0x200, "large fixture must be sparse")
+            kernel.GetCompressedFileSizeW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
+            kernel.GetCompressedFileSizeW.restype = wintypes.DWORD
+            high = wintypes.DWORD()
+            allocated = kernel.GetCompressedFileSizeW(str(path), ctypes.byref(high)) | (high.value << 32)
+            self.assertLess(allocated, 1024**2, "sparse fixture must not allocate its 40 GiB logical range")
         result = self.run_tool(path)
         self.assertLess(result["metadata_bytes_read"], 4096)
         self.assertEqual(result["modalities"], ["audio", "video"])

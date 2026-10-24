@@ -220,7 +220,7 @@ class BackendRegistryTests(unittest.TestCase):
         with patch.object(native_image, "NativeEngine", Engine), self.assertRaisesRegex(SystemExit, "changed"):
             standalone_image.main(["--model", args.model, "--components", json.dumps(args.components),
                 "--width", "64", "--height", "64", "--output-dir", str(output)])
-        self.assertEqual(list(output.iterdir()), [])
+        self.assertFalse(output.exists())
 
     @unittest.skipUnless(importlib.util.find_spec("PIL"), "Pillow required")
     def test_native_v2_ctypes_boundary_carries_all_components_and_validates_rgb(self):

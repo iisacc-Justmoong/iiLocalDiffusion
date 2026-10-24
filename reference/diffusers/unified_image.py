@@ -154,7 +154,7 @@ def main(argv=None):
     if args.output and args.output.suffix.lower() != ".png":
         raise ValueError("Unified image output must end in .png.")
     output = args.output.expanduser().absolute() if args.output else empty_directory(args.output_dir or
-        Path(__file__).resolve().parents[2] / "build/reference/unified-image" / uuid.uuid4().hex)
+        Path(__file__).resolve().parents[2] / "build/reference/unified-image" / uuid.uuid4().hex, defer_creation=True)
     provider.mkdir(output.parent, parents=True, exist_ok=True)
     if args.work_dir:
         work = empty_directory(args.work_dir)

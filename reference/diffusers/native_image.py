@@ -6,6 +6,7 @@ owns one reusable inference context with explicit companion weight bindings.
 
 from _file_provider import provider
 from dataclasses import asdict
+from contextlib import ExitStack
 import ctypes as C
 import json
 import math
@@ -99,9 +100,23 @@ def library_path():
     raise RuntimeError("The native iiLocalDiffusion library is missing. Reinstall the SDK with native inference enabled.")
 
 
+def load_library(path):
+    """Apply the SDK's configured DLL directories to Python's secure loader."""
+    path = Path(path).resolve()
+    with ExitStack() as directories:
+        if os.name == "nt":
+            seen = set()
+            for directory in (path.parent, *map(Path, os.environ.get("PATH", "").split(os.pathsep))):
+                key = os.path.normcase(str(directory.resolve()))
+                if key not in seen and directory.is_dir():
+                    seen.add(key)
+                    directories.enter_context(os.add_dll_directory(str(directory.resolve())))
+        return C.CDLL(str(path))
+
+
 class NativeEngine:
     def __init__(self):
-        self.library = C.CDLL(str(library_path()))
+        self.library = load_library(library_path())
         declarations = {
             "available": ([], C.c_int),
             "generate": ([C.POINTER(Request), Progress, C.c_void_p], C.c_void_p),
