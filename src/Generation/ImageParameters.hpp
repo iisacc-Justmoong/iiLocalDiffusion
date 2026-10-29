@@ -201,8 +201,8 @@ inline std::vector<ImageParameterIssue> nativeParameterIssues(const ImageParamet
             && !(c.process == "Pose" && poseAvailable)))
             reject(key + ".process");
         if (c.process == "Pose") {
-            if (c.poseDetector.empty()) issues.push_back({key + ".poseDetector", "Choose a local YOLOX-L ONNX detector."});
-            if (c.poseModel.empty()) issues.push_back({key + ".poseModel", "Choose a local DWPose SimCC ONNX model."});
+            if (c.poseDetector.empty()) issues.push_back({key + ".poseDetector", "Choose a local pose detector."});
+            if (c.poseModel.empty()) issues.push_back({key + ".poseModel", "Choose a local pose model."});
         }
         if (c.ipAdapter) {
             if (desktopWorker) reject(key + ".ipAdapter");

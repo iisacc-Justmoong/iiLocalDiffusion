@@ -12,7 +12,10 @@ set(source_directory "${WORK_DIRECTORY}/consumer")
 set(binary_directory "${source_directory}/build")
 
 file(REMOVE_RECURSE "${WORK_DIRECTORY}")
-file(MAKE_DIRECTORY "${source_directory}")
+file(MAKE_DIRECTORY "${source_directory}" "${stage_directory}/${LIB_DIRECTORY}")
+# Reinstallation must remove obsolete runtime copies, not retain an old backend.
+file(WRITE "${stage_directory}/${LIB_DIRECTORY}/libonnxruntime-retired.fixture" "obsolete")
+file(WRITE "${stage_directory}/${LIB_DIRECTORY}/libiiOnnxRuntime-retired.fixture" "obsolete")
 
 set(configuration_arguments)
 if(NOT CONFIG STREQUAL "")
@@ -35,6 +38,27 @@ endif()
 # Run against a relocated prefix, including private runtime resources.
 file(RENAME "${stage_directory}" "${WORK_DIRECTORY}/relocated stage")
 set(stage_directory "${WORK_DIRECTORY}/relocated stage")
+file(GLOB retired_runtime_files "${stage_directory}/${LIB_DIRECTORY}/*onnx*" "${stage_directory}/${LIB_DIRECTORY}/*Onnx*")
+if(retired_runtime_files)
+    message(FATAL_ERROR "Reinstallation retained a retired runtime: ${retired_runtime_files}")
+endif()
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND PYTHON_EXECUTABLE)
+    # A Python worker has no executable RPATH supplied by our exported CMake
+    # target. Exercise that boundary before a linked consumer can hide omissions.
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env
+            --unset=DYLD_LIBRARY_PATH --unset=DYLD_FALLBACK_LIBRARY_PATH
+            --unset=DYLD_FRAMEWORK_PATH --unset=DYLD_FALLBACK_FRAMEWORK_PATH
+            --unset=DYLD_VERSIONED_LIBRARY_PATH --unset=DYLD_VERSIONED_FRAMEWORK_PATH
+            "${PYTHON_EXECUTABLE}" -I -B "${NATIVE_LOAD_PROBE}"
+            "${stage_directory}/${LIB_DIRECTORY}/${NATIVE_LIBRARY_NAME}"
+        RESULT_VARIABLE native_load_result
+        OUTPUT_VARIABLE native_load_output ERROR_VARIABLE native_load_error
+        TIMEOUT 120)
+    if(NOT native_load_result EQUAL 0)
+        message(FATAL_ERROR "Relocated Python native library load failed: ${native_load_result}\n${native_load_output}\n${native_load_error}")
+    endif()
+endif()
 if(CMAKE_HOST_WIN32)
     set(ENV{PATH} "${stage_directory}/${BIN_DIRECTORY};$ENV{PATH}")
     if(MLX_ENABLED)

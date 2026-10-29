@@ -1,0 +1,2286 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:f20c8ea15d96eebf88a185abd134d6b0bf305ed07e9248841e6ff3bbd6939552",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "README.md",
+    "sha256": "fd221cd8cfee69e953a0096a548233507cff39e1f7ee00172583d909cc161fe9",
+    "bytes": 29198,
+    "line_count": 540,
+    "encoding": "utf-8",
+    "language": "ko"
+  },
+  "document": {
+    "title": "iiLocalDiffusion",
+    "role": "overview",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# iiLocalDiffusion\n",
+      "level": 1,
+      "title": "iiLocalDiffusion"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "paragraph",
+      "start_line": 3,
+      "end_line": 6,
+      "raw": "[Model inspection and user modality overrides](docs/ModelInspection.md) separate\nstorage roles from image/video/audio/language outputs. LTX 2 single-file packages\nare recognized from bounded metadata and run through the [native video adapter](docs/NativeVideo.md),\nwithout introducing Qt dependencies or changing the image ABI.\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 7,
+      "end_line": 7,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 8,
+      "end_line": 8,
+      "raw": "[Windows build and execution](docs/WindowsBuildAndRun.md)\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 9,
+      "end_line": 9,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "paragraph",
+      "start_line": 10,
+      "end_line": 22,
+      "raw": "Windows model signatures snapshot their change token through iiFileProviderNative\n0.8.2 under its metadata publication lock. Provider preview metadata therefore does\nnot invalidate an unchanged model, while content edits with restored timestamps\nstill invalidate the cache. `InferenceCacheTests` covers both operations.\nWindows signatures use the serialized native change clock instead of a separate\nmtime sample, because NTFS alternate-stream publication restores mtime after its\nwrite. The normalized clock still detects restored-mtime content edits.\nThe installed-consumer test inherits the SDK build configuration and on Windows\nloads DLLs from its relocated installation before other SDK installations.\nWorker test fixtures use provider temporary directories so cleanup cancels queued\npreview work before removing their outputs, including Windows NTFS companions.\nHash-only resource audits load tensor libraries only when an embedding source\nrequires tensor verification. Text encoder identity checks work without PyTorch.\n"
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 23,
+      "end_line": 23,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 24,
+      "end_line": 26,
+      "raw": "Package release: **0.6.2** (2026-10-19). This patch packages the current\nsource snapshot; build, test and installation evidence is recorded in the SDK\npatch-release report. Earlier versioned feature notes remain historical.\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 27,
+      "end_line": 28,
+      "raw": "\n\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "paragraph",
+      "start_line": 29,
+      "end_line": 29,
+      "raw": "Qwen Image RGB · SDXL · FLUX.1 · FLUX.2 model omits the VAE parameter and if the model also lacks a VAE, the native and Diffusers loaders automatically use the per-family [VAE](docs/generation-defaults.md#vae-자동-폴백). It includes original weights, settings, deployment licenses, and sources in the bundle. Built-in VAE and explicit selection take precedence, different latent space VAEs are not mixed, and RGBA Layered is excluded.\n"
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 30,
+      "end_line": 30,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "paragraph",
+      "start_line": 31,
+      "end_line": 33,
+      "raw": "Image generation uses [bundled negative embeddings](docs/generation-defaults.md).\nSDXL automatically loads all seven negative embeddings; no LoRA is selected automatically.\nExplicit LoRAs remain supported. Native and Python generators share the installed resource manifest.\n"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 34,
+      "end_line": 34,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "paragraph",
+      "start_line": 35,
+      "end_line": 39,
+      "raw": "LoRA loading also covers generic SD2/SD3/FLUX and other built-in Diffusers image\npipelines with compatible adapter loaders, plus SD/SDXL/FLUX Deforum frames.\nFamily-specific defaults, activation checks, and examples are described in\n[the LoRA contract](docs/lora.md). The supplied SDXL adapter still requires an\nSDXL base; other architectures use their own compatible adapters.\n"
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 40,
+      "end_line": 40,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "paragraph",
+      "start_line": 41,
+      "end_line": 41,
+      "raw": "App consumers can also use [in-process native image inference](docs/native-image-generation.md), including iOS builds with `IILD_ENABLE_NATIVE_DIFFUSION=ON`.\n"
+    },
+    {
+      "id": "b000018",
+      "kind": "blank",
+      "start_line": 42,
+      "end_line": 42,
+      "raw": "\n"
+    },
+    {
+      "id": "b000019",
+      "kind": "paragraph",
+      "start_line": 43,
+      "end_line": 45,
+      "raw": "See [architecture-aware backend routing](docs/backend-routing.md) for SD1/2/XL/3,\nFLUX.1/Krea, FLUX.2/Klein, Z-Image, Qwen Image, Chroma, Krea 2 and Anima,\nsplit checkpoint components, native APIs and unified output publication.\n"
+    },
+    {
+      "id": "b000020",
+      "kind": "blank",
+      "start_line": 46,
+      "end_line": 46,
+      "raw": "\n"
+    },
+    {
+      "id": "b000021",
+      "kind": "paragraph",
+      "start_line": 47,
+      "end_line": 49,
+      "raw": "The [iisacc Krea 2 ecosystem contract](docs/krea2.md) separates Raw/Turbo defaults,\nFP32/BF16 reference execution, compatible VAE/text conditioning, reproducible\nflow schedules, and the additive native V3 sampling API.\n"
+    },
+    {
+      "id": "b000022",
+      "kind": "blank",
+      "start_line": 50,
+      "end_line": 50,
+      "raw": "\n"
+    },
+    {
+      "id": "b000023",
+      "kind": "paragraph",
+      "start_line": 51,
+      "end_line": 53,
+      "raw": "App consumers can use [resident inference sessions](docs/inference-worker.md)\nthrough `iild-generate --worker` to reuse Python initialization, unchanged model\nhashes and compatible prepared image pipelines across sequential requests.\n"
+    },
+    {
+      "id": "b000024",
+      "kind": "blank",
+      "start_line": 54,
+      "end_line": 54,
+      "raw": "\n"
+    },
+    {
+      "id": "b000025",
+      "kind": "paragraph",
+      "start_line": 55,
+      "end_line": 60,
+      "raw": "[Local model merging](docs/model-merging.md) is available through `iild-merge`\nand Python `merge_models(base_model, additional_model, ...)`. Both model inputs\nare required; weights and further models are optional. It supports weighted sums\nand direct weighted subtraction of matching checkpoints or Diffusers packages,\nwith one or more LoRAs as additional materials, including checkpoint/LoRA mixtures.\nLoRA deltas are fused into the output; originals and source/output provenance are preserved.\n"
+    },
+    {
+      "id": "b000026",
+      "kind": "blank",
+      "start_line": 61,
+      "end_line": 61,
+      "raw": "\n"
+    },
+    {
+      "id": "b000027",
+      "kind": "paragraph",
+      "start_line": 62,
+      "end_line": 66,
+      "raw": "[DiT-standard conversion](docs/model-conversion.md) is available through\n`iild-convert`. A user-selected Tsubaki checkpoint defines the executable output\ncontract; SD 1.5, SDXL/Haruka/Hoshino/Illustrious, DiT/Tsubaki and Reference Pro\nsources are normalized to that contract so the resulting DiT checkpoints can be\nfed directly to `iild-merge`.\n"
+    },
+    {
+      "id": "b000028",
+      "kind": "blank",
+      "start_line": 67,
+      "end_line": 67,
+      "raw": "\n"
+    },
+    {
+      "id": "b000029",
+      "kind": "paragraph",
+      "start_line": 68,
+      "end_line": 71,
+      "raw": "iiLocalDiffusion is a C++ runtime for assembling local generative-model\ncomponents and orchestrating inference. It does not implement tensor storage,\nmatrix multiplication, convolution, attention kernels, or device command\nexecution.\n"
+    },
+    {
+      "id": "b000030",
+      "kind": "blank",
+      "start_line": 72,
+      "end_line": 72,
+      "raw": "\n"
+    },
+    {
+      "id": "b000031",
+      "kind": "paragraph",
+      "start_line": 73,
+      "end_line": 82,
+      "raw": "The current `0.3.0` milestone recognizes three pinned Diffusers reference\ncontracts: Stable Diffusion v1, Stable Diffusion XL Base 1.0, and\nFLUX.1-schnell. Its inspector validates metadata and artifact paths without\nloading tensors. Native component computation uses MLX 0.32.2 with Metal\nor CUDA, or optional LibTorch with AMD ROCm: `LinearLayer` executes batched neural operations from caller-provided\nor named safetensors weights. `CoreMLModel` executes explicitly supplied\ncompiled Core ML components with Neural Engine plan checks. CUDA Tensor Core\neligibility and FP16/BF16/TF32 policies are exposed separately from measured\nhardware utilization. Complete image generation remains in the\nindependent Python oracle, not the C++ library.\n"
+    },
+    {
+      "id": "b000032",
+      "kind": "blank",
+      "start_line": 83,
+      "end_line": 83,
+      "raw": "\n"
+    },
+    {
+      "id": "b000033",
+      "kind": "heading",
+      "start_line": 84,
+      "end_line": 84,
+      "raw": "## Install for local use\n",
+      "level": 2,
+      "title": "Install for local use"
+    },
+    {
+      "id": "b000034",
+      "kind": "blank",
+      "start_line": 85,
+      "end_line": 85,
+      "raw": "\n"
+    },
+    {
+      "id": "b000035",
+      "kind": "paragraph",
+      "start_line": 86,
+      "end_line": 86,
+      "raw": "From this repository, install into `~/.local/SDK/iiLocalDiffusion`:\n"
+    },
+    {
+      "id": "b000036",
+      "kind": "blank",
+      "start_line": 87,
+      "end_line": 87,
+      "raw": "\n"
+    },
+    {
+      "id": "b000037",
+      "kind": "fenced_code",
+      "start_line": 88,
+      "end_line": 92,
+      "raw": "```bash\n./install.sh\n\"$HOME/.local/SDK/iiLocalDiffusion/bin/iild-run\" devices\n\"$HOME/.local/SDK/iiLocalDiffusion/bin/iild-generate\" --list-base-models\n```\n",
+      "language": "bash",
+      "code": "./install.sh\n\"$HOME/.local/SDK/iiLocalDiffusion/bin/iild-run\" devices\n\"$HOME/.local/SDK/iiLocalDiffusion/bin/iild-generate\" --list-base-models\n",
+      "closed": true
+    },
+    {
+      "id": "b000038",
+      "kind": "blank",
+      "start_line": 93,
+      "end_line": 93,
+      "raw": "\n"
+    },
+    {
+      "id": "b000039",
+      "kind": "paragraph",
+      "start_line": 94,
+      "end_line": 98,
+      "raw": "The installer builds Release, runs CTest, installs the C++ package and Python\nentry point, and reuses the existing local Python environment and model/runtime\ncache. It preserves configured native backend options. See\n[local installation](docs/installation.md) for the prefix layout, CMake consumer\nsetup, interpreter selection, and the source/runtime paths to retain.\n"
+    },
+    {
+      "id": "b000040",
+      "kind": "blank",
+      "start_line": 99,
+      "end_line": 99,
+      "raw": "\n"
+    },
+    {
+      "id": "b000041",
+      "kind": "heading",
+      "start_line": 100,
+      "end_line": 100,
+      "raw": "## Build and test\n",
+      "level": 2,
+      "title": "Build and test"
+    },
+    {
+      "id": "b000042",
+      "kind": "blank",
+      "start_line": 101,
+      "end_line": 101,
+      "raw": "\n"
+    },
+    {
+      "id": "b000043",
+      "kind": "paragraph",
+      "start_line": 102,
+      "end_line": 102,
+      "raw": "Requirements:\n"
+    },
+    {
+      "id": "b000044",
+      "kind": "blank",
+      "start_line": 103,
+      "end_line": 103,
+      "raw": "\n"
+    },
+    {
+      "id": "b000045",
+      "kind": "list",
+      "start_line": 104,
+      "end_line": 111,
+      "raw": "- CMake 3.31 or newer\n- a C++20 compiler\n- pkg-config\n- json-c 0.18 or newer\n- for the default native runtime: Apple Silicon with the Xcode Metal compiler,\n  or Linux with a CUDA toolkit, cuDNN, and BLAS/LAPACK development libraries\n- for Apple Core ML support: a macOS SDK exposing Core ML's macOS 14.4 APIs\n- for optional Radeon execution: a compatible HIP-enabled LibTorch SDK (2.x, >=2.9), AMD driver and supported GPU/OS\n",
+      "items": [
+        {
+          "marker": "-",
+          "text": "CMake 3.31 or newer",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "a C++20 compiler",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "pkg-config",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "json-c 0.18 or newer",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "for the default native runtime: Apple Silicon with the Xcode Metal compiler,",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "for Apple Core ML support: a macOS SDK exposing Core ML's macOS 14.4 APIs",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "for optional Radeon execution: a compatible HIP-enabled LibTorch SDK (2.x, >=2.9), AMD driver and supported GPU/OS",
+          "checked": null
+        }
+      ]
+    },
+    {
+      "id": "b000046",
+      "kind": "blank",
+      "start_line": 112,
+      "end_line": 112,
+      "raw": "\n"
+    },
+    {
+      "id": "b000047",
+      "kind": "paragraph",
+      "start_line": 113,
+      "end_line": 116,
+      "raw": "The build prefers json-c's CMake package and falls back to pkg-config. MLX and\nits source dependencies are fetched at pinned versions and archive hashes.\nOn Apple Silicon, `xcrun metal --version` must succeed; merely installing the\ncommand-line shim is insufficient. See [hardware setup](docs/hardware-compute.md).\n"
+    },
+    {
+      "id": "b000048",
+      "kind": "blank",
+      "start_line": 117,
+      "end_line": 117,
+      "raw": "\n"
+    },
+    {
+      "id": "b000049",
+      "kind": "paragraph",
+      "start_line": 118,
+      "end_line": 118,
+      "raw": "Use only the repository's `build/` directory:\n"
+    },
+    {
+      "id": "b000050",
+      "kind": "blank",
+      "start_line": 119,
+      "end_line": 119,
+      "raw": "\n"
+    },
+    {
+      "id": "b000051",
+      "kind": "fenced_code",
+      "start_line": 120,
+      "end_line": 124,
+      "raw": "```bash\ncmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n```\n",
+      "language": "bash",
+      "code": "cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n",
+      "closed": true
+    },
+    {
+      "id": "b000052",
+      "kind": "blank",
+      "start_line": 125,
+      "end_line": 125,
+      "raw": "\n"
+    },
+    {
+      "id": "b000053",
+      "kind": "paragraph",
+      "start_line": 126,
+      "end_line": 132,
+      "raw": "The test suite also installs the library under `build/`, relocates the prefix,\nconfigures a clean consumer with `find_package(iiLocalDiffusion)`, and runs\nboth metadata inspection and native computation. For a metadata-only build,\nconfigure with `-DIILD_ENABLE_MLX=OFF -DIILD_ENABLE_COREML=OFF -DIILD_ENABLE_LIBTORCH=OFF`.\nOn macOS, CTest removes inherited `DYLD_*` library/framework overrides within\ntest processes so an older installed SDK cannot replace the newly built or\nrelocated library. The user's shell configuration is not modified.\n"
+    },
+    {
+      "id": "b000054",
+      "kind": "blank",
+      "start_line": 133,
+      "end_line": 133,
+      "raw": "\n"
+    },
+    {
+      "id": "b000055",
+      "kind": "paragraph",
+      "start_line": 134,
+      "end_line": 134,
+      "raw": "Discover hardware and execute a verified native batched linear operation:\n"
+    },
+    {
+      "id": "b000056",
+      "kind": "blank",
+      "start_line": 135,
+      "end_line": 135,
+      "raw": "\n"
+    },
+    {
+      "id": "b000057",
+      "kind": "fenced_code",
+      "start_line": 136,
+      "end_line": 139,
+      "raw": "```bash\n./build/iild-run devices\n./build/iild-run compute\n```\n",
+      "language": "bash",
+      "code": "./build/iild-run devices\n./build/iild-run compute\n",
+      "closed": true
+    },
+    {
+      "id": "b000058",
+      "kind": "blank",
+      "start_line": 140,
+      "end_line": 140,
+      "raw": "\n"
+    },
+    {
+      "id": "b000059",
+      "kind": "paragraph",
+      "start_line": 141,
+      "end_line": 147,
+      "raw": "Native computation and Python generation default to GPU-required automatic\nselection: an available CUDA/ROCm GPU, otherwise Metal. CPU is used only when\nexplicitly selected, either alone or as an opt-in cooperating device. An\nunavailable accelerator or failed operation is not\nsilently retried on CPU. Metal/CUDA/ROCm are backends; MLX and LibTorch are runtimes,\nnot device-name aliases. See [hardware compute](docs/hardware-compute.md)\nfor the C++ API, platform options, verification, and remaining limitations.\n"
+    },
+    {
+      "id": "b000060",
+      "kind": "blank",
+      "start_line": 148,
+      "end_line": 148,
+      "raw": "\n"
+    },
+    {
+      "id": "b000061",
+      "kind": "paragraph",
+      "start_line": 149,
+      "end_line": 152,
+      "raw": "Radeon uses `--device rocm`. The Python path requires an AMD HIP PyTorch\ndistribution; native C++ additionally enables `IILD_ENABLE_LIBTORCH=ON` with\nthat SDK's CMake package. Model/VAE/LoRA/ControlNet arguments, CPU prompt encoding, and\nRAM offload remain available. See [Radeon setup and hardware checks](docs/radeon-rocm.md).\n"
+    },
+    {
+      "id": "b000062",
+      "kind": "blank",
+      "start_line": 153,
+      "end_line": 153,
+      "raw": "\n"
+    },
+    {
+      "id": "b000063",
+      "kind": "paragraph",
+      "start_line": 154,
+      "end_line": 154,
+      "raw": "Use CPU and GPU together, with weights retained in RAM and bounded GPU staging:\n"
+    },
+    {
+      "id": "b000064",
+      "kind": "blank",
+      "start_line": 155,
+      "end_line": 155,
+      "raw": "\n"
+    },
+    {
+      "id": "b000065",
+      "kind": "fenced_code",
+      "start_line": 156,
+      "end_line": 158,
+      "raw": "```bash\n./build/iild-run compute --cpu-share 0.25 --weight-storage ram --gpu-weight-mib 64\n```\n",
+      "language": "bash",
+      "code": "./build/iild-run compute --cpu-share 0.25 --weight-storage ram --gpu-weight-mib 64\n",
+      "closed": true
+    },
+    {
+      "id": "b000066",
+      "kind": "blank",
+      "start_line": 159,
+      "end_line": 159,
+      "raw": "\n"
+    },
+    {
+      "id": "b000067",
+      "kind": "paragraph",
+      "start_line": 160,
+      "end_line": 162,
+      "raw": "The CPU computes a share of the linear layer's output features, concurrently\nwith the GPU's remaining share. RAM stores weights; it is not an arithmetic\ndevice. The budget limits a staged weight/bias block, not total process memory.\n"
+    },
+    {
+      "id": "b000068",
+      "kind": "blank",
+      "start_line": 163,
+      "end_line": 163,
+      "raw": "\n"
+    },
+    {
+      "id": "b000069",
+      "kind": "paragraph",
+      "start_line": 164,
+      "end_line": 164,
+      "raw": "Use eligible matrix precision or an explicitly compiled Neural Engine component:\n"
+    },
+    {
+      "id": "b000070",
+      "kind": "blank",
+      "start_line": 165,
+      "end_line": 165,
+      "raw": "\n"
+    },
+    {
+      "id": "b000071",
+      "kind": "fenced_code",
+      "start_line": 166,
+      "end_line": 169,
+      "raw": "```bash\n./build/iild-run compute --precision fp16\n./build/iild-run neural-compute --model /absolute/path/component.mlmodelc\n```\n",
+      "language": "bash",
+      "code": "./build/iild-run compute --precision fp16\n./build/iild-run neural-compute --model /absolute/path/component.mlmodelc\n",
+      "closed": true
+    },
+    {
+      "id": "b000072",
+      "kind": "blank",
+      "start_line": 170,
+      "end_line": 170,
+      "raw": "\n"
+    },
+    {
+      "id": "b000073",
+      "kind": "paragraph",
+      "start_line": 171,
+      "end_line": 175,
+      "raw": "Core ML defaults to CPU + Neural Engine, with at least one ANE-preferred\noperation required in its anticipated plan. This is independent of MLX and\ndoes not move the Python diffusion pipeline onto ANE. See\n[Neural Engine / Tensor Cores](docs/neural-accelerators.md) and\n[named-weight conversion](reference/coreml/README.md).\n"
+    },
+    {
+      "id": "b000074",
+      "kind": "blank",
+      "start_line": 176,
+      "end_line": 176,
+      "raw": "\n"
+    },
+    {
+      "id": "b000075",
+      "kind": "paragraph",
+      "start_line": 177,
+      "end_line": 177,
+      "raw": "Inspect a local Diffusers model package:\n"
+    },
+    {
+      "id": "b000076",
+      "kind": "blank",
+      "start_line": 178,
+      "end_line": 178,
+      "raw": "\n"
+    },
+    {
+      "id": "b000077",
+      "kind": "fenced_code",
+      "start_line": 179,
+      "end_line": 181,
+      "raw": "```bash\n./build/iild-run inspect /path/to/diffusers-model-package\n```\n",
+      "language": "bash",
+      "code": "./build/iild-run inspect /path/to/diffusers-model-package\n",
+      "closed": true
+    },
+    {
+      "id": "b000078",
+      "kind": "blank",
+      "start_line": 182,
+      "end_line": 182,
+      "raw": "\n"
+    },
+    {
+      "id": "b000079",
+      "kind": "paragraph",
+      "start_line": 183,
+      "end_line": 183,
+      "raw": "The repository includes a metadata-only fixture for a quick CLI smoke test:\n"
+    },
+    {
+      "id": "b000080",
+      "kind": "blank",
+      "start_line": 184,
+      "end_line": 184,
+      "raw": "\n"
+    },
+    {
+      "id": "b000081",
+      "kind": "fenced_code",
+      "start_line": 185,
+      "end_line": 189,
+      "raw": "```bash\n./build/iild-run inspect tests/fixtures/sd-v1-manifest\n./build/iild-run inspect tests/fixtures/sdxl-base-manifest\n./build/iild-run inspect tests/fixtures/flux1-schnell-manifest\n```\n",
+      "language": "bash",
+      "code": "./build/iild-run inspect tests/fixtures/sd-v1-manifest\n./build/iild-run inspect tests/fixtures/sdxl-base-manifest\n./build/iild-run inspect tests/fixtures/flux1-schnell-manifest\n",
+      "closed": true
+    },
+    {
+      "id": "b000082",
+      "kind": "blank",
+      "start_line": 190,
+      "end_line": 190,
+      "raw": "\n"
+    },
+    {
+      "id": "b000083",
+      "kind": "paragraph",
+      "start_line": 191,
+      "end_line": 193,
+      "raw": "Those fixtures contain placeholder files, not model tensors. Likewise, a\nsuccessful `inspect` result means that metadata and required artifact paths are\nconsistent; it does not mean the weights were parsed or inference succeeded.\n"
+    },
+    {
+      "id": "b000084",
+      "kind": "blank",
+      "start_line": 194,
+      "end_line": 194,
+      "raw": "\n"
+    },
+    {
+      "id": "b000085",
+      "kind": "heading",
+      "start_line": 195,
+      "end_line": 195,
+      "raw": "## Python reference oracle\n",
+      "level": 2,
+      "title": "Python reference oracle"
+    },
+    {
+      "id": "b000086",
+      "kind": "blank",
+      "start_line": 196,
+      "end_line": 196,
+      "raw": "\n"
+    },
+    {
+      "id": "b000087",
+      "kind": "paragraph",
+      "start_line": 197,
+      "end_line": 200,
+      "raw": "Model inputs have three explicit locations: `--model-path PATH` (legacy `--model`),\n`--model-api URL`, or `--model-cloud OWNER/MODEL --model-provider PROVIDER`.\nAPI/cloud sources evaluate the model remotely without downloading weights.\nSee [model sources](docs/model-sources.md) for supported protocols and Python/JSON inputs.\n"
+    },
+    {
+      "id": "b000088",
+      "kind": "blank",
+      "start_line": 201,
+      "end_line": 201,
+      "raw": "\n"
+    },
+    {
+      "id": "b000089",
+      "kind": "paragraph",
+      "start_line": 202,
+      "end_line": 206,
+      "raw": "Image and video generation use a fresh random base seed when `--seed` is omitted.\nPreset/checkpoint and LTX requests retain the seed in their resolved configuration\nand output metadata for replay. An explicit\nseed (including zero) is preserved; batches and animations retain their configured\nseed-stride and frame/shot policies. See [generation parameters](docs/generation-parameters.md).\n"
+    },
+    {
+      "id": "b000090",
+      "kind": "blank",
+      "start_line": 207,
+      "end_line": 207,
+      "raw": "\n"
+    },
+    {
+      "id": "b000091",
+      "kind": "paragraph",
+      "start_line": 208,
+      "end_line": 217,
+      "raw": "Video requests default to a caller-supplied **LTX** model followed by a\n**frame Interpolator**, with a final rate of 24 FPS and source spacing of 2.\nSet `--interpolation-factor 2..8` to change the spacing. The second stage uses\nexisting FFmpeg motion compensation and needs no additional model. It preserves\nthe output duration, LTX source anchors and storyboard cuts.\n**FPS <= 12 or GIF output** allows image-model animation: auto selection uses\nDeforum, or Interpolator when end prompt/seed inputs are present. Both image\nanimation modes default to 12 FPS and reject higher-FPS MP4 requests, including\nexplicit backend/Python calls. See [local model and video selection](docs/local-model-generation.md)\nfor the routing table, GIF timing and matching model arguments.\n"
+    },
+    {
+      "id": "b000092",
+      "kind": "blank",
+      "start_line": 218,
+      "end_line": 218,
+      "raw": "\n"
+    },
+    {
+      "id": "b000093",
+      "kind": "paragraph",
+      "start_line": 219,
+      "end_line": 225,
+      "raw": "[Interpolator video generation](docs/interpolator-video.md) is available through\n`iild-generate --backend interpolator`. It blends start/end prompt embeddings\nand seeded initial noise, then diffuses every frame with the existing\nSD/SDXL/FLUX.1 model runtime. Set `--end-prompt` and/or `--end-seed`; omission\nholds the corresponding starting value. Verified MP4/GIF, PNG frames and tensor/\nsampling provenance share the video output layer with Deforum. This mode needs\nthe existing Diffusers environment and FFmpeg/FFprobe, with no OpenCV dependency.\n"
+    },
+    {
+      "id": "b000094",
+      "kind": "blank",
+      "start_line": 226,
+      "end_line": 226,
+      "raw": "\n"
+    },
+    {
+      "id": "b000095",
+      "kind": "paragraph",
+      "start_line": 227,
+      "end_line": 234,
+      "raw": "[Deforum 2D video generation](docs/deforum-video.md) is available through\n`iild-generate --backend deforum` (or the preset runner's `--animation-mode 2D`).\nIt applies scheduled camera transforms and img2img diffusion to each preceding\nframe, reusing SD/SDXL/FLUX.1 model components, LoRA and static ControlNet.\nThe output includes a verified H.264 MP4 or GIF, lossless PNG frames and per-frame\nsampling/provenance records. Install the optional\n`reference/diffusers/requirements-deforum.txt` and provide FFmpeg/FFprobe.\nSee the linked guide for keyframes, supported combinations and 2D scope.\n"
+    },
+    {
+      "id": "b000096",
+      "kind": "blank",
+      "start_line": 235,
+      "end_line": 235,
+      "raw": "\n"
+    },
+    {
+      "id": "b000097",
+      "kind": "paragraph",
+      "start_line": 236,
+      "end_line": 242,
+      "raw": "[Generation I/O and composition](docs/generation-composition.md) supports explicit\ndiffusion, rectified flow, flow matching, autoregressive and mixed stage contracts.\nThe native `Generation/GenerationIO.hpp` API validates/routes owned host tensors;\nPython adapters connect loaded Diffusers and Transformers runtimes, including\nexplicit tokenizer/latent bridges. Generic generation can preserve latent,\ntoken and text outputs with reusable safetensors descriptors. Existing full\nneural generation remains in the selected Python/backend runtime.\n"
+    },
+    {
+      "id": "b000098",
+      "kind": "blank",
+      "start_line": 243,
+      "end_line": 243,
+      "raw": "\n"
+    },
+    {
+      "id": "b000099",
+      "kind": "paragraph",
+      "start_line": 244,
+      "end_line": 250,
+      "raw": "The unified `reference/generate.py` entry point routes Civitai base-model names\nto local generation backends. Its pinned catalog describes 104 selected base\ntypes: 79 local, 23 hosted and 2 unknown. Catalog coverage is distinct from\nsuccessful inference. Illustrious, NoobAI (including a v-prediction preset),\nPony, FLUX.1 dev and FLUX.1 Krea use the extended image oracle. Other built-in\nDiffusers pipelines and explicit local ComfyUI API workflows provide additional\nimage, video, audio and 3D execution paths.\n"
+    },
+    {
+      "id": "b000100",
+      "kind": "blank",
+      "start_line": 251,
+      "end_line": 251,
+      "raw": "\n"
+    },
+    {
+      "id": "b000101",
+      "kind": "paragraph",
+      "start_line": 252,
+      "end_line": 255,
+      "raw": "Unified model merges publish one portable `.iildmodel` ZIP64 stored file rather\nthan a directory. The same file is a Society catalog item, a native generation\ninput, and—when it contains exactly one checkpoint stage without pending\nLoRAs—a weighted-merge input. Legacy directory packages remain read-compatible.\n"
+    },
+    {
+      "id": "b000102",
+      "kind": "blank",
+      "start_line": 256,
+      "end_line": 256,
+      "raw": "\n"
+    },
+    {
+      "id": "b000103",
+      "kind": "paragraph",
+      "start_line": 257,
+      "end_line": 261,
+      "raw": "Weighted merging also provides the explicit `--checkpoint-policy common-layer`\nescape hatch for experiments such as Flux/Krea with incompatible namespaces,\nshapes or INT8 storage. It projects foreign tensors onto the base layout and is\nguaranteed only to preserve the base file contract, not image quality or semantic\nequivalence. Strict compatibility remains available with `strict`.\n"
+    },
+    {
+      "id": "b000104",
+      "kind": "blank",
+      "start_line": 262,
+      "end_line": 262,
+      "raw": "\n"
+    },
+    {
+      "id": "b000105",
+      "kind": "paragraph",
+      "start_line": 263,
+      "end_line": 270,
+      "raw": "Downloaded SD 1.x and SDXL checkpoints automatically run in the SDK's\nDiffusers/PyTorch process with bundled offline configuration and tokenizers.\nImage, Deforum/Interpolator and LTX video generation do not require ComfyUI.\nExisting graph/GGUF recipes remain available through the explicit optional\n`--backend comfyui-local` backend. No model weights are bundled or downloaded\nat inference time. See [standalone usage](docs/local-image-generation.md),\n[optional managed workflows](docs/managed-comfyui-image.md), and\n[file inspection](docs/downloaded-models.md).\n"
+    },
+    {
+      "id": "b000106",
+      "kind": "blank",
+      "start_line": 271,
+      "end_line": 271,
+      "raw": "\n"
+    },
+    {
+      "id": "b000107",
+      "kind": "fenced_code",
+      "start_line": 272,
+      "end_line": 283,
+      "raw": "```bash\npython3 reference/generate.py --list-base-models\npython3 reference/generate.py --base-model Illustrious --print-config --model /absolute/path/image-diffusers\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --model /path/illustrious.safetensors --prompt \"a red cube\" --device mps\nreference/diffusers/.venv/bin/python reference/generate.py --model-config /absolute/path/model-config \\\n  --base-model NoobAI --preset noobai-v-pred --model /path/noobai.safetensors\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --model /path/local-diffusers-package --prompt \"a red cube\"\npython3 reference/generate.py --backend comfyui \\\n  --workflow /path/workflow-api.json --validate-only\n```\n",
+      "language": "bash",
+      "code": "python3 reference/generate.py --list-base-models\npython3 reference/generate.py --base-model Illustrious --print-config --model /absolute/path/image-diffusers\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --model /path/illustrious.safetensors --prompt \"a red cube\" --device mps\nreference/diffusers/.venv/bin/python reference/generate.py --model-config /absolute/path/model-config \\\n  --base-model NoobAI --preset noobai-v-pred --model /path/noobai.safetensors\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --model /path/local-diffusers-package --prompt \"a red cube\"\npython3 reference/generate.py --backend comfyui \\\n  --workflow /path/workflow-api.json --validate-only\n",
+      "closed": true
+    },
+    {
+      "id": "b000108",
+      "kind": "blank",
+      "start_line": 284,
+      "end_line": 284,
+      "raw": "\n"
+    },
+    {
+      "id": "b000109",
+      "kind": "paragraph",
+      "start_line": 285,
+      "end_line": 290,
+      "raw": "See the [Civitai catalog](docs/civitai-models.md),\n[derived model contracts](docs/model-families.md),\n[generic Diffusers runner](docs/generic-diffusers.md), and\n[local workflow runner](docs/comfyui-generation.md). A workflow needs installed\nnodes and matching weights; a catalog entry alone is not a compatibility\nguarantee. C++ metadata inspection retains its original three contracts.\n"
+    },
+    {
+      "id": "b000110",
+      "kind": "blank",
+      "start_line": 291,
+      "end_line": 291,
+      "raw": "\n"
+    },
+    {
+      "id": "b000111",
+      "kind": "paragraph",
+      "start_line": 292,
+      "end_line": 294,
+      "raw": "The Python tools under `reference/diffusers/` are a validation oracle, not a\nruntime dependency of the C++ library. They pin both the package versions and\nthe Hugging Face model revision used by the project's fixed red-cube fixture.\n"
+    },
+    {
+      "id": "b000112",
+      "kind": "blank",
+      "start_line": 295,
+      "end_line": 295,
+      "raw": "\n"
+    },
+    {
+      "id": "b000113",
+      "kind": "paragraph",
+      "start_line": 296,
+      "end_line": 302,
+      "raw": "All supported generation values are exposed as CLI options, a typed JSON\n`--config`, and Python `resolve_request()`, with shared/preset defaults for\noptional values. An explicit model source is required. `generate.py --print-config` shows\nthe complete resolved values\nwithout model downloads or a Torch installation. Sampling, scheduler settings,\nsecondary prompts, batching/seeds, dtypes, memory policies and optional\nlatent/embedding files are covered in [generation parameters](docs/generation-parameters.md).\n"
+    },
+    {
+      "id": "b000114",
+      "kind": "blank",
+      "start_line": 303,
+      "end_line": 303,
+      "raw": "\n"
+    },
+    {
+      "id": "b000115",
+      "kind": "fenced_code",
+      "start_line": 304,
+      "end_line": 327,
+      "raw": "```bash\nuv venv reference/diffusers/.venv --python 3.14\nuv pip install \\\n  --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements.txt\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset sdxl-base\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset sdxl-base --model /absolute/path/image-diffusers\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset flux1-schnell\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset flux1-schnell --model /absolute/path/image-diffusers\n```\n",
+      "language": "bash",
+      "code": "uv venv reference/diffusers/.venv --python 3.14\nuv pip install \\\n  --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements.txt\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset sdxl-base\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset sdxl-base --model /absolute/path/image-diffusers\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset flux1-schnell\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset flux1-schnell --model /absolute/path/image-diffusers\n",
+      "closed": true
+    },
+    {
+      "id": "b000116",
+      "kind": "blank",
+      "start_line": 328,
+      "end_line": 328,
+      "raw": "\n"
+    },
+    {
+      "id": "b000117",
+      "kind": "paragraph",
+      "start_line": 329,
+      "end_line": 339,
+      "raw": "The generation default is `--device auto`; explicit choices include\n`--device metal` (alias `mps`), `--device cuda`, `--device rocm`, and diagnostic `--device cpu`.\nGPU preflight and the actual pipeline execution device are recorded in the\nimage sidecar. The Python oracle still uses PyTorch, independently of MLX.\nCUDA defaults also permit TF32 on eligible Ampere-or-newer NVIDIA GPUs;\n`--no-cuda-tf32` selects IEEE FP32 math without disabling FP16/BF16 Tensor\nCore kernels. Eligibility and applied policy are recorded, not inferred\ninstruction utilization.\nHIP uses Torch's `cuda` namespace internally but records the actual backend\nas `rocm`, never NVIDIA. TF32 switches are rejected on AMD; use\n`requirements-rocm.txt` after installing the correct vendor Torch wheel.\n"
+    },
+    {
+      "id": "b000118",
+      "kind": "blank",
+      "start_line": 340,
+      "end_line": 340,
+      "raw": "\n"
+    },
+    {
+      "id": "b000119",
+      "kind": "paragraph",
+      "start_line": 341,
+      "end_line": 342,
+      "raw": "To compute text embeddings on CPU and store inactive weights in RAM while\nkeeping image denoising/decoding on the selected GPU:\n"
+    },
+    {
+      "id": "b000120",
+      "kind": "blank",
+      "start_line": 343,
+      "end_line": 343,
+      "raw": "\n"
+    },
+    {
+      "id": "b000121",
+      "kind": "fenced_code",
+      "start_line": 344,
+      "end_line": 348,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --cpu-text-encoding --cpu-threads 4 --offload model \\\n  --output build/reference/sdxl-cpu-ram.png\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --cpu-text-encoding --cpu-threads 4 --offload model \\\n  --output build/reference/sdxl-cpu-ram.png\n",
+      "closed": true
+    },
+    {
+      "id": "b000122",
+      "kind": "blank",
+      "start_line": 349,
+      "end_line": 349,
+      "raw": "\n"
+    },
+    {
+      "id": "b000123",
+      "kind": "paragraph",
+      "start_line": 350,
+      "end_line": 352,
+      "raw": "`--offload auto|none|model|sequential` controls weight residency separately from\nCPU arithmetic. Existing model/VAE/LoRA/ControlNet inputs compose with these options.\nFull CPU-only generation remains available through `--device cpu`.\n"
+    },
+    {
+      "id": "b000124",
+      "kind": "blank",
+      "start_line": 353,
+      "end_line": 353,
+      "raw": "\n"
+    },
+    {
+      "id": "b000125",
+      "kind": "paragraph",
+      "start_line": 354,
+      "end_line": 354,
+      "raw": "Replace model, VAE, and LoRA weights independently during generation:\n"
+    },
+    {
+      "id": "b000126",
+      "kind": "blank",
+      "start_line": 355,
+      "end_line": 355,
+      "raw": "\n"
+    },
+    {
+      "id": "b000127",
+      "kind": "fenced_code",
+      "start_line": 356,
+      "end_line": 364,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model-config /absolute/path/model-config \\\n  --preset sdxl-base \\\n  --model /absolute/path/to/sdxl-checkpoint.safetensors \\\n  --vae /absolute/path/to/sdxl-vae.safetensors \\\n  --lora /absolute/path/to/sdxl-style.safetensors \\\n  --lora-scale 0.75\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model-config /absolute/path/model-config \\\n  --preset sdxl-base \\\n  --model /absolute/path/to/sdxl-checkpoint.safetensors \\\n  --vae /absolute/path/to/sdxl-vae.safetensors \\\n  --lora /absolute/path/to/sdxl-style.safetensors \\\n  --lora-scale 0.75\n",
+      "closed": true
+    },
+    {
+      "id": "b000128",
+      "kind": "blank",
+      "start_line": 365,
+      "end_line": 365,
+      "raw": "\n"
+    },
+    {
+      "id": "b000129",
+      "kind": "paragraph",
+      "start_line": 366,
+      "end_line": 374,
+      "raw": "The generation oracle accepts local single-file weights as well as the\nexisting local Diffusers-directory inputs. `--model-config` is required for a\nsingle-file model and selects its local configuration and auxiliary components. SD 1.5 and\nSDXL accept original-format checkpoints or denoiser-only files, while FLUX\naccepts a transformer-only file. Each file must match the selected model\nfamily. Both `.safetensors` and the local `.safetensor` spelling are accepted;\npickle checkpoints are not. This does not add single-file loading or image\ngeneration to the C++ inspector. See\n[`docs/model-inputs.md`](docs/model-inputs.md) for the full contract.\n"
+    },
+    {
+      "id": "b000130",
+      "kind": "blank",
+      "start_line": 375,
+      "end_line": 375,
+      "raw": "\n"
+    },
+    {
+      "id": "b000131",
+      "kind": "paragraph",
+      "start_line": 376,
+      "end_line": 376,
+      "raw": "Apply a local LoRA to an explicitly supplied local base model:\n"
+    },
+    {
+      "id": "b000132",
+      "kind": "blank",
+      "start_line": 377,
+      "end_line": 377,
+      "raw": "\n"
+    },
+    {
+      "id": "b000133",
+      "kind": "fenced_code",
+      "start_line": 378,
+      "end_line": 385,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/adapter.safetensors \\\n  --lora-scale 0.75 \\\n  --output build/reference/flux-lora.png\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/adapter.safetensors \\\n  --lora-scale 0.75 \\\n  --output build/reference/flux-lora.png\n",
+      "closed": true
+    },
+    {
+      "id": "b000134",
+      "kind": "blank",
+      "start_line": 386,
+      "end_line": 386,
+      "raw": "\n"
+    },
+    {
+      "id": "b000135",
+      "kind": "paragraph",
+      "start_line": 387,
+      "end_line": 389,
+      "raw": "No adapter is bundled or selected automatically. Supply a local adapter file\nor a local directory with an exact safetensors filename. See\n[`docs/lora.md`](docs/lora.md) for the complete input and provenance contract.\n"
+    },
+    {
+      "id": "b000136",
+      "kind": "blank",
+      "start_line": 390,
+      "end_line": 390,
+      "raw": "\n"
+    },
+    {
+      "id": "b000137",
+      "kind": "paragraph",
+      "start_line": 391,
+      "end_line": 391,
+      "raw": "Load learned Textual Inversion tokens and reference them in prompt text:\n"
+    },
+    {
+      "id": "b000138",
+      "kind": "blank",
+      "start_line": 392,
+      "end_line": 392,
+      "raw": "\n"
+    },
+    {
+      "id": "b000139",
+      "kind": "fenced_code",
+      "start_line": 393,
+      "end_line": 399,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 \\\n  --text-embedding /absolute/path/to/style.safetensors \\\n  --text-embedding-token '<style>' \\\n  --prompt 'a ceramic cup in <style> style'\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 \\\n  --text-embedding /absolute/path/to/style.safetensors \\\n  --text-embedding-token '<style>' \\\n  --prompt 'a ceramic cup in <style> style'\n",
+      "closed": true
+    },
+    {
+      "id": "b000140",
+      "kind": "blank",
+      "start_line": 400,
+      "end_line": 400,
+      "raw": "\n"
+    },
+    {
+      "id": "b000141",
+      "kind": "paragraph",
+      "start_line": 401,
+      "end_line": 407,
+      "raw": "`--text-embedding` accepts one or more local learned-token files and works\nwith SD 1.5, SDXL and FLUX, including ControlNet, CPU prompt encoding and\nHires Fix. Token names and target encoders can be selected explicitly.\nThe existing `--embeddings` option instead supplies completed prompt\ntensors; the two input modes cannot be combined. See\n[learned text embeddings](docs/text-embeddings.md) for file formats,\nmulti-vector tokens and encoder selection.\n"
+    },
+    {
+      "id": "b000142",
+      "kind": "blank",
+      "start_line": 408,
+      "end_line": 408,
+      "raw": "\n"
+    },
+    {
+      "id": "b000143",
+      "kind": "paragraph",
+      "start_line": 409,
+      "end_line": 409,
+      "raw": "Add one ControlNet with a prepared conditioning image:\n"
+    },
+    {
+      "id": "b000144",
+      "kind": "blank",
+      "start_line": 410,
+      "end_line": 410,
+      "raw": "\n"
+    },
+    {
+      "id": "b000145",
+      "kind": "fenced_code",
+      "start_line": 411,
+      "end_line": 417,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 \\\n  --controlnet /absolute/path/to/sd15-controlnet-package \\\n  --control-image /absolute/path/to/prepared-canny.png \\\n  --controlnet-scale 0.8\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 \\\n  --controlnet /absolute/path/to/sd15-controlnet-package \\\n  --control-image /absolute/path/to/prepared-canny.png \\\n  --controlnet-scale 0.8\n",
+      "closed": true
+    },
+    {
+      "id": "b000146",
+      "kind": "blank",
+      "start_line": 418,
+      "end_line": 418,
+      "raw": "\n"
+    },
+    {
+      "id": "b000147",
+      "kind": "paragraph",
+      "start_line": 419,
+      "end_line": 427,
+      "raw": "The SD1/SDXL/FLUX family presets support a compatible single ControlNet from a local\nDiffusers component package or local safetensors\nfile with its component configuration. Omitting `--controlnet` disables it;\nwhen selected, strength defaults to 1.0 for the full denoising interval.\nInputs must already be the model's expected edges, depth, pose, or other\ncondition; no detector runs automatically. The default filename adds\n`-controlnet`, and sidecars record weight/configuration/image hashes and\ncontrol settings. Model, VAE, LoRA, CPU prompt encoding, and RAM offload\nremain composable. See [ControlNet inputs and limits](docs/controlnet.md).\n"
+    },
+    {
+      "id": "b000148",
+      "kind": "blank",
+      "start_line": 428,
+      "end_line": 428,
+      "raw": "\n"
+    },
+    {
+      "id": "b000149",
+      "kind": "paragraph",
+      "start_line": 429,
+      "end_line": 430,
+      "raw": "Add Hires Fix for repeated refinement with every preset, including runs\nwith ControlNet, LoRA, or a replacement VAE:\n"
+    },
+    {
+      "id": "b000150",
+      "kind": "blank",
+      "start_line": 431,
+      "end_line": 431,
+      "raw": "\n"
+    },
+    {
+      "id": "b000151",
+      "kind": "fenced_code",
+      "start_line": 432,
+      "end_line": 438,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 --width 512 --height 512 \\\n  --hires-fix --hires-passes 2 --hires-scale 2 --hires-upscaler lanczos \\\n  --hires-denoising-strength 0.35 --hires-steps 30 \\\n  --hires-save-base\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 --width 512 --height 512 \\\n  --hires-fix --hires-passes 2 --hires-scale 2 --hires-upscaler lanczos \\\n  --hires-denoising-strength 0.35 --hires-steps 30 \\\n  --hires-save-base\n",
+      "closed": true
+    },
+    {
+      "id": "b000152",
+      "kind": "blank",
+      "start_line": 439,
+      "end_line": 439,
+      "raw": "\n"
+    },
+    {
+      "id": "b000153",
+      "kind": "paragraph",
+      "start_line": 440,
+      "end_line": 456,
+      "raw": "This generates at 512 × 512, then resizes and refines at 1024 × 1024 and\n2048 × 2048. Each refinement uses the preceding output and repeats the same\nsettings with fresh scheduler and generator state. `--hires-passes` defaults\nto 1 when enabled; `--hires-scale` applies per pass. Explicit HiRes dimensions\ninstead select the first refinement size, whose per-axis factors repeat.\nHires Fix is enabled by default: without explicit resize overrides, dimensions\nare the final target and base generation uses half of each axis. An explicit\n`--hires-scale` or `--hires-width/height` selects the resize chain above;\n`--no-hires-fix` requests a single pass. Hires adds `-hires` to default\nfilenames. Only the final refinement is saved unless `--hires-save-base`\nalso preserves the original base image. Sidecars retain ordered stage\nrecords and requested/completed refinement counts. Strength selects the\nactive portion of each schedule, so `--hires-steps` is not the active step\ncount. The managed local checkpoint backend also supports repeated HiRes\nwith its documented resize/strength/steps options. See the\n[Hires Fix contract](docs/hires-fix.md) for defaults, composition, metadata,\nand quality-validation limits.\n"
+    },
+    {
+      "id": "b000154",
+      "kind": "blank",
+      "start_line": 457,
+      "end_line": 457,
+      "raw": "\n"
+    },
+    {
+      "id": "b000155",
+      "kind": "paragraph",
+      "start_line": 458,
+      "end_line": 462,
+      "raw": "Local generation requires an explicit `--model-path`/`--model`; model downloads are outside\nthe generation request. Generated outputs default to `build/reference/`, keeping the\nsource tree and the system disk free of multi-gigabyte model caches. See\n[`reference/diffusers/README.md`](reference/diffusers/README.md) for the exact\ncommands and limitations.\n"
+    },
+    {
+      "id": "b000156",
+      "kind": "blank",
+      "start_line": 463,
+      "end_line": 463,
+      "raw": "\n"
+    },
+    {
+      "id": "b000157",
+      "kind": "paragraph",
+      "start_line": 464,
+      "end_line": 465,
+      "raw": "See [local model arguments](docs/local-model-generation.md) for the required\nmodel/component paths and offline generation contract.\n"
+    },
+    {
+      "id": "b000158",
+      "kind": "blank",
+      "start_line": 466,
+      "end_line": 466,
+      "raw": "\n"
+    },
+    {
+      "id": "b000159",
+      "kind": "heading",
+      "start_line": 467,
+      "end_line": 467,
+      "raw": "## Temporal video generation\n",
+      "level": 2,
+      "title": "Temporal video generation"
+    },
+    {
+      "id": "b000160",
+      "kind": "blank",
+      "start_line": 468,
+      "end_line": 468,
+      "raw": "\n"
+    },
+    {
+      "id": "b000161",
+      "kind": "paragraph",
+      "start_line": 469,
+      "end_line": 469,
+      "raw": "Generate video from text or image keyframes with a temporal diffusion model:\n"
+    },
+    {
+      "id": "b000162",
+      "kind": "blank",
+      "start_line": 470,
+      "end_line": 470,
+      "raw": "\n"
+    },
+    {
+      "id": "b000163",
+      "kind": "fenced_code",
+      "start_line": 471,
+      "end_line": 475,
+      "raw": "```sh\nreference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --prompt 'A glass bottle glints in warm sunlight.' \\\n  --camera dolly-in --duration 5 --output build/reference/bottle.mp4\n```\n",
+      "language": "sh",
+      "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --prompt 'A glass bottle glints in warm sunlight.' \\\n  --camera dolly-in --duration 5 --output build/reference/bottle.mp4\n",
+      "closed": true
+    },
+    {
+      "id": "b000164",
+      "kind": "blank",
+      "start_line": 476,
+      "end_line": 476,
+      "raw": "\n"
+    },
+    {
+      "id": "b000165",
+      "kind": "paragraph",
+      "start_line": 477,
+      "end_line": 480,
+      "raw": "The LTX video backend supports first/last image conditions, camera-preset mixes\nand JSON shot plans with previous-shot continuity. It records model and input\nprovenance and verifies the encoded MP4. See [temporal video generation](docs/temporal-video.md)\nfor configuration, licensing, hardware requirements and validation scope.\n"
+    },
+    {
+      "id": "b000166",
+      "kind": "blank",
+      "start_line": 481,
+      "end_line": 481,
+      "raw": "\n"
+    },
+    {
+      "id": "b000167",
+      "kind": "heading",
+      "start_line": 482,
+      "end_line": 482,
+      "raw": "## Project boundaries\n",
+      "level": 2,
+      "title": "Project boundaries"
+    },
+    {
+      "id": "b000168",
+      "kind": "blank",
+      "start_line": 483,
+      "end_line": 483,
+      "raw": "\n"
+    },
+    {
+      "id": "b000169",
+      "kind": "paragraph",
+      "start_line": 484,
+      "end_line": 485,
+      "raw": "The ownership boundary, dependency decisions, tensor contracts, and explicit\nnon-goals are recorded in:\n"
+    },
+    {
+      "id": "b000170",
+      "kind": "blank",
+      "start_line": 486,
+      "end_line": 486,
+      "raw": "\n"
+    },
+    {
+      "id": "b000171",
+      "kind": "list",
+      "start_line": 487,
+      "end_line": 498,
+      "raw": "- [`docs/architecture.md`](docs/architecture.md)\n- [`docs/stable-diffusion-v1.md`](docs/stable-diffusion-v1.md)\n- [`docs/stable-diffusion-xl.md`](docs/stable-diffusion-xl.md)\n- [`docs/flux1-schnell.md`](docs/flux1-schnell.md)\n- [`docs/model-inputs.md`](docs/model-inputs.md)\n- [`docs/lora.md`](docs/lora.md)\n- [`docs/text-embeddings.md`](docs/text-embeddings.md)\n- [`docs/controlnet.md`](docs/controlnet.md)\n- [`docs/hires-fix.md`](docs/hires-fix.md)\n- [`docs/hardware-compute.md`](docs/hardware-compute.md)\n- [`docs/neural-accelerators.md`](docs/neural-accelerators.md)\n- [`docs/dependencies.md`](docs/dependencies.md)\n",
+      "items": [
+        {
+          "marker": "-",
+          "text": "[`docs/architecture.md`](docs/architecture.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[`docs/stable-diffusion-v1.md`](docs/stable-diffusion-v1.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[`docs/stable-diffusion-xl.md`](docs/stable-diffusion-xl.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[`docs/flux1-schnell.md`](docs/flux1-schnell.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[`docs/model-inputs.md`](docs/model-inputs.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[`docs/lora.md`](docs/lora.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[`docs/text-embeddings.md`](docs/text-embeddings.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[`docs/controlnet.md`](docs/controlnet.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[`docs/hires-fix.md`](docs/hires-fix.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[`docs/hardware-compute.md`](docs/hardware-compute.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[`docs/neural-accelerators.md`](docs/neural-accelerators.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[`docs/dependencies.md`](docs/dependencies.md)",
+          "checked": null
+        }
+      ]
+    },
+    {
+      "id": "b000172",
+      "kind": "blank",
+      "start_line": 499,
+      "end_line": 499,
+      "raw": "\n"
+    },
+    {
+      "id": "b000173",
+      "kind": "heading",
+      "start_line": 500,
+      "end_line": 500,
+      "raw": "## License\n",
+      "level": 2,
+      "title": "License"
+    },
+    {
+      "id": "b000174",
+      "kind": "blank",
+      "start_line": 501,
+      "end_line": 501,
+      "raw": "\n"
+    },
+    {
+      "id": "b000175",
+      "kind": "paragraph",
+      "start_line": 502,
+      "end_line": 502,
+      "raw": "SPDX-License-Identifier: MIT\n"
+    },
+    {
+      "id": "b000176",
+      "kind": "blank",
+      "start_line": 503,
+      "end_line": 503,
+      "raw": "\n"
+    },
+    {
+      "id": "b000177",
+      "kind": "paragraph",
+      "start_line": 504,
+      "end_line": 506,
+      "raw": "The original code and documentation in iiLocalDiffusion are distributed under\nthe MIT License. See [LICENSE](LICENSE)\nfor the full license text.\n"
+    },
+    {
+      "id": "b000178",
+      "kind": "blank",
+      "start_line": 507,
+      "end_line": 507,
+      "raw": "\n"
+    },
+    {
+      "id": "b000179",
+      "kind": "paragraph",
+      "start_line": 508,
+      "end_line": 512,
+      "raw": "Third-party code, libraries, tools, and model weights retain their respective\nlicenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency\nnotices. The SD 1.5 reference uses CreativeML OpenRAIL-M, SDXL Base 1.0 uses\nCreativeML Open RAIL++-M, and FLUX.1-schnell uses Apache-2.0; no model weights\nare stored in this repository.\n"
+    },
+    {
+      "id": "b000180",
+      "kind": "blank",
+      "start_line": 513,
+      "end_line": 513,
+      "raw": "\n"
+    },
+    {
+      "id": "b000181",
+      "kind": "paragraph",
+      "start_line": 514,
+      "end_line": 514,
+      "raw": "Native progress now distinguishes weight loading, denoising and image decoding. The pinned backend patch and cooperative cancellation/deadline contract are described in [native-image-generation.md](docs/native-image-generation.md).\n"
+    },
+    {
+      "id": "b000182",
+      "kind": "blank",
+      "start_line": 515,
+      "end_line": 515,
+      "raw": "\n"
+    },
+    {
+      "id": "b000183",
+      "kind": "paragraph",
+      "start_line": 516,
+      "end_line": 516,
+      "raw": "Native generation optionally caches a copy of the Q8/VAE F16 model on disk preserving the original, and keeps the engine and mmap of the most recent successful model in memory. Apple's per-device GPU budget, total CPU core, direct mmap upload, and cache invalidation contract are referenced in the [native documentation](docs/native-image-generation.md).\n"
+    },
+    {
+      "id": "b000184",
+      "kind": "blank",
+      "start_line": 517,
+      "end_line": 517,
+      "raw": "\n"
+    },
+    {
+      "id": "b000185",
+      "kind": "paragraph",
+      "start_line": 518,
+      "end_line": 518,
+      "raw": "`generateNativeImageWithBackend` adds explicit CPU-only image inference for consumers with a background CPU grant and no GPU access. Existing APIs keep automatic placement and ABI layouts. See [native execution](docs/native-image-generation.md#explicit-cpu-execution-for-background-tasks) for resource and cache behavior.\n"
+    },
+    {
+      "id": "b000186",
+      "kind": "blank",
+      "start_line": 519,
+      "end_line": 519,
+      "raw": "\n"
+    },
+    {
+      "id": "b000187",
+      "kind": "paragraph",
+      "start_line": 520,
+      "end_line": 520,
+      "raw": "Native VAE validates the full tensor structure before mounting, and automatically adjusts the SDXL tile size according to the memory budget. Abnormal latent values and decoding values are blocked as errors before saving to RGB. Policies and methods for comparing actual weight values are recorded for [VAE validation and automatic optimization](docs/native-image-generation.md#vae-마운트-검증과-자동-최적화).\n"
+    },
+    {
+      "id": "b000188",
+      "kind": "heading",
+      "start_line": 521,
+      "end_line": 521,
+      "raw": "## Native model packaging\n",
+      "level": 2,
+      "title": "Native model packaging"
+    },
+    {
+      "id": "b000189",
+      "kind": "blank",
+      "start_line": 522,
+      "end_line": 522,
+      "raw": "\n"
+    },
+    {
+      "id": "b000190",
+      "kind": "paragraph",
+      "start_line": 523,
+      "end_line": 529,
+      "raw": "The Qt-free `iiLocalDiffusion::ModelPackaging` module bundles a model folder,\nsafetensors shards, LoRA/VAE tensors and supporting tokenizer/configuration\nassets into one verified safetensors container. GGUF components are retained\nbyte for byte and can be materialized as GGUF; ONNX model files are rejected. It streams weights\nwithout casting them and provides\nbyte-identical original-file restoration. See [model packaging](docs/model-packaging.md)\nfor the format, C++ API, `iild-model-package` CLI and validation contract.\n"
+    },
+    {
+      "id": "b000191",
+      "kind": "blank",
+      "start_line": 530,
+      "end_line": 530,
+      "raw": "\n"
+    },
+    {
+      "id": "b000192",
+      "kind": "paragraph",
+      "start_line": 531,
+      "end_line": 531,
+      "raw": "Model merging uses the reserved `.iild-merge-<tempfile token>` workspace beneath the output directory and removes it on normal success or failure. Society holds a parent temporary lease while merging; its container maintenance can recognize an abandoned workspace without deriving temporary names from a user filename.\n"
+    },
+    {
+      "id": "b000193",
+      "kind": "blank",
+      "start_line": 532,
+      "end_line": 532,
+      "raw": "\n"
+    },
+    {
+      "id": "b000194",
+      "kind": "html",
+      "start_line": 533,
+      "end_line": 533,
+      "raw": "<!-- workspace-docs:readme:start -->\n"
+    },
+    {
+      "id": "b000195",
+      "kind": "heading",
+      "start_line": 534,
+      "end_line": 534,
+      "raw": "## Documentation entry points\n",
+      "level": 2,
+      "title": "Documentation entry points"
+    },
+    {
+      "id": "b000196",
+      "kind": "blank",
+      "start_line": 535,
+      "end_line": 535,
+      "raw": "\n"
+    },
+    {
+      "id": "b000197",
+      "kind": "list",
+      "start_line": 536,
+      "end_line": 539,
+      "raw": "- Human overview: this English `README.md`.\n- Agent instructions: [AGENT.md](AGENT.md).\n- Human documentation: [documentation index](docs/README.md).\n- Structured agent documentation: [agent index](docs/agent-index.json).\n",
+      "items": [
+        {
+          "marker": "-",
+          "text": "Human overview: this English `README.md`.",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "Agent instructions: [AGENT.md](AGENT.md).",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "Human documentation: [documentation index](docs/README.md).",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "Structured agent documentation: [agent index](docs/agent-index.json).",
+          "checked": null
+        }
+      ]
+    },
+    {
+      "id": "b000198",
+      "kind": "html",
+      "start_line": 540,
+      "end_line": 540,
+      "raw": "<!-- workspace-docs:readme:end -->\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "iiLocalDiffusion",
+      "anchor": "iilocaldiffusion",
+      "start_line": 1
+    },
+    {
+      "block_id": "b000033",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Install for local use",
+      "anchor": "install-for-local-use",
+      "start_line": 84
+    },
+    {
+      "block_id": "b000041",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Build and test",
+      "anchor": "build-and-test",
+      "start_line": 100
+    },
+    {
+      "block_id": "b000085",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Python reference oracle",
+      "anchor": "python-reference-oracle",
+      "start_line": 195
+    },
+    {
+      "block_id": "b000159",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Temporal video generation",
+      "anchor": "temporal-video-generation",
+      "start_line": 467
+    },
+    {
+      "block_id": "b000167",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Project boundaries",
+      "anchor": "project-boundaries",
+      "start_line": 482
+    },
+    {
+      "block_id": "b000173",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "License",
+      "anchor": "license",
+      "start_line": 500
+    },
+    {
+      "block_id": "b000188",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Native model packaging",
+      "anchor": "native-model-packaging",
+      "start_line": 521
+    },
+    {
+      "block_id": "b000195",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Documentation entry points",
+      "anchor": "documentation-entry-points",
+      "start_line": 534
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000025",
+        "line": 57,
+        "text": "are required; weights and further models are optional. It supports weighted sums",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000047",
+        "line": 115,
+        "text": "On Apple Silicon, `xcrun metal --version` must succeed; merely installing the",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000059",
+        "line": 141,
+        "text": "Native computation and Python generation default to GPU-required automatic",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000073",
+        "line": 172,
+        "text": "operation required in its anticipated plan. This is independent of MLX and",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000083",
+        "line": 192,
+        "text": "successful `inspect` result means that metadata and required artifact paths are",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000105",
+        "line": 265,
+        "text": "Image, Deforum/Interpolator and LTX video generation do not require ComfyUI.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000113",
+        "line": 298,
+        "text": "optional values. An explicit model source is required. `generate.py --print-config` shows",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000117",
+        "line": 338,
+        "text": "as `rocm`, never NVIDIA. TF32 switches are rejected on AMD; use",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000129",
+        "line": 367,
+        "text": "existing local Diffusers-directory inputs. `--model-config` is required for a",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000129",
+        "line": 370,
+        "text": "accepts a transformer-only file. Each file must match the selected model",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000147",
+        "line": 423,
+        "text": "Inputs must already be the model's expected edges, depth, pose, or other",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000157",
+        "line": 464,
+        "text": "See [local model arguments](docs/local-model-generation.md) for the required",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [
+      {
+        "block_id": "b000037",
+        "language": "bash",
+        "code": "./install.sh\n\"$HOME/.local/SDK/iiLocalDiffusion/bin/iild-run\" devices\n\"$HOME/.local/SDK/iiLocalDiffusion/bin/iild-generate\" --list-base-models\n"
+      },
+      {
+        "block_id": "b000051",
+        "language": "bash",
+        "code": "cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n"
+      },
+      {
+        "block_id": "b000057",
+        "language": "bash",
+        "code": "./build/iild-run devices\n./build/iild-run compute\n"
+      },
+      {
+        "block_id": "b000065",
+        "language": "bash",
+        "code": "./build/iild-run compute --cpu-share 0.25 --weight-storage ram --gpu-weight-mib 64\n"
+      },
+      {
+        "block_id": "b000071",
+        "language": "bash",
+        "code": "./build/iild-run compute --precision fp16\n./build/iild-run neural-compute --model /absolute/path/component.mlmodelc\n"
+      },
+      {
+        "block_id": "b000077",
+        "language": "bash",
+        "code": "./build/iild-run inspect /path/to/diffusers-model-package\n"
+      },
+      {
+        "block_id": "b000081",
+        "language": "bash",
+        "code": "./build/iild-run inspect tests/fixtures/sd-v1-manifest\n./build/iild-run inspect tests/fixtures/sdxl-base-manifest\n./build/iild-run inspect tests/fixtures/flux1-schnell-manifest\n"
+      },
+      {
+        "block_id": "b000107",
+        "language": "bash",
+        "code": "python3 reference/generate.py --list-base-models\npython3 reference/generate.py --base-model Illustrious --print-config --model /absolute/path/image-diffusers\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --model /path/illustrious.safetensors --prompt \"a red cube\" --device mps\nreference/diffusers/.venv/bin/python reference/generate.py --model-config /absolute/path/model-config \\\n  --base-model NoobAI --preset noobai-v-pred --model /path/noobai.safetensors\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --model /path/local-diffusers-package --prompt \"a red cube\"\npython3 reference/generate.py --backend comfyui \\\n  --workflow /path/workflow-api.json --validate-only\n"
+      },
+      {
+        "block_id": "b000115",
+        "language": "bash",
+        "code": "uv venv reference/diffusers/.venv --python 3.14\nuv pip install \\\n  --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements.txt\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset sdxl-base\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset sdxl-base --model /absolute/path/image-diffusers\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset flux1-schnell\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset flux1-schnell --model /absolute/path/image-diffusers\n"
+      },
+      {
+        "block_id": "b000121",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --cpu-text-encoding --cpu-threads 4 --offload model \\\n  --output build/reference/sdxl-cpu-ram.png\n"
+      },
+      {
+        "block_id": "b000127",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model-config /absolute/path/model-config \\\n  --preset sdxl-base \\\n  --model /absolute/path/to/sdxl-checkpoint.safetensors \\\n  --vae /absolute/path/to/sdxl-vae.safetensors \\\n  --lora /absolute/path/to/sdxl-style.safetensors \\\n  --lora-scale 0.75\n"
+      },
+      {
+        "block_id": "b000133",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/adapter.safetensors \\\n  --lora-scale 0.75 \\\n  --output build/reference/flux-lora.png\n"
+      },
+      {
+        "block_id": "b000139",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 \\\n  --text-embedding /absolute/path/to/style.safetensors \\\n  --text-embedding-token '<style>' \\\n  --prompt 'a ceramic cup in <style> style'\n"
+      },
+      {
+        "block_id": "b000145",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 \\\n  --controlnet /absolute/path/to/sd15-controlnet-package \\\n  --control-image /absolute/path/to/prepared-canny.png \\\n  --controlnet-scale 0.8\n"
+      },
+      {
+        "block_id": "b000151",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 --width 512 --height 512 \\\n  --hires-fix --hires-passes 2 --hires-scale 2 --hires-upscaler lanczos \\\n  --hires-denoising-strength 0.35 --hires-steps 30 \\\n  --hires-save-base\n"
+      },
+      {
+        "block_id": "b000163",
+        "language": "sh",
+        "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --prompt 'A glass bottle glints in warm sunlight.' \\\n  --camera dolly-in --duration 5 --output build/reference/bottle.mp4\n"
+      }
+    ],
+    "links": [
+      {
+        "block_id": "b000003",
+        "label": "Model inspection and user modality overrides",
+        "target": "docs/ModelInspection.md",
+        "kind": "relative",
+        "line": 3
+      },
+      {
+        "block_id": "b000003",
+        "label": "native video adapter",
+        "target": "docs/NativeVideo.md",
+        "kind": "relative",
+        "line": 5
+      },
+      {
+        "block_id": "b000005",
+        "label": "Windows build and execution",
+        "target": "docs/WindowsBuildAndRun.md",
+        "kind": "relative",
+        "line": 8
+      },
+      {
+        "block_id": "b000011",
+        "label": "VAE",
+        "target": "docs/generation-defaults.md#vae-자동-폴백",
+        "kind": "relative",
+        "line": 29
+      },
+      {
+        "block_id": "b000013",
+        "label": "bundled negative embeddings",
+        "target": "docs/generation-defaults.md",
+        "kind": "relative",
+        "line": 31
+      },
+      {
+        "block_id": "b000015",
+        "label": "the LoRA contract",
+        "target": "docs/lora.md",
+        "kind": "relative",
+        "line": 38
+      },
+      {
+        "block_id": "b000017",
+        "label": "in-process native image inference",
+        "target": "docs/native-image-generation.md",
+        "kind": "relative",
+        "line": 41
+      },
+      {
+        "block_id": "b000019",
+        "label": "architecture-aware backend routing",
+        "target": "docs/backend-routing.md",
+        "kind": "relative",
+        "line": 43
+      },
+      {
+        "block_id": "b000021",
+        "label": "iisacc Krea 2 ecosystem contract",
+        "target": "docs/krea2.md",
+        "kind": "relative",
+        "line": 47
+      },
+      {
+        "block_id": "b000023",
+        "label": "resident inference sessions",
+        "target": "docs/inference-worker.md",
+        "kind": "relative",
+        "line": 51
+      },
+      {
+        "block_id": "b000025",
+        "label": "Local model merging",
+        "target": "docs/model-merging.md",
+        "kind": "relative",
+        "line": 55
+      },
+      {
+        "block_id": "b000027",
+        "label": "DiT-standard conversion",
+        "target": "docs/model-conversion.md",
+        "kind": "relative",
+        "line": 62
+      },
+      {
+        "block_id": "b000039",
+        "label": "local installation",
+        "target": "docs/installation.md",
+        "kind": "relative",
+        "line": 97
+      },
+      {
+        "block_id": "b000047",
+        "label": "hardware setup",
+        "target": "docs/hardware-compute.md",
+        "kind": "relative",
+        "line": 116
+      },
+      {
+        "block_id": "b000059",
+        "label": "hardware compute",
+        "target": "docs/hardware-compute.md",
+        "kind": "relative",
+        "line": 146
+      },
+      {
+        "block_id": "b000061",
+        "label": "Radeon setup and hardware checks",
+        "target": "docs/radeon-rocm.md",
+        "kind": "relative",
+        "line": 152
+      },
+      {
+        "block_id": "b000073",
+        "label": "Neural Engine / Tensor Cores",
+        "target": "docs/neural-accelerators.md",
+        "kind": "relative",
+        "line": 174
+      },
+      {
+        "block_id": "b000073",
+        "label": "named-weight conversion",
+        "target": "reference/coreml/README.md",
+        "kind": "relative",
+        "line": 175
+      },
+      {
+        "block_id": "b000087",
+        "label": "model sources",
+        "target": "docs/model-sources.md",
+        "kind": "relative",
+        "line": 200
+      },
+      {
+        "block_id": "b000089",
+        "label": "generation parameters",
+        "target": "docs/generation-parameters.md",
+        "kind": "relative",
+        "line": 206
+      },
+      {
+        "block_id": "b000091",
+        "label": "local model and video selection",
+        "target": "docs/local-model-generation.md",
+        "kind": "relative",
+        "line": 216
+      },
+      {
+        "block_id": "b000093",
+        "label": "Interpolator video generation",
+        "target": "docs/interpolator-video.md",
+        "kind": "relative",
+        "line": 219
+      },
+      {
+        "block_id": "b000095",
+        "label": "Deforum 2D video generation",
+        "target": "docs/deforum-video.md",
+        "kind": "relative",
+        "line": 227
+      },
+      {
+        "block_id": "b000097",
+        "label": "Generation I/O and composition",
+        "target": "docs/generation-composition.md",
+        "kind": "relative",
+        "line": 236
+      },
+      {
+        "block_id": "b000105",
+        "label": "standalone usage",
+        "target": "docs/local-image-generation.md",
+        "kind": "relative",
+        "line": 268
+      },
+      {
+        "block_id": "b000105",
+        "label": "optional managed workflows",
+        "target": "docs/managed-comfyui-image.md",
+        "kind": "relative",
+        "line": 269
+      },
+      {
+        "block_id": "b000105",
+        "label": "file inspection",
+        "target": "docs/downloaded-models.md",
+        "kind": "relative",
+        "line": 270
+      },
+      {
+        "block_id": "b000109",
+        "label": "Civitai catalog",
+        "target": "docs/civitai-models.md",
+        "kind": "relative",
+        "line": 285
+      },
+      {
+        "block_id": "b000109",
+        "label": "derived model contracts",
+        "target": "docs/model-families.md",
+        "kind": "relative",
+        "line": 286
+      },
+      {
+        "block_id": "b000109",
+        "label": "generic Diffusers runner",
+        "target": "docs/generic-diffusers.md",
+        "kind": "relative",
+        "line": 287
+      },
+      {
+        "block_id": "b000109",
+        "label": "local workflow runner",
+        "target": "docs/comfyui-generation.md",
+        "kind": "relative",
+        "line": 288
+      },
+      {
+        "block_id": "b000113",
+        "label": "generation parameters",
+        "target": "docs/generation-parameters.md",
+        "kind": "relative",
+        "line": 302
+      },
+      {
+        "block_id": "b000129",
+        "label": "`docs/model-inputs.md`",
+        "target": "docs/model-inputs.md",
+        "kind": "relative",
+        "line": 374
+      },
+      {
+        "block_id": "b000135",
+        "label": "`docs/lora.md`",
+        "target": "docs/lora.md",
+        "kind": "relative",
+        "line": 389
+      },
+      {
+        "block_id": "b000141",
+        "label": "learned text embeddings",
+        "target": "docs/text-embeddings.md",
+        "kind": "relative",
+        "line": 406
+      },
+      {
+        "block_id": "b000147",
+        "label": "ControlNet inputs and limits",
+        "target": "docs/controlnet.md",
+        "kind": "relative",
+        "line": 427
+      },
+      {
+        "block_id": "b000153",
+        "label": "Hires Fix contract",
+        "target": "docs/hires-fix.md",
+        "kind": "relative",
+        "line": 455
+      },
+      {
+        "block_id": "b000155",
+        "label": "`reference/diffusers/README.md`",
+        "target": "reference/diffusers/README.md",
+        "kind": "relative",
+        "line": 461
+      },
+      {
+        "block_id": "b000157",
+        "label": "local model arguments",
+        "target": "docs/local-model-generation.md",
+        "kind": "relative",
+        "line": 464
+      },
+      {
+        "block_id": "b000165",
+        "label": "temporal video generation",
+        "target": "docs/temporal-video.md",
+        "kind": "relative",
+        "line": 479
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/architecture.md`",
+        "target": "docs/architecture.md",
+        "kind": "relative",
+        "line": 487
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/stable-diffusion-v1.md`",
+        "target": "docs/stable-diffusion-v1.md",
+        "kind": "relative",
+        "line": 488
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/stable-diffusion-xl.md`",
+        "target": "docs/stable-diffusion-xl.md",
+        "kind": "relative",
+        "line": 489
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/flux1-schnell.md`",
+        "target": "docs/flux1-schnell.md",
+        "kind": "relative",
+        "line": 490
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/model-inputs.md`",
+        "target": "docs/model-inputs.md",
+        "kind": "relative",
+        "line": 491
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/lora.md`",
+        "target": "docs/lora.md",
+        "kind": "relative",
+        "line": 492
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/text-embeddings.md`",
+        "target": "docs/text-embeddings.md",
+        "kind": "relative",
+        "line": 493
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/controlnet.md`",
+        "target": "docs/controlnet.md",
+        "kind": "relative",
+        "line": 494
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/hires-fix.md`",
+        "target": "docs/hires-fix.md",
+        "kind": "relative",
+        "line": 495
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/hardware-compute.md`",
+        "target": "docs/hardware-compute.md",
+        "kind": "relative",
+        "line": 496
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/neural-accelerators.md`",
+        "target": "docs/neural-accelerators.md",
+        "kind": "relative",
+        "line": 497
+      },
+      {
+        "block_id": "b000171",
+        "label": "`docs/dependencies.md`",
+        "target": "docs/dependencies.md",
+        "kind": "relative",
+        "line": 498
+      },
+      {
+        "block_id": "b000177",
+        "label": "LICENSE",
+        "target": "LICENSE",
+        "kind": "relative",
+        "line": 505
+      },
+      {
+        "block_id": "b000179",
+        "label": "THIRD_PARTY_NOTICES.md",
+        "target": "THIRD_PARTY_NOTICES.md",
+        "kind": "relative",
+        "line": 509
+      },
+      {
+        "block_id": "b000181",
+        "label": "native-image-generation.md",
+        "target": "docs/native-image-generation.md",
+        "kind": "relative",
+        "line": 514
+      },
+      {
+        "block_id": "b000183",
+        "label": "native documentation",
+        "target": "docs/native-image-generation.md",
+        "kind": "relative",
+        "line": 516
+      },
+      {
+        "block_id": "b000185",
+        "label": "native execution",
+        "target": "docs/native-image-generation.md#explicit-cpu-execution-for-background-tasks",
+        "kind": "relative",
+        "line": 518
+      },
+      {
+        "block_id": "b000187",
+        "label": "VAE validation and automatic optimization",
+        "target": "docs/native-image-generation.md#vae-마운트-검증과-자동-최적화",
+        "kind": "relative",
+        "line": 520
+      },
+      {
+        "block_id": "b000190",
+        "label": "model packaging",
+        "target": "docs/model-packaging.md",
+        "kind": "relative",
+        "line": 528
+      },
+      {
+        "block_id": "b000197",
+        "label": "AGENT.md",
+        "target": "AGENT.md",
+        "kind": "relative",
+        "line": 537
+      },
+      {
+        "block_id": "b000197",
+        "label": "documentation index",
+        "target": "docs/README.md",
+        "kind": "relative",
+        "line": 538
+      },
+      {
+        "block_id": "b000197",
+        "label": "agent index",
+        "target": "docs/agent-index.json",
+        "kind": "relative",
+        "line": 539
+      }
+    ],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

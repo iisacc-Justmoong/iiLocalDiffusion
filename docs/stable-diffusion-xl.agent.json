@@ -1,0 +1,639 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:e7d14420ca9be126f3185f4c04cabb9cf46739e7e75c8d3954a33594c03852c2",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "docs/stable-diffusion-xl.md",
+    "sha256": "fa40a867c8a955d66fd7727b1588e9dd3cd6665ad87fbf62ca47983a1f253013",
+    "bytes": 6197,
+    "line_count": 113,
+    "encoding": "utf-8",
+    "language": "ko"
+  },
+  "document": {
+    "title": "안정 확산 XL 기본 참조 계약",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "html",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "<a id=\"stable-diffusion-xl-base-reference-contract\"></a>\n"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "heading",
+      "start_line": 3,
+      "end_line": 3,
+      "raw": "# 안정 확산 XL 기본 참조 계약\n",
+      "level": 1,
+      "title": "안정 확산 XL 기본 참조 계약"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 4,
+      "end_line": 4,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "html",
+      "start_line": 5,
+      "end_line": 5,
+      "raw": "<a id=\"canonical-reference\"></a>\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 6,
+      "end_line": 6,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "heading",
+      "start_line": 7,
+      "end_line": 7,
+      "raw": "## 정식 참조\n",
+      "level": 2,
+      "title": "정식 참조"
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 8,
+      "end_line": 8,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 9,
+      "end_line": 10,
+      "raw": "SDXL 오라클은 공식 Hugging Face 저장소입니다.\n불변 개정판의 [`stabilityai/stable-diffusion-xl-base-1.0`](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0):\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 11,
+      "end_line": 11,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "fenced_code",
+      "start_line": 12,
+      "end_line": 14,
+      "raw": "```text\n462165984030d82259a11f4367a4eed129e94a7b\n```\n",
+      "language": "text",
+      "code": "462165984030d82259a11f4367a4eed129e94a7b\n",
+      "closed": true
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 15,
+      "end_line": 15,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "paragraph",
+      "start_line": 16,
+      "end_line": 16,
+      "raw": "저장소는 CreativeML Open RAIL++-M 라이선스를 선언합니다. 개정 핀은 오라클을 재현 가능하게 만듭니다. 모델 라이센스를 양도하거나 확대하지 않습니다. SDXL 0.9는 액세스 및 라이센스 조건이 다르며 이 프로필이 아닙니다.\n"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 17,
+      "end_line": 17,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "paragraph",
+      "start_line": 18,
+      "end_line": 18,
+      "raw": "허용되는 Diffusers 레이아웃은 다음과 같습니다.\n"
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 19,
+      "end_line": 19,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "fenced_code",
+      "start_line": 20,
+      "end_line": 39,
+      "raw": "```text\nmodel-root/\n├── model_index.json\n├── tokenizer/\n├── tokenizer_2/\n├── text_encoder/\n│   ├── config.json\n│   └── *.safetensors\n├── text_encoder_2/\n│   ├── config.json\n│   └── *.safetensors\n├── unet/\n│   ├── config.json\n│   └── *.safetensors\n├── vae/\n│   ├── config.json\n│   └── *.safetensors\n└── scheduler/\n    └── scheduler_config.json\n```\n",
+      "language": "text",
+      "code": "model-root/\n├── model_index.json\n├── tokenizer/\n├── tokenizer_2/\n├── text_encoder/\n│   ├── config.json\n│   └── *.safetensors\n├── text_encoder_2/\n│   ├── config.json\n│   └── *.safetensors\n├── unet/\n│   ├── config.json\n│   └── *.safetensors\n├── vae/\n│   ├── config.json\n│   └── *.safetensors\n└── scheduler/\n    └── scheduler_config.json\n",
+      "closed": true
+    },
+    {
+      "id": "b000018",
+      "kind": "blank",
+      "start_line": 40,
+      "end_line": 40,
+      "raw": "\n"
+    },
+    {
+      "id": "b000019",
+      "kind": "paragraph",
+      "start_line": 41,
+      "end_line": 41,
+      "raw": "각 토크나이저 디렉토리는 자신의 `tokenizer_config.json`, `vocab.json`, 및 `merges.txt` 을 유지해야 합니다. 2 토크나이저는 고정된 저장소에서 어휘 내용을 공유하지만 패딩 구성이 다르므로 추론 구현은 이를 하나의 구성된 객체로 축소해서는 안 됩니다.\n"
+    },
+    {
+      "id": "b000020",
+      "kind": "blank",
+      "start_line": 42,
+      "end_line": 42,
+      "raw": "\n"
+    },
+    {
+      "id": "b000021",
+      "kind": "html",
+      "start_line": 43,
+      "end_line": 43,
+      "raw": "<a id=\"component-metadata\"></a>\n"
+    },
+    {
+      "id": "b000022",
+      "kind": "blank",
+      "start_line": 44,
+      "end_line": 44,
+      "raw": "\n"
+    },
+    {
+      "id": "b000023",
+      "kind": "heading",
+      "start_line": 45,
+      "end_line": 45,
+      "raw": "## 구성요소 메타데이터\n",
+      "level": 2,
+      "title": "구성요소 메타데이터"
+    },
+    {
+      "id": "b000024",
+      "kind": "blank",
+      "start_line": 46,
+      "end_line": 46,
+      "raw": "\n"
+    },
+    {
+      "id": "b000025",
+      "kind": "paragraph",
+      "start_line": 47,
+      "end_line": 47,
+      "raw": "C++ `StableDiffusionXLBase` 프로필은 공식 Base 1.0 프롬프트 이미지 패키지 계약을 검증합니다.\n"
+    },
+    {
+      "id": "b000026",
+      "kind": "blank",
+      "start_line": 48,
+      "end_line": 48,
+      "raw": "\n"
+    },
+    {
+      "id": "b000027",
+      "kind": "table",
+      "start_line": 49,
+      "end_line": 57,
+      "raw": "|컴포넌트|클래스|검사자가 사용하는 계약|\n|---|---|---|\n| Tokenizer 1 | `CLIPTokenizer` |최대 시퀀스 길이 77|\n| Tokenizer 2 | `CLIPTokenizer` |최대 시퀀스 길이 77|\n|텍스트 인코더 1| `CLIPTextModel` |숨겨진 너비 768; 투사 폭 768; 최대 위치 77|\n|텍스트 인코더 2| `CLIPTextModelWithProjection` |숨겨진 및 투영 너비 1,280; 최대 위치 77|\n|디노이저| `UNet2DConditionModel` |잠재 표현 채널 4 ; 샘플 크기 128 ; 교차 주의 폭 2,048 ; `text_time` 추가 컨디셔닝|\n|이미지 코덱| `AutoencoderKL` |RGB 입력/출력; 잠재 채널 4; 샘플 크기 1,024; 0.13025 규모; 강제 업캐스트|\n|스케줄러| `EulerDiscreteScheduler` |1,000 훈련 단계; 베타 0.00085 ~ 0.012; 확장된 선형 일정; 엡실론 예측; 선행 시간 간격|\n",
+      "columns": [
+        "컴포넌트",
+        "클래스",
+        "검사자가 사용하는 계약"
+      ],
+      "rows": [
+        [
+          "Tokenizer 1",
+          "`CLIPTokenizer`",
+          "최대 시퀀스 길이 77"
+        ],
+        [
+          "Tokenizer 2",
+          "`CLIPTokenizer`",
+          "최대 시퀀스 길이 77"
+        ],
+        [
+          "텍스트 인코더 1",
+          "`CLIPTextModel`",
+          "숨겨진 너비 768; 투사 폭 768; 최대 위치 77"
+        ],
+        [
+          "텍스트 인코더 2",
+          "`CLIPTextModelWithProjection`",
+          "숨겨진 및 투영 너비 1,280; 최대 위치 77"
+        ],
+        [
+          "디노이저",
+          "`UNet2DConditionModel`",
+          "잠재 표현 채널 4 ; 샘플 크기 128 ; 교차 주의 폭 2,048 ; `text_time` 추가 컨디셔닝"
+        ],
+        [
+          "이미지 코덱",
+          "`AutoencoderKL`",
+          "RGB 입력/출력; 잠재 채널 4; 샘플 크기 1,024; 0.13025 규모; 강제 업캐스트"
+        ],
+        [
+          "스케줄러",
+          "`EulerDiscreteScheduler`",
+          "1,000 훈련 단계; 베타 0.00085 ~ 0.012; 확장된 선형 일정; 엡실론 예측; 선행 시간 간격"
+        ]
+      ]
+    },
+    {
+      "id": "b000028",
+      "kind": "blank",
+      "start_line": 58,
+      "end_line": 58,
+      "raw": "\n"
+    },
+    {
+      "id": "b000029",
+      "kind": "paragraph",
+      "start_line": 59,
+      "end_line": 59,
+      "raw": "UNet의 `addition_time_embed_dim`는 256이며, `projection_class_embeddings_input_dim`는 2,816입니다. 이 값들은 2 교차 구성 요소 불변량을 인코딩합니다:\n"
+    },
+    {
+      "id": "b000030",
+      "kind": "blank",
+      "start_line": 60,
+      "end_line": 60,
+      "raw": "\n"
+    },
+    {
+      "id": "b000031",
+      "kind": "fenced_code",
+      "start_line": 61,
+      "end_line": 64,
+      "raw": "```text\n768 + 1280 = 2048\n6 * 256 + 1280 = 2816\n```\n",
+      "language": "text",
+      "code": "768 + 1280 = 2048\n6 * 256 + 1280 = 2816\n",
+      "closed": true
+    },
+    {
+      "id": "b000032",
+      "kind": "blank",
+      "start_line": 65,
+      "end_line": 65,
+      "raw": "\n"
+    },
+    {
+      "id": "b000033",
+      "kind": "paragraph",
+      "start_line": 66,
+      "end_line": 66,
+      "raw": "첫 번째는 연결된 토큰 조절 너비입니다. 두 번째는 6개의 마이크로 컨디셔닝 값을 텍스트 인코더 2의 풀링된 투영과 결합합니다. 또한 검사관은 파이프라인 인덱스의 `force_zeros_for_empty_prompt=true`와 UNet의 `use_linear_projection=true`를 요구합니다.\n"
+    },
+    {
+      "id": "b000034",
+      "kind": "blank",
+      "start_line": 67,
+      "end_line": 67,
+      "raw": "\n"
+    },
+    {
+      "id": "b000035",
+      "kind": "html",
+      "start_line": 68,
+      "end_line": 68,
+      "raw": "<a id=\"tensor-flow\"></a>\n"
+    },
+    {
+      "id": "b000036",
+      "kind": "blank",
+      "start_line": 69,
+      "end_line": 69,
+      "raw": "\n"
+    },
+    {
+      "id": "b000037",
+      "kind": "heading",
+      "start_line": 70,
+      "end_line": 70,
+      "raw": "## 텐서 흐름\n",
+      "level": 2,
+      "title": "텐서 흐름"
+    },
+    {
+      "id": "b000038",
+      "kind": "blank",
+      "start_line": 71,
+      "end_line": 71,
+      "raw": "\n"
+    },
+    {
+      "id": "b000039",
+      "kind": "paragraph",
+      "start_line": 72,
+      "end_line": 72,
+      "raw": "프롬프트 배치 `B`, 유효 이미지 배치 `E` 및 분류자 없는 안내 요소 `G`(활성화된 경우 `2`, 그렇지 않은 경우 `1`)의 경우:\n"
+    },
+    {
+      "id": "b000040",
+      "kind": "blank",
+      "start_line": 73,
+      "end_line": 73,
+      "raw": "\n"
+    },
+    {
+      "id": "b000041",
+      "kind": "fenced_code",
+      "start_line": 74,
+      "end_line": 85,
+      "raw": "```text\n각 토크나이저의 토큰 ID                          [B, 77]\n텍스트 인코더 1의 끝에서 두 번째 은닉 상태       [B, 77, 768]\n텍스트 인코더 2의 끝에서 두 번째 은닉 상태       [B, 77, 1280]\n이어 붙인 프롬프트 임베딩                        [G*E, 77, 2048]\n텍스트 인코더 2의 풀링된 임베딩                  [G*E, 1280]\n미세 조건 ID                                    [G*E, 6]\n초기 잠재 표현                                  [E, 4, H/8, W/8]\nUNet 잠재 표현 입력과 노이즈 예측                [G*E, 4, H/8, W/8]\nguidance가 적용된 잠재 표현                      [E, 4, H/8, W/8]\nVAE로 디코딩한 이미지                           [E, 3, H, W]\n```\n",
+      "language": "text",
+      "code": "각 토크나이저의 토큰 ID                          [B, 77]\n텍스트 인코더 1의 끝에서 두 번째 은닉 상태       [B, 77, 768]\n텍스트 인코더 2의 끝에서 두 번째 은닉 상태       [B, 77, 1280]\n이어 붙인 프롬프트 임베딩                        [G*E, 77, 2048]\n텍스트 인코더 2의 풀링된 임베딩                  [G*E, 1280]\n미세 조건 ID                                    [G*E, 6]\n초기 잠재 표현                                  [E, 4, H/8, W/8]\nUNet 잠재 표현 입력과 노이즈 예측                [G*E, 4, H/8, W/8]\nguidance가 적용된 잠재 표현                      [E, 4, H/8, W/8]\nVAE로 디코딩한 이미지                           [E, 3, H, W]\n",
+      "closed": true
+    },
+    {
+      "id": "b000042",
+      "kind": "blank",
+      "start_line": 86,
+      "end_line": 86,
+      "raw": "\n"
+    },
+    {
+      "id": "b000043",
+      "kind": "paragraph",
+      "start_line": 87,
+      "end_line": 87,
+      "raw": "6 미조절 값은 원래 높이, 원래 너비, 상단 자르기, 좌측 자르기, 목표 높이, 및 목표 너비입니다. 정준 1,024 by 1,024 해상도에서 잠재 공간 크기는 128 by 128입니다. VAE 디코드는 잠재를 0.13025 로 나누고 `force_upcast` 가 참이므로 부동소수점32 을 사용합니다.\n"
+    },
+    {
+      "id": "b000044",
+      "kind": "blank",
+      "start_line": 88,
+      "end_line": 88,
+      "raw": "\n"
+    },
+    {
+      "id": "b000045",
+      "kind": "html",
+      "start_line": 89,
+      "end_line": 89,
+      "raw": "<a id=\"fixed-reference-fixture\"></a>\n"
+    },
+    {
+      "id": "b000046",
+      "kind": "blank",
+      "start_line": 90,
+      "end_line": 90,
+      "raw": "\n"
+    },
+    {
+      "id": "b000047",
+      "kind": "heading",
+      "start_line": 91,
+      "end_line": 91,
+      "raw": "## 고정 참조 픽스처\n",
+      "level": 2,
+      "title": "고정 참조 픽스처"
+    },
+    {
+      "id": "b000048",
+      "kind": "blank",
+      "start_line": 92,
+      "end_line": 92,
+      "raw": "\n"
+    },
+    {
+      "id": "b000049",
+      "kind": "fenced_code",
+      "start_line": 93,
+      "end_line": 102,
+      "raw": "```text\n프롬프트:           a red cube on a white table\n부정 프롬프트:      빈 문자열\n시드:               42\n해상도:             1024 x 1024\n추론 단계:          20\nGuidance scale:     5.0\n스케줄러:           고정된 저장소의 EulerDiscreteScheduler\n워터마커:           명시적으로 비활성화\n```\n",
+      "language": "text",
+      "code": "프롬프트:           a red cube on a white table\n부정 프롬프트:      빈 문자열\n시드:               42\n해상도:             1024 x 1024\n추론 단계:          20\nGuidance scale:     5.0\n스케줄러:           고정된 저장소의 EulerDiscreteScheduler\n워터마커:           명시적으로 비활성화\n",
+      "closed": true
+    },
+    {
+      "id": "b000050",
+      "kind": "blank",
+      "start_line": 103,
+      "end_line": 103,
+      "raw": "\n"
+    },
+    {
+      "id": "b000051",
+      "kind": "paragraph",
+      "start_line": 104,
+      "end_line": 104,
+      "raw": "20단계는 Diffusers 호출 기본값이 아니라 iiLocalDiffusion 연기/참조 선택입니다. 빈 부정 프롬프트도 의도적인 것입니다. SDXL에서는 고정된 파이프라인이 프롬프트가 없는 경우에만 부정 임베딩을 0으로 설정하기 때문에 `None`와 동일하지 않습니다.\n"
+    },
+    {
+      "id": "b000052",
+      "kind": "blank",
+      "start_line": 105,
+      "end_line": 105,
+      "raw": "\n"
+    },
+    {
+      "id": "b000053",
+      "kind": "html",
+      "start_line": 106,
+      "end_line": 106,
+      "raw": "<a id=\"compatibility-boundary\"></a>\n"
+    },
+    {
+      "id": "b000054",
+      "kind": "blank",
+      "start_line": 107,
+      "end_line": 107,
+      "raw": "\n"
+    },
+    {
+      "id": "b000055",
+      "kind": "heading",
+      "start_line": 108,
+      "end_line": 108,
+      "raw": "## 호환성 경계\n",
+      "level": 2,
+      "title": "호환성 경계"
+    },
+    {
+      "id": "b000056",
+      "kind": "blank",
+      "start_line": 109,
+      "end_line": 109,
+      "raw": "\n"
+    },
+    {
+      "id": "b000057",
+      "kind": "paragraph",
+      "start_line": 110,
+      "end_line": 110,
+      "raw": "`StableDiffusionXLBase` 는 정준 Base 1.0 패키지 메타데이터와 필요한 아티팩트 경로가 일치한다는 것을 의미합니다. safetensors 본문이 파싱되었거나 일관된 fp16/fp32 변형이 선택되었거나 추론이 실행되었다는 것을 의미하지는 않습니다. 단일 파일 체크포인트, ONNX, OpenVINO, Flax, 보조 VAE, SDXL 리파이너, img2img, 및 임의의 파생 계약은 이 C++ 메타데이터 프로파일에 포함되지 않습니다.\n"
+    },
+    {
+      "id": "b000058",
+      "kind": "blank",
+      "start_line": 111,
+      "end_line": 111,
+      "raw": "\n"
+    },
+    {
+      "id": "b000059",
+      "kind": "paragraph",
+      "start_line": 112,
+      "end_line": 113,
+      "raw": "Python 오라클은 더 강력한 다음 검사를 수행합니다: Diffusers 는 실제 가중치를 로드하고 구성 요소 클래스 및 중요한 텐서 구성을 확인하며, 1,024 를 1,024 MPS 픽스처 로 생성할 수 있습니다. SDXL Base 에 안전 검사기가 없고 어떤 워터마커가 있었는지 여부를 기록하며, 수행되지 않은 안전 단계를 주장하지 않습니다. 독립적인 단일 파일 모델인 VAE 와 LoRA 조합 경계는 문서화되어 있습니다.\n[model-inputs.md](model-inputs.md).\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000003",
+      "parent_id": null,
+      "level": 1,
+      "title": "안정 확산 XL 기본 참조 계약",
+      "anchor": "안정-확산-xl-기본-참조-계약",
+      "start_line": 3
+    },
+    {
+      "block_id": "b000007",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "정식 참조",
+      "anchor": "정식-참조",
+      "start_line": 7
+    },
+    {
+      "block_id": "b000023",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "구성요소 메타데이터",
+      "anchor": "구성요소-메타데이터",
+      "start_line": 45
+    },
+    {
+      "block_id": "b000037",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "텐서 흐름",
+      "anchor": "텐서-흐름",
+      "start_line": 70
+    },
+    {
+      "block_id": "b000047",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "고정 참조 픽스처",
+      "anchor": "고정-참조-픽스처",
+      "start_line": 91
+    },
+    {
+      "block_id": "b000055",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "호환성 경계",
+      "anchor": "호환성-경계",
+      "start_line": 108
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000019",
+        "line": 41,
+        "text": "각 토크나이저 디렉토리는 자신의 `tokenizer_config.json`, `vocab.json`, 및 `merges.txt` 을 유지해야 합니다. 2 토크나이저는 고정된 저장소에서 어휘 내용을 공유하지만 패딩 구성이 다르므로 추론 구현은 이를 하나의 구성된 객체로 축소해서는 안 됩니다.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [],
+    "links": [
+      {
+        "block_id": "b000009",
+        "label": "`stabilityai/stable-diffusion-xl-base-1.0`",
+        "target": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0",
+        "kind": "external",
+        "line": 10
+      },
+      {
+        "block_id": "b000059",
+        "label": "model-inputs.md",
+        "target": "model-inputs.md",
+        "kind": "relative",
+        "line": 113
+      }
+    ],
+    "tables": [
+      {
+        "block_id": "b000027",
+        "columns": [
+          "컴포넌트",
+          "클래스",
+          "검사자가 사용하는 계약"
+        ],
+        "rows": [
+          [
+            "Tokenizer 1",
+            "`CLIPTokenizer`",
+            "최대 시퀀스 길이 77"
+          ],
+          [
+            "Tokenizer 2",
+            "`CLIPTokenizer`",
+            "최대 시퀀스 길이 77"
+          ],
+          [
+            "텍스트 인코더 1",
+            "`CLIPTextModel`",
+            "숨겨진 너비 768; 투사 폭 768; 최대 위치 77"
+          ],
+          [
+            "텍스트 인코더 2",
+            "`CLIPTextModelWithProjection`",
+            "숨겨진 및 투영 너비 1,280; 최대 위치 77"
+          ],
+          [
+            "디노이저",
+            "`UNet2DConditionModel`",
+            "잠재 표현 채널 4 ; 샘플 크기 128 ; 교차 주의 폭 2,048 ; `text_time` 추가 컨디셔닝"
+          ],
+          [
+            "이미지 코덱",
+            "`AutoencoderKL`",
+            "RGB 입력/출력; 잠재 채널 4; 샘플 크기 1,024; 0.13025 규모; 강제 업캐스트"
+          ],
+          [
+            "스케줄러",
+            "`EulerDiscreteScheduler`",
+            "1,000 훈련 단계; 베타 0.00085 ~ 0.012; 확장된 선형 일정; 엡실론 예측; 선행 시간 간격"
+          ]
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

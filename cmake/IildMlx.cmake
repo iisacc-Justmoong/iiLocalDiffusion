@@ -81,6 +81,13 @@ FetchContent_Declare(cutlass
 )
 
 block()
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        include("${CMAKE_CURRENT_LIST_DIR}/IildMlxDeployment.cmake")
+        iild_mlx_deployment_target(iild_mlx_target)
+        # MLX otherwise replaces an unset target with the host's patch version,
+        # which can be newer than the compiler default used by its consumers.
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "${iild_mlx_target}")
+    endif()
     set(BUILD_SHARED_LIBS ON)
     set(MLX_BUILD_TESTS OFF)
     set(MLX_BUILD_EXAMPLES OFF)
@@ -100,6 +107,21 @@ block()
     endif()
     FetchContent_MakeAvailable(mlx)
 endblock()
+
+if(iild_gpu_backend STREQUAL "metal")
+    FetchContent_GetProperties(mlx SOURCE_DIR iild_mlx_source)
+    get_directory_property(iild_mlx_metal_path DIRECTORY "${iild_mlx_source}/mlx/backend/metal"
+        DEFINITION MLX_METAL_PATH)
+    if(NOT iild_mlx_metal_path OR NOT TARGET mlx-metallib)
+        message(FATAL_ERROR "The MLX build did not provide its Metal resource")
+    endif()
+    # The standalone build output can be consumed without mixing its shader
+    # library with a different installed MLX build.
+    add_custom_target(iild_mlx_runtime_ready
+        COMMAND "${CMAKE_COMMAND}" -E create_symlink
+            "${iild_mlx_metal_path}/mlx.metallib" "$<TARGET_FILE_DIR:mlx>/mlx.metallib"
+        DEPENDS mlx mlx-metallib VERBATIM)
+endif()
 
 # Native file creation is linked into MLX by this SDK's directory policy. It
 # remains an implementation dependency of the shared DLL, not a public MLX

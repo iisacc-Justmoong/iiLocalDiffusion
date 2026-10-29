@@ -1,0 +1,719 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:520a82c357d3389a789e5c0fcd6c28ddfa2b4a94bdb8e954a5d7d6ca81ff17d8",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "docs/downloaded-models.md",
+    "sha256": "5777825de53acb1d99feebdce29f77e91ba29e459e3322d832071187cdcf2fe2",
+    "bytes": 10408,
+    "line_count": 101,
+    "encoding": "utf-8",
+    "language": "ko"
+  },
+  "document": {
+    "title": "다운로드된 모델 검사",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "html",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "<a id=\"downloaded-model-inspection\"></a>\n"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "heading",
+      "start_line": 3,
+      "end_line": 3,
+      "raw": "# 다운로드된 모델 검사\n",
+      "level": 1,
+      "title": "다운로드된 모델 검사"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 4,
+      "end_line": 4,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 5,
+      "end_line": 5,
+      "raw": "`reference/diffusers/downloaded_model.py` 는 생성 백엔드가 선택되기 전에 로컬 모델을 식별합니다. 검사기는 텐서 이름, 차원 및 모델 버전 메타데이터를 읽습니다. 파일명에서 모델 계열을 선택하지 않습니다.\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 6,
+      "end_line": 6,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "fenced_code",
+      "start_line": 7,
+      "end_line": 15,
+      "raw": "```python\nfrom downloaded_model import inspect_downloaded_model\n\nidentity = inspect_downloaded_model(\"/models/download.safetensors\")\n# 별도로 저장한 Civitai 모델 버전 응답도 받는다:\nidentity = inspect_downloaded_model(\n    \"/models/download.safetensors\", info_path=\"/models/model-version.json\"\n)\n```\n",
+      "language": "python",
+      "code": "from downloaded_model import inspect_downloaded_model\n\nidentity = inspect_downloaded_model(\"/models/download.safetensors\")\n# 별도로 저장한 Civitai 모델 버전 응답도 받는다:\nidentity = inspect_downloaded_model(\n    \"/models/download.safetensors\", info_path=\"/models/model-version.json\"\n)\n",
+      "closed": true
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 16,
+      "end_line": 16,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 17,
+      "end_line": 17,
+      "raw": "결과는 JSON 호환 사전입니다.\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 18,
+      "end_line": 18,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "table",
+      "start_line": 19,
+      "end_line": 31,
+      "raw": "|필드|의미|\n| --- | --- |\n| `format` |`safetensors`, `gguf` 또는 `pytorch` 컨테이너|\n| `base_model` |메타데이터의 정확한 카탈로그 검증 Civita 카테고리 또는 null|\n| `architecture` |Tensor 파생 아키텍처 또는 명시적으로 선언된 카테고리 패밀리|\n| `preset`, `pipeline_class` |호환되는 초기 생성 경로 또는 경로가 설정되지 않은 경우 null|\n| `role` |`checkpoint`, `lora`, `vae`, `embedding`, `controlnet`, 다른 선언된 구성요소 유형, 또는 `unknown`|\n| `weights_role` |`denoiser` 생성 모델에 내장된 VAE 또는 텍스트 인코더 가중치에 대한 증거가 부족한 경우 그렇지 않으면 구성 요소 역할|\n| `available_components`, `missing_components` |이 컨테이너에서 디노이저, VAE 및 텍스트 인코더 가중치가 발생한다는 증거입니다. 이는 완전한 구성 요소 무결성 검사가 아닙니다.|\n| `prediction_type` |선언 시 명시적 엡실론, v-예측, 샘플 또는 흐름 매개변수화|\n| `task` |필수 작업으로, 감지된 입력 채널/리파이너에 대한 `inpainting` 및 `image-to-image` 를 포함합니다.|\n| `confidence` |`exact` 는 제공된 SHA256 가 일치함을 의미하며, `metadata` 는 해시 없이 카테고리가 선언됨을 의미하고, `architecture` 는 구조가 인식됨을 의미하며, `unknown` 는 라우트가 설정되지 않음을 의미합니다.|\n| `evidence`, `role_guidance` |구성 요소에 대한 검사 기준 및 적절한 첨부 인수|\n",
+      "columns": [
+        "필드",
+        "의미"
+      ],
+      "rows": [
+        [
+          "`format`",
+          "`safetensors`, `gguf` 또는 `pytorch` 컨테이너"
+        ],
+        [
+          "`base_model`",
+          "메타데이터의 정확한 카탈로그 검증 Civita 카테고리 또는 null"
+        ],
+        [
+          "`architecture`",
+          "Tensor 파생 아키텍처 또는 명시적으로 선언된 카테고리 패밀리"
+        ],
+        [
+          "`preset`, `pipeline_class`",
+          "호환되는 초기 생성 경로 또는 경로가 설정되지 않은 경우 null"
+        ],
+        [
+          "`role`",
+          "`checkpoint`, `lora`, `vae`, `embedding`, `controlnet`, 다른 선언된 구성요소 유형, 또는 `unknown`"
+        ],
+        [
+          "`weights_role`",
+          "`denoiser` 생성 모델에 내장된 VAE 또는 텍스트 인코더 가중치에 대한 증거가 부족한 경우 그렇지 않으면 구성 요소 역할"
+        ],
+        [
+          "`available_components`, `missing_components`",
+          "이 컨테이너에서 디노이저, VAE 및 텍스트 인코더 가중치가 발생한다는 증거입니다. 이는 완전한 구성 요소 무결성 검사가 아닙니다."
+        ],
+        [
+          "`prediction_type`",
+          "선언 시 명시적 엡실론, v-예측, 샘플 또는 흐름 매개변수화"
+        ],
+        [
+          "`task`",
+          "필수 작업으로, 감지된 입력 채널/리파이너에 대한 `inpainting` 및 `image-to-image` 를 포함합니다."
+        ],
+        [
+          "`confidence`",
+          "`exact` 는 제공된 SHA256 가 일치함을 의미하며, `metadata` 는 해시 없이 카테고리가 선언됨을 의미하고, `architecture` 는 구조가 인식됨을 의미하며, `unknown` 는 라우트가 설정되지 않음을 의미합니다."
+        ],
+        [
+          "`evidence`, `role_guidance`",
+          "구성 요소에 대한 검사 기준 및 적절한 첨부 인수"
+        ]
+      ]
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 32,
+      "end_line": 32,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "paragraph",
+      "start_line": 33,
+      "end_line": 33,
+      "raw": "`exact` 는 제공된 메타데이터로 설명된 로컬 파일을 식별합니다. 메타데이터 발행자를 인증하거나 성공적인 생성을 증명하지 않습니다. VAE /text 인코더 텐서 이름의 존재가 모든 필수 가중치, 토크나이저 또는 스케줄러 구성이 포함되었음을 확립하기에 충분하지 않습니다.\n"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 34,
+      "end_line": 34,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "paragraph",
+      "start_line": 35,
+      "end_line": 35,
+      "raw": "공용 명령은 생성을 시작하지 않고 검사도 노출합니다 런타임 :\n"
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 36,
+      "end_line": 36,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "fenced_code",
+      "start_line": 37,
+      "end_line": 39,
+      "raw": "```sh\npython3 reference/generate.py --inspect-model --model /models/download.safetensors\n```\n",
+      "language": "sh",
+      "code": "python3 reference/generate.py --inspect-model --model /models/download.safetensors\n",
+      "closed": true
+    },
+    {
+      "id": "b000018",
+      "kind": "blank",
+      "start_line": 40,
+      "end_line": 40,
+      "raw": "\n"
+    },
+    {
+      "id": "b000019",
+      "kind": "paragraph",
+      "start_line": 41,
+      "end_line": 42,
+      "raw": "생성을 위해, `reference/generate.py --model /models/download.safetensors` 는 기존 가중치 파일에 대한 로컬 이미지 런타임 를 자동으로 선택합니다. `model_index.json` 를 포함하는 완전한 로컬 디렉토리는 Diffusers 를 선택합니다. `--model-config` 를 제공하는 것은 또한 일반적인 Diffusers 단일 파일 경로를 선택하며, 선택된 파이프라인은 실제로 `from_single_file` 를 구현해야 합니다. Kolors 예시에서 누락된 로더를 제공할 수 없습니다.\n[generic-diffusers.md](generic-diffusers.md#kolors-and-task-specific-checkpoints) 가 설명합니다. 명시적인 `--backend`, `--preset`, `--pipeline-class` 및 `--workflow` 선택은 우선순위를 유지합니다. `--backend local` 는 로컬 런타임 를 직접 선택합니다. 로컬 구성 요소 및 런타임 옵션 (`--model-info`, `--components`, `--text-encoder*`, `--model-type`, `--runtime-*`) 또한 자동으로 선택합니다.\n"
+    },
+    {
+      "id": "b000020",
+      "kind": "blank",
+      "start_line": 43,
+      "end_line": 43,
+      "raw": "\n"
+    },
+    {
+      "id": "b000021",
+      "kind": "paragraph",
+      "start_line": 44,
+      "end_line": 44,
+      "raw": "검사기는 SD1, SD2, SDXL base/refiner, SD3 및 FLUX.1 시그니처를 인식한다. SD1/2/XL 라우팅은 UNet 교차 어텐션 폭을 확인한다. FLUX dev/schnell 라우팅은 guidance embedding 가중치를 확인한다. FLUX 편집 변형, Chroma와 Flux2를 일반 FLUX.1 텍스트에서 이미지 생성 프리셋으로 아무런 알림 없이 라우팅하지 않는다. 원본 이미지가 필요한 것으로 식별된 작업은 여전히 호출자가 명시적인 워크플로를 제공해야 한다.\n"
+    },
+    {
+      "id": "b000022",
+      "kind": "blank",
+      "start_line": 45,
+      "end_line": 45,
+      "raw": "\n"
+    },
+    {
+      "id": "b000023",
+      "kind": "paragraph",
+      "start_line": 46,
+      "end_line": 46,
+      "raw": "Illustrious, Pony, NoobAI 및 Krea 는 아키텍처가 확인된 후 카테고리별 라우팅 결정입니다. 그 이름들은 텐서 형식으로는 신뢰할 수 있게 기본 모델과 구별할 수 없습니다. NoobAI v-예측은 명시적인 예측 메타데이터 (`predictionType: \"v_prediction\"`, safetensors, `modelspec.prediction_type` 또는 `ss_v_parameterization: \"true\"`) 또는 명시적인 생성 프리셋이 필요합니다. 단순히 카테고리 NoobAI 를 이름만 지어도 그 훈련 파라미터화를 식별하지 못합니다.\n"
+    },
+    {
+      "id": "b000024",
+      "kind": "blank",
+      "start_line": 47,
+      "end_line": 47,
+      "raw": "\n"
+    },
+    {
+      "id": "b000025",
+      "kind": "html",
+      "start_line": 48,
+      "end_line": 48,
+      "raw": "<a id=\"civitai-model-version-metadata\"></a>\n"
+    },
+    {
+      "id": "b000026",
+      "kind": "blank",
+      "start_line": 49,
+      "end_line": 49,
+      "raw": "\n"
+    },
+    {
+      "id": "b000027",
+      "kind": "heading",
+      "start_line": 50,
+      "end_line": 50,
+      "raw": "## Civitai 모델 버전 메타데이터\n",
+      "level": 2,
+      "title": "Civitai 모델 버전 메타데이터"
+    },
+    {
+      "id": "b000028",
+      "kind": "blank",
+      "start_line": 51,
+      "end_line": 51,
+      "raw": "\n"
+    },
+    {
+      "id": "b000029",
+      "kind": "paragraph",
+      "start_line": 52,
+      "end_line": 52,
+      "raw": "검사관은 인접한 `download.civitai.info` 및 `download.safetensors.civitai.info` 이름을 자동으로 확인합니다. 둘 다 존재하는 경우 `info_path`를 사용하여 명시적으로 하나를 선택하십시오. 메타데이터는 저장된 Civitai 모델 버전 API 응답일 수 있습니다.\n"
+    },
+    {
+      "id": "b000030",
+      "kind": "blank",
+      "start_line": 53,
+      "end_line": 53,
+      "raw": "\n"
+    },
+    {
+      "id": "b000031",
+      "kind": "fenced_code",
+      "start_line": 54,
+      "end_line": 67,
+      "raw": "```json\n{\n  \"baseModel\": \"Illustrious\",\n  \"model\": { \"type\": \"Checkpoint\" },\n  \"files\": [\n    {\n      \"name\": \"original-download.safetensors\",\n      \"hashes\": {\n        \"SHA256\": \"64 hexadecimal characters from the actual download\"\n      }\n    }\n  ]\n}\n```\n",
+      "language": "json",
+      "code": "{\n  \"baseModel\": \"Illustrious\",\n  \"model\": { \"type\": \"Checkpoint\" },\n  \"files\": [\n    {\n      \"name\": \"original-download.safetensors\",\n      \"hashes\": {\n        \"SHA256\": \"64 hexadecimal characters from the actual download\"\n      }\n    }\n  ]\n}\n",
+      "closed": true
+    },
+    {
+      "id": "b000032",
+      "kind": "blank",
+      "start_line": 68,
+      "end_line": 68,
+      "raw": "\n"
+    },
+    {
+      "id": "b000033",
+      "kind": "paragraph",
+      "start_line": 69,
+      "end_line": 69,
+      "raw": "SHA256 값이 존재할 때, 선택된 파일은 하나와 일치해야 합니다. 이는 로컬 이름 변경을 허용하면서 관련 없는 모델 버전 사이드카를 거부합니다. 유효하지 않은 해시, 알 수 없는 카테고리 이름, 호스팅된 카테고리 및 모델 유형, 아키텍처 또는 내장 메타데이터 간의 충돌은 모델 로딩 전에 에러를 유발합니다. 해시가 없는 저장된 JSON 는 사용 가능하지만 파일 신원은 명시적으로 검증되지 않았습니다. 네트워크 요청, 모델 다운로드 또는 원격 코드 실행은 검사에 포함되지 않습니다.\n"
+    },
+    {
+      "id": "b000034",
+      "kind": "blank",
+      "start_line": 70,
+      "end_line": 70,
+      "raw": "\n"
+    },
+    {
+      "id": "b000035",
+      "kind": "paragraph",
+      "start_line": 71,
+      "end_line": 71,
+      "raw": "LoRA, LyCORIS/LoCon, VAE, 학습된 임베딩 및 ControlNet 파일은 구성 요소입니다. 이들은 첨부 지침을 반환하며 독립적인 체크포인트 파이프라인을 반환하지 않습니다. 예를 들어, LoRA 는 일치하는 기본 모델과 함께 `--lora` 에 속해야 합니다. Civitai `Checkpoint` 사이카는 선택된 파일이 LoRA 임을 나타내는 텐서 증거를 덮어쓸 수 없습니다. 알 수 없는 구성 요소 유형은 기본적으로 SD1 로 변경되지 않고 알 수 없는 상태로 유지됩니다.\n"
+    },
+    {
+      "id": "b000036",
+      "kind": "blank",
+      "start_line": 72,
+      "end_line": 72,
+      "raw": "\n"
+    },
+    {
+      "id": "b000037",
+      "kind": "html",
+      "start_line": 73,
+      "end_line": 73,
+      "raw": "<a id=\"containers-and-dependencies\"></a>\n"
+    },
+    {
+      "id": "b000038",
+      "kind": "blank",
+      "start_line": 74,
+      "end_line": 74,
+      "raw": "\n"
+    },
+    {
+      "id": "b000039",
+      "kind": "heading",
+      "start_line": 75,
+      "end_line": 75,
+      "raw": "## 컨테이너 및 종속성\n",
+      "level": 2,
+      "title": "컨테이너 및 종속성"
+    },
+    {
+      "id": "b000040",
+      "kind": "blank",
+      "start_line": 76,
+      "end_line": 76,
+      "raw": "\n"
+    },
+    {
+      "id": "b000041",
+      "kind": "paragraph",
+      "start_line": 77,
+      "end_line": 77,
+      "raw": "Safetensors 검사에는 표준 라이브러리를 사용하여 최대 100 MB 의 JSON 헤더를 읽습니다. 이는 중복 키, 지원되는 데이터 타입, 형상, 바이트 범위, 중첩, 절단 및 인덱싱되지 않은 후미 바이트를 디코딩하지 않고 검증합니다. Safetensors 페이로드 해석은 생성 백엔드에서 사용되는 유지 관리 `safetensors` 및 Diffusers 패키지의 책임으로 남아 있습니다.\n"
+    },
+    {
+      "id": "b000042",
+      "kind": "blank",
+      "start_line": 78,
+      "end_line": 78,
+      "raw": "\n"
+    },
+    {
+      "id": "b000043",
+      "kind": "paragraph",
+      "start_line": 79,
+      "end_line": 79,
+      "raw": "GGUF v2/v3 검사는 게시된 형식을 사용하여 한계가 설정된 메타데이터 및 텐서 설명자를 읽습니다. 이는 `general.architecture` 를 읽으며 형상 비교를 위해 GGUF 차원 순서를 반전시키고 정렬/데이터 오프셋을 확인합니다. 그것은 양자화된 페이로드를 디코딩하거나 유효성을 증명하지 않습니다. 유지 관리 `gguf` Python 패키지는 이 경계를 위해 평가되었습니다: 전체 리더는 텐서 데이터를 매핑하고 의존성 없는 검사 경로에 NumPy 를 가져옵니다. 따라서 양자화 로딩은 여기에 재구현되는 대신 선택된 백엔드로 위임됩니다. 빅엔디안 GGUF 및 인식되지 않은 형식/타입 수정은 호환 가능한 백엔드 또는 업데이트된 검사기가 필요합니다.\n"
+    },
+    {
+      "id": "b000044",
+      "kind": "blank",
+      "start_line": 80,
+      "end_line": 80,
+      "raw": "\n"
+    },
+    {
+      "id": "b000045",
+      "kind": "paragraph",
+      "start_line": 81,
+      "end_line": 81,
+      "raw": "`.ckpt`, `.pt`, `.pth` 및 `.bin` 검사에는 안정적인 PyTorch 2.10.0 또는 그 이상의 런타임 가 필요하며, `torch.load(weights_only=True, map_location=\"meta\")` 를 사용합니다. 지원되지 않는 객체는 오류를 발생시키며, 안전하지 않은 pickle 대체 경로 는 없습니다. PyTorch 가 누락되면 파일은 열리지 않으며 명시적으로 제공된 메타데이터만 경로를 설정할 수 있습니다. 생성 환경은 생성 전에 유지되는 PyTorch 로더와 모든 필요한 구성 요소를 제공해야 합니다.\n"
+    },
+    {
+      "id": "b000046",
+      "kind": "blank",
+      "start_line": 82,
+      "end_line": 82,
+      "raw": "\n"
+    },
+    {
+      "id": "b000047",
+      "kind": "paragraph",
+      "start_line": 83,
+      "end_line": 83,
+      "raw": "공공 `reference/generate.py --inspect-model` 명령은 이러한 레거시 컨테이너에 대해 설치된 관리 런타임 를 자동으로 재사용하므로 호스트 Python 는 Torch 가 필요하지 않습니다. `--runtime-python /absolute/path/to/python` 는 다른 설치된 검사 환경을 선택합니다. 재실행은 해당 인터프리터가 이미 실행 중일 때 중지됩니다. Safetensors 와 GGUF 검사는 호스트의 표준 라이브러리 경로에 유지되며 관리 런타임 를 시작하지 않습니다.\n"
+    },
+    {
+      "id": "b000048",
+      "kind": "blank",
+      "start_line": 84,
+      "end_line": 84,
+      "raw": "\n"
+    },
+    {
+      "id": "b000049",
+      "kind": "paragraph",
+      "start_line": 85,
+      "end_line": 85,
+      "raw": "모듈에는 새로운 필수 런타임 종속성이 없습니다. 회귀 테스트는 실제 바이너리 safetensors/GGUF 픽스처 컨테이너를 사용하고 충돌하는 메타데이터, 잘못된 해시, 잘못된 형식의 헤더 및 우발적인 구성 요소를 체크포인트 경로로 거부합니다.\n"
+    },
+    {
+      "id": "b000050",
+      "kind": "blank",
+      "start_line": 86,
+      "end_line": 86,
+      "raw": "\n"
+    },
+    {
+      "id": "b000051",
+      "kind": "fenced_code",
+      "start_line": 87,
+      "end_line": 89,
+      "raw": "```sh\npython3 tests/DownloadedModelTests.py\n```\n",
+      "language": "sh",
+      "code": "python3 tests/DownloadedModelTests.py\n",
+      "closed": true
+    },
+    {
+      "id": "b000052",
+      "kind": "blank",
+      "start_line": 90,
+      "end_line": 90,
+      "raw": "\n"
+    },
+    {
+      "id": "b000053",
+      "kind": "paragraph",
+      "start_line": 91,
+      "end_line": 91,
+      "raw": "테스트 컨테이너는 구문 분석 및 디스패치 정확성을 설정합니다. 여기에는 합성 텐서가 포함되어 있으며 전체 Civitai 체크포인트에 대한 시각적 품질이나 성공적인 추론을 설정하지 않습니다.\n"
+    },
+    {
+      "id": "b000054",
+      "kind": "blank",
+      "start_line": 92,
+      "end_line": 92,
+      "raw": "\n"
+    },
+    {
+      "id": "b000055",
+      "kind": "html",
+      "start_line": 93,
+      "end_line": 93,
+      "raw": "<a id=\"upstream-references\"></a>\n"
+    },
+    {
+      "id": "b000056",
+      "kind": "blank",
+      "start_line": 94,
+      "end_line": 94,
+      "raw": "\n"
+    },
+    {
+      "id": "b000057",
+      "kind": "heading",
+      "start_line": 95,
+      "end_line": 95,
+      "raw": "## 상위 공급 측 참고자료\n",
+      "level": 2,
+      "title": "상위 공급 측 참고자료"
+    },
+    {
+      "id": "b000058",
+      "kind": "blank",
+      "start_line": 96,
+      "end_line": 96,
+      "raw": "\n"
+    },
+    {
+      "id": "b000059",
+      "kind": "list",
+      "start_line": 97,
+      "end_line": 101,
+      "raw": "- [Safetensor 형식 및 무결성 규칙](https://github.com/huggingface/safetensors/blob/main/README.md#format)\n- [Diffusers 체크포인트 서명 및 단일 파일 로딩 구현](https://github.com/huggingface/diffusers/blob/main/src/diffusers/loaders/single_file_utils.py)\n- [ComfyUI 모델 감지](https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/model_detection.py)\n- [GGUF 파일 형식](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md)\n- [유지보수된 GGUF Python 리더](https://github.com/ggml-org/llama.cpp/tree/master/gguf-py)\n",
+      "items": [
+        {
+          "marker": "-",
+          "text": "[Safetensor 형식 및 무결성 규칙](https://github.com/huggingface/safetensors/blob/main/README.md#format)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[Diffusers 체크포인트 서명 및 단일 파일 로딩 구현](https://github.com/huggingface/diffusers/blob/main/src/diffusers/loaders/single_file_utils.py)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[ComfyUI 모델 감지](https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/model_detection.py)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[GGUF 파일 형식](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md)",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "[유지보수된 GGUF Python 리더](https://github.com/ggml-org/llama.cpp/tree/master/gguf-py)",
+          "checked": null
+        }
+      ]
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000003",
+      "parent_id": null,
+      "level": 1,
+      "title": "다운로드된 모델 검사",
+      "anchor": "다운로드된-모델-검사",
+      "start_line": 3
+    },
+    {
+      "block_id": "b000027",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "Civitai 모델 버전 메타데이터",
+      "anchor": "civitai-모델-버전-메타데이터",
+      "start_line": 50
+    },
+    {
+      "block_id": "b000039",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "컨테이너 및 종속성",
+      "anchor": "컨테이너-및-종속성",
+      "start_line": 75
+    },
+    {
+      "block_id": "b000057",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "상위 공급 측 참고자료",
+      "anchor": "상위-공급-측-참고자료",
+      "start_line": 95
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000011",
+        "line": 29,
+        "text": "| `task` |필수 작업으로, 감지된 입력 채널/리파이너에 대한 `inpainting` 및 `image-to-image` 를 포함합니다.|",
+        "basis": "lexical_match",
+        "context": "table"
+      },
+      {
+        "block_id": "b000013",
+        "line": 33,
+        "text": "`exact` 는 제공된 메타데이터로 설명된 로컬 파일을 식별합니다. 메타데이터 발행자를 인증하거나 성공적인 생성을 증명하지 않습니다. VAE /text 인코더 텐서 이름의 존재가 모든 필수 가중치, 토크나이저 또는 스케줄러 구성이 포함되었음을 확립하기에 충분하지 않습니다.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000021",
+        "line": 44,
+        "text": "검사기는 SD1, SD2, SDXL base/refiner, SD3 및 FLUX.1 시그니처를 인식한다. SD1/2/XL 라우팅은 UNet 교차 어텐션 폭을 확인한다. FLUX dev/schnell 라우팅은 guidance embedding 가중치를 확인한다. FLUX 편집 변형, Chroma와 Flux2를 일반 FLUX.1 텍스트에서 이미지 생성 프리셋으로 아무런 알림 없이 라우팅하지 않는다. 원본 이미지가 필요한 것으로 식별된 작업은 여전히 호출자가 명시적인 워크플로를 제공해야 한다.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000049",
+        "line": 85,
+        "text": "모듈에는 새로운 필수 런타임 종속성이 없습니다. 회귀 테스트는 실제 바이너리 safetensors/GGUF 픽스처 컨테이너를 사용하고 충돌하는 메타데이터, 잘못된 해시, 잘못된 형식의 헤더 및 우발적인 구성 요소를 체크포인트 경로로 거부합니다.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [
+      {
+        "block_id": "b000017",
+        "language": "sh",
+        "code": "python3 reference/generate.py --inspect-model --model /models/download.safetensors\n"
+      },
+      {
+        "block_id": "b000051",
+        "language": "sh",
+        "code": "python3 tests/DownloadedModelTests.py\n"
+      }
+    ],
+    "links": [
+      {
+        "block_id": "b000019",
+        "label": "generic-diffusers.md",
+        "target": "generic-diffusers.md#kolors-and-task-specific-checkpoints",
+        "kind": "relative",
+        "line": 42
+      },
+      {
+        "block_id": "b000059",
+        "label": "Safetensor 형식 및 무결성 규칙",
+        "target": "https://github.com/huggingface/safetensors/blob/main/README.md#format",
+        "kind": "external",
+        "line": 97
+      },
+      {
+        "block_id": "b000059",
+        "label": "Diffusers 체크포인트 서명 및 단일 파일 로딩 구현",
+        "target": "https://github.com/huggingface/diffusers/blob/main/src/diffusers/loaders/single_file_utils.py",
+        "kind": "external",
+        "line": 98
+      },
+      {
+        "block_id": "b000059",
+        "label": "ComfyUI 모델 감지",
+        "target": "https://github.com/comfyanonymous/ComfyUI/blob/master/comfy/model_detection.py",
+        "kind": "external",
+        "line": 99
+      },
+      {
+        "block_id": "b000059",
+        "label": "GGUF 파일 형식",
+        "target": "https://github.com/ggml-org/ggml/blob/master/docs/gguf.md",
+        "kind": "external",
+        "line": 100
+      },
+      {
+        "block_id": "b000059",
+        "label": "유지보수된 GGUF Python 리더",
+        "target": "https://github.com/ggml-org/llama.cpp/tree/master/gguf-py",
+        "kind": "external",
+        "line": 101
+      }
+    ],
+    "tables": [
+      {
+        "block_id": "b000011",
+        "columns": [
+          "필드",
+          "의미"
+        ],
+        "rows": [
+          [
+            "`format`",
+            "`safetensors`, `gguf` 또는 `pytorch` 컨테이너"
+          ],
+          [
+            "`base_model`",
+            "메타데이터의 정확한 카탈로그 검증 Civita 카테고리 또는 null"
+          ],
+          [
+            "`architecture`",
+            "Tensor 파생 아키텍처 또는 명시적으로 선언된 카테고리 패밀리"
+          ],
+          [
+            "`preset`, `pipeline_class`",
+            "호환되는 초기 생성 경로 또는 경로가 설정되지 않은 경우 null"
+          ],
+          [
+            "`role`",
+            "`checkpoint`, `lora`, `vae`, `embedding`, `controlnet`, 다른 선언된 구성요소 유형, 또는 `unknown`"
+          ],
+          [
+            "`weights_role`",
+            "`denoiser` 생성 모델에 내장된 VAE 또는 텍스트 인코더 가중치에 대한 증거가 부족한 경우 그렇지 않으면 구성 요소 역할"
+          ],
+          [
+            "`available_components`, `missing_components`",
+            "이 컨테이너에서 디노이저, VAE 및 텍스트 인코더 가중치가 발생한다는 증거입니다. 이는 완전한 구성 요소 무결성 검사가 아닙니다."
+          ],
+          [
+            "`prediction_type`",
+            "선언 시 명시적 엡실론, v-예측, 샘플 또는 흐름 매개변수화"
+          ],
+          [
+            "`task`",
+            "필수 작업으로, 감지된 입력 채널/리파이너에 대한 `inpainting` 및 `image-to-image` 를 포함합니다."
+          ],
+          [
+            "`confidence`",
+            "`exact` 는 제공된 SHA256 가 일치함을 의미하며, `metadata` 는 해시 없이 카테고리가 선언됨을 의미하고, `architecture` 는 구조가 인식됨을 의미하며, `unknown` 는 라우트가 설정되지 않음을 의미합니다."
+          ],
+          [
+            "`evidence`, `role_guidance`",
+            "구성 요소에 대한 검사 기준 및 적절한 첨부 인수"
+          ]
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

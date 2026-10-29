@@ -49,6 +49,21 @@ IILD_BUILD_JOBS=4 \
 
 네이티브 실행 파일은 상대 런타임 검색 경로를 사용하여 설치된 라이브러리를 찾습니다. 활성화되면 MLX 리소스가 설치됩니다. 시스템 라이브러리와 선택적 LibTorch SDK는 외부 종속성을 유지합니다. 해당 백엔드를 구성하는 데 사용된 SDK를 유지합니다.
 
+Python 비디오 워커는 `ctypes.CDLL`로 설치된 `libiiLocalDiffusion`을 직접 연다.
+선택한 macOS OpenSSL Crypto 동적 라이브러리와 링크 체인을 `lib/`에 함께
+설치하며, 기존 설치에 남아 있던 ONNX 런타임은 제거한다. 제품 워커가 CMake
+소비자 실행 파일의 추가 검색 경로에 의존해서는 안 된다.
+
+`InstallConsumerTests`는 기존 폐기 파일을 가진 접두사에 재설치한 뒤 공백이 있는
+다른 경로로 옮긴다. 외부 `DYLD_*` 검색 경로 없이 Python에서 비디오 C API를
+열고, ONNX가 로딩되지 않았는지와 독립 C++ 소비자 빌드·실행을 확인한다.
+모델 가중치 로딩이나 실제 영상 생성 완료를 검증하는 시험과는 구분한다.
+
+macOS 모델 패키징 정적 라이브러리는 설치된 `iiLocalDiffusion::CryptoRuntime`을
+통해 패키지 내부의 Crypto에 연결한다. 공개 헤더에 암호화 SDK 타입을 노출하지
+않으며, 이를 소비하는 데 빌드 머신의 OpenSSL 개발 경로를 요구하지 않는다.
+다른 플랫폼의 외부 OpenSSL 계약은 유지한다.
+
 이는 기존 로컬 런타임을 재사용하는 개발자 설치입니다. 있는 경우 설치 프로그램은 기호 링크를 사용하여 이러한 소스 경로를 설치된 참조 트리에 연결합니다.
 
 |설치된 링크|기존 소스 경로|
@@ -96,7 +111,11 @@ cmake --build build --parallel 4
 ./build/consumer /absolute/path/to/diffusers-package
 ```
 
-macOS 에서, 패키지의 `lib/` 디렉토리가 `LIBRARY_PATH` 에 존재할 때, 내보낸 대상 또한 런타임 검색 경로를 제공합니다. CMake 는 해당 디렉토지를 암시적인 링커 위치로 취급하지만, 라이브러리의 `@rpath` 설치 이름에 대해 여전히 dyld 가 `LC_RPATH` 가 필요합니다. 애플리케이션은 위와 같이 표시된 대상 링크만 필요하며, `BUILD_RPATH` 또는 `DYLD_LIBRARY_PATH` 조정을 필요로 하지 않습니다. 재배치된 설치된 소비자 테스트는 이 유전 환경을 포함하여, 공백을 포함하는 설치 경로를 다룹니다.
+macOS 내보내기는 명시적으로 선택한 iiFileProvider Native와 iiLocalDiffusion의
+런타임 경로를 다른 백엔드 SDK의 자동 수집 경로보다 먼저 배치한다. MLX 등이
+구형 iiLocalDiffusion과 같은 디렉터리에 있어도 그 구형 파일을 대신 로딩해서는
+안 된다. `LIBRARY_PATH`가 설치 경로를 암시적으로 만들 때도 같은 계약을 따른다.
+소비자는 대상 링크만 사용하며 별도 `DYLD_LIBRARY_PATH` 우회가 필요하지 않다.
 
 C++ API는 구성 요소 계산 및 메타데이터 검사를 수행합니다. 전체 이미지 생성 및 [모델 병합](model-merging.md)는 별도의 Python 진입점을 사용합니다. 두 Python 명령 모두 아래의 인터프리터 선택을 공유합니다.
 

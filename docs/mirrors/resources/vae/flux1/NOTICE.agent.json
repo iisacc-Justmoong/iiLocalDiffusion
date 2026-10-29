@@ -1,0 +1,99 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:0fa65a81c503c5fd1ed205e0766069d979ab14a6564c5db5caebe812daf02ebf",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "resources/vae/flux1/NOTICE.md",
+    "sha256": "fa91008ed474cd1e5c4dba57284d3367bfcf6a86d8e9fc6faa8c0ccaf417caaf",
+    "bytes": 721,
+    "line_count": 9,
+    "encoding": "utf-8",
+    "language": "en"
+  },
+  "document": {
+    "title": "FLUX.1 VAE provenance",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# FLUX.1 VAE provenance\n",
+      "level": 1,
+      "title": "FLUX.1 VAE provenance"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "paragraph",
+      "start_line": 3,
+      "end_line": 4,
+      "raw": "Black Forest Labs publishes FLUX.1 schnell under Apache-2.0:\nhttps://huggingface.co/black-forest-labs/FLUX.1-schnell/tree/741f7c3ce8b383c54771c7003378a50191e9efe9/vae\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 5,
+      "end_line": 5,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 6,
+      "end_line": 7,
+      "raw": "These unmodified VAE weights and configuration were downloaded from the public Diffusers organization mirror:\nhttps://huggingface.co/diffusers/FLUX.1-vae/tree/da548cfb003bdeebaff6da0211fc8fbc67cb563a\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 8,
+      "end_line": 8,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "paragraph",
+      "start_line": 9,
+      "end_line": 9,
+      "raw": "The weights SHA-256 f5b59a26851551b67ae1fe58d32e76486e1e812def4696a4bea97f16604d40a3 and config Git blob b43183d0f5f0274bccd8054cd0069fc1d5f64586 match the official schnell repository exactly. Only the VAE component is bundled. Model licenses for other FLUX denoisers remain independent. LICENSE contains the Apache-2.0 terms.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "FLUX.1 VAE provenance",
+      "anchor": "flux1-vae-provenance",
+      "start_line": 1
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [],
+    "commands": [],
+    "links": [],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

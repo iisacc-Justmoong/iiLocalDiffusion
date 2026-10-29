@@ -1,0 +1,567 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:39a2ee9dd75173fc613c431efbfb9855d9fb2bb1ccb5dfabbc77e7f3d62cd6db",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "docs/local-image-generation.md",
+    "sha256": "bc2ecc62344d8d85f774cf8386fa272f326a93ee5d77e069548883f6f80b78cf",
+    "bytes": 8814,
+    "line_count": 74,
+    "encoding": "utf-8",
+    "language": "ko"
+  },
+  "document": {
+    "title": "독립형 로컬 이미지 생성",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "html",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "<a id=\"standalone-local-image-generation\"></a>\n"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "heading",
+      "start_line": 3,
+      "end_line": 3,
+      "raw": "# 독립형 로컬 이미지 생성\n",
+      "level": 1,
+      "title": "독립형 로컬 이미지 생성"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 4,
+      "end_line": 4,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 5,
+      "end_line": 6,
+      "raw": "`iild-generate --model-path /models/checkpoint.safetensors`는 아키텍처별로 SDK Python 프로세스에서 네이티브 엔진 또는 Diffusers/PyTorch를 선택합니다. 참조\nFLUX.2, Z-Image, Krea 2, SD3와 분리된 텍스트 인코더/VAE 가중치의 [백엔드 라우팅](backend-routing.md)이다. ComfyUI 소스, 인터프리터, HTTP 서버, 워크플로, 사용자 정의 노드 또는 ComfyUI 캐시는 필요하지 않다. Dreamscapes도 동일한 `--backend local` 경로를 사용한다.\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 7,
+      "end_line": 7,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "paragraph",
+      "start_line": 8,
+      "end_line": 8,
+      "raw": "앱 큐의 경우 SDK 의 [거주 추론 작업자](inference-worker.md)를 사용하세요. 이는 요청 간 Python 초기화 및 호환 로드 가중치를 유지하며, 파일 시스템 식별자가 변경되지 않으면 전체 모델 해시를 재사용합니다. 모델 구성, 파싱된 구성 및 장치 배치 는 메모리에 유지됩니다. 샘플링 옵션은 모델을 재구성하거나 배치 를 반복하지 않고 변경할 수 있으며, 실행 배치 만 변경하면 이미 로드된 구성 요소를 재사용합니다.\n"
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 9,
+      "end_line": 9,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "html",
+      "start_line": 10,
+      "end_line": 10,
+      "raw": "<a id=\"offline-checkpoint-configuration\"></a>\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 11,
+      "end_line": 11,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "heading",
+      "start_line": 12,
+      "end_line": 12,
+      "raw": "## 오프라인 체크포인트 구성\n",
+      "level": 2,
+      "title": "오프라인 체크포인트 구성"
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 13,
+      "end_line": 13,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "paragraph",
+      "start_line": 14,
+      "end_line": 14,
+      "raw": "SDK 는 약  4.8 의  MB   SD   1.x 와  SDXL 구성/토크나이저 리소스를  `reference/diffusers/configs/` 아래에 탑재합니다. 정확한 상위 공급 측 수정본, 파일 해시 및 로컬 수정은 `configs/manifest.json` 에 기록됩니다. 이 리소스에는 모델 가중치가 포함되어 있지 않습니다. SDXL 파생물(예: Illustrious) 은 SDXL 텐서 아키텍처를 사용하며, 선택적인 Civitai 사이드카 또는 `--base-model` 는 더 구체적인 식별자를 유지합니다. 파일명은 아키텍처를 선택하지 않습니다.\n"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 15,
+      "end_line": 15,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "paragraph",
+      "start_line": 16,
+      "end_line": 16,
+      "raw": "완전한 SD 1.x 또는 SDXL 체크포인트는 디노이저, VAE 및 텍스트 인코더를 제공합니다. 번들된 구성은 구성 요소 정의, 스케줄러 및 CLIP 어휘/병합을 제공합니다. `--model-config` 는 명시적인 로컬 구성으로 이를 덮어쓸 수 있습니다. 모델/구성 로딩은 오프라인으로 유지됩니다. 누락된 동반 가중치는 추론 전에 보고되며 다운로드되거나 대체되지 않습니다.\n"
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 17,
+      "end_line": 17,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "fenced_code",
+      "start_line": 18,
+      "end_line": 23,
+      "raw": "```bash\niild-generate --model-path /models/illustration.safetensors \\\n  --prompt 'a red ceramic teapot on a wooden table' \\\n  --width 512 --height 512 --steps 20 --device mps \\\n  --output-dir /existing/parent/new-result\n```\n",
+      "language": "bash",
+      "code": "iild-generate --model-path /models/illustration.safetensors \\\n  --prompt 'a red ceramic teapot on a wooden table' \\\n  --width 512 --height 512 --steps 20 --device mps \\\n  --output-dir /existing/parent/new-result\n",
+      "closed": true
+    },
+    {
+      "id": "b000018",
+      "kind": "blank",
+      "start_line": 24,
+      "end_line": 24,
+      "raw": "\n"
+    },
+    {
+      "id": "b000019",
+      "kind": "paragraph",
+      "start_line": 25,
+      "end_line": 25,
+      "raw": "`--backend local` 도 LoRA, ControlNet, 텍스트 인버전, HiRes, 스케줄러, 데이터 타입 및 오프로드에 대한 기존 프리셋 옵션을 모두 받습니다. 예측 메타데이터는 명시적으로 덮어쓰이지 않는 한 유지됩니다. `.safetensor` 와 대문자 접미사는 원래 파일을 이름 변경하거나 복사하지 않고 확인된 임시 `.safetensors` 별칭을 사용합니다.\n"
+    },
+    {
+      "id": "b000020",
+      "kind": "blank",
+      "start_line": 26,
+      "end_line": 26,
+      "raw": "\n"
+    },
+    {
+      "id": "b000021",
+      "kind": "paragraph",
+      "start_line": 27,
+      "end_line": 27,
+      "raw": "구성된 FLUX.1 단일 파일에는 여전히 로컬 보조 가중치와 `--model-config`가 필요하다. 그 밖의 지원되는 Diffusers 파이프라인은 완전한 로컬 모델 디렉터리 또는 호환되는 단일 파일 구성과 함께 `--backend diffusers`를 사용한다. SD2, SD3, 편집/refiner 및 양자화 모델을 SDXL로 잘못 취급하지 않는다. 선택적 레거시 변환/GGUF/그래프 백엔드는 `--backend comfyui-local`로 명시적으로 선택한다. [관리형 ComfyUI](managed-comfyui-image.md)를 참고한다. 해당 백엔드로 자동 대체 경로는 없다.\n"
+    },
+    {
+      "id": "b000022",
+      "kind": "blank",
+      "start_line": 28,
+      "end_line": 28,
+      "raw": "\n"
+    },
+    {
+      "id": "b000023",
+      "kind": "paragraph",
+      "start_line": 29,
+      "end_line": 29,
+      "raw": "`--seed` 를 생략하면 요청마다 새 무작위 기본 시드가 선택됩니다. `--seed 0` 를 포함한 명시적인 시드는 유지됩니다. 해결된 요청 및 이미지별 메타데이터는 실제 시드를 기록하며, 이미지 배치들은 `--seed-stride` 를 사용하여 후속 시드를 유도합니다. Deforum/Interpolator 와 LTX 도 요청마다 기본 시드를 무작위화하면서 구성된 프레임/샷 시드 정책을 유지합니다.\n"
+    },
+    {
+      "id": "b000024",
+      "kind": "blank",
+      "start_line": 30,
+      "end_line": 30,
+      "raw": "\n"
+    },
+    {
+      "id": "b000025",
+      "kind": "html",
+      "start_line": 31,
+      "end_line": 31,
+      "raw": "<a id=\"consumer-paths-and-publication\"></a>\n"
+    },
+    {
+      "id": "b000026",
+      "kind": "blank",
+      "start_line": 32,
+      "end_line": 32,
+      "raw": "\n"
+    },
+    {
+      "id": "b000027",
+      "kind": "heading",
+      "start_line": 33,
+      "end_line": 33,
+      "raw": "## 소비자 경로 및 출판\n",
+      "level": 2,
+      "title": "소비자 경로 및 출판"
+    },
+    {
+      "id": "b000028",
+      "kind": "blank",
+      "start_line": 34,
+      "end_line": 34,
+      "raw": "\n"
+    },
+    {
+      "id": "b000029",
+      "kind": "paragraph",
+      "start_line": 35,
+      "end_line": 35,
+      "raw": "`--preview-dir`는 단일 패스 이미지 요청을 위해 [실시간 노이즈 제거 미리 보기](live-previews.md)를 활성화합니다. 각 실제 샘플링 단계는 최종 출력 게시와 독립적으로 VAE로 디코딩된 PNG 및 플러시된 `IILD_PREVIEW` JSON 이벤트를 게시합니다.\n"
+    },
+    {
+      "id": "b000030",
+      "kind": "blank",
+      "start_line": 36,
+      "end_line": 36,
+      "raw": "\n"
+    },
+    {
+      "id": "b000031",
+      "kind": "paragraph",
+      "start_line": 37,
+      "end_line": 37,
+      "raw": "`--output-dir` 는 새 디렉토리 또는 빈 디렉토리를 받습니다. 이미지와 그 기원이 성공적인 추론, 디코딩 및 해시 검증 후 인접한 임시 디렉토리에 준비되어 함께 게시됩니다. `generation.json` 는 스키마  `iild-standalone-image-v1` , 백엔드  `diffusers` , 상태  `complete` , 최종 출력 경로 및 이미지별 전체 메타데이터를 사용합니다. 실패 시 출력 디렉토리가 비게 되며 기존 결과를 유지합니다. `--output` 는 프리셋의 직접적인 이미지/사이드카어 출력 계약을 유지하며  `--output-dir` 와 상호 배타적입니다.\n"
+    },
+    {
+      "id": "b000032",
+      "kind": "blank",
+      "start_line": 38,
+      "end_line": 38,
+      "raw": "\n"
+    },
+    {
+      "id": "b000033",
+      "kind": "paragraph",
+      "start_line": 39,
+      "end_line": 39,
+      "raw": "`--work-dir` 는 선택적으로 해결된 요청을 새 또는 빈 실제 디렉토리에 저장합니다. Dreamscapes 는  Society 바깥에 앱 소유의 임시 작업 디렉토리를 제공하고 작업/세션 종료 시 이를 제거합니다. `--cache-dir` 는  런타임 /weight-alias 캐시를 유지하며  Dreamscapes 는 이를 같은 임시 작업 디렉토리에 배치하고  Society 에 영구 저장하지 않습니다. 리디렉션되거나 비어 있지 않은 출력/작업 디렉토리는 거부됩니다. 기존  `--startup-timeout` 는 이전 호출자에게 허용되지만 서버는 시작되지 않으며  Dreamscapes 는 더 이상 이를 제공하지 않습니다. Dreamscapes 는 지속성 또는 재시작 복구를 없이 앱 메모리에서만 큐 및 작업 상태를 유지합니다. 그것은 엔진 출력과 기원을 임시 작업 디렉토리에 배치한 후 검증된 이미지만을 직접  Society   `Generation History/` 로 게시합니다. 기록에는 앱/작업 하위 폴더, 요청  JSON ,  런타임 캐시 또는 미리보기가 없습니다. 생성된 이미지는 `Asset Library/` 에 자동으로 등록되지 않습니다.\n"
+    },
+    {
+      "id": "b000034",
+      "kind": "blank",
+      "start_line": 40,
+      "end_line": 40,
+      "raw": "\n"
+    },
+    {
+      "id": "b000035",
+      "kind": "paragraph",
+      "start_line": 41,
+      "end_line": 41,
+      "raw": "`--print-config` 및 `--validate-only`는 파이프라인을 로드하거나 샘플링하지 않고 요청을 검증합니다. 그것은 추론 증거가 아닙니다.\n"
+    },
+    {
+      "id": "b000036",
+      "kind": "blank",
+      "start_line": 42,
+      "end_line": 42,
+      "raw": "\n"
+    },
+    {
+      "id": "b000037",
+      "kind": "html",
+      "start_line": 43,
+      "end_line": 43,
+      "raw": "<a id=\"standalone-video\"></a>\n"
+    },
+    {
+      "id": "b000038",
+      "kind": "blank",
+      "start_line": 44,
+      "end_line": 44,
+      "raw": "\n"
+    },
+    {
+      "id": "b000039",
+      "kind": "heading",
+      "start_line": 45,
+      "end_line": 45,
+      "raw": "## 독립형 비디오\n",
+      "level": 2,
+      "title": "독립형 비디오"
+    },
+    {
+      "id": "b000040",
+      "kind": "blank",
+      "start_line": 46,
+      "end_line": 46,
+      "raw": "\n"
+    },
+    {
+      "id": "b000041",
+      "kind": "paragraph",
+      "start_line": 47,
+      "end_line": 47,
+      "raw": "LTX 비디오는 이미 Diffusers / PyTorch 와 FFmpeg /FFprobe 를 통해 직접 실행됩니다. 완전한 로컬 LTX 모델 디렉토리가 필요합니다. Deforum/Interpolator 는 동일한 이미지 모델 로더를 사용하며 이제 호환되는 체크포인트 파일에 대해 번들된 SD1/SDXL 구성을 자동으로 선택합니다.\n"
+    },
+    {
+      "id": "b000042",
+      "kind": "blank",
+      "start_line": 48,
+      "end_line": 48,
+      "raw": "\n"
+    },
+    {
+      "id": "b000043",
+      "kind": "fenced_code",
+      "start_line": 49,
+      "end_line": 58,
+      "raw": "```bash\niild-generate --backend video --model-path /models/local-ltx \\\n  --prompt 'a slow camera move through a forest' --frames 9 --fps 24 \\\n  --output /existing/parent/forest.mp4\n\niild-generate --backend deforum --model-path /models/illustration.safetensors \\\n  --prompt 'a red ceramic teapot' --width 512 --height 512 --dtype float32 \\\n  --frames 4 --fps 8 \\\n  --output /existing/parent/teapot.mp4\n```\n",
+      "language": "bash",
+      "code": "iild-generate --backend video --model-path /models/local-ltx \\\n  --prompt 'a slow camera move through a forest' --frames 9 --fps 24 \\\n  --output /existing/parent/forest.mp4\n\niild-generate --backend deforum --model-path /models/illustration.safetensors \\\n  --prompt 'a red ceramic teapot' --width 512 --height 512 --dtype float32 \\\n  --frames 4 --fps 8 \\\n  --output /existing/parent/teapot.mp4\n",
+      "closed": true
+    },
+    {
+      "id": "b000044",
+      "kind": "blank",
+      "start_line": 59,
+      "end_line": 59,
+      "raw": "\n"
+    },
+    {
+      "id": "b000045",
+      "kind": "paragraph",
+      "start_line": 60,
+      "end_line": 62,
+      "raw": "선택 사항인 Deforum 의존성은 OpenCV 로 유지됩니다. 새로운 추론 패키지나 유료 서비스가 도입되지 않았습니다. Diffusers ( Apache-2.0 ) 과 PyTorch 는 유지되는 상위 공급 측 추론 구현으로 남아 있으며, 작은 번들 리소스는 상위 공급 측 모델 라이선스와 고지를 그대로 유지합니다. 참조\n[타사 통지](../THIRD_PARTY_NOTICES.md) 및 공식\n[Diffusers 단일 파일 로더](https://huggingface.co/docs/diffusers/api/loaders/single_file).\n"
+    },
+    {
+      "id": "b000046",
+      "kind": "blank",
+      "start_line": 63,
+      "end_line": 63,
+      "raw": "\n"
+    },
+    {
+      "id": "b000047",
+      "kind": "html",
+      "start_line": 64,
+      "end_line": 64,
+      "raw": "<a id=\"verification\"></a>\n"
+    },
+    {
+      "id": "b000048",
+      "kind": "blank",
+      "start_line": 65,
+      "end_line": 65,
+      "raw": "\n"
+    },
+    {
+      "id": "b000049",
+      "kind": "heading",
+      "start_line": 66,
+      "end_line": 66,
+      "raw": "## 검증\n",
+      "level": 2,
+      "title": "검증"
+    },
+    {
+      "id": "b000050",
+      "kind": "blank",
+      "start_line": 67,
+      "end_line": 67,
+      "raw": "\n"
+    },
+    {
+      "id": "b000051",
+      "kind": "paragraph",
+      "start_line": 68,
+      "end_line": 68,
+      "raw": "`StandaloneImageTests` 는 서버 생성 없이 라우팅, 번들 리소스 무결성, 모델 패밀리 및 누락된 구성 요소 거부, 대문자 접미사, 이미지 애니메이션 구성 재사용 및 실패한 출력 보존을 다룹니다. 이 변경에 대한 빌드 및 설치된 런타임 추론 증거는 `build/standalone-validation/` 에 기록되어 `standalone-validation.md` 에서 설명됩니다.\n"
+    },
+    {
+      "id": "b000052",
+      "kind": "blank",
+      "start_line": 69,
+      "end_line": 69,
+      "raw": "\n"
+    },
+    {
+      "id": "b000053",
+      "kind": "html",
+      "start_line": 70,
+      "end_line": 70,
+      "raw": "<a id=\"sdxl-color-preserving-hires-configuration\"></a>\n"
+    },
+    {
+      "id": "b000054",
+      "kind": "blank",
+      "start_line": 71,
+      "end_line": 71,
+      "raw": "\n"
+    },
+    {
+      "id": "b000055",
+      "kind": "heading",
+      "start_line": 72,
+      "end_line": 72,
+      "raw": "### SDXL 색상 보존 HiRes 구성\n",
+      "level": 3,
+      "title": "SDXL 색상 보존 HiRes 구성"
+    },
+    {
+      "id": "b000056",
+      "kind": "blank",
+      "start_line": 73,
+      "end_line": 73,
+      "raw": "\n"
+    },
+    {
+      "id": "b000057",
+      "kind": "paragraph",
+      "start_line": 74,
+      "end_line": 74,
+      "raw": "외부 SDXL 호환 단일 VAE 는 `--vae /local/vae.safetensors` 로 제공할 수 있습니다. 동일한 구성 요소는 기본 디코딩과 HiRes 인코딩/디코딩에 유지됩니다. SDXL 패밀리 프리셋의 기본 HiRes 강도는 0.25 이며, 전체 일정이 확장되어 최소 10 유효한 노이즈 제거 단계를 유지합니다. 명시적인 HiRes 일정은 결코 길어지지 않습니다. `--hires-save-base` 는 첫 번째 패스 이미지를 직접 검증하기 위해 저장하며, VAE 유한성만은 색상 재구성 테스트가 아닙니다.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000003",
+      "parent_id": null,
+      "level": 1,
+      "title": "독립형 로컬 이미지 생성",
+      "anchor": "독립형-로컬-이미지-생성",
+      "start_line": 3
+    },
+    {
+      "block_id": "b000011",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "오프라인 체크포인트 구성",
+      "anchor": "오프라인-체크포인트-구성",
+      "start_line": 12
+    },
+    {
+      "block_id": "b000027",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "소비자 경로 및 출판",
+      "anchor": "소비자-경로-및-출판",
+      "start_line": 33
+    },
+    {
+      "block_id": "b000039",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "독립형 비디오",
+      "anchor": "독립형-비디오",
+      "start_line": 45
+    },
+    {
+      "block_id": "b000049",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "검증",
+      "anchor": "검증",
+      "start_line": 66
+    },
+    {
+      "block_id": "b000055",
+      "parent_id": "b000049",
+      "level": 3,
+      "title": "SDXL 색상 보존 HiRes 구성",
+      "anchor": "sdxl-색상-보존-hires-구성",
+      "start_line": 72
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000021",
+        "line": 27,
+        "text": "구성된 FLUX.1 단일 파일에는 여전히 로컬 보조 가중치와 `--model-config`가 필요하다. 그 밖의 지원되는 Diffusers 파이프라인은 완전한 로컬 모델 디렉터리 또는 호환되는 단일 파일 구성과 함께 `--backend diffusers`를 사용한다. SD2, SD3, 편집/refiner 및 양자화 모델을 SDXL로 잘못 취급하지 않는다. 선택적 레거시 변환/GGUF/그래프 백엔드는 `--backend comfyui-local`로 명시적으로 선택한다. [관리형 ComfyUI](managed-comfyui-image.md)를 참고한다. 해당 백엔드로 자동 대체 경로는 없다.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [
+      {
+        "block_id": "b000017",
+        "language": "bash",
+        "code": "iild-generate --model-path /models/illustration.safetensors \\\n  --prompt 'a red ceramic teapot on a wooden table' \\\n  --width 512 --height 512 --steps 20 --device mps \\\n  --output-dir /existing/parent/new-result\n"
+      },
+      {
+        "block_id": "b000043",
+        "language": "bash",
+        "code": "iild-generate --backend video --model-path /models/local-ltx \\\n  --prompt 'a slow camera move through a forest' --frames 9 --fps 24 \\\n  --output /existing/parent/forest.mp4\n\niild-generate --backend deforum --model-path /models/illustration.safetensors \\\n  --prompt 'a red ceramic teapot' --width 512 --height 512 --dtype float32 \\\n  --frames 4 --fps 8 \\\n  --output /existing/parent/teapot.mp4\n"
+      }
+    ],
+    "links": [
+      {
+        "block_id": "b000005",
+        "label": "백엔드 라우팅",
+        "target": "backend-routing.md",
+        "kind": "relative",
+        "line": 6
+      },
+      {
+        "block_id": "b000007",
+        "label": "거주 추론 작업자",
+        "target": "inference-worker.md",
+        "kind": "relative",
+        "line": 8
+      },
+      {
+        "block_id": "b000021",
+        "label": "관리형 ComfyUI",
+        "target": "managed-comfyui-image.md",
+        "kind": "relative",
+        "line": 27
+      },
+      {
+        "block_id": "b000029",
+        "label": "실시간 노이즈 제거 미리 보기",
+        "target": "live-previews.md",
+        "kind": "relative",
+        "line": 35
+      },
+      {
+        "block_id": "b000045",
+        "label": "타사 통지",
+        "target": "../THIRD_PARTY_NOTICES.md",
+        "kind": "relative",
+        "line": 61
+      },
+      {
+        "block_id": "b000045",
+        "label": "Diffusers 단일 파일 로더",
+        "target": "https://huggingface.co/docs/diffusers/api/loaders/single_file",
+        "kind": "external",
+        "line": 62
+      }
+    ],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

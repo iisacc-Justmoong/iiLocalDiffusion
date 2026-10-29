@@ -1,0 +1,265 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:2af23798593278e984bceda320595f83751486edbf91a66ff419490f024e4eb2",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "resources/README.md",
+    "sha256": "9a8f942e4fb08e7a72bee1cdf8ec84eaf1fbc4759c02168bbb0520e4e45adc01",
+    "bytes": 4387,
+    "line_count": 35,
+    "encoding": "utf-8",
+    "language": "ko"
+  },
+  "document": {
+    "title": "Model resources",
+    "role": "overview",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "html",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "<a id=\"모델-리소스\"></a>\n"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "heading",
+      "start_line": 3,
+      "end_line": 3,
+      "raw": "# Model resources\n",
+      "level": 1,
+      "title": "Model resources"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 4,
+      "end_line": 4,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 5,
+      "end_line": 5,
+      "raw": "The `.safetensors` and `.pt` originals in this directory are managed via Git LFS, except for the oversized Qwen3-VL encoder described below. Model files are not placed in Git's regular blobs, and the LFS-managed originals are downloaded with the following command after receiving the repository.\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 6,
+      "end_line": 6,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "fenced_code",
+      "start_line": 7,
+      "end_line": 11,
+      "raw": "```sh\ngit lfs install --local\ngit lfs pull\ngit lfs fsck\n```\n",
+      "language": "sh",
+      "code": "git lfs install --local\ngit lfs pull\ngit lfs fsck\n",
+      "closed": true
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 12,
+      "end_line": 12,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 13,
+      "end_line": 13,
+      "raw": "`.gitattributes` defines tracking rules by resource extension. Each original in the LFS pointer contains the SHA-256 and byte size. The `generation-defaults.json` specified LoRA and negative embeddings are now global image generation defaults and are included in CMake installation. SDXL uses 7 embeddings and does not apply automatic LoRA. The default for `fallback_loras` is an empty array. Detailed priority and consumer deployment are in the [global defaults documentation](../docs/generation-defaults.md).\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 14,
+      "end_line": 14,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "paragraph",
+      "start_line": 15,
+      "end_line": 15,
+      "raw": "The default LoRA of other model families registers compatible files, strength, family, hash, and size in the `fallback_loras` array. While existing single `fallback_lora` formats are also supported, the bundle does not register the default LoRA. Image and Deforum, and the native runtime use the same family selection rules. Changing only the family name of SDXL weights is not a conversion; actual LoRA files matching each base model are required.\n"
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 16,
+      "end_line": 16,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "paragraph",
+      "start_line": 17,
+      "end_line": 17,
+      "raw": "`embeddings/` contains copies of 3 original `.pt` files preserved as tensor-only safetensors. When the originals change, recreate them with `scripts/prepare_generation_defaults.py` and verify vector equality and hashes with `--check`. The original `.pt` files are also retained.\n"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 18,
+      "end_line": 18,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "paragraph",
+      "start_line": 19,
+      "end_line": 19,
+      "raw": "`vae/` contains the original VAEs and configurations for Qwen Image RGB, SDXL, FLUX.1, FLUX.2, and Wan2.1. `fallback_vae` (the existing Qwen entry) and the `fallback_vaes` array record pinned revisions, SHA-256, sizes, and compatible families. Native/Diffusers attaches the corresponding family's VAE to models without one; this remains active even when the default LoRA is disabled. An embedded VAE takes precedence, and different latent spaces are not mixed. Redownload and verification commands are in the [defaults document](../docs/generation-defaults.md#vae-자동-폴백). `.cache` is excluded from Git and installation. Qwen/FLUX retain the original Apache-2.0 text, while SDXL preserves the official model card declaring MIT. Evidence that the FLUX.1 original and public copy are identical is in `vae/flux1/NOTICE.md`.\n"
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 20,
+      "end_line": 20,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "paragraph",
+      "start_line": 21,
+      "end_line": 21,
+      "raw": "`text_encoders/` contains the pinned original Qwen3-VL-4B BF16 encoder for split Krea2 denoisers. `fallback_llms` records its family, class, revision, size, and SHA-256. The native loader normalizes the original Hugging Face `model.language_model` namespace in memory, validates all required tensor shapes, and mounts the encoder together with the Wan2.1 VAE. Complete embedded components and explicit selections retain precedence. These required components remain active when optional generation modifiers are disabled. `scripts/prepare_generation_defaults.py --check` verifies their hashes using streaming reads. Consumer applications provision these resources outside the app bundle, in the Society drive.\n"
+    },
+    {
+      "id": "b000018",
+      "kind": "blank",
+      "start_line": 22,
+      "end_line": 22,
+      "raw": "\n"
+    },
+    {
+      "id": "b000019",
+      "kind": "paragraph",
+      "start_line": 23,
+      "end_line": 23,
+      "raw": "The encoder is 8,875,719,384 bytes, exceeding [GitHub's maximum Git LFS object size](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-git-large-file-storage). Its payload is therefore ignored by Git; its pinned source identity, license, expected size, and SHA-256 remain versioned. Existing local copies are preserved. After cloning, provision this original from its immutable upstream revision before installing the resources or using split Krea2 models:\n"
+    },
+    {
+      "id": "b000020",
+      "kind": "blank",
+      "start_line": 24,
+      "end_line": 24,
+      "raw": "\n"
+    },
+    {
+      "id": "b000021",
+      "kind": "fenced_code",
+      "start_line": 25,
+      "end_line": 33,
+      "raw": "```sh\nmkdir -p resources/text_encoders\ncurl --fail --location \\\n  'https://huggingface.co/Comfy-Org/Krea-2/resolve/eb1eddd3983a54678545a9b2c178c5853b30f7be/text_encoders/qwen3vl_4b_bf16.safetensors' \\\n  --output resources/text_encoders/qwen3vl_4b_bf16.safetensors\nprintf '%s  %s\\n' \\\n  '36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34' \\\n  'resources/text_encoders/qwen3vl_4b_bf16.safetensors' | shasum -a 256 --check\n```\n",
+      "language": "sh",
+      "code": "mkdir -p resources/text_encoders\ncurl --fail --location \\\n  'https://huggingface.co/Comfy-Org/Krea-2/resolve/eb1eddd3983a54678545a9b2c178c5853b30f7be/text_encoders/qwen3vl_4b_bf16.safetensors' \\\n  --output resources/text_encoders/qwen3vl_4b_bf16.safetensors\nprintf '%s  %s\\n' \\\n  '36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34' \\\n  'resources/text_encoders/qwen3vl_4b_bf16.safetensors' | shasum -a 256 --check\n",
+      "closed": true
+    },
+    {
+      "id": "b000022",
+      "kind": "blank",
+      "start_line": 34,
+      "end_line": 34,
+      "raw": "\n"
+    },
+    {
+      "id": "b000023",
+      "kind": "paragraph",
+      "start_line": 35,
+      "end_line": 35,
+      "raw": "The installed layout and resource manifest are unchanged. `git lfs pull` alone does not provision this one encoder. Run `scripts/prepare_generation_defaults.py --check` with the documented Python environment to verify the complete resource set after provisioning.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000003",
+      "parent_id": null,
+      "level": 1,
+      "title": "Model resources",
+      "anchor": "model-resources",
+      "start_line": 3
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000011",
+        "line": 15,
+        "text": "The default LoRA of other model families registers compatible files, strength, family, hash, and size in the `fallback_loras` array. While existing single `fallback_lora` formats are also supported, the bundle does not register the default LoRA. Image and Deforum, and the native runtime use the same family selection rules. Changing only the family name of SDXL weights is not a conversion; actual LoRA files matching each base model are required.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000017",
+        "line": 21,
+        "text": "`text_encoders/` contains the pinned original Qwen3-VL-4B BF16 encoder for split Krea2 denoisers. `fallback_llms` records its family, class, revision, size, and SHA-256. The native loader normalizes the original Hugging Face `model.language_model` namespace in memory, validates all required tensor shapes, and mounts the encoder together with the Wan2.1 VAE. Complete embedded components and explicit selections retain precedence. These required components remain active when optional generation modifiers are disabled. `scripts/prepare_generation_defaults.py --check` verifies their hashes using streaming reads. Consumer applications provision these resources outside the app bundle, in the Society drive.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [
+      {
+        "block_id": "b000007",
+        "language": "sh",
+        "code": "git lfs install --local\ngit lfs pull\ngit lfs fsck\n"
+      },
+      {
+        "block_id": "b000021",
+        "language": "sh",
+        "code": "mkdir -p resources/text_encoders\ncurl --fail --location \\\n  'https://huggingface.co/Comfy-Org/Krea-2/resolve/eb1eddd3983a54678545a9b2c178c5853b30f7be/text_encoders/qwen3vl_4b_bf16.safetensors' \\\n  --output resources/text_encoders/qwen3vl_4b_bf16.safetensors\nprintf '%s  %s\\n' \\\n  '36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34' \\\n  'resources/text_encoders/qwen3vl_4b_bf16.safetensors' | shasum -a 256 --check\n"
+      }
+    ],
+    "links": [
+      {
+        "block_id": "b000009",
+        "label": "global defaults documentation",
+        "target": "../docs/generation-defaults.md",
+        "kind": "relative",
+        "line": 13
+      },
+      {
+        "block_id": "b000015",
+        "label": "defaults document",
+        "target": "../docs/generation-defaults.md#vae-자동-폴백",
+        "kind": "relative",
+        "line": 19
+      },
+      {
+        "block_id": "b000019",
+        "label": "GitHub's maximum Git LFS object size",
+        "target": "https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-git-large-file-storage",
+        "kind": "external",
+        "line": 23
+      }
+    ],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

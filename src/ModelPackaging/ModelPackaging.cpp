@@ -57,6 +57,9 @@ std::string lower(std::string value) {
     for (auto &c : value) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return value;
 }
+bool forbiddenModelExtension(const fs::path &path) {
+    return lower(path.extension().string()) == ".onnx";
+}
 bool has(const std::string &value, const std::string &needle) { return value.find(needle) != std::string::npos; }
 bool safeRelative(const fs::path &value) {
     if (value.empty() || value.is_absolute() || value.has_root_name()) return false;
@@ -423,6 +426,19 @@ struct Plan {
     bool ltx = false;
     U64 payload = 0;
 };
+void requireNoOnnxManifest(const J &manifest) {
+    const auto files = manifest.at("files");
+    if (!files.is(json_type_array) || files.size() > 10'000) fail("Invalid package file list");
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        const auto source = files.at(i);
+        const auto status = source.at("status").str();
+        if (status != "included" && status != "duplicate") continue;
+        const fs::path path(source.at("path").str());
+        const auto format = source.at("format").str();
+        if (!safeRelative(path) || forbiddenModelExtension(path) || lower(format) == "onnx")
+            fail("Package contains an ONNX model asset: " + path.generic_string());
+    }
+}
 void blob(Source &source) {
     Tensor tensor; tensor.key = ""; tensor.dtype = "U8"; tensor.shape = {source.size}; tensor.end = source.size;
     source.tensors.push_back(std::move(tensor));
@@ -457,12 +473,17 @@ Plan scan(const fs::path &input, std::span<const std::string> excluded, std::sto
         source.size = fs::file_size(source.actual); source.time = fs::last_write_time(source.actual);
         const auto extension = lower(path.extension().string());
         try {
+            if (forbiddenModelExtension(path)) fail("ONNX model files are not supported: " + source.relative);
             if (extension == ".safetensors" || extension == ".safetensor") {
                 source.format = "safetensors"; readSafetensors(source);
+                if (source.metadata.contains("iild_package_schema")) {
+                    if (!source.metadata.contains("iild_package_manifest")) fail("Invalid nested model package");
+                    requireNoOnnxManifest(parse(source.metadata.at("iild_package_manifest").str()));
+                }
             } else if (extension == ".gguf") {
                 source.format = "gguf"; readGGUF(source); blob(source);
             } else {
-                static const std::set<std::string> assets{".json",".txt",".model",".tiktoken",".vocab",".merges",".yaml",".yml",".ini",".cfg",".bin",".pt",".pth",".ckpt",".onnx",".npz",".md"};
+                static const std::set<std::string> assets{".json",".txt",".model",".tiktoken",".vocab",".merges",".yaml",".yml",".ini",".cfg",".bin",".pt",".pth",".ckpt",".npz",".md"};
                 if (!assets.contains(extension) && !has(lower(path.filename().string()),"license") && !has(lower(path.filename().string()),"notice")) {
                     source.status="ignored"; source.reason="Unsupported supporting file"; source.format="other";
                 } else {
@@ -489,6 +510,8 @@ Plan scan(const fs::path &input, std::span<const std::string> excluded, std::sto
     for (const auto &file : plan.files)
         if (file.status == "invalid" && fs::path(file.relative).extension() == ".json")
             plan.errors.push_back("Invalid model configuration or index: " + file.relative + " · " + file.reason);
+        else if (file.status == "invalid" && (forbiddenModelExtension(file.relative) || has(file.reason, "ONNX model asset")))
+            plan.errors.push_back(file.reason);
     std::map<std::string,std::size_t> byPath;
     for (std::size_t i=0;i<plan.files.size();++i) byPath[plan.files[i].relative]=i;
     for (auto &index : plan.files) if (index.relative.ends_with(".safetensors.index.json") && index.status=="included") {
@@ -604,7 +627,7 @@ Plan scan(const fs::path &input, std::span<const std::string> excluded, std::sto
                 if (!weightsRequired) return true;
                 const auto extension = lower(fs::path(f.relative).extension().string());
                 return f.format == "safetensors" || f.format == "gguf" ||
-                    (f.size && (extension == ".bin" || extension == ".pt" || extension == ".ckpt" || extension == ".onnx"));
+                    (f.size && (extension == ".bin" || extension == ".pt" || extension == ".pth" || extension == ".ckpt"));
             });
             if (!exists) plan.errors.push_back("Required Diffusers component is missing: "+name);
         }
@@ -802,6 +825,7 @@ Verified verify(const fs::path &input,std::stop_token stop,const ModelPackagingO
         fail("This file is not an iiLocalDiffusion model package");
     value.manifest=parse(value.file.metadata.at("iild_package_manifest").str());
     if (value.manifest.at("schema").str()!=schema) fail("Unsupported model-package manifest");
+    requireNoOnnxManifest(value.manifest);
     std::map<std::string,std::string> digests;
     std::map<std::string,const Tensor *> tensors;
     for (const auto &tensor : value.file.tensors) tensors[tensor.key]=&tensor;
@@ -853,6 +877,7 @@ std::string scanModelFolder(const fs::path &input,std::span<const std::string> e
 std::string createModelPackage(const fs::path &input,const fs::path &output,std::span<const std::string> excluded,
                               std::stop_token stop,const ModelPackagingObserver &observer) {
     const auto target=fs::absolute(output).lexically_normal();
+    if (target.extension() != ".safetensors") fail("Model package output must use the .safetensors extension");
     destination(target,0);
     auto plan=scan(input,excluded,stop,observer);
     if (!plan.errors.empty()) fail(plan.errors.front());
@@ -909,6 +934,7 @@ std::string createModelPackage(const fs::path &input,const fs::path &output,std:
     return result.dump();
 }
 std::string verifyModelPackage(const fs::path &input,std::stop_token stop,const ModelPackagingObserver &observer) {
+    if (input.extension() != ".safetensors") fail("Model package input must use the .safetensors extension");
     const auto verified=verify(input,stop,observer);
     auto result=J::object(); result.set("schema",reportSchema); result.set("operation","verify");
     result.set("verified",true); result.set("output",fs::absolute(input).string());
@@ -916,6 +942,7 @@ std::string verifyModelPackage(const fs::path &input,std::stop_token stop,const 
 }
 std::string extractModelPackage(const fs::path &input,const fs::path &output,std::stop_token stop,
                                const ModelPackagingObserver &observer) {
+    if (input.extension() != ".safetensors") fail("Model package input must use the .safetensors extension");
     const auto target=fs::absolute(output).lexically_normal(); destination(target,0);
     const auto verified=verify(input,stop,observer); const auto files=verified.manifest.at("files");
     U64 total=0;
@@ -976,47 +1003,125 @@ std::string extractModelPackage(const fs::path &input,const fs::path &output,std
 fs::path materializeModelPackageAsset(const fs::path &input, const fs::path &cacheDirectory,
                                      const std::string &role, std::stop_token stop,
                                      const ModelPackagingObserver &observer) {
+    if (input.extension() != ".safetensors") fail("Model package input must use the .safetensors extension");
     Source source;
     source.logical = fs::absolute(input); source.actual = resolvedSource(input);
     source.size = fs::file_size(input); source.time = fs::last_write_time(input);
     readSafetensors(source);
     if (!source.metadata.contains("iild_package_schema") || source.metadata.at("iild_package_schema").str() != schema)
-        fail("This model has no embedded text encoder package; supply a local GGUF text encoder");
+        fail("This model has no embedded text encoder package; supply a supported local text encoder");
     const auto manifest = parse(source.metadata.at("iild_package_manifest").str());
     if (manifest.at("schema").str() != schema) fail("Unsupported model-package manifest");
+    requireNoOnnxManifest(manifest);
     const auto files = manifest.at("files");
-    if (!files.is(json_type_array) || files.size() > 10'000) fail("Invalid model-package file list");
     std::optional<J> selected;
     for (std::size_t i = 0; i < files.size(); ++i) {
         const auto file = files.at(i);
-        if (file.at("status").str() == "included" && file.at("role").str() == role && file.at("format").str() == "gguf") {
+        if (file.at("status").str() == "included" && file.at("role").str() == role && (file.at("format").str() == "safetensors" || file.at("format").str() == "gguf")) {
             if (selected) fail("Multiple embedded text encoders; choose an explicit encoder");
             selected = file;
         }
     }
-    if (!selected) fail("This model package has no embedded GGUF " + role);
+    if (!selected) fail("This model package has no embedded supported " + role);
     const auto digest = selected->at("sha256").str();
     if (digest.size() != 64 || !std::all_of(digest.begin(), digest.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }))
         fail("Invalid embedded asset checksum");
+    if (selected->at("format").str() == "gguf") {
+        const auto mapping = selected->at("tensors");
+        if (!mapping.is(json_type_array) || mapping.size() != 1) fail("Invalid embedded asset mapping");
+        const auto record = mapping.at(std::size_t{0});
+        const auto key = record.at("output_key").str();
+        const auto tensor = std::find_if(source.tensors.begin(), source.tensors.end(), [&](const auto &item) { return item.key == key; });
+        const auto bytes = selected->at("size").number();
+        if (!key.starts_with("__iild_assets__/") || tensor == source.tensors.end() || tensor->dtype != "U8"
+            || tensor->end - tensor->begin != bytes || record.at("begin").number() != 0
+            || record.at("end").number() != bytes || record.at("sha256").str() != digest)
+            fail("Invalid embedded asset size or checksum mapping");
+        const auto cache = fs::absolute(cacheDirectory).lexically_normal();
+        iiFileProvider::native::createDirectories(cache);
+        if (fs::canonical(cache) != cache) fail("The model asset cache must not be redirected");
+        const auto target = cache / (digest + ".gguf");
+        removeAbandonedAssets(target);
+        const auto validateGGUF = [](const fs::path &path) {
+            Source candidate; candidate.logical = path; candidate.actual = path; candidate.size = fs::file_size(path);
+            readGGUF(candidate);
+        };
+        if (fs::exists(target)) {
+            if (fs::canonical(target) != target || !fs::is_regular_file(target) || fs::file_size(target) != bytes
+                || hashRange(target, 0, bytes, stop, observer, "Checking cached " + role) != digest)
+                fail("The cached text encoder has changed; remove the invalid cache asset and retry");
+            validateGGUF(target);
+            stamp(source); return target;
+        }
+        destination(target, bytes);
+        Temporary temporary{temporaryPath(target)}; createExclusive(temporary.path);
+        std::vector<char> inputBuffer(1024 * 1024), outputBuffer(1024 * 1024);
+        std::ifstream file;
+        file.rdbuf()->pubsetbuf(inputBuffer.data(), static_cast<std::streamsize>(inputBuffer.size()));
+        file.open(source.actual, std::ios::binary);
+        file.seekg(static_cast<std::streamoff>(source.base + tensor->begin));
+        iiFileProvider::native::OutputFile output;
+        output.rdbuf()->pubsetbuf(outputBuffer.data(), static_cast<std::streamsize>(outputBuffer.size()));
+        output.open(temporary.path, std::ios::binary | std::ios::trunc);
+        std::vector<char> buffer(chunkSize); U64 done = 0; Hash hash;
+        while (done < bytes) {
+            progress(observer, stop, "materialize", "Preparing embedded " + role, done, bytes);
+            const auto count = static_cast<std::size_t>(std::min<U64>(bytes - done, buffer.size()));
+            if (!file.read(buffer.data(), static_cast<std::streamsize>(count))) fail("Embedded asset is truncated");
+            output.write(buffer.data(), static_cast<std::streamsize>(count));
+            if (!output) fail("Cannot write the embedded text encoder cache");
+            hash.update(buffer.data(), count); done += count;
+        }
+        progress(observer, stop, "materialize", "Preparing embedded " + role, done, bytes);
+        output.close();
+        if (hash.finish() != digest) fail("Embedded text encoder checksum mismatch");
+        validateGGUF(temporary.path);
+        stamp(source); check(stop); syncFile(temporary.path);
+        if (fs::exists(target)) {
+            if (fs::canonical(target) != target || fs::file_size(target) != bytes
+                || hashRange(target, 0, bytes, stop, observer, "Checking cached " + role) != digest)
+                fail("Conflicting model asset cache publication");
+            validateGGUF(target);
+        } else commit(temporary.path, target);
+        return target;
+    }
     const auto mapping = selected->at("tensors");
-    if (!mapping.is(json_type_array) || mapping.size() != 1) fail("Invalid embedded asset mapping");
-    const auto record = mapping.at(std::size_t{0});
-    const auto key = record.at("output_key").str();
-    const auto tensor = std::find_if(source.tensors.begin(), source.tensors.end(), [&](const auto &item) { return item.key == key; });
+    if (!mapping.is(json_type_array) || mapping.size() == 0 || mapping.size() > source.tensors.size())
+        fail("Invalid embedded asset mapping");
+    const auto header = selected->at("header").str();
     const auto bytes = selected->at("size").number();
-    if (!key.starts_with("__iild_assets__/") || tensor == source.tensors.end() || tensor->dtype != "U8"
-        || tensor->end - tensor->begin != bytes || record.at("begin").number() != 0
-        || record.at("end").number() != bytes || record.at("sha256").str() != digest)
-        fail("Invalid embedded asset size or checksum mapping");
+    if (header.size() > headerLimit || bytes < add(8, header.size())) fail("Invalid embedded safetensors header");
+    std::vector<const Tensor *> mapped;
+    std::set<std::string> usedKeys;
+    U64 cursor = 0;
+    for (std::size_t i = 0; i < mapping.size(); ++i) {
+        const auto record = mapping.at(i);
+        const auto key = record.at("output_key").str();
+        const auto tensor = std::find_if(source.tensors.begin(), source.tensors.end(), [&](const auto &item) { return item.key == key; });
+        const auto begin = record.at("begin").number(), end = record.at("end").number();
+        if (!usedKeys.insert(key).second || tensor == source.tensors.end() || end < begin || begin != cursor ||
+            end - begin != tensor->end - tensor->begin || record.at("sha256").str().size() != 64)
+            fail("Invalid embedded safetensors size or checksum mapping");
+        cursor = end;
+        mapped.push_back(&*tensor);
+    }
+    if (add(add(8, header.size()), cursor) != bytes) fail("Incomplete embedded safetensors mapping");
     const auto cache = fs::absolute(cacheDirectory).lexically_normal();
     iiFileProvider::native::createDirectories(cache);
     if (fs::canonical(cache) != cache) fail("The model asset cache must not be redirected");
-    const auto target = cache / (digest + ".gguf");
+    const auto target = cache / (digest + ".safetensors");
     removeAbandonedAssets(target);
+    const auto validateCached = [&] {
+        Source cached;
+        cached.logical = target; cached.actual = target;
+        cached.size = fs::file_size(target);
+        readSafetensors(cached);
+    };
     if (fs::exists(target)) {
         if (fs::canonical(target) != target || !fs::is_regular_file(target) || fs::file_size(target) != bytes
             || hashRange(target, 0, bytes, stop, observer, "Checking cached " + role) != digest)
             fail("The cached text encoder has changed; remove the invalid cache asset and retry");
+        validateCached();
         stamp(source); return target;
     }
     destination(target, bytes);
@@ -1025,27 +1130,42 @@ fs::path materializeModelPackageAsset(const fs::path &input, const fs::path &cac
     std::ifstream file;
     file.rdbuf()->pubsetbuf(inputBuffer.data(), static_cast<std::streamsize>(inputBuffer.size()));
     file.open(source.actual, std::ios::binary);
-    file.seekg(static_cast<std::streamoff>(source.base + tensor->begin));
     iiFileProvider::native::OutputFile output;
     output.rdbuf()->pubsetbuf(outputBuffer.data(), static_cast<std::streamsize>(outputBuffer.size()));
     output.open(temporary.path, std::ios::binary | std::ios::trunc);
-    std::vector<char> buffer(chunkSize); U64 done = 0; Hash hash;
-    while (done < bytes) {
-        progress(observer, stop, "materialize", "Preparing embedded " + role, done, bytes);
-        const auto count = static_cast<std::size_t>(std::min<U64>(bytes - done, buffer.size()));
-        if (!file.read(buffer.data(), static_cast<std::streamsize>(count))) fail("Embedded asset is truncated");
-        output.write(buffer.data(), static_cast<std::streamsize>(count));
-        if (!output) fail("Cannot write the embedded text encoder cache");
-        hash.update(buffer.data(), count); done += count;
+    std::vector<char> buffer(chunkSize); U64 done = add(8, header.size()); Hash hash;
+    const auto headerBytes = sizeBytes(header.size());
+    output.write(headerBytes.data(), headerBytes.size());
+    output.write(header.data(), static_cast<std::streamsize>(header.size()));
+    hash.update(headerBytes.data(), headerBytes.size()); hash.update(header);
+    for (std::size_t i = 0; i < mapped.size(); ++i) {
+        const auto *tensor = mapped[i];
+        file.clear(); file.seekg(static_cast<std::streamoff>(source.base + tensor->begin));
+        Hash tensorHash; U64 position = 0;
+        while (position < tensor->end - tensor->begin) {
+            progress(observer, stop, "materialize", "Preparing embedded " + role, done, bytes);
+            const auto count = static_cast<std::size_t>(std::min<U64>(tensor->end - tensor->begin - position, buffer.size()));
+            if (!file.read(buffer.data(), static_cast<std::streamsize>(count))) fail("Embedded asset is truncated");
+            output.write(buffer.data(), static_cast<std::streamsize>(count));
+            if (!output) fail("Cannot write the embedded text encoder cache");
+            tensorHash.update(buffer.data(), count); hash.update(buffer.data(), count);
+            position += count; done += count;
+        }
+        if (tensorHash.finish() != mapping.at(i).at("sha256").str()) fail("Embedded tensor checksum mismatch");
     }
     progress(observer, stop, "materialize", "Preparing embedded " + role, done, bytes);
     output.close();
     if (hash.finish() != digest) fail("Embedded text encoder checksum mismatch");
+    Source reconstructed;
+    reconstructed.logical = temporary.path; reconstructed.actual = temporary.path;
+    reconstructed.size = fs::file_size(temporary.path);
+    readSafetensors(reconstructed);
     stamp(source); check(stop); syncFile(temporary.path);
     if (fs::exists(target)) {
         if (fs::canonical(target) != target || fs::file_size(target) != bytes
             || hashRange(target, 0, bytes, stop, observer, "Checking cached " + role) != digest)
             fail("Conflicting model asset cache publication");
+        validateCached();
     } else commit(temporary.path, target);
     return target;
 }

@@ -29,6 +29,18 @@ class VideoOptionsTests(unittest.TestCase):
         path.write_text(json.dumps(data))
         return path
 
+    def test_text_encoder_formats_allow_gguf_and_safetensors_but_not_onnx(self):
+        for suffix in (".gguf", ".safetensors", ".safetensor"):
+            with self.subTest(suffix=suffix):
+                model = self.directory / ("encoder" + suffix)
+                model.write_bytes(b"fixture")
+                self.assertEqual(self.request("--text-encoder", str(model)).text_encoder, model.resolve())
+        for suffix in (".onnx", ".ONNX"):
+            model = self.directory / ("encoder" + suffix)
+            model.write_bytes(b"fixture")
+            with self.subTest(suffix=suffix), self.assertRaises(ValueError):
+                self.request("--text-encoder", str(model))
+
     def test_defaults_make_a_five_second_temporal_generation_plan(self):
         args = self.request()
         self.assertEqual(args.max_frames, 120)

@@ -1,0 +1,107 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:cf1a56bf913d6142e05f33bfc984d743a37cbebe0a88e1b78e5c807309dd623c",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "docs/Windows.md",
+    "sha256": "95135af67894e694e4febc73390089075c38f162af030e7b946c641c4975f88e",
+    "bytes": 872,
+    "line_count": 7,
+    "encoding": "utf-8",
+    "language": "ko"
+  },
+  "document": {
+    "title": "Windows 검증",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# Windows 검증\r\n",
+      "level": 1,
+      "title": "Windows 검증"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\r\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "paragraph",
+      "start_line": 3,
+      "end_line": 3,
+      "raw": "Windows에서는 네이티브 파일 핸들로 모델 소스의 최종 경로를 구한다. 심볼릭 링크의 메타데이터 대신 대상 파일의 크기와 수정 시각을 검사하며, 패키지에는 사용자가 선택한 논리적 파일 이름을 유지한다. 패키지 생성·검증·추출 테스트는 실제 파일 링크를 사용하여 내용과 추출 이름을 확인한다.\r\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 4,
+      "end_line": 4,
+      "raw": "\r\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 5,
+      "end_line": 5,
+      "raw": "현재 검증 구성은 MSVC x64 Ninja와 같은 컴파일러의 vcpkg 의존성을 사용하고 `build/`에 빌드한다. MLX CPU 구성과 이번 실행 범위는 WindowsBuildAndRun.md에 기록한다. `ctest --test-dir build --output-on-failure`로 네이티브 엔진, 모델 포맷과 설치 소비자 검증을 실행한다.\r\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 6,
+      "end_line": 6,
+      "raw": "\r\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "paragraph",
+      "start_line": 7,
+      "end_line": 7,
+      "raw": "최신 구성·실행 결과와 복구 조치는 [Windows 빌드 및 실행](WindowsBuildAndRun.md)에 기록한다.\r\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "Windows 검증",
+      "anchor": "windows-검증",
+      "start_line": 1
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [],
+    "commands": [],
+    "links": [
+      {
+        "block_id": "b000007",
+        "label": "Windows 빌드 및 실행",
+        "target": "WindowsBuildAndRun.md",
+        "kind": "relative",
+        "line": 7
+      }
+    ],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

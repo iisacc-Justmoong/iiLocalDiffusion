@@ -34,8 +34,9 @@ using ModelPackagingObserver = std::function<void(const ModelPackagingProgress &
     const std::filesystem::path &output, std::stop_token stop = {},
     const ModelPackagingObserver &observer = {});
 
-// Reads the bounded header and selected GGUF asset only; other weights stay in
-// the original package. SHA-256 is verified before publishing or reusing it.
+// Reconstructs the selected safetensors or GGUF component without reading
+// unrelated weights. SHA-256 and format structure are verified before
+// publishing or reusing the reconstructed file.
 [[nodiscard]] std::filesystem::path materializeModelPackageAsset(
     const std::filesystem::path &input, const std::filesystem::path &cacheDirectory,
     const std::string &role, std::stop_token stop = {},

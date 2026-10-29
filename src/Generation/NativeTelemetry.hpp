@@ -151,7 +151,7 @@ public:
         loadStep = completed; loadTotal = expected;
         if (milliseconds(Clock::now(), lastEmission) >= 1000) emit("weight-progress");
     }
-    void log(std::string_view message) {
+    void log(std::string_view message, bool warningOrError = false) {
         std::lock_guard lock(mutex);
         if (!file.is_open()) return;
         if (message.find("IILD_WEIGHT_LOAD begin") != std::string_view::npos) {
@@ -192,7 +192,7 @@ public:
                 backends[std::string(assignment.substr(0, equals))] = backend;
             }
             emit("backend", message);
-        } else if (message.find("auto-fit:") != std::string_view::npos
+        } else if (warningOrError || message.find("auto-fit:") != std::string_view::npos
             || message.find("fallback") != std::string_view::npos
             || message.find("failed") != std::string_view::npos
             || message.find("loading tensors completed") != std::string_view::npos) {

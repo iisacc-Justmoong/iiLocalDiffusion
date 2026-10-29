@@ -1,0 +1,223 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:9fb65dde43d15cb0c197526da729c7eb08a479b343965111524613f58d997f6f",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "reference/coreml/README.md",
+    "sha256": "b5c025e1bf2450254ad0fe8d796f154a88acfcfdf7980bd4853301b66d968793",
+    "bytes": 3504,
+    "line_count": 68,
+    "encoding": "utf-8",
+    "language": "en"
+  },
+  "document": {
+    "title": "Core ML component conversion",
+    "role": "overview",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# Core ML component conversion\n",
+      "level": 1,
+      "title": "Core ML component conversion"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "paragraph",
+      "start_line": 3,
+      "end_line": 7,
+      "raw": "This is a separate offline conversion/validation tool. The C++ runtime loads\nits compiled artifact directly without calling Python. It neither downloads\na model nor converts a whole diffusion pipeline. Exact linear weight keys\nare required; synthetic weights require the explicit `--fixture` flag.\nAn empty model argument is an error and never selects synthetic weights.\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 8,
+      "end_line": 8,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 9,
+      "end_line": 13,
+      "raw": "Use a dedicated Python 3.13 environment. coremltools 9.0 is the reviewed stable\nrelease (BSD-3-Clause) with a matching macOS wheel; do not install it into the\nPython 3.14 Diffusers environment. Native loading uses the system Core ML\nframework, not the Python package. This conversion path requires macOS 14.4+\nfor compute-plan inspection.\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 14,
+      "end_line": 14,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "fenced_code",
+      "start_line": 15,
+      "end_line": 33,
+      "raw": "```bash\nUV_PYTHON_INSTALL_DIR=\"$PWD/build/dependencies/python\" \\\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv venv --python 3.13 build/reference/coreml-venv\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv pip install --python build/reference/coreml-venv/bin/python \\\n    -r reference/coreml/requirements.txt\ncmake -S . -B build\ncmake --build build --parallel\n\nbuild/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias --batch-size 128 \\\n  --output-dir build/reference/neural/my-clip-component --native-test build/CoreMLTests\n\n./build/iild-run neural-compute \\\n  --model build/reference/neural/my-clip-component/model.mlmodelc\n```\n",
+      "language": "bash",
+      "code": "UV_PYTHON_INSTALL_DIR=\"$PWD/build/dependencies/python\" \\\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv venv --python 3.13 build/reference/coreml-venv\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv pip install --python build/reference/coreml-venv/bin/python \\\n    -r reference/coreml/requirements.txt\ncmake -S . -B build\ncmake --build build --parallel\n\nbuild/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias --batch-size 128 \\\n  --output-dir build/reference/neural/my-clip-component --native-test build/CoreMLTests\n\n./build/iild-run neural-compute \\\n  --model build/reference/neural/my-clip-component/model.mlmodelc\n",
+      "closed": true
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 34,
+      "end_line": 34,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 35,
+      "end_line": 42,
+      "raw": "The source may contain FP32, FP16, or BF16 tensors. Weights are converted to\nFP16 internal computation; non-finite or out-of-FP16-range values are rejected.\n`--io-precision fp32|fp16` controls the compiled interface (default FP32).\nThe conversion maps `[out,in]` weights to `[out,in,1,1]` convolution and\nbinds inputs to `[1,in,1,batch]`, outputs to `[1,out,1,batch]`. Batch size and\nshape influence Core ML placement; a small model can prefer CPU despite ANE\nbeing available. The default rejects such a plan; `--allow-cpu-plan` is an\nexplicit diagnostic override, not a way to force ANE.\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 43,
+      "end_line": 43,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "paragraph",
+      "start_line": 44,
+      "end_line": 52,
+      "raw": "Outputs are `model.mlpackage`, `model.mlmodelc`, `plan.json`, `oracle.json`,\nand `provenance.json`; `--native-test` additionally records native logs.\nExisting files are never overwritten. `--native-test` compares actual C++\nprediction with the independent NumPy FP32 oracle; omission reports\nconversion without numerical validation. The default tolerance is\n`0.005 + 0.01*abs(expected)`, recorded along with any explicit `--atol`/`--rtol`\noverride. Source and artifact hashes identify exactly what was tested.\nModels' licenses and rights remain the caller's responsibility; a component\nconversion is not a full-model compatibility or image-quality certification.\n"
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 53,
+      "end_line": 53,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "paragraph",
+      "start_line": 54,
+      "end_line": 54,
+      "raw": "Run an explicit synthetic API check, or add a verified fixture to CTest:\n"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 55,
+      "end_line": 55,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "fenced_code",
+      "start_line": 56,
+      "end_line": 64,
+      "raw": "```bash\nbuild/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --fixture --io-precision fp16 --output-dir build/reference/neural/my-fixture \\\n  --native-test build/CoreMLTests\ncmake -S . -B build \\\n  -DIILD_COREML_TEST_FIXTURE=\"$PWD/build/reference/neural/my-clip-component\"\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n```\n",
+      "language": "bash",
+      "code": "build/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --fixture --io-precision fp16 --output-dir build/reference/neural/my-fixture \\\n  --native-test build/CoreMLTests\ncmake -S . -B build \\\n  -DIILD_COREML_TEST_FIXTURE=\"$PWD/build/reference/neural/my-clip-component\"\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n",
+      "closed": true
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 65,
+      "end_line": 65,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "paragraph",
+      "start_line": 66,
+      "end_line": 68,
+      "raw": "See [Neural Engine / Tensor Core contracts](../../docs/neural-accelerators.md)\nfor permitted devices, fail-closed plan checks, unsupported interfaces,\nhardware-evidence limits, and the independent CUDA precision policy.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "Core ML component conversion",
+      "anchor": "core-ml-component-conversion",
+      "start_line": 1
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000003",
+        "line": 6,
+        "text": "are required; synthetic weights require the explicit `--fixture` flag.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000003",
+        "line": 7,
+        "text": "An empty model argument is an error and never selects synthetic weights.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000005",
+        "line": 10,
+        "text": "release (BSD-3-Clause) with a matching macOS wheel; do not install it into the",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000011",
+        "line": 46,
+        "text": "Existing files are never overwritten. `--native-test` compares actual C++",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [
+      {
+        "block_id": "b000007",
+        "language": "bash",
+        "code": "UV_PYTHON_INSTALL_DIR=\"$PWD/build/dependencies/python\" \\\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv venv --python 3.13 build/reference/coreml-venv\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv pip install --python build/reference/coreml-venv/bin/python \\\n    -r reference/coreml/requirements.txt\ncmake -S . -B build\ncmake --build build --parallel\n\nbuild/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias --batch-size 128 \\\n  --output-dir build/reference/neural/my-clip-component --native-test build/CoreMLTests\n\n./build/iild-run neural-compute \\\n  --model build/reference/neural/my-clip-component/model.mlmodelc\n"
+      },
+      {
+        "block_id": "b000015",
+        "language": "bash",
+        "code": "build/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --fixture --io-precision fp16 --output-dir build/reference/neural/my-fixture \\\n  --native-test build/CoreMLTests\ncmake -S . -B build \\\n  -DIILD_COREML_TEST_FIXTURE=\"$PWD/build/reference/neural/my-clip-component\"\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n"
+      }
+    ],
+    "links": [
+      {
+        "block_id": "b000017",
+        "label": "Neural Engine / Tensor Core contracts",
+        "target": "../../docs/neural-accelerators.md",
+        "kind": "relative",
+        "line": 66
+      }
+    ],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

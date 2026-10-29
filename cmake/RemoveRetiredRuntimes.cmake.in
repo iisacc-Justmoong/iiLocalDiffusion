@@ -1,0 +1,13 @@
+# Remove only retired runtime artifacts owned by this installation prefix.
+set(_retired_root "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+file(GLOB _retired_runtime_files
+    "${_retired_root}/@CMAKE_INSTALL_LIBDIR@/libonnxruntime*"
+    "${_retired_root}/@CMAKE_INSTALL_LIBDIR@/libiiOnnxRuntime*"
+    "${_retired_root}/@CMAKE_INSTALL_BINDIR@/onnxruntime*"
+    "${_retired_root}/@CMAKE_INSTALL_BINDIR@/iiOnnxRuntime*")
+foreach(_retired_file IN LISTS _retired_runtime_files)
+    file(REMOVE_RECURSE "${_retired_file}")
+endforeach()
+file(REMOVE_RECURSE
+    "${_retired_root}/@CMAKE_INSTALL_DATADIR@/iiLocalDiffusion/licenses/onnxruntime"
+    "${_retired_root}/@CMAKE_INSTALL_LIBDIR@/cmake/iiDecision/FindONNXRuntime.cmake")

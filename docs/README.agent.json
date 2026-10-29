@@ -1,0 +1,1636 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:08004737022fab34c35954dd3b5661edf00b6bf2443cf597f0cccc52519e99a9",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "docs/README.md",
+    "sha256": "34a95cd7c60caf1f7b1f93cda49e501de1c53e58778fff1fedede58c1a09876a",
+    "bytes": 6885,
+    "line_count": 78,
+    "encoding": "utf-8",
+    "language": "en"
+  },
+  "document": {
+    "title": "iiLocalDiffusion Documentation",
+    "role": "overview",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# iiLocalDiffusion Documentation\n",
+      "level": 1,
+      "title": "iiLocalDiffusion Documentation"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "html",
+      "start_line": 3,
+      "end_line": 3,
+      "raw": "<!-- workspace-docs:document-map:start -->\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "heading",
+      "start_line": 4,
+      "end_line": 4,
+      "raw": "## Human and agent document map\n",
+      "level": 2,
+      "title": "Human and agent document map"
+    },
+    {
+      "id": "b000005",
+      "kind": "blank",
+      "start_line": 5,
+      "end_line": 5,
+      "raw": "\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "paragraph",
+      "start_line": 6,
+      "end_line": 6,
+      "raw": "Markdown is the maintained human source. Agent JSON is a structured, source-traceable projection.\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "blank",
+      "start_line": 7,
+      "end_line": 7,
+      "raw": "\n"
+    },
+    {
+      "id": "b000008",
+      "kind": "table",
+      "start_line": 8,
+      "end_line": 77,
+      "raw": "| Document | Agent JSON |\n| --- | --- |\n| [`AGENT.md`](../AGENT.md) | [JSON](entrypoints/AGENT.agent.json) |\n| [`README.md`](../README.md) | [JSON](entrypoints/README.agent.json) |\n| [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) | [JSON](entrypoints/THIRD_PARTY_NOTICES.agent.json) |\n| [`docs/FILE_PROVIDER.md`](FILE_PROVIDER.md) | [JSON](FILE_PROVIDER.agent.json) |\n| [`docs/ModelInspection.md`](ModelInspection.md) | [JSON](ModelInspection.agent.json) |\n| [`docs/NativeVideo.md`](NativeVideo.md) | [JSON](NativeVideo.agent.json) |\n| [`docs/RuntimeRetirement.md`](RuntimeRetirement.md) | [JSON](RuntimeRetirement.agent.json) |\n| [`docs/Windows.md`](Windows.md) | [JSON](Windows.agent.json) |\n| [`docs/WindowsBuildAndRun.md`](WindowsBuildAndRun.md) | [JSON](WindowsBuildAndRun.agent.json) |\n| [`docs/WindowsPackaging.md`](WindowsPackaging.md) | [JSON](WindowsPackaging.agent.json) |\n| [`docs/WindowsValidation.md`](WindowsValidation.md) | [JSON](WindowsValidation.agent.json) |\n| [`docs/architecture.md`](architecture.md) | [JSON](architecture.agent.json) |\n| [`docs/backend-routing.md`](backend-routing.md) | [JSON](backend-routing.agent.json) |\n| [`docs/checkpoint-formats.md`](checkpoint-formats.md) | [JSON](checkpoint-formats.agent.json) |\n| [`docs/civitai-models.md`](civitai-models.md) | [JSON](civitai-models.agent.json) |\n| [`docs/civitai-validation.md`](civitai-validation.md) | [JSON](civitai-validation.agent.json) |\n| [`docs/comfyui-generation.md`](comfyui-generation.md) | [JSON](comfyui-generation.agent.json) |\n| [`docs/comfyui-image-workflows.md`](comfyui-image-workflows.md) | [JSON](comfyui-image-workflows.agent.json) |\n| [`docs/controlnet.md`](controlnet.md) | [JSON](controlnet.agent.json) |\n| [`docs/deforum-video.md`](deforum-video.md) | [JSON](deforum-video.agent.json) |\n| [`docs/dependencies.md`](dependencies.md) | [JSON](dependencies.agent.json) |\n| [`docs/documentation-structure.md`](documentation-structure.md) | [JSON](documentation-structure.agent.json) |\n| [`docs/downloaded-models.md`](downloaded-models.md) | [JSON](downloaded-models.agent.json) |\n| [`docs/flux1-schnell.md`](flux1-schnell.md) | [JSON](flux1-schnell.agent.json) |\n| [`docs/generation-composition.md`](generation-composition.md) | [JSON](generation-composition.agent.json) |\n| [`docs/generation-defaults.md`](generation-defaults.md) | [JSON](generation-defaults.agent.json) |\n| [`docs/generation-io-native.md`](generation-io-native.md) | [JSON](generation-io-native.agent.json) |\n| [`docs/generation-parameters.md`](generation-parameters.md) | [JSON](generation-parameters.agent.json) |\n| [`docs/generic-diffusers.md`](generic-diffusers.md) | [JSON](generic-diffusers.agent.json) |\n| [`docs/hardware-compute.md`](hardware-compute.md) | [JSON](hardware-compute.agent.json) |\n| [`docs/hires-fix.md`](hires-fix.md) | [JSON](hires-fix.agent.json) |\n| [`docs/image-parameters.md`](image-parameters.md) | [JSON](image-parameters.agent.json) |\n| [`docs/inference-worker.md`](inference-worker.md) | [JSON](inference-worker.agent.json) |\n| [`docs/installation.md`](installation.md) | [JSON](installation.agent.json) |\n| [`docs/interpolator-video.md`](interpolator-video.md) | [JSON](interpolator-video.agent.json) |\n| [`docs/krea2.md`](krea2.md) | [JSON](krea2.agent.json) |\n| [`docs/live-previews.md`](live-previews.md) | [JSON](live-previews.agent.json) |\n| [`docs/local-image-generation.md`](local-image-generation.md) | [JSON](local-image-generation.agent.json) |\n| [`docs/local-model-generation.md`](local-model-generation.md) | [JSON](local-model-generation.agent.json) |\n| [`docs/lora.md`](lora.md) | [JSON](lora.agent.json) |\n| [`docs/managed-comfyui-image.md`](managed-comfyui-image.md) | [JSON](managed-comfyui-image.agent.json) |\n| [`docs/model-conversion.md`](model-conversion.md) | [JSON](model-conversion.agent.json) |\n| [`docs/model-families.md`](model-families.md) | [JSON](model-families.agent.json) |\n| [`docs/model-hash-cache.md`](model-hash-cache.md) | [JSON](model-hash-cache.agent.json) |\n| [`docs/model-inputs.md`](model-inputs.md) | [JSON](model-inputs.agent.json) |\n| [`docs/model-merging.md`](model-merging.md) | [JSON](model-merging.agent.json) |\n| [`docs/model-packaging.md`](model-packaging.md) | [JSON](model-packaging.agent.json) |\n| [`docs/model-sources.md`](model-sources.md) | [JSON](model-sources.agent.json) |\n| [`docs/native-image-generation.md`](native-image-generation.md) | [JSON](native-image-generation.agent.json) |\n| [`docs/neural-accelerators.md`](neural-accelerators.md) | [JSON](neural-accelerators.agent.json) |\n| [`docs/pose-preprocessing.md`](pose-preprocessing.md) | [JSON](pose-preprocessing.agent.json) |\n| [`docs/radeon-rocm.md`](radeon-rocm.md) | [JSON](radeon-rocm.agent.json) |\n| [`docs/resident-worker-performance.md`](resident-worker-performance.md) | [JSON](resident-worker-performance.agent.json) |\n| [`docs/stable-diffusion-v1.md`](stable-diffusion-v1.md) | [JSON](stable-diffusion-v1.agent.json) |\n| [`docs/stable-diffusion-xl.md`](stable-diffusion-xl.md) | [JSON](stable-diffusion-xl.agent.json) |\n| [`docs/standalone-validation.md`](standalone-validation.md) | [JSON](standalone-validation.agent.json) |\n| [`docs/temporal-video.md`](temporal-video.md) | [JSON](temporal-video.agent.json) |\n| [`docs/text-embeddings.md`](text-embeddings.md) | [JSON](text-embeddings.agent.json) |\n| [`reference/coreml/README.md`](../reference/coreml/README.md) | [JSON](mirrors/reference/coreml/README.agent.json) |\n| [`reference/diffusers/README.md`](../reference/diffusers/README.md) | [JSON](mirrors/reference/diffusers/README.agent.json) |\n| [`reference/diffusers/configs/sdxl/LICENSE.md`](../reference/diffusers/configs/sdxl/LICENSE.md) | [JSON](mirrors/reference/diffusers/configs/sdxl/LICENSE.agent.json) |\n| [`resources/README.md`](../resources/README.md) | [JSON](mirrors/resources/README.agent.json) |\n| [`resources/text_encoders/NOTICE.md`](../resources/text_encoders/NOTICE.md) | [JSON](mirrors/resources/text_encoders/NOTICE.agent.json) |\n| [`resources/vae/flux1/NOTICE.md`](../resources/vae/flux1/NOTICE.md) | [JSON](mirrors/resources/vae/flux1/NOTICE.agent.json) |\n| [`resources/vae/flux2/LICENSE.md`](../resources/vae/flux2/LICENSE.md) | [JSON](mirrors/resources/vae/flux2/LICENSE.agent.json) |\n| [`resources/vae/flux2/README.md`](../resources/vae/flux2/README.md) | [JSON](mirrors/resources/vae/flux2/README.agent.json) |\n| [`resources/vae/sdxl/README.md`](../resources/vae/sdxl/README.md) | [JSON](mirrors/resources/vae/sdxl/README.agent.json) |\n| [`resources/vae/wan/NOTICE.md`](../resources/vae/wan/NOTICE.md) | [JSON](mirrors/resources/vae/wan/NOTICE.agent.json) |\n",
+      "columns": [
+        "Document",
+        "Agent JSON"
+      ],
+      "rows": [
+        [
+          "[`AGENT.md`](../AGENT.md)",
+          "[JSON](entrypoints/AGENT.agent.json)"
+        ],
+        [
+          "[`README.md`](../README.md)",
+          "[JSON](entrypoints/README.agent.json)"
+        ],
+        [
+          "[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)",
+          "[JSON](entrypoints/THIRD_PARTY_NOTICES.agent.json)"
+        ],
+        [
+          "[`docs/FILE_PROVIDER.md`](FILE_PROVIDER.md)",
+          "[JSON](FILE_PROVIDER.agent.json)"
+        ],
+        [
+          "[`docs/ModelInspection.md`](ModelInspection.md)",
+          "[JSON](ModelInspection.agent.json)"
+        ],
+        [
+          "[`docs/NativeVideo.md`](NativeVideo.md)",
+          "[JSON](NativeVideo.agent.json)"
+        ],
+        [
+          "[`docs/RuntimeRetirement.md`](RuntimeRetirement.md)",
+          "[JSON](RuntimeRetirement.agent.json)"
+        ],
+        [
+          "[`docs/Windows.md`](Windows.md)",
+          "[JSON](Windows.agent.json)"
+        ],
+        [
+          "[`docs/WindowsBuildAndRun.md`](WindowsBuildAndRun.md)",
+          "[JSON](WindowsBuildAndRun.agent.json)"
+        ],
+        [
+          "[`docs/WindowsPackaging.md`](WindowsPackaging.md)",
+          "[JSON](WindowsPackaging.agent.json)"
+        ],
+        [
+          "[`docs/WindowsValidation.md`](WindowsValidation.md)",
+          "[JSON](WindowsValidation.agent.json)"
+        ],
+        [
+          "[`docs/architecture.md`](architecture.md)",
+          "[JSON](architecture.agent.json)"
+        ],
+        [
+          "[`docs/backend-routing.md`](backend-routing.md)",
+          "[JSON](backend-routing.agent.json)"
+        ],
+        [
+          "[`docs/checkpoint-formats.md`](checkpoint-formats.md)",
+          "[JSON](checkpoint-formats.agent.json)"
+        ],
+        [
+          "[`docs/civitai-models.md`](civitai-models.md)",
+          "[JSON](civitai-models.agent.json)"
+        ],
+        [
+          "[`docs/civitai-validation.md`](civitai-validation.md)",
+          "[JSON](civitai-validation.agent.json)"
+        ],
+        [
+          "[`docs/comfyui-generation.md`](comfyui-generation.md)",
+          "[JSON](comfyui-generation.agent.json)"
+        ],
+        [
+          "[`docs/comfyui-image-workflows.md`](comfyui-image-workflows.md)",
+          "[JSON](comfyui-image-workflows.agent.json)"
+        ],
+        [
+          "[`docs/controlnet.md`](controlnet.md)",
+          "[JSON](controlnet.agent.json)"
+        ],
+        [
+          "[`docs/deforum-video.md`](deforum-video.md)",
+          "[JSON](deforum-video.agent.json)"
+        ],
+        [
+          "[`docs/dependencies.md`](dependencies.md)",
+          "[JSON](dependencies.agent.json)"
+        ],
+        [
+          "[`docs/documentation-structure.md`](documentation-structure.md)",
+          "[JSON](documentation-structure.agent.json)"
+        ],
+        [
+          "[`docs/downloaded-models.md`](downloaded-models.md)",
+          "[JSON](downloaded-models.agent.json)"
+        ],
+        [
+          "[`docs/flux1-schnell.md`](flux1-schnell.md)",
+          "[JSON](flux1-schnell.agent.json)"
+        ],
+        [
+          "[`docs/generation-composition.md`](generation-composition.md)",
+          "[JSON](generation-composition.agent.json)"
+        ],
+        [
+          "[`docs/generation-defaults.md`](generation-defaults.md)",
+          "[JSON](generation-defaults.agent.json)"
+        ],
+        [
+          "[`docs/generation-io-native.md`](generation-io-native.md)",
+          "[JSON](generation-io-native.agent.json)"
+        ],
+        [
+          "[`docs/generation-parameters.md`](generation-parameters.md)",
+          "[JSON](generation-parameters.agent.json)"
+        ],
+        [
+          "[`docs/generic-diffusers.md`](generic-diffusers.md)",
+          "[JSON](generic-diffusers.agent.json)"
+        ],
+        [
+          "[`docs/hardware-compute.md`](hardware-compute.md)",
+          "[JSON](hardware-compute.agent.json)"
+        ],
+        [
+          "[`docs/hires-fix.md`](hires-fix.md)",
+          "[JSON](hires-fix.agent.json)"
+        ],
+        [
+          "[`docs/image-parameters.md`](image-parameters.md)",
+          "[JSON](image-parameters.agent.json)"
+        ],
+        [
+          "[`docs/inference-worker.md`](inference-worker.md)",
+          "[JSON](inference-worker.agent.json)"
+        ],
+        [
+          "[`docs/installation.md`](installation.md)",
+          "[JSON](installation.agent.json)"
+        ],
+        [
+          "[`docs/interpolator-video.md`](interpolator-video.md)",
+          "[JSON](interpolator-video.agent.json)"
+        ],
+        [
+          "[`docs/krea2.md`](krea2.md)",
+          "[JSON](krea2.agent.json)"
+        ],
+        [
+          "[`docs/live-previews.md`](live-previews.md)",
+          "[JSON](live-previews.agent.json)"
+        ],
+        [
+          "[`docs/local-image-generation.md`](local-image-generation.md)",
+          "[JSON](local-image-generation.agent.json)"
+        ],
+        [
+          "[`docs/local-model-generation.md`](local-model-generation.md)",
+          "[JSON](local-model-generation.agent.json)"
+        ],
+        [
+          "[`docs/lora.md`](lora.md)",
+          "[JSON](lora.agent.json)"
+        ],
+        [
+          "[`docs/managed-comfyui-image.md`](managed-comfyui-image.md)",
+          "[JSON](managed-comfyui-image.agent.json)"
+        ],
+        [
+          "[`docs/model-conversion.md`](model-conversion.md)",
+          "[JSON](model-conversion.agent.json)"
+        ],
+        [
+          "[`docs/model-families.md`](model-families.md)",
+          "[JSON](model-families.agent.json)"
+        ],
+        [
+          "[`docs/model-hash-cache.md`](model-hash-cache.md)",
+          "[JSON](model-hash-cache.agent.json)"
+        ],
+        [
+          "[`docs/model-inputs.md`](model-inputs.md)",
+          "[JSON](model-inputs.agent.json)"
+        ],
+        [
+          "[`docs/model-merging.md`](model-merging.md)",
+          "[JSON](model-merging.agent.json)"
+        ],
+        [
+          "[`docs/model-packaging.md`](model-packaging.md)",
+          "[JSON](model-packaging.agent.json)"
+        ],
+        [
+          "[`docs/model-sources.md`](model-sources.md)",
+          "[JSON](model-sources.agent.json)"
+        ],
+        [
+          "[`docs/native-image-generation.md`](native-image-generation.md)",
+          "[JSON](native-image-generation.agent.json)"
+        ],
+        [
+          "[`docs/neural-accelerators.md`](neural-accelerators.md)",
+          "[JSON](neural-accelerators.agent.json)"
+        ],
+        [
+          "[`docs/pose-preprocessing.md`](pose-preprocessing.md)",
+          "[JSON](pose-preprocessing.agent.json)"
+        ],
+        [
+          "[`docs/radeon-rocm.md`](radeon-rocm.md)",
+          "[JSON](radeon-rocm.agent.json)"
+        ],
+        [
+          "[`docs/resident-worker-performance.md`](resident-worker-performance.md)",
+          "[JSON](resident-worker-performance.agent.json)"
+        ],
+        [
+          "[`docs/stable-diffusion-v1.md`](stable-diffusion-v1.md)",
+          "[JSON](stable-diffusion-v1.agent.json)"
+        ],
+        [
+          "[`docs/stable-diffusion-xl.md`](stable-diffusion-xl.md)",
+          "[JSON](stable-diffusion-xl.agent.json)"
+        ],
+        [
+          "[`docs/standalone-validation.md`](standalone-validation.md)",
+          "[JSON](standalone-validation.agent.json)"
+        ],
+        [
+          "[`docs/temporal-video.md`](temporal-video.md)",
+          "[JSON](temporal-video.agent.json)"
+        ],
+        [
+          "[`docs/text-embeddings.md`](text-embeddings.md)",
+          "[JSON](text-embeddings.agent.json)"
+        ],
+        [
+          "[`reference/coreml/README.md`](../reference/coreml/README.md)",
+          "[JSON](mirrors/reference/coreml/README.agent.json)"
+        ],
+        [
+          "[`reference/diffusers/README.md`](../reference/diffusers/README.md)",
+          "[JSON](mirrors/reference/diffusers/README.agent.json)"
+        ],
+        [
+          "[`reference/diffusers/configs/sdxl/LICENSE.md`](../reference/diffusers/configs/sdxl/LICENSE.md)",
+          "[JSON](mirrors/reference/diffusers/configs/sdxl/LICENSE.agent.json)"
+        ],
+        [
+          "[`resources/README.md`](../resources/README.md)",
+          "[JSON](mirrors/resources/README.agent.json)"
+        ],
+        [
+          "[`resources/text_encoders/NOTICE.md`](../resources/text_encoders/NOTICE.md)",
+          "[JSON](mirrors/resources/text_encoders/NOTICE.agent.json)"
+        ],
+        [
+          "[`resources/vae/flux1/NOTICE.md`](../resources/vae/flux1/NOTICE.md)",
+          "[JSON](mirrors/resources/vae/flux1/NOTICE.agent.json)"
+        ],
+        [
+          "[`resources/vae/flux2/LICENSE.md`](../resources/vae/flux2/LICENSE.md)",
+          "[JSON](mirrors/resources/vae/flux2/LICENSE.agent.json)"
+        ],
+        [
+          "[`resources/vae/flux2/README.md`](../resources/vae/flux2/README.md)",
+          "[JSON](mirrors/resources/vae/flux2/README.agent.json)"
+        ],
+        [
+          "[`resources/vae/sdxl/README.md`](../resources/vae/sdxl/README.md)",
+          "[JSON](mirrors/resources/vae/sdxl/README.agent.json)"
+        ],
+        [
+          "[`resources/vae/wan/NOTICE.md`](../resources/vae/wan/NOTICE.md)",
+          "[JSON](mirrors/resources/vae/wan/NOTICE.agent.json)"
+        ]
+      ]
+    },
+    {
+      "id": "b000009",
+      "kind": "html",
+      "start_line": 78,
+      "end_line": 78,
+      "raw": "<!-- workspace-docs:document-map:end -->\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "iiLocalDiffusion Documentation",
+      "anchor": "iilocaldiffusion-documentation",
+      "start_line": 1
+    },
+    {
+      "block_id": "b000004",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Human and agent document map",
+      "anchor": "human-and-agent-document-map",
+      "start_line": 4
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [],
+    "commands": [],
+    "links": [
+      {
+        "block_id": "b000008",
+        "label": "`AGENT.md`",
+        "target": "../AGENT.md",
+        "kind": "relative",
+        "line": 10
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "entrypoints/AGENT.agent.json",
+        "kind": "relative",
+        "line": 10
+      },
+      {
+        "block_id": "b000008",
+        "label": "`README.md`",
+        "target": "../README.md",
+        "kind": "relative",
+        "line": 11
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "entrypoints/README.agent.json",
+        "kind": "relative",
+        "line": 11
+      },
+      {
+        "block_id": "b000008",
+        "label": "`THIRD_PARTY_NOTICES.md`",
+        "target": "../THIRD_PARTY_NOTICES.md",
+        "kind": "relative",
+        "line": 12
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "entrypoints/THIRD_PARTY_NOTICES.agent.json",
+        "kind": "relative",
+        "line": 12
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/FILE_PROVIDER.md`",
+        "target": "FILE_PROVIDER.md",
+        "kind": "relative",
+        "line": 13
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "FILE_PROVIDER.agent.json",
+        "kind": "relative",
+        "line": 13
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/ModelInspection.md`",
+        "target": "ModelInspection.md",
+        "kind": "relative",
+        "line": 14
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "ModelInspection.agent.json",
+        "kind": "relative",
+        "line": 14
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/NativeVideo.md`",
+        "target": "NativeVideo.md",
+        "kind": "relative",
+        "line": 15
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "NativeVideo.agent.json",
+        "kind": "relative",
+        "line": 15
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/RuntimeRetirement.md`",
+        "target": "RuntimeRetirement.md",
+        "kind": "relative",
+        "line": 16
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "RuntimeRetirement.agent.json",
+        "kind": "relative",
+        "line": 16
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/Windows.md`",
+        "target": "Windows.md",
+        "kind": "relative",
+        "line": 17
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "Windows.agent.json",
+        "kind": "relative",
+        "line": 17
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/WindowsBuildAndRun.md`",
+        "target": "WindowsBuildAndRun.md",
+        "kind": "relative",
+        "line": 18
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "WindowsBuildAndRun.agent.json",
+        "kind": "relative",
+        "line": 18
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/WindowsPackaging.md`",
+        "target": "WindowsPackaging.md",
+        "kind": "relative",
+        "line": 19
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "WindowsPackaging.agent.json",
+        "kind": "relative",
+        "line": 19
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/WindowsValidation.md`",
+        "target": "WindowsValidation.md",
+        "kind": "relative",
+        "line": 20
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "WindowsValidation.agent.json",
+        "kind": "relative",
+        "line": 20
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/architecture.md`",
+        "target": "architecture.md",
+        "kind": "relative",
+        "line": 21
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "architecture.agent.json",
+        "kind": "relative",
+        "line": 21
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/backend-routing.md`",
+        "target": "backend-routing.md",
+        "kind": "relative",
+        "line": 22
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "backend-routing.agent.json",
+        "kind": "relative",
+        "line": 22
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/checkpoint-formats.md`",
+        "target": "checkpoint-formats.md",
+        "kind": "relative",
+        "line": 23
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "checkpoint-formats.agent.json",
+        "kind": "relative",
+        "line": 23
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/civitai-models.md`",
+        "target": "civitai-models.md",
+        "kind": "relative",
+        "line": 24
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "civitai-models.agent.json",
+        "kind": "relative",
+        "line": 24
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/civitai-validation.md`",
+        "target": "civitai-validation.md",
+        "kind": "relative",
+        "line": 25
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "civitai-validation.agent.json",
+        "kind": "relative",
+        "line": 25
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/comfyui-generation.md`",
+        "target": "comfyui-generation.md",
+        "kind": "relative",
+        "line": 26
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "comfyui-generation.agent.json",
+        "kind": "relative",
+        "line": 26
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/comfyui-image-workflows.md`",
+        "target": "comfyui-image-workflows.md",
+        "kind": "relative",
+        "line": 27
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "comfyui-image-workflows.agent.json",
+        "kind": "relative",
+        "line": 27
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/controlnet.md`",
+        "target": "controlnet.md",
+        "kind": "relative",
+        "line": 28
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "controlnet.agent.json",
+        "kind": "relative",
+        "line": 28
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/deforum-video.md`",
+        "target": "deforum-video.md",
+        "kind": "relative",
+        "line": 29
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "deforum-video.agent.json",
+        "kind": "relative",
+        "line": 29
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/dependencies.md`",
+        "target": "dependencies.md",
+        "kind": "relative",
+        "line": 30
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "dependencies.agent.json",
+        "kind": "relative",
+        "line": 30
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/documentation-structure.md`",
+        "target": "documentation-structure.md",
+        "kind": "relative",
+        "line": 31
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "documentation-structure.agent.json",
+        "kind": "relative",
+        "line": 31
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/downloaded-models.md`",
+        "target": "downloaded-models.md",
+        "kind": "relative",
+        "line": 32
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "downloaded-models.agent.json",
+        "kind": "relative",
+        "line": 32
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/flux1-schnell.md`",
+        "target": "flux1-schnell.md",
+        "kind": "relative",
+        "line": 33
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "flux1-schnell.agent.json",
+        "kind": "relative",
+        "line": 33
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/generation-composition.md`",
+        "target": "generation-composition.md",
+        "kind": "relative",
+        "line": 34
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "generation-composition.agent.json",
+        "kind": "relative",
+        "line": 34
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/generation-defaults.md`",
+        "target": "generation-defaults.md",
+        "kind": "relative",
+        "line": 35
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "generation-defaults.agent.json",
+        "kind": "relative",
+        "line": 35
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/generation-io-native.md`",
+        "target": "generation-io-native.md",
+        "kind": "relative",
+        "line": 36
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "generation-io-native.agent.json",
+        "kind": "relative",
+        "line": 36
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/generation-parameters.md`",
+        "target": "generation-parameters.md",
+        "kind": "relative",
+        "line": 37
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "generation-parameters.agent.json",
+        "kind": "relative",
+        "line": 37
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/generic-diffusers.md`",
+        "target": "generic-diffusers.md",
+        "kind": "relative",
+        "line": 38
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "generic-diffusers.agent.json",
+        "kind": "relative",
+        "line": 38
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/hardware-compute.md`",
+        "target": "hardware-compute.md",
+        "kind": "relative",
+        "line": 39
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "hardware-compute.agent.json",
+        "kind": "relative",
+        "line": 39
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/hires-fix.md`",
+        "target": "hires-fix.md",
+        "kind": "relative",
+        "line": 40
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "hires-fix.agent.json",
+        "kind": "relative",
+        "line": 40
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/image-parameters.md`",
+        "target": "image-parameters.md",
+        "kind": "relative",
+        "line": 41
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "image-parameters.agent.json",
+        "kind": "relative",
+        "line": 41
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/inference-worker.md`",
+        "target": "inference-worker.md",
+        "kind": "relative",
+        "line": 42
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "inference-worker.agent.json",
+        "kind": "relative",
+        "line": 42
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/installation.md`",
+        "target": "installation.md",
+        "kind": "relative",
+        "line": 43
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "installation.agent.json",
+        "kind": "relative",
+        "line": 43
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/interpolator-video.md`",
+        "target": "interpolator-video.md",
+        "kind": "relative",
+        "line": 44
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "interpolator-video.agent.json",
+        "kind": "relative",
+        "line": 44
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/krea2.md`",
+        "target": "krea2.md",
+        "kind": "relative",
+        "line": 45
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "krea2.agent.json",
+        "kind": "relative",
+        "line": 45
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/live-previews.md`",
+        "target": "live-previews.md",
+        "kind": "relative",
+        "line": 46
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "live-previews.agent.json",
+        "kind": "relative",
+        "line": 46
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/local-image-generation.md`",
+        "target": "local-image-generation.md",
+        "kind": "relative",
+        "line": 47
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "local-image-generation.agent.json",
+        "kind": "relative",
+        "line": 47
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/local-model-generation.md`",
+        "target": "local-model-generation.md",
+        "kind": "relative",
+        "line": 48
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "local-model-generation.agent.json",
+        "kind": "relative",
+        "line": 48
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/lora.md`",
+        "target": "lora.md",
+        "kind": "relative",
+        "line": 49
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "lora.agent.json",
+        "kind": "relative",
+        "line": 49
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/managed-comfyui-image.md`",
+        "target": "managed-comfyui-image.md",
+        "kind": "relative",
+        "line": 50
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "managed-comfyui-image.agent.json",
+        "kind": "relative",
+        "line": 50
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/model-conversion.md`",
+        "target": "model-conversion.md",
+        "kind": "relative",
+        "line": 51
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "model-conversion.agent.json",
+        "kind": "relative",
+        "line": 51
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/model-families.md`",
+        "target": "model-families.md",
+        "kind": "relative",
+        "line": 52
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "model-families.agent.json",
+        "kind": "relative",
+        "line": 52
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/model-hash-cache.md`",
+        "target": "model-hash-cache.md",
+        "kind": "relative",
+        "line": 53
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "model-hash-cache.agent.json",
+        "kind": "relative",
+        "line": 53
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/model-inputs.md`",
+        "target": "model-inputs.md",
+        "kind": "relative",
+        "line": 54
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "model-inputs.agent.json",
+        "kind": "relative",
+        "line": 54
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/model-merging.md`",
+        "target": "model-merging.md",
+        "kind": "relative",
+        "line": 55
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "model-merging.agent.json",
+        "kind": "relative",
+        "line": 55
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/model-packaging.md`",
+        "target": "model-packaging.md",
+        "kind": "relative",
+        "line": 56
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "model-packaging.agent.json",
+        "kind": "relative",
+        "line": 56
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/model-sources.md`",
+        "target": "model-sources.md",
+        "kind": "relative",
+        "line": 57
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "model-sources.agent.json",
+        "kind": "relative",
+        "line": 57
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/native-image-generation.md`",
+        "target": "native-image-generation.md",
+        "kind": "relative",
+        "line": 58
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "native-image-generation.agent.json",
+        "kind": "relative",
+        "line": 58
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/neural-accelerators.md`",
+        "target": "neural-accelerators.md",
+        "kind": "relative",
+        "line": 59
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "neural-accelerators.agent.json",
+        "kind": "relative",
+        "line": 59
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/pose-preprocessing.md`",
+        "target": "pose-preprocessing.md",
+        "kind": "relative",
+        "line": 60
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "pose-preprocessing.agent.json",
+        "kind": "relative",
+        "line": 60
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/radeon-rocm.md`",
+        "target": "radeon-rocm.md",
+        "kind": "relative",
+        "line": 61
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "radeon-rocm.agent.json",
+        "kind": "relative",
+        "line": 61
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/resident-worker-performance.md`",
+        "target": "resident-worker-performance.md",
+        "kind": "relative",
+        "line": 62
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "resident-worker-performance.agent.json",
+        "kind": "relative",
+        "line": 62
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/stable-diffusion-v1.md`",
+        "target": "stable-diffusion-v1.md",
+        "kind": "relative",
+        "line": 63
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "stable-diffusion-v1.agent.json",
+        "kind": "relative",
+        "line": 63
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/stable-diffusion-xl.md`",
+        "target": "stable-diffusion-xl.md",
+        "kind": "relative",
+        "line": 64
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "stable-diffusion-xl.agent.json",
+        "kind": "relative",
+        "line": 64
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/standalone-validation.md`",
+        "target": "standalone-validation.md",
+        "kind": "relative",
+        "line": 65
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "standalone-validation.agent.json",
+        "kind": "relative",
+        "line": 65
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/temporal-video.md`",
+        "target": "temporal-video.md",
+        "kind": "relative",
+        "line": 66
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "temporal-video.agent.json",
+        "kind": "relative",
+        "line": 66
+      },
+      {
+        "block_id": "b000008",
+        "label": "`docs/text-embeddings.md`",
+        "target": "text-embeddings.md",
+        "kind": "relative",
+        "line": 67
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "text-embeddings.agent.json",
+        "kind": "relative",
+        "line": 67
+      },
+      {
+        "block_id": "b000008",
+        "label": "`reference/coreml/README.md`",
+        "target": "../reference/coreml/README.md",
+        "kind": "relative",
+        "line": 68
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "mirrors/reference/coreml/README.agent.json",
+        "kind": "relative",
+        "line": 68
+      },
+      {
+        "block_id": "b000008",
+        "label": "`reference/diffusers/README.md`",
+        "target": "../reference/diffusers/README.md",
+        "kind": "relative",
+        "line": 69
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "mirrors/reference/diffusers/README.agent.json",
+        "kind": "relative",
+        "line": 69
+      },
+      {
+        "block_id": "b000008",
+        "label": "`reference/diffusers/configs/sdxl/LICENSE.md`",
+        "target": "../reference/diffusers/configs/sdxl/LICENSE.md",
+        "kind": "relative",
+        "line": 70
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "mirrors/reference/diffusers/configs/sdxl/LICENSE.agent.json",
+        "kind": "relative",
+        "line": 70
+      },
+      {
+        "block_id": "b000008",
+        "label": "`resources/README.md`",
+        "target": "../resources/README.md",
+        "kind": "relative",
+        "line": 71
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "mirrors/resources/README.agent.json",
+        "kind": "relative",
+        "line": 71
+      },
+      {
+        "block_id": "b000008",
+        "label": "`resources/text_encoders/NOTICE.md`",
+        "target": "../resources/text_encoders/NOTICE.md",
+        "kind": "relative",
+        "line": 72
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "mirrors/resources/text_encoders/NOTICE.agent.json",
+        "kind": "relative",
+        "line": 72
+      },
+      {
+        "block_id": "b000008",
+        "label": "`resources/vae/flux1/NOTICE.md`",
+        "target": "../resources/vae/flux1/NOTICE.md",
+        "kind": "relative",
+        "line": 73
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "mirrors/resources/vae/flux1/NOTICE.agent.json",
+        "kind": "relative",
+        "line": 73
+      },
+      {
+        "block_id": "b000008",
+        "label": "`resources/vae/flux2/LICENSE.md`",
+        "target": "../resources/vae/flux2/LICENSE.md",
+        "kind": "relative",
+        "line": 74
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "mirrors/resources/vae/flux2/LICENSE.agent.json",
+        "kind": "relative",
+        "line": 74
+      },
+      {
+        "block_id": "b000008",
+        "label": "`resources/vae/flux2/README.md`",
+        "target": "../resources/vae/flux2/README.md",
+        "kind": "relative",
+        "line": 75
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "mirrors/resources/vae/flux2/README.agent.json",
+        "kind": "relative",
+        "line": 75
+      },
+      {
+        "block_id": "b000008",
+        "label": "`resources/vae/sdxl/README.md`",
+        "target": "../resources/vae/sdxl/README.md",
+        "kind": "relative",
+        "line": 76
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "mirrors/resources/vae/sdxl/README.agent.json",
+        "kind": "relative",
+        "line": 76
+      },
+      {
+        "block_id": "b000008",
+        "label": "`resources/vae/wan/NOTICE.md`",
+        "target": "../resources/vae/wan/NOTICE.md",
+        "kind": "relative",
+        "line": 77
+      },
+      {
+        "block_id": "b000008",
+        "label": "JSON",
+        "target": "mirrors/resources/vae/wan/NOTICE.agent.json",
+        "kind": "relative",
+        "line": 77
+      }
+    ],
+    "tables": [
+      {
+        "block_id": "b000008",
+        "columns": [
+          "Document",
+          "Agent JSON"
+        ],
+        "rows": [
+          [
+            "[`AGENT.md`](../AGENT.md)",
+            "[JSON](entrypoints/AGENT.agent.json)"
+          ],
+          [
+            "[`README.md`](../README.md)",
+            "[JSON](entrypoints/README.agent.json)"
+          ],
+          [
+            "[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)",
+            "[JSON](entrypoints/THIRD_PARTY_NOTICES.agent.json)"
+          ],
+          [
+            "[`docs/FILE_PROVIDER.md`](FILE_PROVIDER.md)",
+            "[JSON](FILE_PROVIDER.agent.json)"
+          ],
+          [
+            "[`docs/ModelInspection.md`](ModelInspection.md)",
+            "[JSON](ModelInspection.agent.json)"
+          ],
+          [
+            "[`docs/NativeVideo.md`](NativeVideo.md)",
+            "[JSON](NativeVideo.agent.json)"
+          ],
+          [
+            "[`docs/RuntimeRetirement.md`](RuntimeRetirement.md)",
+            "[JSON](RuntimeRetirement.agent.json)"
+          ],
+          [
+            "[`docs/Windows.md`](Windows.md)",
+            "[JSON](Windows.agent.json)"
+          ],
+          [
+            "[`docs/WindowsBuildAndRun.md`](WindowsBuildAndRun.md)",
+            "[JSON](WindowsBuildAndRun.agent.json)"
+          ],
+          [
+            "[`docs/WindowsPackaging.md`](WindowsPackaging.md)",
+            "[JSON](WindowsPackaging.agent.json)"
+          ],
+          [
+            "[`docs/WindowsValidation.md`](WindowsValidation.md)",
+            "[JSON](WindowsValidation.agent.json)"
+          ],
+          [
+            "[`docs/architecture.md`](architecture.md)",
+            "[JSON](architecture.agent.json)"
+          ],
+          [
+            "[`docs/backend-routing.md`](backend-routing.md)",
+            "[JSON](backend-routing.agent.json)"
+          ],
+          [
+            "[`docs/checkpoint-formats.md`](checkpoint-formats.md)",
+            "[JSON](checkpoint-formats.agent.json)"
+          ],
+          [
+            "[`docs/civitai-models.md`](civitai-models.md)",
+            "[JSON](civitai-models.agent.json)"
+          ],
+          [
+            "[`docs/civitai-validation.md`](civitai-validation.md)",
+            "[JSON](civitai-validation.agent.json)"
+          ],
+          [
+            "[`docs/comfyui-generation.md`](comfyui-generation.md)",
+            "[JSON](comfyui-generation.agent.json)"
+          ],
+          [
+            "[`docs/comfyui-image-workflows.md`](comfyui-image-workflows.md)",
+            "[JSON](comfyui-image-workflows.agent.json)"
+          ],
+          [
+            "[`docs/controlnet.md`](controlnet.md)",
+            "[JSON](controlnet.agent.json)"
+          ],
+          [
+            "[`docs/deforum-video.md`](deforum-video.md)",
+            "[JSON](deforum-video.agent.json)"
+          ],
+          [
+            "[`docs/dependencies.md`](dependencies.md)",
+            "[JSON](dependencies.agent.json)"
+          ],
+          [
+            "[`docs/documentation-structure.md`](documentation-structure.md)",
+            "[JSON](documentation-structure.agent.json)"
+          ],
+          [
+            "[`docs/downloaded-models.md`](downloaded-models.md)",
+            "[JSON](downloaded-models.agent.json)"
+          ],
+          [
+            "[`docs/flux1-schnell.md`](flux1-schnell.md)",
+            "[JSON](flux1-schnell.agent.json)"
+          ],
+          [
+            "[`docs/generation-composition.md`](generation-composition.md)",
+            "[JSON](generation-composition.agent.json)"
+          ],
+          [
+            "[`docs/generation-defaults.md`](generation-defaults.md)",
+            "[JSON](generation-defaults.agent.json)"
+          ],
+          [
+            "[`docs/generation-io-native.md`](generation-io-native.md)",
+            "[JSON](generation-io-native.agent.json)"
+          ],
+          [
+            "[`docs/generation-parameters.md`](generation-parameters.md)",
+            "[JSON](generation-parameters.agent.json)"
+          ],
+          [
+            "[`docs/generic-diffusers.md`](generic-diffusers.md)",
+            "[JSON](generic-diffusers.agent.json)"
+          ],
+          [
+            "[`docs/hardware-compute.md`](hardware-compute.md)",
+            "[JSON](hardware-compute.agent.json)"
+          ],
+          [
+            "[`docs/hires-fix.md`](hires-fix.md)",
+            "[JSON](hires-fix.agent.json)"
+          ],
+          [
+            "[`docs/image-parameters.md`](image-parameters.md)",
+            "[JSON](image-parameters.agent.json)"
+          ],
+          [
+            "[`docs/inference-worker.md`](inference-worker.md)",
+            "[JSON](inference-worker.agent.json)"
+          ],
+          [
+            "[`docs/installation.md`](installation.md)",
+            "[JSON](installation.agent.json)"
+          ],
+          [
+            "[`docs/interpolator-video.md`](interpolator-video.md)",
+            "[JSON](interpolator-video.agent.json)"
+          ],
+          [
+            "[`docs/krea2.md`](krea2.md)",
+            "[JSON](krea2.agent.json)"
+          ],
+          [
+            "[`docs/live-previews.md`](live-previews.md)",
+            "[JSON](live-previews.agent.json)"
+          ],
+          [
+            "[`docs/local-image-generation.md`](local-image-generation.md)",
+            "[JSON](local-image-generation.agent.json)"
+          ],
+          [
+            "[`docs/local-model-generation.md`](local-model-generation.md)",
+            "[JSON](local-model-generation.agent.json)"
+          ],
+          [
+            "[`docs/lora.md`](lora.md)",
+            "[JSON](lora.agent.json)"
+          ],
+          [
+            "[`docs/managed-comfyui-image.md`](managed-comfyui-image.md)",
+            "[JSON](managed-comfyui-image.agent.json)"
+          ],
+          [
+            "[`docs/model-conversion.md`](model-conversion.md)",
+            "[JSON](model-conversion.agent.json)"
+          ],
+          [
+            "[`docs/model-families.md`](model-families.md)",
+            "[JSON](model-families.agent.json)"
+          ],
+          [
+            "[`docs/model-hash-cache.md`](model-hash-cache.md)",
+            "[JSON](model-hash-cache.agent.json)"
+          ],
+          [
+            "[`docs/model-inputs.md`](model-inputs.md)",
+            "[JSON](model-inputs.agent.json)"
+          ],
+          [
+            "[`docs/model-merging.md`](model-merging.md)",
+            "[JSON](model-merging.agent.json)"
+          ],
+          [
+            "[`docs/model-packaging.md`](model-packaging.md)",
+            "[JSON](model-packaging.agent.json)"
+          ],
+          [
+            "[`docs/model-sources.md`](model-sources.md)",
+            "[JSON](model-sources.agent.json)"
+          ],
+          [
+            "[`docs/native-image-generation.md`](native-image-generation.md)",
+            "[JSON](native-image-generation.agent.json)"
+          ],
+          [
+            "[`docs/neural-accelerators.md`](neural-accelerators.md)",
+            "[JSON](neural-accelerators.agent.json)"
+          ],
+          [
+            "[`docs/pose-preprocessing.md`](pose-preprocessing.md)",
+            "[JSON](pose-preprocessing.agent.json)"
+          ],
+          [
+            "[`docs/radeon-rocm.md`](radeon-rocm.md)",
+            "[JSON](radeon-rocm.agent.json)"
+          ],
+          [
+            "[`docs/resident-worker-performance.md`](resident-worker-performance.md)",
+            "[JSON](resident-worker-performance.agent.json)"
+          ],
+          [
+            "[`docs/stable-diffusion-v1.md`](stable-diffusion-v1.md)",
+            "[JSON](stable-diffusion-v1.agent.json)"
+          ],
+          [
+            "[`docs/stable-diffusion-xl.md`](stable-diffusion-xl.md)",
+            "[JSON](stable-diffusion-xl.agent.json)"
+          ],
+          [
+            "[`docs/standalone-validation.md`](standalone-validation.md)",
+            "[JSON](standalone-validation.agent.json)"
+          ],
+          [
+            "[`docs/temporal-video.md`](temporal-video.md)",
+            "[JSON](temporal-video.agent.json)"
+          ],
+          [
+            "[`docs/text-embeddings.md`](text-embeddings.md)",
+            "[JSON](text-embeddings.agent.json)"
+          ],
+          [
+            "[`reference/coreml/README.md`](../reference/coreml/README.md)",
+            "[JSON](mirrors/reference/coreml/README.agent.json)"
+          ],
+          [
+            "[`reference/diffusers/README.md`](../reference/diffusers/README.md)",
+            "[JSON](mirrors/reference/diffusers/README.agent.json)"
+          ],
+          [
+            "[`reference/diffusers/configs/sdxl/LICENSE.md`](../reference/diffusers/configs/sdxl/LICENSE.md)",
+            "[JSON](mirrors/reference/diffusers/configs/sdxl/LICENSE.agent.json)"
+          ],
+          [
+            "[`resources/README.md`](../resources/README.md)",
+            "[JSON](mirrors/resources/README.agent.json)"
+          ],
+          [
+            "[`resources/text_encoders/NOTICE.md`](../resources/text_encoders/NOTICE.md)",
+            "[JSON](mirrors/resources/text_encoders/NOTICE.agent.json)"
+          ],
+          [
+            "[`resources/vae/flux1/NOTICE.md`](../resources/vae/flux1/NOTICE.md)",
+            "[JSON](mirrors/resources/vae/flux1/NOTICE.agent.json)"
+          ],
+          [
+            "[`resources/vae/flux2/LICENSE.md`](../resources/vae/flux2/LICENSE.md)",
+            "[JSON](mirrors/resources/vae/flux2/LICENSE.agent.json)"
+          ],
+          [
+            "[`resources/vae/flux2/README.md`](../resources/vae/flux2/README.md)",
+            "[JSON](mirrors/resources/vae/flux2/README.agent.json)"
+          ],
+          [
+            "[`resources/vae/sdxl/README.md`](../resources/vae/sdxl/README.md)",
+            "[JSON](mirrors/resources/vae/sdxl/README.agent.json)"
+          ],
+          [
+            "[`resources/vae/wan/NOTICE.md`](../resources/vae/wan/NOTICE.md)",
+            "[JSON](mirrors/resources/vae/wan/NOTICE.agent.json)"
+          ]
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

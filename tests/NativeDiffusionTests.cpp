@@ -21,6 +21,18 @@ int main(int argc, char **argv) {
     if (result.error.empty() || !result.rgb.empty()) return 3;
     request.modelPath = directory / "invalid.safetensors";
     { std::ofstream file(request.modelPath); file << "not a checkpoint"; }
+    {
+        auto gguf = request; gguf.modelPath = directory / "weights.gguf";
+        if (generateNativeImage(gguf, cancelled).error.find("ONNX") != std::string::npos) return 19;
+        auto onnx = request; onnx.modelPath = directory / "weights.ONNX";
+        if (generateNativeImage(onnx, cancelled).error.find("ONNX") == std::string::npos) return 20;
+        NativeModelComponents components; components.llm = directory / "encoder.onnx";
+        if (generateNativeImageWithComponents(request, {}, components, NativeComputeBackend::Cpu, cancelled).error.find("ONNX") == std::string::npos) return 21;
+        NativeGenerationOptions options; options.loras.push_back({directory / "adapter.ONNX", 1.0f});
+        if (generateNativeImageWithOptions(request, options, NativeComputeBackend::Cpu, cancelled).error.find("ONNX") == std::string::npos) return 22;
+        NativeAdvancedControls advanced; advanced.refinerModel = directory / "refiner.onnx";
+        if (generateNativeAdvancedImage(request, {}, {}, advanced, NativeComputeBackend::Cpu, cancelled).error.find("ONNX") == std::string::npos) return 23;
+    }
     request.width = 63;
     result = generateNativeImage(request, cancelled);
     if (result.error != "Invalid native image generation parameters.") return 4;

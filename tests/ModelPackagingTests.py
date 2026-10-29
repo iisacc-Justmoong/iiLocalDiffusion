@@ -63,7 +63,8 @@ def fixture(folder, encoder=True):
                 {"config": '{"_class_name":"LatentUpsampler"}'})
     (folder / "ltx-failed.safetensors").write_bytes(b"Auth failed: credentials expired")
     if encoder:
-        gguf(folder / "gemma-3.gguf")
+        safetensors(folder / "text_encoder.safetensors",
+                    [("text_model.encoder.weight", "F32", [1], struct.pack("<f", 0.25))])
     return model
 
 
@@ -106,11 +107,12 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(header["__metadata__"]["license"], "fixture-license")
         manifest = json.loads(header["__metadata__"]["iild_package_manifest"])
         self.assertEqual(manifest["schema"], "iild-safetensors-package-v1")
-        text_encoder = next(f for f in manifest["files"] if f["format"] == "gguf")
+        text_encoder = next(f for f in manifest["files"] if f["role"] == "text_encoder")
+        self.assertEqual(text_encoder["format"], "safetensors")
         tensor = header[text_encoder["tensors"][0]["output_key"]]
-        self.assertEqual(tensor["dtype"], "U8")
+        self.assertEqual(tensor["dtype"], "F32")
         start, end = tensor["data_offsets"]
-        self.assertEqual(output.read_bytes()[base + start:base + end], original["gemma-3.gguf"])
+        self.assertEqual(output.read_bytes()[base + start:base + end], struct.pack("<f", 0.25))
         restored = self.root / "restored"
         self.run_tool("extract", "--input", output, "--output", restored)
         for name, contents in original.items():
@@ -121,13 +123,17 @@ class PackagingTests(unittest.TestCase):
 
     def test_materialize_only_verified_encoder_and_detect_cache_corruption(self):
         fixture(self.input)
+        safetensors(self.input / "text_encoder.safetensors", [
+            ("text_model.encoder.weight", "F32", [1], struct.pack("<f", 0.25)),
+            ("text_model.encoder.bias", "F16", [2], b"\x01\x02\x03\x04")])
         output = self.root / "package.safetensors"
         self.run_tool("create", "--input", self.input, "--output", output)
         before = hashlib.sha256(output.read_bytes()).hexdigest()
         cache = self.root / "assets"
         report = self.run_tool("materialize", "--input", output, "--output", cache)
         encoder = Path(report["output"])
-        self.assertEqual(encoder.read_bytes(), (self.input / "gemma-3.gguf").read_bytes())
+        self.assertEqual(encoder.suffix, ".safetensors")
+        self.assertEqual(encoder.read_bytes(), (self.input / "text_encoder.safetensors").read_bytes())
         self.assertEqual(list(cache.iterdir()), [encoder])
         self.assertEqual(self.run_tool("materialize", "--input", output, "--output", cache)["output"], str(encoder))
         encoder.write_bytes(b"x" * encoder.stat().st_size)
@@ -139,7 +145,7 @@ class PackagingTests(unittest.TestCase):
         output = self.root / "package.safetensors"
         self.run_tool("create", "--input", self.input, "--output", output)
         header, base = read_header(output)
-        key = next(key for key in header if key.startswith("__iild_assets__/text_encoder/"))
+        key = next(key for key in header if key.startswith("components/text_encoder/"))
         # Corrupt the chosen blob; no cache result may be published.
         with output.open("r+b") as file:
             file.seek(base + header[key]["data_offsets"][0])
@@ -147,6 +153,48 @@ class PackagingTests(unittest.TestCase):
         cache = self.root / "assets"
         self.run_tool("materialize", "--input", output, "--output", cache, success=False)
         self.assertEqual(list(cache.iterdir()), [])
+
+    def test_materialize_does_not_choose_one_of_multiple_encoder_shards(self):
+        fixture(self.input)
+        safetensors(self.input / "text_encoder_second.safetensors", [
+            ("text_model.second.weight", "F32", [1], struct.pack("<f", 0.5))])
+        output = self.root / "package.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", output)
+        before = output.read_bytes()
+        cache = self.root / "assets"
+        report = self.run_tool("materialize", "--input", output, "--output", cache, success=False)
+        self.assertIn("multiple", report["error"].lower())
+        self.assertFalse(cache.exists())
+        self.assertEqual(output.read_bytes(), before)
+
+    def test_materialize_rejects_hash_matching_but_invalid_cached_safetensors(self):
+        fixture(self.input)
+        output = self.root / "package.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", output)
+        header, base = read_header(output)
+        manifest = json.loads(header["__metadata__"]["iild_package_manifest"])
+        encoder = next(f for f in manifest["files"] if f["role"] == "text_encoder")
+        mapped = encoder["tensors"][0]
+        tensor = header[mapped["output_key"]]
+        start, end = tensor["data_offsets"]
+        payload = output.read_bytes()[base + start:base + end]
+        bad_header = '{"weight":{"dtype":"F32","shape":[2],"data_offsets":[0,4]}}'
+        invalid = struct.pack("<Q", len(bad_header)) + bad_header.encode() + payload
+        encoder["header"] = bad_header
+        encoder["size"] = len(invalid)
+        encoder["sha256"] = hashlib.sha256(invalid).hexdigest()
+        header["__metadata__"]["iild_package_manifest"] = json.dumps(manifest, separators=(",", ":"))
+        tensors = [(name, info["dtype"], info["shape"],
+                    output.read_bytes()[base + info["data_offsets"][0]:base + info["data_offsets"][1]])
+                   for name, info in header.items() if name != "__metadata__"]
+        altered = self.root / "altered.safetensors"
+        safetensors(altered, tensors, header["__metadata__"])
+        cache = self.root / "assets"
+        cache.mkdir()
+        cached = cache / (encoder["sha256"] + ".safetensors")
+        cached.write_bytes(invalid)
+        self.run_tool("materialize", "--input", altered, "--output", cache, success=False)
+        self.assertEqual(cached.read_bytes(), invalid)
 
     def test_materialize_recovers_aborted_copy_without_removing_active_owner(self):
         fixture(self.input)
@@ -165,7 +213,7 @@ class PackagingTests(unittest.TestCase):
         self.assertFalse(stale.exists())
         self.assertEqual(active.read_bytes(), b"preserve active or unrelated data")
         self.assertEqual(unrelated.read_bytes(), b"preserve active or unrelated data")
-        self.assertEqual(encoder.read_bytes(), (self.input / "gemma-3.gguf").read_bytes())
+        self.assertEqual(encoder.read_bytes(), (self.input / "text_encoder.safetensors").read_bytes())
 
     def test_successful_readonly_commands_always_emit_final_report(self):
         fixture(self.input)
@@ -231,13 +279,107 @@ class PackagingTests(unittest.TestCase):
         self.assertFalse(report["ready"])
         self.assertIn("shard", " ".join(report["errors"]).lower())
 
-    def test_gguf_tensor_extent_is_checked_without_dequantization(self):
-        path = self.input / "gemma.gguf"
+    def test_onnx_is_rejected_without_modifying_sources(self):
+        safetensors(self.input / "model.safetensors", [("weight", "F32", [1], struct.pack("<f", 1))])
+        for name in ("weights.onnx", "weights.ONNX"):
+            with self.subTest(name=name):
+                path = self.input / name
+                path.write_bytes(b"do not wrap or delete this model")
+                report = self.run_tool("scan", "--input", self.input)
+                self.assertFalse(report["ready"])
+                self.assertIn("onnx", " ".join(report["errors"]).lower())
+                output = self.root / "forbidden.safetensors"
+                self.run_tool("create", "--input", self.input, "--output", output, success=False)
+                self.assertFalse(output.exists())
+                self.assertEqual(path.read_bytes(), b"do not wrap or delete this model")
+                path.unlink()
+
+    def test_legacy_package_cannot_embed_onnx(self):
+        manifest = {"schema": "iild-safetensors-package-v1", "files": [{
+            "path": "text_encoder.onnx", "format": "asset", "status": "included",
+            "role": "text_encoder"}]}
+        legacy = self.root / "legacy.safetensors"
+        safetensors(legacy, [("__iild_assets__/text_encoder/text_encoder.onnx", "U8", [4], b"onnx")],
+                    {"iild_package_schema": "iild-safetensors-package-v1",
+                     "iild_package_manifest": json.dumps(manifest)})
+        original = legacy.read_bytes()
+        self.run_tool("verify", "--input", legacy, success=False)
+        self.run_tool("materialize", "--input", legacy, "--output", self.root / "cache", success=False)
+        self.run_tool("extract", "--input", legacy, "--output", self.root / "extract", success=False)
+        self.assertFalse((self.root / "cache").exists())
+        self.assertFalse((self.root / "extract").exists())
+        self.assertEqual(legacy.read_bytes(), original)
+        (self.input / "legacy.safetensors").write_bytes(original)
+        safetensors(self.input / "model.safetensors", [("weight", "F32", [1], struct.pack("<f", 1))])
+        self.assertFalse(self.run_tool("scan", "--input", self.input)["ready"])
+
+    def test_gguf_encoder_roundtrip_materialization_and_cache_integrity(self):
+        fixture(self.input, encoder=False)
+        source = self.input / "gemma-3.gguf"
+        gguf(source)
+        (self.input / "tokenizer.bin").write_bytes(b"existing supporting asset")
+        self.assertTrue(self.run_tool("scan", "--input", self.input)["ready"])
+        package = self.root / "gguf-package.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", package)
+        self.run_tool("verify", "--input", package)
+        restored = self.root / "restored-gguf"
+        self.run_tool("extract", "--input", package, "--output", restored)
+        self.assertEqual((restored / source.name).read_bytes(), source.read_bytes())
+        self.assertEqual((restored / "tokenizer.bin").read_bytes(), b"existing supporting asset")
+        cache = self.root / "gguf-cache"
+        encoder = Path(self.run_tool("materialize", "--input", package, "--output", cache)["output"])
+        self.assertEqual(encoder.suffix, ".gguf")
+        self.assertEqual(encoder.read_bytes(), source.read_bytes())
+        self.assertEqual(self.run_tool("materialize", "--input", package, "--output", cache)["output"], str(encoder))
+        encoder.write_bytes(b"x" * encoder.stat().st_size)
+        self.run_tool("materialize", "--input", package, "--output", cache, success=False)
+
+    def test_materialize_rejects_hash_matching_but_invalid_gguf_cache(self):
+        fixture(self.input, encoder=False)
+        gguf(self.input / "text_encoder.gguf")
+        package = self.root / "gguf-original.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", package)
+        header, base = read_header(package)
+        manifest = json.loads(header["__metadata__"]["iild_package_manifest"])
+        encoder = next(f for f in manifest["files"] if f["role"] == "text_encoder")
+        mapped = encoder["tensors"][0]
+        invalid = b"GGUF" + b"x" * (encoder["size"] - 4)
+        digest = hashlib.sha256(invalid).hexdigest()
+        encoder["sha256"] = digest
+        mapped["sha256"] = digest
+        header["__metadata__"]["iild_package_manifest"] = json.dumps(manifest, separators=(",", ":"))
+        payload = package.read_bytes()
+        tensors = [(name, info["dtype"], info["shape"],
+                    invalid if name == mapped["output_key"] else
+                    payload[base + info["data_offsets"][0]:base + info["data_offsets"][1]])
+                   for name, info in header.items() if name != "__metadata__"]
+        altered = self.root / "invalid-gguf.safetensors"
+        safetensors(altered, tensors, header["__metadata__"])
+        cache = self.root / "invalid-gguf-cache"
+        cache.mkdir()
+        cached = cache / (digest + ".gguf")
+        cached.write_bytes(invalid)
+        self.run_tool("materialize", "--input", altered, "--output", cache, success=False)
+        self.assertEqual(cached.read_bytes(), invalid)
+
+    def test_gguf_only_main_model_and_truncation(self):
+        path = self.input / "model.gguf"
         gguf(path)
-        path.write_bytes(path.read_bytes()[:-1])
-        report = self.run_tool("scan", "--input", self.input)
-        self.assertFalse(report["ready"])
-        self.assertEqual(report["invalid_file_count"], 1)
+        self.assertTrue(self.run_tool("scan", "--input", self.input)["ready"])
+        package = self.root / "gguf-main.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", package)
+        self.run_tool("extract", "--input", package, "--output", self.root / "gguf-main")
+        self.assertEqual((self.root / "gguf-main/model.gguf").read_bytes(), path.read_bytes())
+        path.write_bytes(path.read_bytes()[:-2])
+        self.assertFalse(self.run_tool("scan", "--input", self.input)["ready"])
+
+    def test_package_output_requires_standard_extension(self):
+        safetensors(self.input / "model.safetensors", [("weight", "F32", [1], struct.pack("<f", 1))])
+        for name in ("model.onnx", "model.gguf", "model.safetensor", "model"):
+            with self.subTest(name=name):
+                target = self.root / name
+                self.run_tool("create", "--input", self.input, "--output", target, success=False)
+                self.assertFalse(target.exists())
 
     def test_invalid_indexes_and_config_only_required_components_block(self):
         safetensors(self.input / "unet/model.safetensors", [("weight", "F32", [1], struct.pack("<f", 1))])

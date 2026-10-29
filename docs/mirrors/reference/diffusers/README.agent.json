@@ -1,0 +1,1749 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:920c553f1ddf4234996e3147d0e0bb5b9db50aad4db267560b8c68dd6dba720b",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "reference/diffusers/README.md",
+    "sha256": "27afd434310f92c19cad0c508f1c2c3a3f9be0a6176b6a29511d40db1fd0e58c",
+    "bytes": 27690,
+    "line_count": 504,
+    "encoding": "utf-8",
+    "language": "ko"
+  },
+  "document": {
+    "title": "Diffusers reference oracle",
+    "role": "overview",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# Diffusers reference oracle\n",
+      "level": 1,
+      "title": "Diffusers reference oracle"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "paragraph",
+      "start_line": 3,
+      "end_line": 5,
+      "raw": "These scripts preserve a known-good implementation against which future C++\ncomponents can be compared. They are not called by the iiLocalDiffusion\nlibrary.\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 6,
+      "end_line": 6,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 7,
+      "end_line": 11,
+      "raw": "Complete Anima safetensors passed to `iild-generate --backend local` use the\nSDK's native engine inside the persistent worker. Tensor inspection recognizes\nthe Anima denoiser before its embedded VAE. A VAE-only file remains a component;\nan incomplete Anima reports missing companions. See the [worker contract](../../docs/inference-worker.md#complete-anima-checkpoints)\nfor supported arguments, cache residency, outputs and preview limitations.\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 12,
+      "end_line": 12,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "paragraph",
+      "start_line": 13,
+      "end_line": 13,
+      "raw": "When Qwen Image RGB, SDXL, FLUX.1, or FLUX.2 pipelines lack a VAE, the default VAE for the family is used automatically. The same fallback applies to SDXL/FLUX.1 presets and SDXL single checkpoints without a VAE. Omitting `--vae` is the default; to specify one explicitly, pass a local Diffusers VAE directory. An embedded VAE takes precedence, and the decoder fallback remains active with `--no-default-modifiers`. A compatible VAE is selected for each pipeline, excluding RGBA Layered. Refer to [revisions, hashes, redownload, and verification](../../docs/generation-defaults.md#vae-자동-폴백).\n"
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 14,
+      "end_line": 14,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 15,
+      "end_line": 19,
+      "raw": "The unified launcher and image/video runners accept local `--model-path`\n(legacy `--model`), direct `--model-api`, or remote `--model-cloud` with\n`--model-provider`. See [model sources](../../docs/model-sources.md) for the API\nprotocol, cloud provider adapter and local postprocessing. Local-model examples\nand tensor-loading contracts below continue to apply only to local sources.\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 20,
+      "end_line": 20,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "paragraph",
+      "start_line": 21,
+      "end_line": 29,
+      "raw": "For Civitai models, start with `reference/generate.py --list-base-models` and\n`reference/generate.py --preset illustrious --model /absolute/path/image-diffusers --print-config` from the repository\nroot. Named variants and compatible architecture presets supplement the original\nreference presets below. `generate_any.py` runs additional built-in Diffusers\npipelines; `comfyui_runtime.py` executes explicit local API workflows. See\n[Civitai compatibility](../../docs/civitai-models.md),\n[model families](../../docs/model-families.md),\n[generic pipelines](../../docs/generic-diffusers.md), and\n[ComfyUI workflows](../../docs/comfyui-generation.md).\n"
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 30,
+      "end_line": 30,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "heading",
+      "start_line": 31,
+      "end_line": 31,
+      "raw": "## Reproducible environment\n",
+      "level": 2,
+      "title": "Reproducible environment"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 32,
+      "end_line": 32,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "paragraph",
+      "start_line": 33,
+      "end_line": 34,
+      "raw": "The verified host uses macOS arm64 and CPython 3.14. Create the environment on\nthe external workspace volume:\n"
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 35,
+      "end_line": 35,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "fenced_code",
+      "start_line": 36,
+      "end_line": 41,
+      "raw": "```bash\nuv venv reference/diffusers/.venv --python 3.14\nuv pip install \\\n  --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements.txt\n```\n",
+      "language": "bash",
+      "code": "uv venv reference/diffusers/.venv --python 3.14\nuv pip install \\\n  --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements.txt\n",
+      "closed": true
+    },
+    {
+      "id": "b000018",
+      "kind": "blank",
+      "start_line": 42,
+      "end_line": 42,
+      "raw": "\n"
+    },
+    {
+      "id": "b000019",
+      "kind": "paragraph",
+      "start_line": 43,
+      "end_line": 47,
+      "raw": "For AMD Radeon, use a separate environment under `build/`, install the\nGPU/OS-compatible HIP PyTorch wheel first, then install\n`requirements-rocm.txt`. It reuses the common direct pins without imposing\nthe standard Torch version. The [Radeon guide](../../docs/radeon-rocm.md)\nincludes native C++ setup and platform limitations. A model-free check is:\n"
+    },
+    {
+      "id": "b000020",
+      "kind": "blank",
+      "start_line": 48,
+      "end_line": 48,
+      "raw": "\n"
+    },
+    {
+      "id": "b000021",
+      "kind": "fenced_code",
+      "start_line": 49,
+      "end_line": 51,
+      "raw": "```bash\npython reference/diffusers/hardware.py --device rocm --dtype float16\n```\n",
+      "language": "bash",
+      "code": "python reference/diffusers/hardware.py --device rocm --dtype float16\n",
+      "closed": true
+    },
+    {
+      "id": "b000022",
+      "kind": "blank",
+      "start_line": 52,
+      "end_line": 52,
+      "raw": "\n"
+    },
+    {
+      "id": "b000023",
+      "kind": "paragraph",
+      "start_line": 53,
+      "end_line": 53,
+      "raw": "Both scripts use the shared immutable presets in `presets.py`:\n"
+    },
+    {
+      "id": "b000024",
+      "kind": "blank",
+      "start_line": 54,
+      "end_line": 54,
+      "raw": "\n"
+    },
+    {
+      "id": "b000025",
+      "kind": "table",
+      "start_line": 55,
+      "end_line": 59,
+      "raw": "| Preset | Model revision | Resolution | Guidance |\n|---|---|---:|---:|\n| `sd15` (default) | `451f4fe16113bff5a5d2269ed5ad43b0592e9a14` | 512 x 512 | 7.5 |\n| `sdxl-base` | `462165984030d82259a11f4367a4eed129e94a7b` | 1024 x 1024 | 5.0 |\n| `flux1-schnell` | `741f7c3ce8b383c54771c7003378a50191e9efe9` | 1024 x 1024 | 0.0 |\n",
+      "columns": [
+        "Preset",
+        "Model revision",
+        "Resolution",
+        "Guidance"
+      ],
+      "rows": [
+        [
+          "`sd15` (default)",
+          "`451f4fe16113bff5a5d2269ed5ad43b0592e9a14`",
+          "512 x 512",
+          "7.5"
+        ],
+        [
+          "`sdxl-base`",
+          "`462165984030d82259a11f4367a4eed129e94a7b`",
+          "1024 x 1024",
+          "5.0"
+        ],
+        [
+          "`flux1-schnell`",
+          "`741f7c3ce8b383c54771c7003378a50191e9efe9`",
+          "1024 x 1024",
+          "0.0"
+        ]
+      ]
+    },
+    {
+      "id": "b000026",
+      "kind": "blank",
+      "start_line": 60,
+      "end_line": 60,
+      "raw": "\n"
+    },
+    {
+      "id": "b000027",
+      "kind": "paragraph",
+      "start_line": 61,
+      "end_line": 63,
+      "raw": "They use only safetensors and disable remote code. The default cache is\n`build/reference/huggingface`, and the Xet chunk cache defaults to\n`build/reference/huggingface-xet`, not the system-volume Hugging Face cache.\n"
+    },
+    {
+      "id": "b000028",
+      "kind": "blank",
+      "start_line": 64,
+      "end_line": 64,
+      "raw": "\n"
+    },
+    {
+      "id": "b000029",
+      "kind": "paragraph",
+      "start_line": 65,
+      "end_line": 65,
+      "raw": "Inspect and persist component configs without running denoising:\n"
+    },
+    {
+      "id": "b000030",
+      "kind": "blank",
+      "start_line": 66,
+      "end_line": 66,
+      "raw": "\n"
+    },
+    {
+      "id": "b000031",
+      "kind": "fenced_code",
+      "start_line": 67,
+      "end_line": 70,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py\n",
+      "closed": true
+    },
+    {
+      "id": "b000032",
+      "kind": "blank",
+      "start_line": 71,
+      "end_line": 71,
+      "raw": "\n"
+    },
+    {
+      "id": "b000033",
+      "kind": "paragraph",
+      "start_line": 72,
+      "end_line": 72,
+      "raw": "Generate the fixed 512 x 512 reference image:\n"
+    },
+    {
+      "id": "b000034",
+      "kind": "blank",
+      "start_line": 73,
+      "end_line": 73,
+      "raw": "\n"
+    },
+    {
+      "id": "b000035",
+      "kind": "fenced_code",
+      "start_line": 74,
+      "end_line": 77,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers\n",
+      "closed": true
+    },
+    {
+      "id": "b000036",
+      "kind": "blank",
+      "start_line": 78,
+      "end_line": 78,
+      "raw": "\n"
+    },
+    {
+      "id": "b000037",
+      "kind": "paragraph",
+      "start_line": 79,
+      "end_line": 79,
+      "raw": "Inspect SDXL Base and generate its fixed 1,024 x 1,024 reference image:\n"
+    },
+    {
+      "id": "b000038",
+      "kind": "blank",
+      "start_line": 80,
+      "end_line": 80,
+      "raw": "\n"
+    },
+    {
+      "id": "b000039",
+      "kind": "fenced_code",
+      "start_line": 81,
+      "end_line": 87,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset sdxl-base\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset sdxl-base --model /absolute/path/image-diffusers\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset sdxl-base\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset sdxl-base --model /absolute/path/image-diffusers\n",
+      "closed": true
+    },
+    {
+      "id": "b000040",
+      "kind": "blank",
+      "start_line": 88,
+      "end_line": 88,
+      "raw": "\n"
+    },
+    {
+      "id": "b000041",
+      "kind": "paragraph",
+      "start_line": 89,
+      "end_line": 89,
+      "raw": "Inspect FLUX.1-schnell and generate its fixed 1,024 x 1,024 reference image:\n"
+    },
+    {
+      "id": "b000042",
+      "kind": "blank",
+      "start_line": 90,
+      "end_line": 90,
+      "raw": "\n"
+    },
+    {
+      "id": "b000043",
+      "kind": "fenced_code",
+      "start_line": 91,
+      "end_line": 97,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset flux1-schnell\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset flux1-schnell --model /absolute/path/image-diffusers\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset flux1-schnell\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset flux1-schnell --model /absolute/path/image-diffusers\n",
+      "closed": true
+    },
+    {
+      "id": "b000044",
+      "kind": "blank",
+      "start_line": 98,
+      "end_line": 98,
+      "raw": "\n"
+    },
+    {
+      "id": "b000045",
+      "kind": "paragraph",
+      "start_line": 99,
+      "end_line": 101,
+      "raw": "The official FLUX.1-schnell repository is gated even though its model license\nis Apache-2.0. Accept its terms while signed in on Hugging Face, then make the\nsame account available to `huggingface_hub` before running these commands.\n"
+    },
+    {
+      "id": "b000046",
+      "kind": "blank",
+      "start_line": 102,
+      "end_line": 102,
+      "raw": "\n"
+    },
+    {
+      "id": "b000047",
+      "kind": "heading",
+      "start_line": 103,
+      "end_line": 103,
+      "raw": "## Hardware policy\n",
+      "level": 2,
+      "title": "Hardware policy"
+    },
+    {
+      "id": "b000048",
+      "kind": "blank",
+      "start_line": 104,
+      "end_line": 104,
+      "raw": "\n"
+    },
+    {
+      "id": "b000049",
+      "kind": "paragraph",
+      "start_line": 105,
+      "end_line": 109,
+      "raw": "Generation defaults to `--device auto`, which requires an available CUDA,\nROCm, or Metal device. CUDA/HIP takes precedence; on Apple Silicon the PyTorch device is\n`mps`. `--device metal` is an alias for `mps`. A CPU-only host must explicitly\nselect `--device cpu`; no automatic CPU fallback is permitted. An explicitly\nunavailable accelerator fails instead of selecting another device.\n"
+    },
+    {
+      "id": "b000050",
+      "kind": "blank",
+      "start_line": 110,
+      "end_line": 110,
+      "raw": "\n"
+    },
+    {
+      "id": "b000051",
+      "kind": "paragraph",
+      "start_line": 111,
+      "end_line": 116,
+      "raw": "Before loading large weights, a matrix-product preflight verifies the selected\ndevice and dtype. The pipeline's actual `_execution_device` is checked after\nplacement/offload setup. `runtime.hardware` in the JSON sidecar records the\nrequested and selected device, backend, runtime, GPU flag, preflight result,\nand no-fallback policy. `PYTORCH_ENABLE_MPS_FALLBACK=1` is rejected for Metal\nruns. Out-of-memory or unsupported-kernel errors are not retried on CPU.\n"
+    },
+    {
+      "id": "b000052",
+      "kind": "blank",
+      "start_line": 117,
+      "end_line": 117,
+      "raw": "\n"
+    },
+    {
+      "id": "b000053",
+      "kind": "paragraph",
+      "start_line": 118,
+      "end_line": 123,
+      "raw": "`--device rocm` requires an actual HIP build and usable AMD GPU. HIP uses\nthe Torch `cuda` device namespace, including for offload and CPU conditioning\ntransfers, but the sidecar records `backend: rocm` with AMD GPU/HIP properties.\nBoth TF32 CLI switches are NVIDIA-only and fail on ROCm; auto does not touch\nNVIDIA precision setters on AMD. All existing model/VAE/LoRA/ControlNet, CPU text and\nRAM offload options remain applicable.\n"
+    },
+    {
+      "id": "b000054",
+      "kind": "blank",
+      "start_line": 124,
+      "end_line": 124,
+      "raw": "\n"
+    },
+    {
+      "id": "b000055",
+      "kind": "paragraph",
+      "start_line": 125,
+      "end_line": 128,
+      "raw": "This path uses PyTorch, not MLX. The separate C++ MLX component API and its\nMetal/CUDA build options are documented in\n[hardware-compute.md](../../docs/hardware-compute.md). A complete MLX diffusion\ngenerator is not supplied by these scripts.\n"
+    },
+    {
+      "id": "b000056",
+      "kind": "blank",
+      "start_line": 129,
+      "end_line": 129,
+      "raw": "\n"
+    },
+    {
+      "id": "b000057",
+      "kind": "heading",
+      "start_line": 130,
+      "end_line": 130,
+      "raw": "### NVIDIA Tensor Core policy\n",
+      "level": 3,
+      "title": "NVIDIA Tensor Core policy"
+    },
+    {
+      "id": "b000058",
+      "kind": "blank",
+      "start_line": 131,
+      "end_line": 131,
+      "raw": "\n"
+    },
+    {
+      "id": "b000059",
+      "kind": "paragraph",
+      "start_line": 132,
+      "end_line": 136,
+      "raw": "CUDA availability is not treated as proof of Tensor Cores. The oracle checks\ndevice family and compute capability, excludes GTX 16-series and ROCm from\naffirmative NVIDIA claims, and records FP16/BF16/TF32 eligibility at\n`runtime.hardware.tensor_cores`. Kernel dispatch remains PyTorch's choice;\n`usage_verified` stays false without an external kernel profile.\n"
+    },
+    {
+      "id": "b000060",
+      "kind": "blank",
+      "start_line": 137,
+      "end_line": 137,
+      "raw": "\n"
+    },
+    {
+      "id": "b000061",
+      "kind": "paragraph",
+      "start_line": 138,
+      "end_line": 143,
+      "raw": "TF32 matrix/convolution math is enabled by default on eligible Ampere-or-newer\nNVIDIA GPUs. Use `--no-cuda-tf32` for IEEE FP32 multiplication or\n`--cuda-tf32` to explicitly require TF32 capability. These flags require CUDA\nand do not disable FP16/BF16 Tensor Core kernels. They apply before GPU\npreflight/model loading and preserve LoRA/CPU-encoding/offload order. Numeric\nresults may differ with TF32; the sidecar records the actual applied policy.\n"
+    },
+    {
+      "id": "b000062",
+      "kind": "blank",
+      "start_line": 144,
+      "end_line": 144,
+      "raw": "\n"
+    },
+    {
+      "id": "b000063",
+      "kind": "paragraph",
+      "start_line": 145,
+      "end_line": 147,
+      "raw": "Apple Neural Engine execution is a separate compiled-model C++ Core ML path,\nnot an MPS alias or an automatic transformation of this Python image pipeline.\nSee [Neural Engine / Tensor Cores](../../docs/neural-accelerators.md).\n"
+    },
+    {
+      "id": "b000064",
+      "kind": "blank",
+      "start_line": 148,
+      "end_line": 148,
+      "raw": "\n"
+    },
+    {
+      "id": "b000065",
+      "kind": "heading",
+      "start_line": 149,
+      "end_line": 149,
+      "raw": "### CPU computation and RAM offload\n",
+      "level": 3,
+      "title": "CPU computation and RAM offload"
+    },
+    {
+      "id": "b000066",
+      "kind": "blank",
+      "start_line": 150,
+      "end_line": 150,
+      "raw": "\n"
+    },
+    {
+      "id": "b000067",
+      "kind": "paragraph",
+      "start_line": 151,
+      "end_line": 154,
+      "raw": "`--cpu-text-encoding` computes prompt embeddings on CPU while keeping\ndenoising and VAE decoding on the GPU. It runs after base validation and LoRA\nactivation, before offload hooks. `--cpu-threads N` controls PyTorch CPU\nintra-op parallelism (positive integer; default retains PyTorch's setting).\n"
+    },
+    {
+      "id": "b000068",
+      "kind": "blank",
+      "start_line": 155,
+      "end_line": 155,
+      "raw": "\n"
+    },
+    {
+      "id": "b000069",
+      "kind": "fenced_code",
+      "start_line": 156,
+      "end_line": 160,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \\\n  --offload model --output build/reference/sdxl-cpu-ram.png\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \\\n  --offload model --output build/reference/sdxl-cpu-ram.png\n",
+      "closed": true
+    },
+    {
+      "id": "b000070",
+      "kind": "blank",
+      "start_line": 161,
+      "end_line": 161,
+      "raw": "\n"
+    },
+    {
+      "id": "b000071",
+      "kind": "paragraph",
+      "start_line": 162,
+      "end_line": 169,
+      "raw": "`--offload` independently selects `auto`, `none`, `model`, or `sequential`.\nModel offload retains inactive whole models in RAM, while sequential offload\ntransfers submodules as called. Both execute those models on the GPU; RAM\nstorage alone is not CPU arithmetic. `auto` preserves the original presets\nunless CPU text encoding is requested: then SD/SDXL use model offload and\nFLUX retains sequential offload. Explicit `none` moves the entire pipeline\nto the GPU, including already-used text encoders. `--device cpu` still runs\nthe whole pipeline on CPU/RAM and rejects model/sequential GPU offload.\n"
+    },
+    {
+      "id": "b000072",
+      "kind": "blank",
+      "start_line": 170,
+      "end_line": 170,
+      "raw": "\n"
+    },
+    {
+      "id": "b000073",
+      "kind": "paragraph",
+      "start_line": 171,
+      "end_line": 180,
+      "raw": "CPU encoding defaults to float32 for SD/SDXL and bfloat16 for FLUX, restores the\nencoder storage dtype, and transfers all embeddings to the chosen GPU/dtype.\nAn explicit `--cpu-text-dtype` overrides that encoder policy.\nThe sidecar records CPU conditioning devices/shapes, CPU thread count,\nparticipating devices, requested/effective offload, and weight storage.\nCPU text encoding is a stage before GPU denoising, not concurrent denoiser\nsharding. Neither CPU cooperation nor offload guarantees a speedup. Apple\nunified RAM remains the same finite physical memory; offload does not make\noversized models fit automatically. See the\n[resource contracts](../../docs/hardware-compute.md#cpugpu-cooperation-and-ram-storage).\n"
+    },
+    {
+      "id": "b000074",
+      "kind": "blank",
+      "start_line": 181,
+      "end_line": 181,
+      "raw": "\n"
+    },
+    {
+      "id": "b000075",
+      "kind": "heading",
+      "start_line": 182,
+      "end_line": 182,
+      "raw": "## Replace model components\n",
+      "level": 2,
+      "title": "Replace model components"
+    },
+    {
+      "id": "b000076",
+      "kind": "blank",
+      "start_line": 183,
+      "end_line": 183,
+      "raw": "\n"
+    },
+    {
+      "id": "b000077",
+      "kind": "paragraph",
+      "start_line": 184,
+      "end_line": 187,
+      "raw": "`generate.py --model` requires a local Diffusers directory,\nor an explicit local `.safetensors`/`.safetensor` file. `--vae` independently\nreplaces the VAE with a local single file, and `--lora` adds an optional\nadapter. For example, use an SDXL checkpoint and separately selected VAE:\n"
+    },
+    {
+      "id": "b000078",
+      "kind": "blank",
+      "start_line": 188,
+      "end_line": 188,
+      "raw": "\n"
+    },
+    {
+      "id": "b000079",
+      "kind": "fenced_code",
+      "start_line": 189,
+      "end_line": 197,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model-config /absolute/path/model-config \\\n  --preset sdxl-base \\\n  --model /absolute/path/to/sdxl-checkpoint.safetensors \\\n  --vae /absolute/path/to/sdxl-vae.safetensors \\\n  --lora /absolute/path/to/sdxl-style.safetensors \\\n  --lora-scale 0.8\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model-config /absolute/path/model-config \\\n  --preset sdxl-base \\\n  --model /absolute/path/to/sdxl-checkpoint.safetensors \\\n  --vae /absolute/path/to/sdxl-vae.safetensors \\\n  --lora /absolute/path/to/sdxl-style.safetensors \\\n  --lora-scale 0.8\n",
+      "closed": true
+    },
+    {
+      "id": "b000080",
+      "kind": "blank",
+      "start_line": 198,
+      "end_line": 198,
+      "raw": "\n"
+    },
+    {
+      "id": "b000081",
+      "kind": "paragraph",
+      "start_line": 199,
+      "end_line": 205,
+      "raw": "SD 1.5 and SDXL accept original-format checkpoints containing their neural\ncomponents or a standalone UNet. FLUX accepts a standalone transformer. The\nloader classifies the role from tensor keys; a VAE or LoRA passed as the model\nis rejected. Native Diffusers component state dictionaries and supported\noriginal-format component weights are delegated to Diffusers' single-file\nloaders. This is weight replacement within the chosen architecture, not\ncross-family conversion.\n"
+    },
+    {
+      "id": "b000082",
+      "kind": "blank",
+      "start_line": 206,
+      "end_line": 206,
+      "raw": "\n"
+    },
+    {
+      "id": "b000083",
+      "kind": "paragraph",
+      "start_line": 207,
+      "end_line": 209,
+      "raw": "Single-file models still need configs, tokenizers, scheduler settings, and\nany neural components not embedded in the file. `--model-config` selects that\nexplicit local Diffusers-format configuration source:\n"
+    },
+    {
+      "id": "b000084",
+      "kind": "blank",
+      "start_line": 210,
+      "end_line": 210,
+      "raw": "\n"
+    },
+    {
+      "id": "b000085",
+      "kind": "fenced_code",
+      "start_line": 211,
+      "end_line": 219,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py \\\n  --preset flux1-schnell \\\n  --model /absolute/path/to/flux-schnell.safetensor \\\n  --model-config /absolute/path/to/flux-schnell-diffusers-package \\\n  --vae /absolute/path/to/flux-vae.safetensors \\\n  --local-files-only\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py \\\n  --preset flux1-schnell \\\n  --model /absolute/path/to/flux-schnell.safetensor \\\n  --model-config /absolute/path/to/flux-schnell-diffusers-package \\\n  --vae /absolute/path/to/flux-vae.safetensors \\\n  --local-files-only\n",
+      "closed": true
+    },
+    {
+      "id": "b000086",
+      "kind": "blank",
+      "start_line": 220,
+      "end_line": 220,
+      "raw": "\n"
+    },
+    {
+      "id": "b000087",
+      "kind": "paragraph",
+      "start_line": 221,
+      "end_line": 224,
+      "raw": "`--model-config` must be an explicit local directory for a single-file model.\nIt supplies configs, tokenizers and any neural components not embedded in the\ncheckpoint. There is no default configuration repository. Model and adapter\nrevision arguments are rejected; all model inputs are local paths.\n"
+    },
+    {
+      "id": "b000088",
+      "kind": "blank",
+      "start_line": 225,
+      "end_line": 225,
+      "raw": "\n"
+    },
+    {
+      "id": "b000089",
+      "kind": "heading",
+      "start_line": 226,
+      "end_line": 226,
+      "raw": "## LoRA override and bundled fallback\n",
+      "level": 2,
+      "title": "LoRA override and bundled fallback"
+    },
+    {
+      "id": "b000090",
+      "kind": "blank",
+      "start_line": 227,
+      "end_line": 227,
+      "raw": "\n"
+    },
+    {
+      "id": "b000091",
+      "kind": "paragraph",
+      "start_line": 228,
+      "end_line": 236,
+      "raw": "`generate_any.py` (`--backend diffusers`) uses the same local LoRA selection,\nstrength and activation implementation as `generate.py`. SD2, SD3, FLUX and\nother installed image pipeline loaders accept `--lora` and `--lora-scale`;\nmissing adapter APIs fail before loading the base model. Both runners select\ncompatible per-family defaults from `fallback_lora`/`fallback_loras` in the\nshared resource manifest. Generic runs retain their arbitrary prompt-input\ncontract; automatic learned negative embeddings remain on the preset,\nstandalone and Deforum paths. Deforum verifies adapter activation for every\ngenerated frame and records `frames[].lora.applied`.\n"
+    },
+    {
+      "id": "b000092",
+      "kind": "blank",
+      "start_line": 237,
+      "end_line": 237,
+      "raw": "\n"
+    },
+    {
+      "id": "b000093",
+      "kind": "paragraph",
+      "start_line": 238,
+      "end_line": 242,
+      "raw": "SDXL automatically applies seven learned negative embeddings, but its bundled\nfallback LoRA list is empty. Adapters are applied only when explicitly selected\nor registered in a custom resource manifest.\nSee [generation defaults](../../docs/generation-defaults.md) for family compatibility,\nlong CLIP conditioning, installed assets, and explicit baseline comparisons.\n"
+    },
+    {
+      "id": "b000094",
+      "kind": "blank",
+      "start_line": 243,
+      "end_line": 243,
+      "raw": "\n"
+    },
+    {
+      "id": "b000095",
+      "kind": "paragraph",
+      "start_line": 244,
+      "end_line": 245,
+      "raw": "Apply one local LoRA safetensors file after the selected base pipeline has\npassed its contract:\n"
+    },
+    {
+      "id": "b000096",
+      "kind": "blank",
+      "start_line": 246,
+      "end_line": 246,
+      "raw": "\n"
+    },
+    {
+      "id": "b000097",
+      "kind": "fenced_code",
+      "start_line": 247,
+      "end_line": 254,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/style.safetensors \\\n  --lora-scale 0.75 \\\n  --output build/reference/flux-style.png\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/style.safetensors \\\n  --lora-scale 0.75 \\\n  --output build/reference/flux-style.png\n",
+      "closed": true
+    },
+    {
+      "id": "b000098",
+      "kind": "blank",
+      "start_line": 255,
+      "end_line": 255,
+      "raw": "\n"
+    },
+    {
+      "id": "b000099",
+      "kind": "paragraph",
+      "start_line": 256,
+      "end_line": 259,
+      "raw": "LoRA adapters must be local files or directories. Directory inputs require an\nexact weight filename. Model, configuration and adapter Hub IDs are rejected;\nall local-source tensor loading is local-only. See [local model arguments](../../docs/local-model-generation.md)\nfor image, animation and temporal-video examples.\n"
+    },
+    {
+      "id": "b000100",
+      "kind": "blank",
+      "start_line": 260,
+      "end_line": 260,
+      "raw": "\n"
+    },
+    {
+      "id": "b000101",
+      "kind": "heading",
+      "start_line": 261,
+      "end_line": 261,
+      "raw": "## Optional learned text embeddings\n",
+      "level": 2,
+      "title": "Optional learned text embeddings"
+    },
+    {
+      "id": "b000102",
+      "kind": "blank",
+      "start_line": 262,
+      "end_line": 262,
+      "raw": "\n"
+    },
+    {
+      "id": "b000103",
+      "kind": "paragraph",
+      "start_line": 263,
+      "end_line": 265,
+      "raw": "`--text-embedding` (alias `--textual-inversion`) loads local Textual\nInversion weights into the tokenizer and text encoder so they can be used\nas learned tokens in a prompt:\n"
+    },
+    {
+      "id": "b000104",
+      "kind": "blank",
+      "start_line": 266,
+      "end_line": 266,
+      "raw": "\n"
+    },
+    {
+      "id": "b000105",
+      "kind": "fenced_code",
+      "start_line": 267,
+      "end_line": 272,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 --text-embedding /absolute/path/to/style.safetensors \\\n  --text-embedding-token '<style>' --text-embedding-encoder text_encoder \\\n  --prompt 'a ceramic cup in <style> style' --hires-fix\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 --text-embedding /absolute/path/to/style.safetensors \\\n  --text-embedding-token '<style>' --text-embedding-encoder text_encoder \\\n  --prompt 'a ceramic cup in <style> style' --hires-fix\n",
+      "closed": true
+    },
+    {
+      "id": "b000106",
+      "kind": "blank",
+      "start_line": 273,
+      "end_line": 273,
+      "raw": "\n"
+    },
+    {
+      "id": "b000107",
+      "kind": "paragraph",
+      "start_line": 274,
+      "end_line": 282,
+      "raw": "Multiple `.safetensors` / `.safetensor` files are supported, with optional\ntoken and encoder lists matched to the file count. SD 1.5 uses CLIP;\nSDXL supports both CLIP encoders; FLUX supports CLIP and T5. Multi-vector\ntokens retain their expansion through CPU encoding, ControlNet and both\nHires Fix stages. Omission disables the feature. The existing `--embeddings`\noption supplies completed prompt tensors, bypassing encoding, and cannot\nbe combined with learned-token inputs. See\n[text-embeddings.md](../../docs/text-embeddings.md) for layouts, selection,\nvalidation and provenance.\n"
+    },
+    {
+      "id": "b000108",
+      "kind": "blank",
+      "start_line": 283,
+      "end_line": 283,
+      "raw": "\n"
+    },
+    {
+      "id": "b000109",
+      "kind": "heading",
+      "start_line": 284,
+      "end_line": 284,
+      "raw": "## Optional ControlNet\n",
+      "level": 2,
+      "title": "Optional ControlNet"
+    },
+    {
+      "id": "b000110",
+      "kind": "blank",
+      "start_line": 285,
+      "end_line": 285,
+      "raw": "\n"
+    },
+    {
+      "id": "b000111",
+      "kind": "paragraph",
+      "start_line": 286,
+      "end_line": 287,
+      "raw": "Pass a compatible ControlNet and a local image already prepared for its\nconditioning task. One ControlNet is supported with each existing preset:\n"
+    },
+    {
+      "id": "b000112",
+      "kind": "blank",
+      "start_line": 288,
+      "end_line": 288,
+      "raw": "\n"
+    },
+    {
+      "id": "b000113",
+      "kind": "fenced_code",
+      "start_line": 289,
+      "end_line": 297,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base \\\n  --controlnet /absolute/path/to/sdxl-controlnet-package \\\n  --control-image /absolute/path/to/prepared-depth.png \\\n  --controlnet-scale 0.8 \\\n  --control-guidance-start 0.0 --control-guidance-end 1.0 \\\n  --cpu-text-encoding --offload model\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base \\\n  --controlnet /absolute/path/to/sdxl-controlnet-package \\\n  --control-image /absolute/path/to/prepared-depth.png \\\n  --controlnet-scale 0.8 \\\n  --control-guidance-start 0.0 --control-guidance-end 1.0 \\\n  --cpu-text-encoding --offload model\n",
+      "closed": true
+    },
+    {
+      "id": "b000114",
+      "kind": "blank",
+      "start_line": 298,
+      "end_line": 298,
+      "raw": "\n"
+    },
+    {
+      "id": "b000115",
+      "kind": "paragraph",
+      "start_line": 299,
+      "end_line": 304,
+      "raw": "Omitting `--controlnet` leaves it disabled. A selected model defaults to\nscale 1.0, start 0.0, end 1.0, and guess mode false. Scale is non-negative,\nand the interval requires `0 <= start < end <= 1`. The scale alias is\n`--controlnet-conditioning-scale`. `--guess-mode` is available for SD/SDXL;\nFLUX Union models use a required model-specific `--control-mode` instead.\nNonzero `--guidance-rescale` is unsupported by these ControlNet pipelines.\n"
+    },
+    {
+      "id": "b000116",
+      "kind": "blank",
+      "start_line": 305,
+      "end_line": 305,
+      "raw": "\n"
+    },
+    {
+      "id": "b000117",
+      "kind": "paragraph",
+      "start_line": 306,
+      "end_line": 312,
+      "raw": "`--controlnet` accepts a local Diffusers component directory or a local `.safetensors` /\n`.safetensor` file. A single file uses a sibling `config.json` when present;\notherwise provide `--controlnet-config` as a local component configuration directory.\nNative Diffusers tensor names work in all three families; supported\noriginal-format SD/SDXL ControlNet files use Diffusers' conversion loader.\n`--controlnet-variant` independently chooses package filenames such as\n`fp16`, without inheriting the base model's `--weight-variant`.\n"
+    },
+    {
+      "id": "b000118",
+      "kind": "blank",
+      "start_line": 313,
+      "end_line": 313,
+      "raw": "\n"
+    },
+    {
+      "id": "b000119",
+      "kind": "paragraph",
+      "start_line": 314,
+      "end_line": 322,
+      "raw": "The image is oriented from EXIF, converted to RGB, and resized by Diffusers\nto the requested generation size. No Canny, depth, or pose detector is\nincluded. The same image conditions every requested batch image. ControlNet\ncomposition precedes LoRA activation, optional CPU text encoding, and\ndevice/offload setup. Image and weight/configuration identities and control\nsettings accompany each PNG in its sidecar. The default filename uses\n`*-controlnet.png`; the base fixture is preserved. See the\n[complete ControlNet contract](../../docs/controlnet.md) for compatibility,\nJSON/Python usage, hashing, and family-specific limitations.\n"
+    },
+    {
+      "id": "b000120",
+      "kind": "blank",
+      "start_line": 323,
+      "end_line": 323,
+      "raw": "\n"
+    },
+    {
+      "id": "b000121",
+      "kind": "heading",
+      "start_line": 324,
+      "end_line": 324,
+      "raw": "## Default Hires Fix\n",
+      "level": 2,
+      "title": "Default Hires Fix"
+    },
+    {
+      "id": "b000122",
+      "kind": "blank",
+      "start_line": 325,
+      "end_line": 325,
+      "raw": "\n"
+    },
+    {
+      "id": "b000123",
+      "kind": "paragraph",
+      "start_line": 326,
+      "end_line": 329,
+      "raw": "Still-image dimensions are the final target: 1024×1024 runs a 512×512 base\nand a 1024×1024 refinement by default. Model grid rounding applies to the base.\n`--no-hires-fix` explicitly selects a single pass. The explicit resize options\nin the example below select the existing growing refinement chain.\n"
+    },
+    {
+      "id": "b000124",
+      "kind": "blank",
+      "start_line": 330,
+      "end_line": 330,
+      "raw": "\n"
+    },
+    {
+      "id": "b000125",
+      "kind": "paragraph",
+      "start_line": 331,
+      "end_line": 332,
+      "raw": "The SD1/SDXL/FLUX family presets support repeated img2img refinement, with or without\nControlNet and with the existing model/VAE/LoRA choices:\n"
+    },
+    {
+      "id": "b000126",
+      "kind": "blank",
+      "start_line": 333,
+      "end_line": 333,
+      "raw": "\n"
+    },
+    {
+      "id": "b000127",
+      "kind": "fenced_code",
+      "start_line": 334,
+      "end_line": 340,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --width 1024 --height 1024 \\\n  --hires-fix --hires-passes 2 --hires-scale 1.5 --hires-upscaler lanczos \\\n  --hires-denoising-strength 0.35 --hires-steps 30 \\\n  --hires-save-base --cpu-text-encoding --offload model\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --width 1024 --height 1024 \\\n  --hires-fix --hires-passes 2 --hires-scale 1.5 --hires-upscaler lanczos \\\n  --hires-denoising-strength 0.35 --hires-steps 30 \\\n  --hires-save-base --cpu-text-encoding --offload model\n",
+      "closed": true
+    },
+    {
+      "id": "b000128",
+      "kind": "blank",
+      "start_line": 341,
+      "end_line": 341,
+      "raw": "\n"
+    },
+    {
+      "id": "b000129",
+      "kind": "paragraph",
+      "start_line": 342,
+      "end_line": 355,
+      "raw": "The first pass generates the base image. Each of the N `--hires-passes`\nthen resizes the preceding output's RGB pixels and refines it with the same\nselected components. The example progresses from 1024 × 1024 to 1536 × 1536\nand finally 2304 × 2304. The scale applies at every pass. `--hires-width` /\n`--hires-height` can instead select the first refinement size; one missing\naxis is inferred from the base aspect ratio, and those first per-axis factors\nrepeat at later passes. Additional options select a shared refinement seed,\nguidance, scheduler and scheduler constructor configuration. Every refinement\nstarts fresh scheduler and per-image generator state, reusing its configured\nseed rather than incrementing it by pass. The default is enabled;\npasses default to 1, the method is Lanczos,\nand strength is 0.35. Steps and seed inherit the base settings. Strength\nselects a portion of each requested schedule, so the active refinement step\ncount is normally smaller.\n"
+    },
+    {
+      "id": "b000130",
+      "kind": "blank",
+      "start_line": 356,
+      "end_line": 356,
+      "raw": "\n"
+    },
+    {
+      "id": "b000131",
+      "kind": "paragraph",
+      "start_line": 357,
+      "end_line": 370,
+      "raw": "`--output` refers to the final image. The optional first-stage PNG adds\n`-base` to that stem, with separate metadata; default final names add\n`-hires` after other modifiers. Final and base output paths are checked\ntogether for collisions. Intermediate refinement images are not saved.\nSidecars record ordered `hires_fix.stages` entries with input/upscale/\nrefinement/output identity and execution data, plus `requested_passes` and\n`completed_passes`. The existing `hires_fix.upscale` and `hires_fix.refinement`\nfields retain the last stage's data; `hires_fix.base` retains base evidence.\nThe managed local checkpoint backend supports the subset `--hires-fix`,\n`--hires-passes`, `--hires-scale`, `--hires-upscaler`, `--hires-steps` and\n`--hires-strength`. It records the stage plan under `request.hires` and\ncompletion through its ComfyUI workflow and final-image checks. See\n[hires-fix.md](../../docs/hires-fix.md) for every option, batch seeds,\nControlNet composition and validation limits.\n"
+    },
+    {
+      "id": "b000132",
+      "kind": "blank",
+      "start_line": 371,
+      "end_line": 371,
+      "raw": "\n"
+    },
+    {
+      "id": "b000133",
+      "kind": "heading",
+      "start_line": 372,
+      "end_line": 372,
+      "raw": "## All generation values and defaults\n",
+      "level": 2,
+      "title": "All generation values and defaults"
+    },
+    {
+      "id": "b000134",
+      "kind": "blank",
+      "start_line": 373,
+      "end_line": 373,
+      "raw": "\n"
+    },
+    {
+      "id": "b000135",
+      "kind": "paragraph",
+      "start_line": 374,
+      "end_line": 377,
+      "raw": "The CLI, JSON `--config` and Python `resolve_request()` share one argument\nschema. Omitted values and top-level JSON null use neutral/preset defaults;\nexplicit zero and false are retained. `--print-config` prints replayable\nJSON and exits before loading dependencies or touching a GPU.\n"
+    },
+    {
+      "id": "b000136",
+      "kind": "blank",
+      "start_line": 378,
+      "end_line": 378,
+      "raw": "\n"
+    },
+    {
+      "id": "b000137",
+      "kind": "paragraph",
+      "start_line": 379,
+      "end_line": 388,
+      "raw": "See [generation-parameters.md](../../docs/generation-parameters.md) for every\nvalue and its fallback, including scheduler/configuration, custom schedules,\nsecondary prompts, SDXL micro-conditioning, FLUX true CFG, image counts,\nseed stride, dtype/variant, memory policies, PNG storage options and optional\nlatent/embedding safetensors, learned Textual Inversion tokens, optional\nControlNet conditioning and Hires Fix.\n`generation.example.json` is a partial starter with ControlNet and Hires Fix disabled.\nEvery batch image is saved with its own seed, hash and complete parameter\nsidecar. External img2img inputs, separate refiner checkpoints,\nMulti-ControlNet and IP-Adapter pipelines are outside this interface.\n"
+    },
+    {
+      "id": "b000138",
+      "kind": "blank",
+      "start_line": 389,
+      "end_line": 389,
+      "raw": "\n"
+    },
+    {
+      "id": "b000139",
+      "kind": "heading",
+      "start_line": 390,
+      "end_line": 390,
+      "raw": "## Interpretation\n",
+      "level": 2,
+      "title": "Interpretation"
+    },
+    {
+      "id": "b000140",
+      "kind": "blank",
+      "start_line": 391,
+      "end_line": 391,
+      "raw": "\n"
+    },
+    {
+      "id": "b000141",
+      "kind": "paragraph",
+      "start_line": 392,
+      "end_line": 403,
+      "raw": "`inspect_pipeline.py` loads actual component weights through Diffusers and\nwrites normalized metadata to `build/reference/pipeline-inspection.json` for\nSD 1.5, `build/reference/pipeline-inspection-sdxl-base.json` for SDXL Base, or\n`build/reference/pipeline-inspection-flux1-schnell.json` for FLUX.1-schnell.\nIt verifies the selected pipeline's required component classes; for SDXL it\nalso checks the critical 2,048/2,816 conditioning widths and VAE contract. For\nFLUX.1-schnell it checks both tokenizers and text encoders, the 64-channel\npacked-latent transformer contract, 16-channel shifted VAE, and flow-matching\nscheduler.\nIts `--model` remains a Diffusers directory or pinned repository; the new\nsingle-file and VAE inputs belong to `generate.py` only. C++ `iild-run inspect`\ncontinues to inspect package metadata without loading weights.\n"
+    },
+    {
+      "id": "b000142",
+      "kind": "blank",
+      "start_line": 404,
+      "end_line": 404,
+      "raw": "\n"
+    },
+    {
+      "id": "b000143",
+      "kind": "paragraph",
+      "start_line": 405,
+      "end_line": 427,
+      "raw": "`generate.py` writes each RGB PNG and a JSON sidecar containing the model preset\nand revision, all fixture parameters, direct package versions, device, dtype,\nattention-slicing state, safety-checker and watermarker presence, and output\nSHA-256. Custom runs also identify the model's weight role, configuration\nsource, VAE override, and each component's source. Its `adapters` array is empty\nwhen neither a compatible default nor an override applies, or records the exact LoRA\nsource, identity, scale, registered components, and active state. A separate\nControlNet record preserves its model/configuration files, conditioning\nimage hashes, and applied controls. For presets\nthat support it, attention slicing is enabled automatically on MPS to reduce\npeak memory use, except SDXL, which keeps PyTorch SDPA by default. SDXL FP16\nsliced attention can overflow its QK scores on MPS before a preview is decoded.\nExplicit `--attention-slicing` remains available; MPS FP16 UNet/ControlNet\nattention uses Diffusers' `upcast_attention` to accumulate scores in FP32 while\nkeeping model weights and attention outputs in FP16. The optimization sidecar\nrecords `sliced_attention_upcast_modules`. `--no-attention-slicing` explicitly\nselects the pipeline's unsliced processor.\nFor SDXL on fp16 accelerators, the pinned Diffusers pipeline's verified\n`force_upcast` path performs VAE decode in float32. Loading only the VAE as\nfloat32 up front is intentionally avoided: Diffusers 0.40's current MPS branch\ncasts it back to the latent dtype and can produce NaNs. The oracle also rejects\nuniform RGB output so that this failure cannot pass merely because a PNG was\nwritten.\n"
+    },
+    {
+      "id": "b000144",
+      "kind": "blank",
+      "start_line": 428,
+      "end_line": 428,
+      "raw": "\n"
+    },
+    {
+      "id": "b000145",
+      "kind": "paragraph",
+      "start_line": 429,
+      "end_line": 445,
+      "raw": "FLUX.1-schnell defaults to BF16 without an `fp16` weight variant, no negative\nprompt, and `max_sequence_length=256`. Explicit dtype/token-limit overrides\nare available; `--true-cfg-scale` greater than 1 separately enables negative\nprompts and a second denoiser pass. The fixed fixture uses four\nsteps, while positive step overrides remain available for diagnostic runs.\nGuidance is fixed at 0.0, and width and height must be multiples of 16. On MPS\nand CUDA the default `--offload auto` keeps the full pipeline off the\naccelerator, enables VAE\nslicing and tiling, and uses sequential CPU offload. Attention slicing is\ndeliberately rejected for this preset. The optimization sidecar records that\nthese switches were enabled, not that a particular VAE branch executed; at\nbatch one and exactly 1,024 square, slicing or tiling may not activate.\nCPU offload describes where inactive weights are stored: each neural component\nexecutes on the selected GPU when called. Tokenization, seed generation, file\nI/O, and output readback remain explicit host work, not GPU fallback.\nWith `--cpu-text-encoding`, text encoders instead run explicitly on CPU before\nthe offloaded pipeline receives their precomputed embeddings.\n"
+    },
+    {
+      "id": "b000146",
+      "kind": "blank",
+      "start_line": 446,
+      "end_line": 446,
+      "raw": "\n"
+    },
+    {
+      "id": "b000147",
+      "kind": "paragraph",
+      "start_line": 447,
+      "end_line": 451,
+      "raw": "The full 12B official snapshot has not been loaded on the verified 32 GiB M1\nMax host. Its BF16 weights leave too little headroom for Python, activations,\nand the operating system, so swap pressure or process termination remains\npossible even with sequential offload. A tiny FLUX pipeline verifies the API\nand MPS path only; it is not a production-model memory or quality result.\n"
+    },
+    {
+      "id": "b000148",
+      "kind": "blank",
+      "start_line": 452,
+      "end_line": 452,
+      "raw": "\n"
+    },
+    {
+      "id": "b000149",
+      "kind": "paragraph",
+      "start_line": 453,
+      "end_line": 456,
+      "raw": "The CPU generator reduces one source of platform drift but does not make PNGs\npixel-identical across PyTorch versions or accelerators. Future numerical\nparity fixtures should export initial latents and intermediate tensors as\nsafetensors or NPY plus explicit shape, dtype, layout, hashes, and tolerances.\n"
+    },
+    {
+      "id": "b000150",
+      "kind": "blank",
+      "start_line": 457,
+      "end_line": 457,
+      "raw": "\n"
+    },
+    {
+      "id": "b000151",
+      "kind": "paragraph",
+      "start_line": 458,
+      "end_line": 464,
+      "raw": "The SD 1.5 repository's CreativeML OpenRAIL-M terms, the SDXL Base repository's\nCreativeML Open RAIL++-M terms, and FLUX.1-schnell's Apache-2.0 terms apply\nindependently of the Python package licenses. SDXL Base and FLUX.1-schnell\ncontain no safety checker. The fixed SDXL oracle explicitly disables its\noptional invisible watermarker by default; `--watermark` can enable it when\nits optional dependency is installed. FLUX.1-schnell has no watermarker component.\nThose facts are not a product safety policy.\n"
+    },
+    {
+      "id": "b000152",
+      "kind": "blank",
+      "start_line": 465,
+      "end_line": 465,
+      "raw": "\n"
+    },
+    {
+      "id": "b000153",
+      "kind": "heading",
+      "start_line": 466,
+      "end_line": 466,
+      "raw": "## Deforum animation\n",
+      "level": 2,
+      "title": "Deforum animation"
+    },
+    {
+      "id": "b000154",
+      "kind": "blank",
+      "start_line": 467,
+      "end_line": 467,
+      "raw": "\n"
+    },
+    {
+      "id": "b000155",
+      "kind": "paragraph",
+      "start_line": 468,
+      "end_line": 472,
+      "raw": "`generate.py --animation-mode 2D` adds scheduled 2D feedback and verified MP4/GIF\noutput. The unified launcher accepts `--backend deforum`. This mode defaults to\n12 FPS and requires FPS <= 12 or GIF output. Install optional\n`requirements-deforum.txt` alongside this environment and provide FFmpeg/FFprobe.\nSee [the full guide](../../docs/deforum-video.md) and `deforum.example.json`.\n"
+    },
+    {
+      "id": "b000156",
+      "kind": "blank",
+      "start_line": 473,
+      "end_line": 473,
+      "raw": "\n"
+    },
+    {
+      "id": "b000157",
+      "kind": "heading",
+      "start_line": 474,
+      "end_line": 474,
+      "raw": "## Interpolator animation\n",
+      "level": 2,
+      "title": "Interpolator animation"
+    },
+    {
+      "id": "b000158",
+      "kind": "blank",
+      "start_line": 475,
+      "end_line": 475,
+      "raw": "\n"
+    },
+    {
+      "id": "b000159",
+      "kind": "paragraph",
+      "start_line": 476,
+      "end_line": 483,
+      "raw": "`generate.py --animation-mode Interpolator` blends start/end prompt embeddings\nand seeded noise before a full diffusion pass for each frame. The unified\nlauncher accepts `--backend interpolator`, `--end-prompt` and `--end-seed`.\nBoth endpoints are CPU-encoded once before GPU/offload setup. This mode defaults\nto 12 FPS and requires FPS <= 12 or GIF output. MP4/GIF publication\nuses the shared `animation_video.py`; OpenCV is not required. Provide FFmpeg\nand FFprobe alongside the existing environment. See\n[the guide](../../docs/interpolator-video.md) and `interpolator.example.json`.\n"
+    },
+    {
+      "id": "b000160",
+      "kind": "blank",
+      "start_line": 484,
+      "end_line": 484,
+      "raw": "\n"
+    },
+    {
+      "id": "b000161",
+      "kind": "heading",
+      "start_line": 485,
+      "end_line": 485,
+      "raw": "## Directed temporal video\n",
+      "level": 2,
+      "title": "Directed temporal video"
+    },
+    {
+      "id": "b000162",
+      "kind": "blank",
+      "start_line": 486,
+      "end_line": 486,
+      "raw": "\n"
+    },
+    {
+      "id": "b000163",
+      "kind": "paragraph",
+      "start_line": 487,
+      "end_line": 500,
+      "raw": "The installed front door defaults ordinary video requests to local LTX at\n24 FPS followed by a frame Interpolator. `--fps` is the final rate;\n`--interpolation-factor` defaults to 2 and accepts 2–8. The CPU postprocess\nreuses FFmpeg `minterpolate` and requires no additional model.\nFPS <= 12 or GIF selects image-model animation. Explicit LTX requests\ncan also use low FPS. See [video selection](../../docs/local-model-generation.md).\nIt supports `--backend video` with LTX video diffusion,\ncamera motion descriptions, image keyframes and shot plans. Install\n`requirements-video.txt` alongside this environment for the T5 SentencePiece\ntokenizer. Run\n`python ../generate.py --backend video --help` for the dedicated options, or\nuse `--config video.example.json --print-config` to inspect a replayable request.\nSee [the video contract](../../docs/temporal-video.md) for generation commands,\noutput provenance and the distinction from the existing animation backends.\n"
+    },
+    {
+      "id": "b000164",
+      "kind": "blank",
+      "start_line": 501,
+      "end_line": 501,
+      "raw": "\n"
+    },
+    {
+      "id": "b000165",
+      "kind": "heading",
+      "start_line": 502,
+      "end_line": 502,
+      "raw": "### SDXL HiRes refinement budget\n",
+      "level": 3,
+      "title": "SDXL HiRes refinement budget"
+    },
+    {
+      "id": "b000166",
+      "kind": "blank",
+      "start_line": 503,
+      "end_line": 503,
+      "raw": "\n"
+    },
+    {
+      "id": "b000167",
+      "kind": "paragraph",
+      "start_line": 504,
+      "end_line": 504,
+      "raw": "SDXL-family HiRes defaults use strength 0.25 and a full schedule of at least `ceil(10 / strength)` steps, preserving at least ten actual img2img updates. The base step count remains unchanged. Explicit `--hires-steps` and `--hires-strength` remain authoritative; other model families retain their existing defaults. Use `--hires-save-base` when comparing color before and after refinement. An explicit `--vae` overrides embedded weights for both stages; do not average incompatible/reparameterized VAEs when preparing merged checkpoints.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "Diffusers reference oracle",
+      "anchor": "diffusers-reference-oracle",
+      "start_line": 1
+    },
+    {
+      "block_id": "b000013",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Reproducible environment",
+      "anchor": "reproducible-environment",
+      "start_line": 31
+    },
+    {
+      "block_id": "b000047",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Hardware policy",
+      "anchor": "hardware-policy",
+      "start_line": 103
+    },
+    {
+      "block_id": "b000057",
+      "parent_id": "b000047",
+      "level": 3,
+      "title": "NVIDIA Tensor Core policy",
+      "anchor": "nvidia-tensor-core-policy",
+      "start_line": 130
+    },
+    {
+      "block_id": "b000065",
+      "parent_id": "b000047",
+      "level": 3,
+      "title": "CPU computation and RAM offload",
+      "anchor": "cpu-computation-and-ram-offload",
+      "start_line": 149
+    },
+    {
+      "block_id": "b000075",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Replace model components",
+      "anchor": "replace-model-components",
+      "start_line": 182
+    },
+    {
+      "block_id": "b000089",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "LoRA override and bundled fallback",
+      "anchor": "lora-override-and-bundled-fallback",
+      "start_line": 226
+    },
+    {
+      "block_id": "b000101",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Optional learned text embeddings",
+      "anchor": "optional-learned-text-embeddings",
+      "start_line": 261
+    },
+    {
+      "block_id": "b000109",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Optional ControlNet",
+      "anchor": "optional-controlnet",
+      "start_line": 284
+    },
+    {
+      "block_id": "b000121",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Default Hires Fix",
+      "anchor": "default-hires-fix",
+      "start_line": 324
+    },
+    {
+      "block_id": "b000133",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "All generation values and defaults",
+      "anchor": "all-generation-values-and-defaults",
+      "start_line": 372
+    },
+    {
+      "block_id": "b000139",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Interpretation",
+      "anchor": "interpretation",
+      "start_line": 390
+    },
+    {
+      "block_id": "b000153",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Deforum animation",
+      "anchor": "deforum-animation",
+      "start_line": 466
+    },
+    {
+      "block_id": "b000157",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Interpolator animation",
+      "anchor": "interpolator-animation",
+      "start_line": 474
+    },
+    {
+      "block_id": "b000161",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Directed temporal video",
+      "anchor": "directed-temporal-video",
+      "start_line": 485
+    },
+    {
+      "block_id": "b000165",
+      "parent_id": "b000161",
+      "level": 3,
+      "title": "SDXL HiRes refinement budget",
+      "anchor": "sdxl-hires-refinement-budget",
+      "start_line": 502
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000049",
+        "line": 107,
+        "text": "`mps`. `--device metal` is an alias for `mps`. A CPU-only host must explicitly",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000061",
+        "line": 141,
+        "text": "and do not disable FP16/BF16 Tensor Core kernels. They apply before GPU",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000087",
+        "line": 221,
+        "text": "`--model-config` must be an explicit local directory for a single-file model.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000099",
+        "line": 256,
+        "text": "LoRA adapters must be local files or directories. Directory inputs require an",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000115",
+        "line": 303,
+        "text": "FLUX Union models use a required model-specific `--control-mode` instead.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000141",
+        "line": 396,
+        "text": "It verifies the selected pipeline's required component classes; for SDXL it",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000145",
+        "line": 434,
+        "text": "Guidance is fixed at 0.0, and width and height must be multiples of 16. On MPS",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000149",
+        "line": 455,
+        "text": "parity fixtures should export initial latents and intermediate tensors as",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000159",
+        "line": 481,
+        "text": "uses the shared `animation_video.py`; OpenCV is not required. Provide FFmpeg",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000167",
+        "line": 504,
+        "text": "SDXL-family HiRes defaults use strength 0.25 and a full schedule of at least `ceil(10 / strength)` steps, preserving at least ten actual img2img updates. The base step count remains unchanged. Explicit `--hires-steps` and `--hires-strength` remain authoritative; other model families retain their existing defaults. Use `--hires-save-base` when comparing color before and after refinement. An explicit `--vae` overrides embedded weights for both stages; do not average incompatible/reparameterized VAEs when preparing merged checkpoints.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [
+      {
+        "block_id": "b000017",
+        "language": "bash",
+        "code": "uv venv reference/diffusers/.venv --python 3.14\nuv pip install \\\n  --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements.txt\n"
+      },
+      {
+        "block_id": "b000021",
+        "language": "bash",
+        "code": "python reference/diffusers/hardware.py --device rocm --dtype float16\n"
+      },
+      {
+        "block_id": "b000031",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py\n"
+      },
+      {
+        "block_id": "b000035",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers\n"
+      },
+      {
+        "block_id": "b000039",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset sdxl-base\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset sdxl-base --model /absolute/path/image-diffusers\n"
+      },
+      {
+        "block_id": "b000043",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/inspect_pipeline.py --preset flux1-schnell\n\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --preset flux1-schnell --model /absolute/path/image-diffusers\n"
+      },
+      {
+        "block_id": "b000069",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \\\n  --offload model --output build/reference/sdxl-cpu-ram.png\n"
+      },
+      {
+        "block_id": "b000079",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model-config /absolute/path/model-config \\\n  --preset sdxl-base \\\n  --model /absolute/path/to/sdxl-checkpoint.safetensors \\\n  --vae /absolute/path/to/sdxl-vae.safetensors \\\n  --lora /absolute/path/to/sdxl-style.safetensors \\\n  --lora-scale 0.8\n"
+      },
+      {
+        "block_id": "b000085",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py \\\n  --preset flux1-schnell \\\n  --model /absolute/path/to/flux-schnell.safetensor \\\n  --model-config /absolute/path/to/flux-schnell-diffusers-package \\\n  --vae /absolute/path/to/flux-vae.safetensors \\\n  --local-files-only\n"
+      },
+      {
+        "block_id": "b000097",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/style.safetensors \\\n  --lora-scale 0.75 \\\n  --output build/reference/flux-style.png\n"
+      },
+      {
+        "block_id": "b000105",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sd15 --text-embedding /absolute/path/to/style.safetensors \\\n  --text-embedding-token '<style>' --text-embedding-encoder text_encoder \\\n  --prompt 'a ceramic cup in <style> style' --hires-fix\n"
+      },
+      {
+        "block_id": "b000113",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base \\\n  --controlnet /absolute/path/to/sdxl-controlnet-package \\\n  --control-image /absolute/path/to/prepared-depth.png \\\n  --controlnet-scale 0.8 \\\n  --control-guidance-start 0.0 --control-guidance-end 1.0 \\\n  --cpu-text-encoding --offload model\n"
+      },
+      {
+        "block_id": "b000127",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --width 1024 --height 1024 \\\n  --hires-fix --hires-passes 2 --hires-scale 1.5 --hires-upscaler lanczos \\\n  --hires-denoising-strength 0.35 --hires-steps 30 \\\n  --hires-save-base --cpu-text-encoding --offload model\n"
+      }
+    ],
+    "links": [
+      {
+        "block_id": "b000005",
+        "label": "worker contract",
+        "target": "../../docs/inference-worker.md#complete-anima-checkpoints",
+        "kind": "relative",
+        "line": 10
+      },
+      {
+        "block_id": "b000007",
+        "label": "revisions, hashes, redownload, and verification",
+        "target": "../../docs/generation-defaults.md#vae-자동-폴백",
+        "kind": "relative",
+        "line": 13
+      },
+      {
+        "block_id": "b000009",
+        "label": "model sources",
+        "target": "../../docs/model-sources.md",
+        "kind": "relative",
+        "line": 17
+      },
+      {
+        "block_id": "b000011",
+        "label": "Civitai compatibility",
+        "target": "../../docs/civitai-models.md",
+        "kind": "relative",
+        "line": 26
+      },
+      {
+        "block_id": "b000011",
+        "label": "model families",
+        "target": "../../docs/model-families.md",
+        "kind": "relative",
+        "line": 27
+      },
+      {
+        "block_id": "b000011",
+        "label": "generic pipelines",
+        "target": "../../docs/generic-diffusers.md",
+        "kind": "relative",
+        "line": 28
+      },
+      {
+        "block_id": "b000011",
+        "label": "ComfyUI workflows",
+        "target": "../../docs/comfyui-generation.md",
+        "kind": "relative",
+        "line": 29
+      },
+      {
+        "block_id": "b000019",
+        "label": "Radeon guide",
+        "target": "../../docs/radeon-rocm.md",
+        "kind": "relative",
+        "line": 46
+      },
+      {
+        "block_id": "b000055",
+        "label": "hardware-compute.md",
+        "target": "../../docs/hardware-compute.md",
+        "kind": "relative",
+        "line": 127
+      },
+      {
+        "block_id": "b000063",
+        "label": "Neural Engine / Tensor Cores",
+        "target": "../../docs/neural-accelerators.md",
+        "kind": "relative",
+        "line": 147
+      },
+      {
+        "block_id": "b000073",
+        "label": "resource contracts",
+        "target": "../../docs/hardware-compute.md#cpugpu-cooperation-and-ram-storage",
+        "kind": "relative",
+        "line": 180
+      },
+      {
+        "block_id": "b000093",
+        "label": "generation defaults",
+        "target": "../../docs/generation-defaults.md",
+        "kind": "relative",
+        "line": 241
+      },
+      {
+        "block_id": "b000099",
+        "label": "local model arguments",
+        "target": "../../docs/local-model-generation.md",
+        "kind": "relative",
+        "line": 258
+      },
+      {
+        "block_id": "b000107",
+        "label": "text-embeddings.md",
+        "target": "../../docs/text-embeddings.md",
+        "kind": "relative",
+        "line": 281
+      },
+      {
+        "block_id": "b000119",
+        "label": "complete ControlNet contract",
+        "target": "../../docs/controlnet.md",
+        "kind": "relative",
+        "line": 321
+      },
+      {
+        "block_id": "b000131",
+        "label": "hires-fix.md",
+        "target": "../../docs/hires-fix.md",
+        "kind": "relative",
+        "line": 369
+      },
+      {
+        "block_id": "b000137",
+        "label": "generation-parameters.md",
+        "target": "../../docs/generation-parameters.md",
+        "kind": "relative",
+        "line": 379
+      },
+      {
+        "block_id": "b000155",
+        "label": "the full guide",
+        "target": "../../docs/deforum-video.md",
+        "kind": "relative",
+        "line": 472
+      },
+      {
+        "block_id": "b000159",
+        "label": "the guide",
+        "target": "../../docs/interpolator-video.md",
+        "kind": "relative",
+        "line": 483
+      },
+      {
+        "block_id": "b000163",
+        "label": "video selection",
+        "target": "../../docs/local-model-generation.md",
+        "kind": "relative",
+        "line": 492
+      },
+      {
+        "block_id": "b000163",
+        "label": "the video contract",
+        "target": "../../docs/temporal-video.md",
+        "kind": "relative",
+        "line": 499
+      }
+    ],
+    "tables": [
+      {
+        "block_id": "b000025",
+        "columns": [
+          "Preset",
+          "Model revision",
+          "Resolution",
+          "Guidance"
+        ],
+        "rows": [
+          [
+            "`sd15` (default)",
+            "`451f4fe16113bff5a5d2269ed5ad43b0592e9a14`",
+            "512 x 512",
+            "7.5"
+          ],
+          [
+            "`sdxl-base`",
+            "`462165984030d82259a11f4367a4eed129e94a7b`",
+            "1024 x 1024",
+            "5.0"
+          ],
+          [
+            "`flux1-schnell`",
+            "`741f7c3ce8b383c54771c7003378a50191e9efe9`",
+            "1024 x 1024",
+            "0.0"
+          ]
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

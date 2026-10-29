@@ -1,0 +1,71 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:e62e2c4425429dd716efe29236587dba76c0e56a194aec314f17eb7f152481b4",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "resources/text_encoders/NOTICE.md",
+    "sha256": "bad5be52cd08a41794827074a84ef4bfcd3fdcc4c2b9a882b1e7374b0cf8e633",
+    "bytes": 566,
+    "line_count": 6,
+    "encoding": "utf-8",
+    "language": "en"
+  },
+  "document": {
+    "title": "Qwen3-VL-4B source identity",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# Qwen3-VL-4B source identity\n",
+      "level": 1,
+      "title": "Qwen3-VL-4B source identity"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "paragraph",
+      "start_line": 3,
+      "end_line": 6,
+      "raw": "The original Qwen/Qwen3-VL-4B-Instruct encoder is used unchanged under Apache-2.0.\nSingle-file weights: `Comfy-Org/Krea-2`, revision `eb1eddd3983a54678545a9b2c178c5853b30f7be`, `text_encoders/qwen3vl_4b_bf16.safetensors`.\nThe upstream model is `Qwen/Qwen3-VL-4B-Instruct`. This package includes only the encoder, not the Krea2 denoiser weights. SHA-256 and size are recorded in `generation-defaults.json`.\nThe SDK mounts the original `model.language_model` namespace in memory. It does not rewrite the file or change tensor precision.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "Qwen3-VL-4B source identity",
+      "anchor": "qwen3-vl-4b-source-identity",
+      "start_line": 1
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [],
+    "commands": [],
+    "links": [],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

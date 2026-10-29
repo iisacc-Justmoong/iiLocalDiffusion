@@ -7,7 +7,18 @@ find_dependency(iiFileProviderNative 0.8.2 CONFIG HINTS "$ENV{IIFILEPROVIDER_PRE
 
 
 
-find_dependency(OpenSSL COMPONENTS Crypto)
+if(NOT TARGET iiLocalDiffusion::CryptoRuntime)
+    if(@IILD_PACKAGED_CRYPTO@)
+        add_library(iiLocalDiffusion::CryptoRuntime SHARED IMPORTED)
+        set_target_properties(iiLocalDiffusion::CryptoRuntime PROPERTIES
+            IMPORTED_LOCATION "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/@IILD_CRYPTO_RUNTIME_NAME@")
+    else()
+        find_dependency(OpenSSL COMPONENTS Crypto)
+        add_library(iiLocalDiffusion::CryptoRuntime INTERFACE IMPORTED)
+        set_target_properties(iiLocalDiffusion::CryptoRuntime PROPERTIES
+            INTERFACE_LINK_LIBRARIES OpenSSL::Crypto)
+    endif()
+endif()
 find_package(json-c CONFIG QUIET)
 if(NOT TARGET json-c::json-c)
     find_dependency(PkgConfig)
@@ -19,17 +30,20 @@ include("${CMAKE_CURRENT_LIST_DIR}/IildGenerationResources.cmake")
 
 include("${CMAKE_CURRENT_LIST_DIR}/iiLocalDiffusionTargets.cmake")
 
-# LIBRARY_PATH can make the package directory implicit to the linker without
-# making it a runtime search path for dyld. Restore only that omitted RPATH.
+# Another backend SDK can share a directory with an older diffusion library.
+# Keep explicitly selected native packages ahead of automatically collected
+# backend paths, including directories made implicit by LIBRARY_PATH.
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND TARGET iiLocalDiffusion::iiLocalDiffusion)
     set(_iild_package_library_directory "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@")
-    list(FIND CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES
-        "${_iild_package_library_directory}" _iild_implicit_link_directory_index)
-    if(NOT _iild_implicit_link_directory_index EQUAL -1)
-        set_property(TARGET iiLocalDiffusion::iiLocalDiffusion APPEND PROPERTY
-            INTERFACE_LINK_OPTIONS "LINKER:-rpath,${_iild_package_library_directory}")
+    set(_iild_runtime_options "LINKER:-rpath,${_iild_package_library_directory}")
+    get_target_property(_iild_provider_type iiFileProvider::Native TYPE)
+    if(_iild_provider_type STREQUAL "SHARED_LIBRARY")
+        list(PREPEND _iild_runtime_options "LINKER:-rpath,$<TARGET_FILE_DIR:iiFileProvider::Native>")
     endif()
-    unset(_iild_implicit_link_directory_index)
+    set_property(TARGET iiLocalDiffusion::iiLocalDiffusion APPEND PROPERTY
+        INTERFACE_LINK_OPTIONS ${_iild_runtime_options})
+    unset(_iild_provider_type)
+    unset(_iild_runtime_options)
     unset(_iild_package_library_directory)
 endif()
 

@@ -14,7 +14,7 @@
 #include <map>
 
 // The real adapter is compiled into this test. The upstream C API and Pose
-// boundary are fixtures; NativePoseTests separately executes the real ONNX path.
+// boundary are fixtures; NativePoseTests verifies the retired model boundary.
 namespace iiLocalDiffusion {
 bool nativePoseAvailable() noexcept { return true; }
 void releaseNativePoseCache() noexcept {}
@@ -22,7 +22,7 @@ NativePoseResult processNativePose(const std::filesystem::path &detector, const 
     const NativeReferenceImage &image, const std::atomic_bool &, unsigned threads,
     const std::shared_ptr<NativeExecutionControl> &)
 {
-    if (detector.filename() != "detector.onnx" || pose.filename() != "pose.onnx") throw std::runtime_error("Wrong Pose resources");
+    if (detector.filename() != "detector.weights" || pose.filename() != "pose.weights") throw std::runtime_error("Wrong Pose resources");
     auto hint = image; std::fill(hint.rgb.begin(),hint.rgb.end(),67);
     return {std::move(hint),false,128,threads};
 }
@@ -772,8 +772,8 @@ int main(int argc, char **argv) {
                 && controlWeight == 0.7f && advanced.controls.front().image.rgb.front() == 41,
                 "ControlNet model, private Canny pixels or strength were lost: " + result.error);
             advanced.controls.front().process = "Pose";
-            advanced.controls.front().poseDetector = directory / "detector.onnx";
-            advanced.controls.front().poseModel = directory / "pose.onnx";
+            advanced.controls.front().poseDetector = directory / "detector.weights";
+            advanced.controls.front().poseModel = directory / "pose.weights";
             result = generateNativeAdvancedImage(request, options, components, advanced,
                 NativeComputeBackend::Automatic, cancelled);
             require(result.error.empty() && controlMarker == 67 && advanced.controls.front().image.rgb.front() == 41,

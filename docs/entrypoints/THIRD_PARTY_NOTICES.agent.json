@@ -1,0 +1,485 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:7a5b021f578aacd17bbc88699e6cc34d4e38ffbfe3bd7c219cac9a027ca2d51d",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "THIRD_PARTY_NOTICES.md",
+    "sha256": "b2458ca7c8cf9f659632fc726468e39ea33d5429239ebcd5a91e5e3fb2485ff4",
+    "bytes": 12010,
+    "line_count": 160,
+    "encoding": "utf-8",
+    "language": "en"
+  },
+  "document": {
+    "title": "Third-party notices",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# Third-party notices\n",
+      "level": 1,
+      "title": "Third-party notices"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "paragraph",
+      "start_line": 3,
+      "end_line": 8,
+      "raw": "The native ModelPackaging static module uses OpenSSL Crypto (Apache-2.0)\nfor streaming SHA-256 and the existing json-c dependency for manifest parsing.\nOpenSSL is linked from the installed platform distribution; its original\nlicense remains applicable. Society embeds the OpenSSL license with its\nexisting OpenSSL-dependent runtime. No model weights are redistributed by\nthe SDK or the packaging CLI.\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 9,
+      "end_line": 9,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 10,
+      "end_line": 20,
+      "raw": "The optional native Pose preprocessor uses ONNX Runtime 1.30.0 (MIT, with\nupstream third-party notices). The macOS ARM64 archive and SHA-256 are pinned\nin `cmake/IildPose.cmake`; enabling this path installs its LICENSE and\nThirdPartyNotices.txt under `share/iiLocalDiffusion/licenses/onnxruntime`.\nDWPose/MMPose tensor geometry and ControlNet pose conventions were adapted\ninto Qt/OpenCV/Python-free native C++, with bounded validation and an analytic\nrasterizer, from IDEA-Research/DWPose revision\n`3dca5db79d9f9ffdd378753ddf6ec66535aace88`. Copyright 2023 IDEA and\n2018-2020 Open-MMLab (Apache-2.0); the complete original license/attributions\nare retained and installed in `docs/licenses/DWPose.txt`. No pretrained\ndetector/pose weights are included; weight licenses remain separate.\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 21,
+      "end_line": 21,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "paragraph",
+      "start_line": 22,
+      "end_line": 33,
+      "raw": "The optional in-process image backend uses stable-diffusion.cpp\n`d04e8950c1ec8d30248cbe996682b3182fb1adf6` and ggml\n`e20c3a14aa70ee84ca58499814206dd08d8026bc` (MIT). Its bundled JSON,\nZIP, Darts Clone, stb, PyTorch-derived RNG, and SentencePiece-derived tokenizer\nnotices are retained in `ThirdParty/NativeDiffusion` and installed with the two\nupstream licenses under `share/iiLocalDiffusion/licenses`. The app embeds these\nnotices. Web UI, server, WebP/WebM and RPC are disabled. Base checkpoints are not\ndownloaded or redistributed by this backend. The user-supplied LoRA and seven\nnegative embeddings listed in `resources/generation-defaults.json` are installed\nas generation defaults; their original weight licenses remain separate from the\nSDK code license. Three legacy PT embeddings have tensor-identical safetensors\ncopies, with source and derivative hashes recorded in that manifest.\n"
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 34,
+      "end_line": 34,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 35,
+      "end_line": 49,
+      "raw": "The standalone checkpoint runner reuses Diffusers 0.40.0 (Apache-2.0),\nPyTorch 2.13.0 and the already pinned Transformers/Accelerate environment.\nIt adds no inference package or service. Approximately 4.8 MB of SD1/SDXL\nconfiguration and CLIP tokenizer files are bundled under\n`reference/diffusers/configs/`; exact revisions and SHA-256 hashes appear in\n`configs/manifest.json`. SD1 resources come from\n`stable-diffusion-v1-5/stable-diffusion-v1-5` revision\n`451f4fe16113bff5a5d2269ed5ad43b0592e9a14` (CreativeML Open RAIL-M).\nSDXL resources come from `stabilityai/stable-diffusion-xl-base-1.0` revision\n`462165984030d82259a11f4367a4eed129e94a7b` (CreativeML Open RAIL++-M).\nLicense texts accompany the resources. The SD1 pipeline index was modified to\ndeclare no external safety-checker/feature-extractor weights, because those are\nnot contained in standard checkpoints or this package. Actual checker presence\nis retained in generation provenance. User-selected checkpoints retain their\nown licenses; no checkpoint, VAE or text-encoder weights are redistributed.\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 50,
+      "end_line": 50,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "paragraph",
+      "start_line": 51,
+      "end_line": 60,
+      "raw": "The temporal video backend uses the existing Diffusers (Apache-2.0), PyTorch,\nTransformers and Accelerate distributions, plus optional protobuf 7.36.1\n(BSD-3-Clause) for SentencePiece tokenizer conversion. Protobuf's upstream\ndistribution retains its license and notices; see [the package](https://pypi.org/project/protobuf/7.36.1/).\nThe separately supplied validation model's\nLTX Video 2B 0.9.5 weights are governed by Lightricks' version-specific Open\nRAIL-M license; see the [pinned license](https://huggingface.co/Lightricks/LTX-Video-0.9.5/blob/e58e28c39631af4d1468ee57a853764e11c1d37e/ltx-video-2b-v0.9.5.license.txt).\nThis is distinct from the licenses of newer LTX checkpoints. Model weights are\nnot bundled with iiLocalDiffusion. Generation requires explicit local model\npaths; user-selected weights retain their own license terms.\n"
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 61,
+      "end_line": 61,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "paragraph",
+      "start_line": 62,
+      "end_line": 65,
+      "raw": "iiLocalDiffusion currently links privately against\n[`json-c`](https://github.com/json-c/json-c), distributed under the MIT\nLicense. The dependency is discovered from the system using its CMake package\nor pkg-config and is not vendored in this repository.\n"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 66,
+      "end_line": 66,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "paragraph",
+      "start_line": 67,
+      "end_line": 71,
+      "raw": "The default native computation build additionally links MLX 0.32.2 (MIT),\nincluding its bundled JACCL code. Its fetched dependencies include\nnlohmann/json 3.11.3 (MIT), fmt 12.1.0 (MIT), and, for Metal builds, Apple's\nmetal-cpp 26 (Apache-2.0). Source archives and SHA-256 hashes are fixed in\n`cmake/IildMlx.cmake`. No MLX Python package is required by the C++ library.\n"
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 72,
+      "end_line": 72,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "paragraph",
+      "start_line": 73,
+      "end_line": 78,
+      "raw": "CUDA builds additionally use NVIDIA CCCL 3.1.3 (Apache-2.0 with upstream\nexceptions), NVTX 3.1.1 (Apache-2.0 with LLVM exceptions), cuDNN frontend\n1.16.0 (MIT), and CUTLASS 4.4.2 headers (BSD-3-Clause). CUTLASS's separately\nlicensed Python DSL is not used. NVIDIA's CUDA/cuDNN binary libraries and\ndriver are separately installed platform dependencies and retain their own\nterms; they are not redistributed by iiLocalDiffusion's install rules.\n"
+    },
+    {
+      "id": "b000018",
+      "kind": "blank",
+      "start_line": 79,
+      "end_line": 79,
+      "raw": "\n"
+    },
+    {
+      "id": "b000019",
+      "kind": "paragraph",
+      "start_line": 80,
+      "end_line": 91,
+      "raw": "The optional ROCm backend links LibTorch (PyTorch, BSD-style license with\nupstream third-party notices) and an externally installed AMD HIP/ROCm SDK.\nVendor libraries, kernel packages and drivers retain their own terms and are\nnot bundled by this project. The selected LibTorch SDK's LICENSE is included\nunder `share/licenses/iiLocalDiffusion/libtorch/` for the C++ header code.\nNo Python interpreter is embedded in C++.\nThe optional safetensors-cpp reader is pinned to\n`af90b6c3006cdcecf8b7d7254f5f32d301728acc` under MIT. Its pinned header includes\nthe bundled code's MIT notices and the unused FP16 conversion helper's CC0\nnotice; the complete header and LICENSE are installed under\n`share/licenses/iiLocalDiffusion/safetensors-cpp/`. LibTorch, rather than those\nconversion helpers, owns all matrix arithmetic and dtype conversion.\n"
+    },
+    {
+      "id": "b000020",
+      "kind": "blank",
+      "start_line": 92,
+      "end_line": 92,
+      "raw": "\n"
+    },
+    {
+      "id": "b000021",
+      "kind": "paragraph",
+      "start_line": 93,
+      "end_line": 96,
+      "raw": "The fetched upstream license documents are included by the native install\nunder `share/licenses/iiLocalDiffusion/`. Backend resources such as\n`mlx.metallib` or CUDA JIT headers must accompany their runtime. The MLX API\nand third-party tensor types remain private to the implementation.\n"
+    },
+    {
+      "id": "b000022",
+      "kind": "blank",
+      "start_line": 97,
+      "end_line": 97,
+      "raw": "\n"
+    },
+    {
+      "id": "b000023",
+      "kind": "paragraph",
+      "start_line": 98,
+      "end_line": 106,
+      "raw": "The tools under `reference/diffusers/` optionally use PyTorch, Hugging Face\nDiffusers, Transformers, Accelerate, huggingface_hub, Hugging Face Xet, PEFT,\nsafetensors, NumPy, and Pillow. Those tools are development oracles and are not\npart of the C++ runtime dependency graph. See each upstream distribution for\nits full notices. Hugging Face Xet 1.6.0 and PEFT 0.20.0 declare Apache-2.0.\nOptional ControlNet uses the existing Diffusers 0.40.0 (Apache-2.0)\nmodel/pipeline implementations and Pillow image handling. It introduces no\nnew third-party package or condition detector. User-selected ControlNet\nweights retain their own license terms and are not bundled.\n"
+    },
+    {
+      "id": "b000024",
+      "kind": "blank",
+      "start_line": 107,
+      "end_line": 107,
+      "raw": "\n"
+    },
+    {
+      "id": "b000025",
+      "kind": "paragraph",
+      "start_line": 108,
+      "end_line": 113,
+      "raw": "Optional Deforum 2D animation uses OpenCV through\n`opencv-python-headless==4.13.0.92` (OpenCV Apache-2.0, plus the wheel's packaging\nand third-party notices). It also invokes separately installed FFmpeg/FFprobe;\nthe required libx264-enabled FFmpeg build is GPL. These executables are not\nbundled. No Deforum notebook or AUTOMATIC1111 extension source is copied into\nthis repository. See `docs/deforum-video.md` and `docs/dependencies.md`.\n"
+    },
+    {
+      "id": "b000026",
+      "kind": "blank",
+      "start_line": 114,
+      "end_line": 114,
+      "raw": "\n"
+    },
+    {
+      "id": "b000027",
+      "kind": "paragraph",
+      "start_line": 115,
+      "end_line": 119,
+      "raw": "Interpolator reuses the existing PyTorch, Diffusers, NumPy and Pillow packages\nand the shared external FFmpeg/FFprobe video path. It introduces no additional\nthird-party package or bundled model. The DiffusionBee Interpolator's published\nprompt/seed blending behavior was reviewed as a method reference; no\nDiffusionBee source is vendored or imported. See `docs/interpolator-video.md`.\n"
+    },
+    {
+      "id": "b000028",
+      "kind": "blank",
+      "start_line": 120,
+      "end_line": 120,
+      "raw": "\n"
+    },
+    {
+      "id": "b000029",
+      "kind": "paragraph",
+      "start_line": 121,
+      "end_line": 124,
+      "raw": "The separate post-LTX frame Interpolator invokes the existing external FFmpeg\n`minterpolate` filter and uses Pillow to validate output PNGs. No FFmpeg source,\nnew third-party runtime or interpolation-model weights are bundled. The external\nFFmpeg build retains the licensing described above. See `docs/temporal-video.md`.\n"
+    },
+    {
+      "id": "b000030",
+      "kind": "blank",
+      "start_line": 125,
+      "end_line": 125,
+      "raw": "\n"
+    },
+    {
+      "id": "b000031",
+      "kind": "paragraph",
+      "start_line": 126,
+      "end_line": 132,
+      "raw": "Apple builds link privately against the system Foundation and Core ML\nframeworks, subject to Apple's platform/SDK terms. These frameworks are not\nredistributed by the install. The optional offline `reference/coreml/` tool\nuses coremltools 9.0 (BSD-3-Clause), NumPy 2.3.5 (BSD-3-Clause), safetensors\n0.6.2 (Apache-2.0), and ml_dtypes 0.5.3 (Apache-2.0), plus their packaged\ndependencies. Their Python environment is not part of the C++ runtime or\ninstalled library. Each upstream distribution retains its full notices.\n"
+    },
+    {
+      "id": "b000032",
+      "kind": "blank",
+      "start_line": 133,
+      "end_line": 133,
+      "raw": "\n"
+    },
+    {
+      "id": "b000033",
+      "kind": "paragraph",
+      "start_line": 134,
+      "end_line": 139,
+      "raw": "No model weights are included. The configured Stable Diffusion 1.5 reference\nrepository declares the CreativeML OpenRAIL-M model license. The configured\nStable Diffusion XL Base 1.0 reference declares the CreativeML Open RAIL++-M\nmodel license. The configured Black Forest Labs FLUX.1-schnell reference is\nlicensed under Apache-2.0. FLUX.1-dev is not a configured reference and its\nseparate non-commercial terms are not treated as interchangeable with Schnell.\n"
+    },
+    {
+      "id": "b000034",
+      "kind": "blank",
+      "start_line": 140,
+      "end_line": 140,
+      "raw": "\n"
+    },
+    {
+      "id": "b000035",
+      "kind": "paragraph",
+      "start_line": 141,
+      "end_line": 141,
+      "raw": "Native inference also applies `native-mapped-upload.patch` to the pinned MIT backend. It removes a redundant host allocation/copy for unchanged memory-mapped tensors; conversion paths retain upstream behavior.\n"
+    },
+    {
+      "id": "b000036",
+      "kind": "blank",
+      "start_line": 142,
+      "end_line": 142,
+      "raw": "\n"
+    },
+    {
+      "id": "b000037",
+      "kind": "paragraph",
+      "start_line": 143,
+      "end_line": 143,
+      "raw": "The tensor-wakeup patch wakes progress waits when model readers finish, preserving progress cadence, conversion behavior, and joined-thread cancellation.\n"
+    },
+    {
+      "id": "b000038",
+      "kind": "blank",
+      "start_line": 144,
+      "end_line": 144,
+      "raw": "\n"
+    },
+    {
+      "id": "b000039",
+      "kind": "paragraph",
+      "start_line": 145,
+      "end_line": 145,
+      "raw": "The pinned ggml Metal backend includes `native-metal-shared-upload.patch` to identify shared storage. The mapped loader copies disjoint shared-memory tensors concurrently; private GPU buffers retain serialized uploads. MIT licenses remain unchanged.\n"
+    },
+    {
+      "id": "b000040",
+      "kind": "blank",
+      "start_line": 146,
+      "end_line": 146,
+      "raw": "\n"
+    },
+    {
+      "id": "b000041",
+      "kind": "paragraph",
+      "start_line": 147,
+      "end_line": 148,
+      "raw": "Q8 disk preparation uses the pinned MIT backend streaming converter. `native-conversion-cancellation.patch` adds cooperative abort checks before and after tensor conversion, preserving worker joining and error propagation. No new dependency is introduced.\nThe conversion patch also uses read-only mmap and reduces queued output reservations to 256 MiB to leave headroom for source and conversion scratch memory on mobile devices.\n"
+    },
+    {
+      "id": "b000042",
+      "kind": "blank",
+      "start_line": 149,
+      "end_line": 149,
+      "raw": "\n"
+    },
+    {
+      "id": "b000043",
+      "kind": "paragraph",
+      "start_line": 150,
+      "end_line": 150,
+      "raw": "`native-thread-safe-logging.patch` gives concurrent logging calls independent buffers and passes preformatted ggml messages as string arguments. Conversion scratch contexts use RAII so cancellation exceptions release them.\n"
+    },
+    {
+      "id": "b000044",
+      "kind": "blank",
+      "start_line": 151,
+      "end_line": 151,
+      "raw": "\n"
+    },
+    {
+      "id": "b000045",
+      "kind": "paragraph",
+      "start_line": 152,
+      "end_line": 152,
+      "raw": "The bundled Qwen-Image VAE and original configuration are from [Qwen/Qwen-Image](https://huggingface.co/Qwen/Qwen-Image/tree/75e0b4be04f60ec59a75f475837eced720f823b6/vae), revision `75e0b4be04f60ec59a75f475837eced720f823b6`, under Apache-2.0. The unmodified license is installed at `share/iiLocalDiffusion/resources/vae/qwen-image/LICENSE`; file identities are recorded in `generation-defaults.json`. The SDK consumes the unmodified weights through its existing Diffusers and stable-diffusion.cpp dependencies. `native-vae-fallback.patch` adds metadata-only Qwen RGB, SDXL, FLUX.1 and FLUX.2 VAE omission inspection to the MIT native backend; no new dependency or weights conversion is introduced.\n"
+    },
+    {
+      "id": "b000046",
+      "kind": "blank",
+      "start_line": 153,
+      "end_line": 153,
+      "raw": "\n"
+    },
+    {
+      "id": "b000047",
+      "kind": "heading",
+      "start_line": 154,
+      "end_line": 154,
+      "raw": "### Additional bundled VAE components\n",
+      "level": 3,
+      "title": "Additional bundled VAE components"
+    },
+    {
+      "id": "b000048",
+      "kind": "blank",
+      "start_line": 155,
+      "end_line": 155,
+      "raw": "\n"
+    },
+    {
+      "id": "b000049",
+      "kind": "list",
+      "start_line": 156,
+      "end_line": 158,
+      "raw": "- SDXL: unmodified `stabilityai/sdxl-vae` at `6f5909a7e596173e25d4e97b07fd19cdf9611c76`. Upstream declares MIT in its model card; the original card is preserved in `resources/vae/sdxl/README.md` (upstream supplies no separate license file).\n- FLUX.1: `diffusers/FLUX.1-vae` at `da548cfb003bdeebaff6da0211fc8fbc67cb563a`, byte-identical weights and configuration to BFL FLUX.1 schnell at `741f7c3ce8b383c54771c7003378a50191e9efe9`. Apache-2.0 terms and provenance are in `resources/vae/flux1/LICENSE` and `NOTICE.md`.\n- FLUX.2: unmodified VAE from `black-forest-labs/FLUX.2-klein-4B` at `e7b7dc27f91deacad38e78976d1f2b499d76a294`, Apache-2.0. Original license and model card are included in `resources/vae/flux2/`.\n",
+      "items": [
+        {
+          "marker": "-",
+          "text": "SDXL: unmodified `stabilityai/sdxl-vae` at `6f5909a7e596173e25d4e97b07fd19cdf9611c76`. Upstream declares MIT in its model card; the original card is preserved in `resources/vae/sdxl/README.md` (upstream supplies no separate license file).",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "FLUX.1: `diffusers/FLUX.1-vae` at `da548cfb003bdeebaff6da0211fc8fbc67cb563a`, byte-identical weights and configuration to BFL FLUX.1 schnell at `741f7c3ce8b383c54771c7003378a50191e9efe9`. Apache-2.0 terms and provenance are in `resources/vae/flux1/LICENSE` and `NOTICE.md`.",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "FLUX.2: unmodified VAE from `black-forest-labs/FLUX.2-klein-4B` at `e7b7dc27f91deacad38e78976d1f2b499d76a294`, Apache-2.0. Original license and model card are included in `resources/vae/flux2/`.",
+          "checked": null
+        }
+      ]
+    },
+    {
+      "id": "b000050",
+      "kind": "blank",
+      "start_line": 159,
+      "end_line": 159,
+      "raw": "\n"
+    },
+    {
+      "id": "b000051",
+      "kind": "paragraph",
+      "start_line": 160,
+      "end_line": 160,
+      "raw": "Only these VAE components are bundled, with pinned SHA-256 and configuration identities in `generation-defaults.json`. Other denoiser checkpoints retain their own licenses. Existing Diffusers and stable-diffusion.cpp load the files; no additional runtime dependency is introduced.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "Third-party notices",
+      "anchor": "third-party-notices",
+      "start_line": 1
+    },
+    {
+      "block_id": "b000047",
+      "parent_id": "b000001",
+      "level": 3,
+      "title": "Additional bundled VAE components",
+      "anchor": "additional-bundled-vae-components",
+      "start_line": 154
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000015",
+        "line": 71,
+        "text": "`cmake/IildMlx.cmake`. No MLX Python package is required by the C++ library.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000021",
+        "line": 95,
+        "text": "`mlx.metallib` or CUDA JIT headers must accompany their runtime. The MLX API",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000025",
+        "line": 111,
+        "text": "the required libx264-enabled FFmpeg build is GPL. These executables are not",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [],
+    "links": [
+      {
+        "block_id": "b000011",
+        "label": "the package",
+        "target": "https://pypi.org/project/protobuf/7.36.1/",
+        "kind": "external",
+        "line": 54
+      },
+      {
+        "block_id": "b000011",
+        "label": "pinned license",
+        "target": "https://huggingface.co/Lightricks/LTX-Video-0.9.5/blob/e58e28c39631af4d1468ee57a853764e11c1d37e/ltx-video-2b-v0.9.5.license.txt",
+        "kind": "external",
+        "line": 57
+      },
+      {
+        "block_id": "b000013",
+        "label": "`json-c`",
+        "target": "https://github.com/json-c/json-c",
+        "kind": "external",
+        "line": 63
+      },
+      {
+        "block_id": "b000045",
+        "label": "Qwen/Qwen-Image",
+        "target": "https://huggingface.co/Qwen/Qwen-Image/tree/75e0b4be04f60ec59a75f475837eced720f823b6/vae",
+        "kind": "external",
+        "line": 152
+      }
+    ],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

@@ -1,0 +1,311 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:aeec6cf5c9d9d112b29cd12fef32fe09f971983a40ea192a31165445a3abae8a",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "resources/vae/sdxl/README.md",
+    "sha256": "53a552bcc5cb660bd17d53e463690cd8f4d0205671603536fffbce8719d21f77",
+    "bytes": 3172,
+    "line_count": 39,
+    "encoding": "utf-8",
+    "language": "en"
+  },
+  "document": {
+    "title": "SDXL - VAE",
+    "role": "overview",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "front_matter",
+      "start_line": 1,
+      "end_line": 7,
+      "raw": "---\nlicense: mit\ntags:\n- stable-diffusion\n- stable-diffusion-diffusers\ninference: false\n---\n"
+    },
+    {
+      "id": "b000002",
+      "kind": "heading",
+      "start_line": 8,
+      "end_line": 8,
+      "raw": "# SDXL - VAE\n",
+      "level": 1,
+      "title": "SDXL - VAE"
+    },
+    {
+      "id": "b000003",
+      "kind": "blank",
+      "start_line": 9,
+      "end_line": 9,
+      "raw": "\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "heading",
+      "start_line": 10,
+      "end_line": 10,
+      "raw": "#### How to use with 🧨 diffusers\n",
+      "level": 4,
+      "title": "How to use with 🧨 diffusers"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 11,
+      "end_line": 11,
+      "raw": "You can integrate this fine-tuned VAE decoder to your existing `diffusers` workflows, by including a `vae` argument to the `StableDiffusionPipeline`\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "fenced_code",
+      "start_line": 12,
+      "end_line": 19,
+      "raw": "```py\nfrom diffusers.models import AutoencoderKL\nfrom diffusers import StableDiffusionPipeline\n\nmodel = \"stabilityai/your-stable-diffusion-model\"\nvae = AutoencoderKL.from_pretrained(\"stabilityai/sdxl-vae\")\npipe = StableDiffusionPipeline.from_pretrained(model, vae=vae)\n```\n",
+      "language": "py",
+      "code": "from diffusers.models import AutoencoderKL\nfrom diffusers import StableDiffusionPipeline\n\nmodel = \"stabilityai/your-stable-diffusion-model\"\nvae = AutoencoderKL.from_pretrained(\"stabilityai/sdxl-vae\")\npipe = StableDiffusionPipeline.from_pretrained(model, vae=vae)\n",
+      "closed": true
+    },
+    {
+      "id": "b000007",
+      "kind": "blank",
+      "start_line": 20,
+      "end_line": 20,
+      "raw": "\n"
+    },
+    {
+      "id": "b000008",
+      "kind": "heading",
+      "start_line": 21,
+      "end_line": 21,
+      "raw": "## Model \n",
+      "level": 2,
+      "title": "Model"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 22,
+      "end_line": 28,
+      "raw": "[SDXL](https://huggingface.co/stabilityai/stable-diffusion-xl-base-0.9) is a [latent diffusion model](https://arxiv.org/abs/2112.10752), where the diffusion operates in a pretrained, \nlearned (and fixed) latent space of an autoencoder. \nWhile the bulk of the semantic composition is done by the latent diffusion model, \nwe can improve _local_, high-frequency details in generated images by improving the quality of the autoencoder. \nTo this end, we train the same autoencoder architecture used for the original [Stable Diffusion](https://github.com/CompVis/stable-diffusion) at a larger batch-size (256 vs 9) \nand additionally track the weights with an exponential moving average (EMA). \nThe resulting autoencoder outperforms the original model in all evaluated reconstruction metrics, see the table below.\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 29,
+      "end_line": 30,
+      "raw": "\n\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "heading",
+      "start_line": 31,
+      "end_line": 31,
+      "raw": "## Evaluation \n",
+      "level": 2,
+      "title": "Evaluation"
+    },
+    {
+      "id": "b000012",
+      "kind": "paragraph",
+      "start_line": 32,
+      "end_line": 32,
+      "raw": "_SDXL-VAE vs original kl-f8 VAE vs f8-ft-MSE_\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "heading",
+      "start_line": 33,
+      "end_line": 33,
+      "raw": "### COCO 2017 (256x256, val, 5000 images)\n",
+      "level": 3,
+      "title": "COCO 2017 (256x256, val, 5000 images)"
+    },
+    {
+      "id": "b000014",
+      "kind": "table",
+      "start_line": 34,
+      "end_line": 39,
+      "raw": "| Model    | rFID | PSNR         | SSIM          | PSIM          | Link                                                                                                 | Comments                                                                                        \n|----------|------|--------------|---------------|---------------|------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|\n|          |      |              |               |               |                                                                                                      |                                                                                                 |\n| SDXL-VAE | 4.42 | 24.7 +/- 3.9 | 0.73 +/- 0.13 | 0.88 +/- 0.27 | https://huggingface.co/stabilityai/sdxl-vae/blob/main/sdxl_vae.safetensors                                                                                                     | as used in SDXL                                                                                 |\n| original | 4.99 | 23.4 +/- 3.8 | 0.69 +/- 0.14 | 1.01 +/- 0.28 | https://ommer-lab.com/files/latent-diffusion/kl-f8.zip                                               | as used in SD                                                                                   |\n| ft-MSE   | 4.70 | 24.5 +/- 3.7 | 0.71 +/- 0.13 | 0.92 +/- 0.27 | https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.ckpt | resumed with EMA from ft-EMA, emphasis on MSE (rec. loss = MSE + 0.1 * LPIPS), smoother outputs |\n",
+      "columns": [
+        "Model",
+        "rFID",
+        "PSNR",
+        "SSIM",
+        "PSIM",
+        "Link",
+        "Comments"
+      ],
+      "rows": [
+        [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ],
+        [
+          "SDXL-VAE",
+          "4.42",
+          "24.7 +/- 3.9",
+          "0.73 +/- 0.13",
+          "0.88 +/- 0.27",
+          "https://huggingface.co/stabilityai/sdxl-vae/blob/main/sdxl_vae.safetensors",
+          "as used in SDXL"
+        ],
+        [
+          "original",
+          "4.99",
+          "23.4 +/- 3.8",
+          "0.69 +/- 0.14",
+          "1.01 +/- 0.28",
+          "https://ommer-lab.com/files/latent-diffusion/kl-f8.zip",
+          "as used in SD"
+        ],
+        [
+          "ft-MSE",
+          "4.70",
+          "24.5 +/- 3.7",
+          "0.71 +/- 0.13",
+          "0.92 +/- 0.27",
+          "https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.ckpt",
+          "resumed with EMA from ft-EMA, emphasis on MSE (rec. loss = MSE + 0.1 * LPIPS), smoother outputs"
+        ]
+      ]
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000002",
+      "parent_id": null,
+      "level": 1,
+      "title": "SDXL - VAE",
+      "anchor": "sdxl---vae",
+      "start_line": 8
+    },
+    {
+      "block_id": "b000004",
+      "parent_id": "b000002",
+      "level": 4,
+      "title": "How to use with 🧨 diffusers",
+      "anchor": "how-to-use-with--diffusers",
+      "start_line": 10
+    },
+    {
+      "block_id": "b000008",
+      "parent_id": "b000002",
+      "level": 2,
+      "title": "Model",
+      "anchor": "model",
+      "start_line": 21
+    },
+    {
+      "block_id": "b000011",
+      "parent_id": "b000002",
+      "level": 2,
+      "title": "Evaluation",
+      "anchor": "evaluation",
+      "start_line": 31
+    },
+    {
+      "block_id": "b000013",
+      "parent_id": "b000011",
+      "level": 3,
+      "title": "COCO 2017 (256x256, val, 5000 images)",
+      "anchor": "coco-2017-256x256-val-5000-images",
+      "start_line": 33
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [],
+    "commands": [],
+    "links": [
+      {
+        "block_id": "b000009",
+        "label": "SDXL",
+        "target": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-0.9",
+        "kind": "external",
+        "line": 22
+      },
+      {
+        "block_id": "b000009",
+        "label": "latent diffusion model",
+        "target": "https://arxiv.org/abs/2112.10752",
+        "kind": "external",
+        "line": 22
+      },
+      {
+        "block_id": "b000009",
+        "label": "Stable Diffusion",
+        "target": "https://github.com/CompVis/stable-diffusion",
+        "kind": "external",
+        "line": 26
+      }
+    ],
+    "tables": [
+      {
+        "block_id": "b000014",
+        "columns": [
+          "Model",
+          "rFID",
+          "PSNR",
+          "SSIM",
+          "PSIM",
+          "Link",
+          "Comments"
+        ],
+        "rows": [
+          [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          [
+            "SDXL-VAE",
+            "4.42",
+            "24.7 +/- 3.9",
+            "0.73 +/- 0.13",
+            "0.88 +/- 0.27",
+            "https://huggingface.co/stabilityai/sdxl-vae/blob/main/sdxl_vae.safetensors",
+            "as used in SDXL"
+          ],
+          [
+            "original",
+            "4.99",
+            "23.4 +/- 3.8",
+            "0.69 +/- 0.14",
+            "1.01 +/- 0.28",
+            "https://ommer-lab.com/files/latent-diffusion/kl-f8.zip",
+            "as used in SD"
+          ],
+          [
+            "ft-MSE",
+            "4.70",
+            "24.5 +/- 3.7",
+            "0.71 +/- 0.13",
+            "0.92 +/- 0.27",
+            "https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.ckpt",
+            "resumed with EMA from ft-EMA, emphasis on MSE (rec. loss = MSE + 0.1 * LPIPS), smoother outputs"
+          ]
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

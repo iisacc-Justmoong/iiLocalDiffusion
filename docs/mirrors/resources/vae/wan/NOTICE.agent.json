@@ -1,0 +1,71 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:1cc891832dcd5656062a27f0c45e3d94502c1558222d608f81b9e630d73258d1",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "resources/vae/wan/NOTICE.md",
+    "sha256": "0791bf886cc9bcc063a39f47a97e9eacf787caeee0694d17ec6c38c054e2655d",
+    "bytes": 542,
+    "line_count": 6,
+    "encoding": "utf-8",
+    "language": "en"
+  },
+  "document": {
+    "title": "Wan2.1 VAE source identity",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# Wan2.1 VAE source identity\n",
+      "level": 1,
+      "title": "Wan2.1 VAE source identity"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "paragraph",
+      "start_line": 3,
+      "end_line": 6,
+      "raw": "The original Wan2.1 VAE is used unchanged under Apache-2.0.\nWeights: `Comfy-Org/Wan_2.1_ComfyUI_repackaged`, revision `123acf1cc74bccbb9bfff8ac1ee72edc08c2341d`, `split_files/vae/wan_2.1_vae.safetensors`.\nConfiguration: `Wan-AI/Wan2.1-T2V-1.3B-Diffusers`, revision `0fad780a534b6463e45facd96134c9f345acfa5b`, `vae/config.json`.\nOnly the installed filename follows the SDK VAE directory layout; tensor names, precision and payload bytes are unchanged. SHA-256 and size are recorded in `generation-defaults.json`.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "Wan2.1 VAE source identity",
+      "anchor": "wan21-vae-source-identity",
+      "start_line": 1
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [],
+    "commands": [],
+    "links": [],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

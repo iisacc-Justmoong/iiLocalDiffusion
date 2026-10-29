@@ -122,8 +122,8 @@ int main()
         check(!nativeParameterIssues(p, false).empty());
         p.controls.front().process = "Pose";
         check(!nativeParameterIssues(p, false, true).empty());
-        p.controls.front().poseDetector = "detector.onnx";
-        p.controls.front().poseModel = "pose.onnx";
+        p.controls.front().poseDetector = "detector.weights";
+        p.controls.front().poseModel = "pose.weights";
         check(nativeParameterIssues(p, false, true).empty());
         check(!nativeParameterIssues(p, false, false).empty());
         check(!nativeParameterIssues(p, true, true).empty());

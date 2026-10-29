@@ -34,6 +34,17 @@ Python 옵션은 `--device mps` 의 `--device metal` 의 별칭입니다. 모델
 
 기본 `IILD_ENABLE_MLX=ON`는 고정된 MLX C++ 소스와 선택된 백엔드를 빌드한다. 네이티브 연산에는 Python 런타임가 필요하지 않다.
 
+macOS에서 `CMAKE_OSX_DEPLOYMENT_TARGET`을 지정하면 MLX와 Metal 커널에도 같은
+대상을 적용한다. 지정하지 않은 경우에는 호스트 운영체제의 패치 버전이 아니라
+C++ 컴파일러의 기본 배포 대상을 사용한다. 컴파일러의 대상을 판별하지 못하면
+추측하지 않고 명시적인 설정을 요구한다. 이는 버전 선언을 일치시키는 빌드
+계약이며, 해당 macOS 버전에서 실제 추론이 검증되었다는 뜻은 아니다.
+
+Metal 빌드의 `iild_mlx_runtime_ready` 대상은 빌드된 `libmlx.dylib` 옆에 같은
+빌드에서 생성한 `mlx.metallib`를 가리키는 링크를 만든다. 제품은 두 파일을
+함께 선택할 수 있다. `MlxDeploymentTargetTests`는 명시적 대상과 컴파일러 기본값
+해석을 검사한다.
+
 Apple Silicon 에서 C++ 빌드 요구 사항 외에도 Xcode 의 Metal 컴파일러를 설치하세요. `xcrun metal --version` 를 확인하세요; `metal` shim 만을 찾는 것은 컴파일러가 설치되었다는 것을 확립하지 않습니다. Xcode 가 누락된 Metal 툴체인 를 보고하면, 지원되는 다운로드 명령은 다음과 같습니다:
 
 ```bash

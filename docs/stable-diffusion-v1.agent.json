@@ -1,0 +1,567 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:69cd67d897ab6cf28bc0c0d9adb6acf7a179b4c9d0dffd1d13f713fb599ca040",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "docs/stable-diffusion-v1.md",
+    "sha256": "be8ba56c82a482821796347fc3da32cd18df260f75aba19c3841fcdf7852dddc",
+    "bytes": 4579,
+    "line_count": 98,
+    "encoding": "utf-8",
+    "language": "ko"
+  },
+  "document": {
+    "title": "Stable Diffusion v1 참조 계약",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "html",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "<a id=\"stable-diffusion-v1-reference-contract\"></a>\n"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "heading",
+      "start_line": 3,
+      "end_line": 3,
+      "raw": "# Stable Diffusion v1 참조 계약\n",
+      "level": 1,
+      "title": "Stable Diffusion v1 참조 계약"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 4,
+      "end_line": 4,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "html",
+      "start_line": 5,
+      "end_line": 5,
+      "raw": "<a id=\"canonical-reference\"></a>\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 6,
+      "end_line": 6,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "heading",
+      "start_line": 7,
+      "end_line": 7,
+      "raw": "## 정식 참조\n",
+      "level": 2,
+      "title": "정식 참조"
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 8,
+      "end_line": 8,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 9,
+      "end_line": 10,
+      "raw": "초기 오라클은 Hugging Face 저장소입니다.\n불변 개정판의 [`stable-diffusion-v1-5/stable-diffusion-v1-5`](https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5):\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 11,
+      "end_line": 11,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "fenced_code",
+      "start_line": 12,
+      "end_line": 14,
+      "raw": "```text\n451f4fe16113bff5a5d2269ed5ad43b0592e9a14\n```\n",
+      "language": "text",
+      "code": "451f4fe16113bff5a5d2269ed5ad43b0592e9a14\n",
+      "closed": true
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 15,
+      "end_line": 15,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "paragraph",
+      "start_line": 16,
+      "end_line": 16,
+      "raw": "저장소는 더 이상 사용되지 않는 RunwayML 저장소의 미러로 자신을 식별하고 CreativeML OpenRAIL-M 아래에 가중치를 배포합니다. 개정 핀은 오라클을 재현 가능하게 만듭니다. 모델 라이센스를 양도하거나 확장하지 않습니다.\n"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 17,
+      "end_line": 17,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "paragraph",
+      "start_line": 18,
+      "end_line": 18,
+      "raw": "첫 번째로 허용되는 패키지 레이아웃은 다음과 같습니다.\n"
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 19,
+      "end_line": 19,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "fenced_code",
+      "start_line": 20,
+      "end_line": 38,
+      "raw": "```text\nmodel-root/\n├── model_index.json\n├── tokenizer/\n│   ├── tokenizer_config.json\n│   ├── vocab.json\n│   └── merges.txt\n├── text_encoder/\n│   ├── config.json\n│   └── *.safetensors\n├── unet/\n│   ├── config.json\n│   └── *.safetensors\n├── vae/\n│   ├── config.json\n│   └── *.safetensors\n└── scheduler/\n    └── scheduler_config.json\n```\n",
+      "language": "text",
+      "code": "model-root/\n├── model_index.json\n├── tokenizer/\n│   ├── tokenizer_config.json\n│   ├── vocab.json\n│   └── merges.txt\n├── text_encoder/\n│   ├── config.json\n│   └── *.safetensors\n├── unet/\n│   ├── config.json\n│   └── *.safetensors\n├── vae/\n│   ├── config.json\n│   └── *.safetensors\n└── scheduler/\n    └── scheduler_config.json\n",
+      "closed": true
+    },
+    {
+      "id": "b000018",
+      "kind": "blank",
+      "start_line": 39,
+      "end_line": 39,
+      "raw": "\n"
+    },
+    {
+      "id": "b000019",
+      "kind": "paragraph",
+      "start_line": 40,
+      "end_line": 40,
+      "raw": "다른 메타데이터와 선택적 구성 요소가 있을 수 있습니다. 알 수 없는 키는 패키지에 의해 보존되며 현재 검사기에서는 무시됩니다.\n"
+    },
+    {
+      "id": "b000020",
+      "kind": "blank",
+      "start_line": 41,
+      "end_line": 41,
+      "raw": "\n"
+    },
+    {
+      "id": "b000021",
+      "kind": "html",
+      "start_line": 42,
+      "end_line": 42,
+      "raw": "<a id=\"component-metadata\"></a>\n"
+    },
+    {
+      "id": "b000022",
+      "kind": "blank",
+      "start_line": 43,
+      "end_line": 43,
+      "raw": "\n"
+    },
+    {
+      "id": "b000023",
+      "kind": "heading",
+      "start_line": 44,
+      "end_line": 44,
+      "raw": "## 구성요소 메타데이터\n",
+      "level": 2,
+      "title": "구성요소 메타데이터"
+    },
+    {
+      "id": "b000024",
+      "kind": "blank",
+      "start_line": 45,
+      "end_line": 45,
+      "raw": "\n"
+    },
+    {
+      "id": "b000025",
+      "kind": "paragraph",
+      "start_line": 46,
+      "end_line": 46,
+      "raw": "고정된 파일은 다음을 선언합니다.\n"
+    },
+    {
+      "id": "b000026",
+      "kind": "blank",
+      "start_line": 47,
+      "end_line": 47,
+      "raw": "\n"
+    },
+    {
+      "id": "b000027",
+      "kind": "table",
+      "start_line": 48,
+      "end_line": 54,
+      "raw": "|컴포넌트|클래스|검사자가 사용하는 계약|\n|---|---|---|\n| Tokenizer | `CLIPTokenizer` |최대 시퀀스 길이 77|\n|텍스트 인코더| `CLIPTextModel` |숨겨진 너비 768; 최대 위치 77|\n|디노이저| `UNet2DConditionModel` |입력/출력 채널 4; 샘플 크기 64; 교차 주의 폭 768|\n|이미지 코덱| `AutoencoderKL` |RGB 입력/출력; 잠재 채널 4; 샘플 크기 512|\n|스케줄러| `PNDMScheduler` |1,000 훈련 단계; 확장된 선형 베타 일정; PRK 단계를 건너뛰었습니다.|\n",
+      "columns": [
+        "컴포넌트",
+        "클래스",
+        "검사자가 사용하는 계약"
+      ],
+      "rows": [
+        [
+          "Tokenizer",
+          "`CLIPTokenizer`",
+          "최대 시퀀스 길이 77"
+        ],
+        [
+          "텍스트 인코더",
+          "`CLIPTextModel`",
+          "숨겨진 너비 768; 최대 위치 77"
+        ],
+        [
+          "디노이저",
+          "`UNet2DConditionModel`",
+          "입력/출력 채널 4; 샘플 크기 64; 교차 주의 폭 768"
+        ],
+        [
+          "이미지 코덱",
+          "`AutoencoderKL`",
+          "RGB 입력/출력; 잠재 채널 4; 샘플 크기 512"
+        ],
+        [
+          "스케줄러",
+          "`PNDMScheduler`",
+          "1,000 훈련 단계; 확장된 선형 베타 일정; PRK 단계를 건너뛰었습니다."
+        ]
+      ]
+    },
+    {
+      "id": "b000028",
+      "kind": "blank",
+      "start_line": 55,
+      "end_line": 55,
+      "raw": "\n"
+    },
+    {
+      "id": "b000029",
+      "kind": "paragraph",
+      "start_line": 56,
+      "end_line": 56,
+      "raw": "고정된 VAE 구성에는 `scaling_factor` 가 포함되지 않습니다. Diffusers 는 `AutoencoderKL` 를 통해 런타임 기본 `0.18215` 를 제공합니다. 이는 모델 패키지에서 단독으로 증명된 값이 아닌 참조 런타임 기본값이며, 향후 C++ VAE 구현은 이를 명시적으로 테스트해야 합니다.\n"
+    },
+    {
+      "id": "b000030",
+      "kind": "blank",
+      "start_line": 57,
+      "end_line": 57,
+      "raw": "\n"
+    },
+    {
+      "id": "b000031",
+      "kind": "html",
+      "start_line": 58,
+      "end_line": 58,
+      "raw": "<a id=\"tensor-flow\"></a>\n"
+    },
+    {
+      "id": "b000032",
+      "kind": "blank",
+      "start_line": 59,
+      "end_line": 59,
+      "raw": "\n"
+    },
+    {
+      "id": "b000033",
+      "kind": "heading",
+      "start_line": 60,
+      "end_line": 60,
+      "raw": "## 텐서 흐름\n",
+      "level": 2,
+      "title": "텐서 흐름"
+    },
+    {
+      "id": "b000034",
+      "kind": "blank",
+      "start_line": 61,
+      "end_line": 61,
+      "raw": "\n"
+    },
+    {
+      "id": "b000035",
+      "kind": "paragraph",
+      "start_line": 62,
+      "end_line": 62,
+      "raw": "배치 크기 `B`, 높이 `H` 및 8로 나눌 수 있는 너비 `W`의 경우:\n"
+    },
+    {
+      "id": "b000036",
+      "kind": "blank",
+      "start_line": 63,
+      "end_line": 63,
+      "raw": "\n"
+    },
+    {
+      "id": "b000037",
+      "kind": "fenced_code",
+      "start_line": 64,
+      "end_line": 74,
+      "raw": "```text\npositive prompt -> token ids                 [B, 77]\nnegative prompt -> token ids                 [B, 77]\nCLIP outputs, each                           [B, 77, 768]\nclassifier-free guidance context             [2B, 77, 768]\ninitial latent                               [B, 4, H/8, W/8]\nUNet latent input under guidance             [2B, 4, H/8, W/8]\nUNet noise prediction                        [2B, 4, H/8, W/8]\nguided latent after scheduler steps          [B, 4, H/8, W/8]\nVAE-decoded image                            [B, 3, H, W]\n```\n",
+      "language": "text",
+      "code": "positive prompt -> token ids                 [B, 77]\nnegative prompt -> token ids                 [B, 77]\nCLIP outputs, each                           [B, 77, 768]\nclassifier-free guidance context             [2B, 77, 768]\ninitial latent                               [B, 4, H/8, W/8]\nUNet latent input under guidance             [2B, 4, H/8, W/8]\nUNet noise prediction                        [2B, 4, H/8, W/8]\nguided latent after scheduler steps          [B, 4, H/8, W/8]\nVAE-decoded image                            [B, 3, H, W]\n",
+      "closed": true
+    },
+    {
+      "id": "b000038",
+      "kind": "blank",
+      "start_line": 75,
+      "end_line": 75,
+      "raw": "\n"
+    },
+    {
+      "id": "b000039",
+      "kind": "paragraph",
+      "start_line": 76,
+      "end_line": 76,
+      "raw": "정규 512 x 512 해상도에서 잠재 공간 형상은 64 x 64입니다. 위의 레이아웃 표기는 PyTorch 의 논리적 NCHW 관례를 따릅니다. 향후 백엔드는 내부적으로 텐서를 다르게 저장할 수 있지만, 구성 요소 경계는 논리적 계약을 유지해야 합니다.\n"
+    },
+    {
+      "id": "b000040",
+      "kind": "blank",
+      "start_line": 77,
+      "end_line": 77,
+      "raw": "\n"
+    },
+    {
+      "id": "b000041",
+      "kind": "html",
+      "start_line": 78,
+      "end_line": 78,
+      "raw": "<a id=\"fixed-reference-fixture\"></a>\n"
+    },
+    {
+      "id": "b000042",
+      "kind": "blank",
+      "start_line": 79,
+      "end_line": 79,
+      "raw": "\n"
+    },
+    {
+      "id": "b000043",
+      "kind": "heading",
+      "start_line": 80,
+      "end_line": 80,
+      "raw": "## 고정 참조 픽스처\n",
+      "level": 2,
+      "title": "고정 참조 픽스처"
+    },
+    {
+      "id": "b000044",
+      "kind": "blank",
+      "start_line": 81,
+      "end_line": 81,
+      "raw": "\n"
+    },
+    {
+      "id": "b000045",
+      "kind": "fenced_code",
+      "start_line": 82,
+      "end_line": 90,
+      "raw": "```text\n프롬프트:           a red cube on a white table\n부정 프롬프트:      빈 문자열\n시드:               42\n해상도:             512 x 512\n추론 단계:          20\nGuidance scale:     7.5\n스케줄러:           고정된 저장소의 PNDMScheduler\n```\n",
+      "language": "text",
+      "code": "프롬프트:           a red cube on a white table\n부정 프롬프트:      빈 문자열\n시드:               42\n해상도:             512 x 512\n추론 단계:          20\nGuidance scale:     7.5\n스케줄러:           고정된 저장소의 PNDMScheduler\n",
+      "closed": true
+    },
+    {
+      "id": "b000046",
+      "kind": "blank",
+      "start_line": 91,
+      "end_line": 91,
+      "raw": "\n"
+    },
+    {
+      "id": "b000047",
+      "kind": "paragraph",
+      "start_line": 92,
+      "end_line": 92,
+      "raw": "시드는 크로스 백엔드 노이즈 규정이 아닙니다. PyTorch, MLX 및 기타 런타임은 다른 무작위 알고리즘을 사용할 수 있으며, GPU 결과는 하드웨어와 릴리스에 따라 달라질 수 있습니다. 구성 요소 동등성 테스트는 결국 safetensors 또는 NPY 형식의 실제 초기 잠재를 형상, 데이터형, 레이아웃, 해시 및 수치 허용 오차와 함께 교환해야 하며, 최종 PNG 는 충분한 진단이 아닙니다.\n"
+    },
+    {
+      "id": "b000048",
+      "kind": "blank",
+      "start_line": 93,
+      "end_line": 93,
+      "raw": "\n"
+    },
+    {
+      "id": "b000049",
+      "kind": "html",
+      "start_line": 94,
+      "end_line": 94,
+      "raw": "<a id=\"inspector-guarantee\"></a>\n"
+    },
+    {
+      "id": "b000050",
+      "kind": "blank",
+      "start_line": 95,
+      "end_line": 95,
+      "raw": "\n"
+    },
+    {
+      "id": "b000051",
+      "kind": "heading",
+      "start_line": 96,
+      "end_line": 96,
+      "raw": "## 검사관 보증\n",
+      "level": 2,
+      "title": "검사관 보증"
+    },
+    {
+      "id": "b000052",
+      "kind": "blank",
+      "start_line": 97,
+      "end_line": 97,
+      "raw": "\n"
+    },
+    {
+      "id": "b000053",
+      "kind": "paragraph",
+      "start_line": 98,
+      "end_line": 98,
+      "raw": "C++ 검사기는 메타데이터를 검증하고 비어 있지 않은 safetensors 파일을 찾는다. safetensors 직렬화, 텐서 이름, 형태, 해시 또는 수치는 검증하지 않는다. 따라서 `StableDiffusionV1`는 메타데이터 호환성을 뜻하며 가중치가 Stable Diffusion 1.5이거나 실행 가능하다는 근거가 아니다.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000003",
+      "parent_id": null,
+      "level": 1,
+      "title": "Stable Diffusion v1 참조 계약",
+      "anchor": "stable-diffusion-v1-참조-계약",
+      "start_line": 3
+    },
+    {
+      "block_id": "b000007",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "정식 참조",
+      "anchor": "정식-참조",
+      "start_line": 7
+    },
+    {
+      "block_id": "b000023",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "구성요소 메타데이터",
+      "anchor": "구성요소-메타데이터",
+      "start_line": 44
+    },
+    {
+      "block_id": "b000033",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "텐서 흐름",
+      "anchor": "텐서-흐름",
+      "start_line": 60
+    },
+    {
+      "block_id": "b000043",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "고정 참조 픽스처",
+      "anchor": "고정-참조-픽스처",
+      "start_line": 80
+    },
+    {
+      "block_id": "b000051",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "검사관 보증",
+      "anchor": "검사관-보증",
+      "start_line": 96
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000053",
+        "line": 98,
+        "text": "C++ 검사기는 메타데이터를 검증하고 비어 있지 않은 safetensors 파일을 찾는다. safetensors 직렬화, 텐서 이름, 형태, 해시 또는 수치는 검증하지 않는다. 따라서 `StableDiffusionV1`는 메타데이터 호환성을 뜻하며 가중치가 Stable Diffusion 1.5이거나 실행 가능하다는 근거가 아니다.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [],
+    "links": [
+      {
+        "block_id": "b000009",
+        "label": "`stable-diffusion-v1-5/stable-diffusion-v1-5`",
+        "target": "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5",
+        "kind": "external",
+        "line": 10
+      }
+    ],
+    "tables": [
+      {
+        "block_id": "b000027",
+        "columns": [
+          "컴포넌트",
+          "클래스",
+          "검사자가 사용하는 계약"
+        ],
+        "rows": [
+          [
+            "Tokenizer",
+            "`CLIPTokenizer`",
+            "최대 시퀀스 길이 77"
+          ],
+          [
+            "텍스트 인코더",
+            "`CLIPTextModel`",
+            "숨겨진 너비 768; 최대 위치 77"
+          ],
+          [
+            "디노이저",
+            "`UNet2DConditionModel`",
+            "입력/출력 채널 4; 샘플 크기 64; 교차 주의 폭 768"
+          ],
+          [
+            "이미지 코덱",
+            "`AutoencoderKL`",
+            "RGB 입력/출력; 잠재 채널 4; 샘플 크기 512"
+          ],
+          [
+            "스케줄러",
+            "`PNDMScheduler`",
+            "1,000 훈련 단계; 확장된 선형 베타 일정; PRK 단계를 건너뛰었습니다."
+          ]
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

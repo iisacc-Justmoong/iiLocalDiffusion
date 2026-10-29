@@ -1,6 +1,7 @@
 """Native file routing, timeline sampling, RGB ABI and transactional failures."""
 import ctypes as C
 import json
+import os
 from pathlib import Path
 import struct
 import sys
@@ -18,7 +19,7 @@ from video_options import build_parser, resolve_options
 
 class NativeVideoTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = provider.TemporaryDirectory(prefix="native-video-", dir=ROOT / "build")
+        self.temporary = provider.TemporaryDirectory(prefix="native-video-", dir=ROOT / "resources")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.model = self.root / "renamed.safetensors"
@@ -38,8 +39,9 @@ class NativeVideoTests(unittest.TestCase):
         self.assertEqual(model_metadata(self.model)["model_version"], "2.3.0")
 
     def test_python_request_layout_reaches_the_real_cpp_adapter(self):
-        library = ROOT / "build" / ("iiLocalDiffusion.dll" if sys.platform == "win32" else
-                                    "libiiLocalDiffusion.dylib" if sys.platform == "darwin" else "libiiLocalDiffusion.so")
+        library = Path(os.environ["IILD_NATIVE_LIBRARY"]) if os.environ.get("IILD_NATIVE_LIBRARY") else (
+            ROOT / "build" / ("iiLocalDiffusion.dll" if sys.platform == "win32" else
+                              "libiiLocalDiffusion.dylib" if sys.platform == "darwin" else "libiiLocalDiffusion.so"))
         if not library.is_file():
             self.skipTest("Build the native SDK to check the real C ABI")
         with patch("native_video.library_path", return_value=library):

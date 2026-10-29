@@ -245,8 +245,8 @@ def resolve_options(args):
     args.cache_dir = args.cache_dir.expanduser().resolve()
     if args.text_encoder is not None:
         args.text_encoder = args.text_encoder.expanduser().resolve(strict=True)
-        if not args.text_encoder.is_file() or args.text_encoder.suffix.lower() != ".gguf":
-            raise ValueError("The native video text encoder must be a local GGUF file.")
+        if not args.text_encoder.is_file() or args.text_encoder.suffix.lower() not in (".gguf", ".safetensors", ".safetensor"):
+            raise ValueError("The native video text encoder must be a local GGUF or safetensors file.")
     for name in ("storyboard", "first_frame", "last_frame"):
         if getattr(args, name) is not None:
             setattr(args, name, getattr(args, name).expanduser().resolve())

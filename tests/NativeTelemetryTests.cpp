@@ -10,6 +10,8 @@ int main(int argc, char **argv) {
         currentTrace = iiLocalDiffusion::native_detail::lastNativeTrace().path;
         trace.log("copied model file into anonymous memory: fixture (1024 bytes)");
         trace.log("IILD_BACKEND diffusion=Metal\n");
+        trace.log("routine engine message", false);
+        trace.log("model manager cannot make enough memory available on Metal: need 200 MB", true);
         trace.stage("text-encode");
         trace.stage("denoise", 0, 10);
         trace.log("IILD_WEIGHT_LOAD begin");
@@ -44,17 +46,25 @@ int main(int argc, char **argv) {
     }
     bool denoiseMetal = false, weightLoad = false, failed = false, memory = false, transfer = false;
     bool resident = false, loadProgress = false, reused = false;
+    bool warning = false, routine = false;
     {
         std::ifstream file(currentTrace); std::string line;
         while (std::getline(file, line)) {
             auto *event = json_tokener_parse(line.c_str());
             if (!event) throw std::runtime_error("invalid telemetry JSONL");
-            const auto text = [&](const char *key) { return std::string(json_object_get_string(json_object_object_get(event, key))); };
+            const auto text = [&](const char *key) {
+                auto *value = json_object_object_get(event, key);
+                const char *result = value ? json_object_get_string(value) : nullptr;
+                return result ? std::string(result) : std::string{};
+            };
             denoiseMetal |= text("phase") == "denoise" && text("backend") == "Metal";
             weightLoad |= text("phase") == "denoise" && text("operation") == "weight-load";
             failed |= text("event") == "failed";
             resident |= text("event") == "resident-file-loaded" && text("phase") == "model-load";
             reused |= text("event") == "resident-source-reused";
+            warning |= text("event") == "engine" && text("detail") ==
+                "model manager cannot make enough memory available on Metal: need 200 MB";
+            routine |= text("detail") == "routine engine message";
             loadProgress |= json_object_get_int(json_object_object_get(event, "load_step")) == 1
                 && json_object_get_int(json_object_object_get(event, "load_total")) == 400;
             transfer |= text("phase") == "denoise" && text("operation") == "weight-transfer";
@@ -65,6 +75,7 @@ int main(int argc, char **argv) {
     }
     if (!denoiseMetal || !weightLoad || !failed || !transfer) throw std::runtime_error("missing timing/placement/failure evidence");
     if (!resident || !loadProgress || !reused) throw std::runtime_error("missing resident preload/reuse evidence");
+    if (!warning || routine) throw std::runtime_error("engine warning filtering lost evidence or retained routine messages");
 #if defined(__unix__) || defined(__APPLE__)
     if (!memory) throw std::runtime_error("missing process memory evidence");
 #endif

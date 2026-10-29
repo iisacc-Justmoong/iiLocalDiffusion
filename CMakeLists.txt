@@ -30,6 +30,11 @@ include(CheckCXXSourceCompiles)
 include(CMakePushCheckState)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+set(IILD_PACKAGED_CRYPTO OFF)
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND OPENSSL_CRYPTO_LIBRARY MATCHES "\\.dylib$")
+    set(IILD_PACKAGED_CRYPTO ON)
+    get_filename_component(IILD_CRYPTO_RUNTIME_NAME "${OPENSSL_CRYPTO_LIBRARY}" NAME)
+endif()
 
 find_package(json-c CONFIG QUIET)
 if(TARGET json-c::json-c)
@@ -57,6 +62,12 @@ endif()
 if(PROJECT_IS_TOP_LEVEL)
     include(CTest)
 endif()
+if(BUILD_TESTING)
+    add_test(NAME MlxDeploymentTargetTests COMMAND "${CMAKE_COMMAND}"
+        "-DIILD_TEST_COMPILER=${CMAKE_CXX_COMPILER}"
+        "-DIILD_TEST_SYSROOT=${CMAKE_OSX_SYSROOT}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/MlxDeploymentTargetTests.cmake")
+endif()
 if(WIN32 AND BUILD_TESTING)
     add_executable(WindowsThreadPowerTests tests/WindowsThreadPowerTests.cpp)
     target_compile_features(WindowsThreadPowerTests PRIVATE cxx_std_23)
@@ -72,7 +83,6 @@ endif()
 include(cmake/IildMlx.cmake)
 include(cmake/IildTorch.cmake)
 include(cmake/IildNative.cmake)
-include(cmake/IildPose.cmake)
 
 add_library(iiLocalDiffusion SHARED
     src/Compute/ComputeRuntime.cpp
@@ -94,10 +104,6 @@ add_library(iiLocalDiffusion SHARED
     src/StableDiffusion/StableDiffusionModelManifest.cpp
 )
 add_library(iiLocalDiffusion::iiLocalDiffusion ALIAS iiLocalDiffusion)
-target_compile_definitions(iiLocalDiffusion PRIVATE IILD_HAS_POSE=$<BOOL:${IILD_ENABLE_POSE}>)
-if(IILD_ENABLE_POSE)
-    target_link_libraries(iiLocalDiffusion PRIVATE iild_pose_ort)
-endif()
 target_compile_definitions(iiLocalDiffusion PRIVATE
     IILD_HAS_NATIVE_DIFFUSION=$<BOOL:${IILD_ENABLE_NATIVE_DIFFUSION}>
     IILD_NATIVE_CPU_VAE=$<STREQUAL:${CMAKE_SYSTEM_NAME},iOS>)
@@ -124,12 +130,6 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     target_link_libraries(NativePoseTests PRIVATE iiLocalDiffusion)
     target_compile_features(NativePoseTests PRIVATE cxx_std_23)
     add_test(NAME NativePoseTests COMMAND NativePoseTests "${CMAKE_CURRENT_BINARY_DIR}/native-pose-contract")
-    add_executable(NativePoseDisabledTests tests/NativePoseTests.cpp src/Generation/NativePose.cpp)
-    target_include_directories(NativePoseDisabledTests PRIVATE src)
-    target_compile_definitions(NativePoseDisabledTests PRIVATE IILD_HAS_POSE=0 iiLocalDiffusion_EXPORTS)
-    target_compile_features(NativePoseDisabledTests PRIVATE cxx_std_23)
-    target_link_libraries(NativePoseDisabledTests PRIVATE Threads::Threads)
-    add_test(NAME NativePoseDisabledTests COMMAND NativePoseDisabledTests "${CMAKE_CURRENT_BINARY_DIR}/native-pose-disabled-contract")
     add_executable(ImageParametersTests tests/ImageParametersTests.cpp)
     target_include_directories(ImageParametersTests PRIVATE src)
     target_compile_features(ImageParametersTests PRIVATE cxx_std_23)
@@ -417,7 +417,9 @@ target_compile_features(iiModelPackaging PUBLIC cxx_std_23)
 target_include_directories(iiModelPackaging PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-target_link_libraries(iiModelPackaging PRIVATE ${IILD_JSON_C_TARGET} OpenSSL::Crypto iiFileProvider::Native)
+target_link_libraries(iiModelPackaging PRIVATE ${IILD_JSON_C_TARGET}
+    "$<BUILD_INTERFACE:OpenSSL::Crypto>"
+    "$<INSTALL_INTERFACE:iiLocalDiffusion::CryptoRuntime>" iiFileProvider::Native)
 set_target_properties(iiModelPackaging PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(iiLocalDiffusion PRIVATE iiLocalDiffusion::ModelPackaging)
 target_compile_options(iiModelPackaging PRIVATE ${IILD_WARNING_OPTIONS})
@@ -461,6 +463,14 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         add_test(NAME iiLocalDiffusion.ModelInspection
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/ModelInspectionTests.py"
                 "$<TARGET_FILE:iild-model-package>")
+    endif()
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND NOT CMAKE_CROSSCOMPILING AND TARGET iild-model-package)
+        add_test(NAME iiLocalDiffusion.ModelPackagingComponentInstall
+            COMMAND "${CMAKE_COMMAND}"
+                "-DBUILD_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}"
+                "-DSTAGE_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/packaging-component-test"
+                "-DBIN_DIRECTORY=${CMAKE_INSTALL_BINDIR}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/ModelPackagingInstallTests.cmake")
     endif()
     if(UNIX AND Python3_Interpreter_FOUND)
         add_test(NAME iiLocalDiffusion.InstallScript
@@ -559,6 +569,9 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             "-DPYTHON_REFERENCE_ENABLED=${IILD_INSTALL_PYTHON_REFERENCE}"
             "-DPYTHON_EXECUTABLE=${Python3_EXECUTABLE}"
             "-DBIN_DIRECTORY=${CMAKE_INSTALL_BINDIR}"
+            "-DLIB_DIRECTORY=${CMAKE_INSTALL_LIBDIR}"
+            "-DNATIVE_LIBRARY_NAME=$<TARGET_FILE_NAME:iiLocalDiffusion>"
+            "-DNATIVE_LOAD_PROBE=${CMAKE_CURRENT_SOURCE_DIR}/tests/NativeLibraryLoadProbe.py"
             "-DDOC_DIRECTORY=${CMAKE_INSTALL_DOCDIR}"
             "-DREFERENCE_DIRECTORY=${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/reference"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallConsumerTests.cmake"
@@ -612,7 +625,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         )
 
         foreach(generation_test IN ITEMS
-                GenerationOptionsTests GenerationOutputTests GenerationSeedTests GenerationPreviewTests InferenceCacheTests MetadataValidationTests PersistentModelHashTests ModelPreparationCacheTests ForegroundInferenceTests
+                GenerationOptionsTests GenerationOutputTests GenerationSeedTests GenerationPreviewTests InferenceCacheTests InferenceWorkerFailureTests MetadataValidationTests PersistentModelHashTests ModelPreparationCacheTests ForegroundInferenceTests
                 DeforumOptionsTests DeforumRuntimeTests DeforumMediaTests
                 InterpolatorOptionsTests InterpolatorRuntimeTests InterpolatorMediaTests
                 VideoOptionsTests VideoRuntimeTests VideoRoutingPolicyTests VideoInterpolationTests NativeVideoTests LocalGenerationTests StandaloneImageTests NativeImageTests
@@ -626,6 +639,13 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             set_tests_properties(${generation_test} PROPERTIES
                 ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
         endforeach()
+        # This in-memory worker test needs no generated bytecode or test files.
+        set_tests_properties(InferenceWorkerFailureTests PROPERTIES
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+        # The ABI test must load the library from this configuration, not an
+        # unrelated or stale binary in the checkout's default build directory.
+        set_tests_properties(NativeVideoTests PROPERTIES
+            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache;IILD_NATIVE_LIBRARY=$<TARGET_FILE:iiLocalDiffusion>")
         foreach(model_compatibility_test IN ITEMS
                 CivitaiCatalogTests ModelFamilyTests GenericDiffusersTests BackendRegistryTests Krea2ContractTests Krea2RuntimeTests
                 ComfyUIRuntimeTests GenerationRouterTests RuntimeCompatibilityTests
@@ -692,6 +712,17 @@ install(
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
+if(IILD_PACKAGED_CRYPTO)
+    # Crypto can carry an @rpath install name, including when FindOpenSSL makes
+    # it UNKNOWN_LIBRARY. Retain its symlink chain for direct Python loading and
+    # for a separately installed ModelPackaging CLI.
+    foreach(iild_crypto_component IN ITEMS Runtime ModelPackaging)
+        install(CODE "file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\"
+            TYPE SHARED_LIBRARY FOLLOW_SYMLINK_CHAIN FILES \"$<TARGET_FILE:OpenSSL::Crypto>\")"
+            COMPONENT ${iild_crypto_component})
+    endforeach()
+endif()
+
 if(WIN32 AND IILD_ENABLE_MLX)
     # MLX's Python-oriented install puts these DLLs at the prefix root. Native
     # SDK consumers search bin alongside iiLocalDiffusion.dll instead.
@@ -714,7 +745,7 @@ install(TARGETS iiModelPackaging EXPORT iiLocalDiffusionTargets
 install(FILES src/ModelPackaging/ModelPackaging.hpp src/ModelPackaging/ModelInspection.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ModelPackaging COMPONENT ModelPackaging)
 
 install(FILES README.md THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime)
-install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime FILES_MATCHING PATTERN "*.md")
+install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime FILES_MATCHING PATTERN "*.md" PATTERN "*.json")
 install(FILES docs/licenses/DWPose.txt DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/licenses COMPONENT Runtime)
 install(FILES resources/generation-defaults.json resources/README.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources COMPONENT Runtime)
@@ -848,3 +879,7 @@ install(
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/iiLocalDiffusion
     COMPONENT ModelPackaging
 )
+
+configure_file(cmake/RemoveRetiredRuntimes.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/RemoveRetiredRuntimes.cmake" @ONLY)
+install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/RemoveRetiredRuntimes.cmake")

@@ -1,5 +1,6 @@
 """NDJSON transport for the SDK's in-memory sequential inference session."""
 
+from contextlib import redirect_stderr
 import json
 import os
 import sys
@@ -10,6 +11,25 @@ from inference_session import InferenceSession
 from weight_files import model_hash_statistics
 
 MAX_REQUEST_BYTES = 1024 * 1024
+MAX_ERROR_CHARACTERS = 4000
+
+
+class _StderrTail:
+    """Keep bounded request diagnostics without suppressing the live stream."""
+    def __init__(self, stream):
+        self._stream = stream
+        self.tail = ""
+
+    def write(self, text):
+        written = self._stream.write(text)
+        self.tail = (self.tail + text)[-MAX_ERROR_CHARACTERS:]
+        return written
+
+    def flush(self):
+        return self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
 
 
 def serve(generate, stream=None):
@@ -22,6 +42,7 @@ def serve(generate, stream=None):
             started = time.monotonic()
             identifier, error, code, action = None, "", 0, "generate"
             before = {**model_hash_statistics(), **session.statistics()}
+            stderr = _StderrTail(sys.stderr)
             try:
                 if len(line) > MAX_REQUEST_BYTES:
                     raise ValueError("Worker request exceeds the 1 MiB limit.")
@@ -46,23 +67,27 @@ def serve(generate, stream=None):
                     foreground = request.get("foreground")
                     if not isinstance(foreground, bool) or (not foreground and arguments):
                         raise ValueError("Foreground control requires a boolean; background control cannot contain arguments.")
-                    code = session.set_foreground(foreground, (lambda: generate(arguments)) if arguments else None)
+                    with redirect_stderr(stderr):
+                        code = session.set_foreground(foreground, (lambda: generate(arguments)) if arguments else None)
                 else:
-                    code = generate(arguments) or 0
+                    with redirect_stderr(stderr):
+                        code = generate(arguments) or 0
                 if code:
                     raise RuntimeError(f"Inference returned exit code {code}.")
                 if action == "generate" or (action == "foreground" and arguments):
                     session.verify()
             except SystemExit as failure:
                 code = failure.code if isinstance(failure.code, int) else 1
-                error = "" if code == 0 else str(failure)
+                if code != 0:
+                    error = (stderr.tail.strip() or f"Inference exited with status {code}.") \
+                        if isinstance(failure.code, int) else str(failure)
             except Exception as failure:
                 code, error = 1, str(failure)
             if code:
                 session.clear()
             after = {**model_hash_statistics(), **session.statistics()}
             result = {"schema": "iild-worker-result-v1", "id": identifier, "ok": code == 0,
-                      "exit_code": code, "error": error[-4000:], "pid": os.getpid(),
+                      "exit_code": code, "error": error[-MAX_ERROR_CHARACTERS:], "pid": os.getpid(),
                       "elapsed_seconds": time.monotonic() - started,
                       "action": action, "residency": session.residency(),
                       "cache": {name: value - before[name] for name, value in after.items()}}

@@ -30,6 +30,16 @@
 #endif
 
 namespace iiLocalDiffusion {
+namespace {
+bool isOnnxModel(const std::filesystem::path &path) {
+    auto extension = path.extension().u8string();
+    for (auto &c : extension) if (c >= u8'A' && c <= u8'Z') c += u8'a' - u8'A';
+    return extension == u8".onnx";
+}
+void requireSupportedModelFile(const std::filesystem::path &path) {
+    if (!path.empty() && isOnnxModel(path)) throw std::runtime_error("ONNX model files are not supported.");
+}
+}
 #if IILD_HAS_NATIVE_DIFFUSION
 namespace {
 struct Elapsed {
@@ -85,6 +95,7 @@ void releaseImageCacheForVideoLocked() {
 }
 ImageParameters nativeImageParameterDefaults(const std::filesystem::path &modelPath) {
     auto defaults = ImageParameters::defaults();
+    if (isOnnxModel(modelPath)) return defaults;
 #if IILD_HAS_NATIVE_DIFFUSION
     sd_model_vae_info_t info{};
     if (sd_model_inspect_vae(modelPath.string().c_str(), &info) && info.model_family
@@ -163,7 +174,24 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         return residentWeights ? native_detail::modelMetadataIdentity(path) : native_detail::modelIdentity(path);
     };
     try {
+        requireSupportedModelFile(request.modelPath);
+        requireSupportedModelFile(explicitVae);
+        for (const auto &lora : options.loras) requireSupportedModelFile(lora.path);
+        if (components) {
+            for (const auto *path : {&components->clipL, &components->clipG, &components->t5xxl, &components->llm, &components->vae})
+                requireSupportedModelFile(*path);
+        }
         if (advanced) {
+            for (const auto *path : {&advanced->upscalerModel, &advanced->detailerModel, &advanced->refinerModel})
+                requireSupportedModelFile(*path);
+            for (const auto &embedding : advanced->embeddings) requireSupportedModelFile(embedding.path);
+            for (const auto &item : advanced->controls) {
+                requireSupportedModelFile(item.model); requireSupportedModelFile(item.poseDetector); requireSupportedModelFile(item.poseModel);
+            }
+            for (const auto &item : advanced->ipAdapters) {
+                requireSupportedModelFile(item.model); requireSupportedModelFile(item.vision);
+            }
+
             const std::vector<std::string> samplers{"auto", "euler", "heun", "euler_a", "dpmpp_2m", "dpmpp_sde", "ddim"};
             const std::vector<std::string> schedulers{"auto", "normal", "karras", "exponential", "sgm_uniform"};
             if (std::find(samplers.begin(), samplers.end(), advanced->sampler) == samplers.end()
@@ -207,7 +235,7 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                     throw std::runtime_error("Invalid native ControlNet process, weight or RGB image.");
                 if (item.process == "Pose" && (!nativePoseAvailable()
                     || !item.poseDetector.is_absolute() || !item.poseModel.is_absolute()))
-                    throw std::runtime_error("Pose requires native ONNX support and local detector/pose models.");
+                    throw std::runtime_error("Automatic pose preprocessing is unavailable; use an already prepared control hint.");
                 const auto &mask = item.mask;
                 if ((mask.width != 0 || mask.height != 0 || !mask.rgb.empty())
                     && (mask.width < 1 || mask.height < 1 || mask.width > 2048 || mask.height > 2048
@@ -800,7 +828,7 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                 const auto& item = advanced->controls[index];
                 if (item.process == "Pose") {
                     if (progress) progress({NativeGenerationStage::Preparing});
-                    // Bridge the generation's pause-adjusted deadline into ORT's
+                    // Bridge the generation's pause-adjusted deadline into the preprocessor’s
                     // cancellation token without mutating caller-owned cancellation.
                     std::atomic_bool poseCancelled{cancelled.load()};
                     std::jthread deadline([&](std::stop_token stop) {
@@ -812,7 +840,7 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                     auto pose = processNativePose(item.poseDetector,item.poseModel,item.image,
                         poseCancelled,result.threads,control);
                     controlPixels[index] = std::move(pose.image.rgb);
-                    telemetry.note("pose_backend=onnx-cpu cache_hit=" + std::to_string(pose.modelCacheHit)
+                    telemetry.note("pose_backend=native cache_hit=" + std::to_string(pose.modelCacheHit)
                         + " model_bytes=" + std::to_string(pose.modelBytes) + " threads=" + std::to_string(pose.threads));
                 } else controlPixels[index] = item.image.rgb;
                 sd_control_input_t input{};

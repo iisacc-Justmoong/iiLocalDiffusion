@@ -37,6 +37,13 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
         const auto source = std::filesystem::absolute(request.modelPath).lexically_normal();
         if (!std::filesystem::is_regular_file(source) || std::filesystem::canonical(source) != source)
             throw std::invalid_argument("Choose a local, unredirected video checkpoint");
+        const auto isOnnx = [](const std::filesystem::path &path) {
+            auto ext = path.extension().u8string();
+            for (auto &c : ext) if (c >= u8'A' && c <= u8'Z') c += u8'a' - u8'A';
+            return ext == u8".onnx";
+        };
+        if (isOnnx(source) || (!request.textEncoderPath.empty() && isOnnx(request.textEncoderPath)))
+            throw std::invalid_argument("ONNX video checkpoints and text encoders are not supported");
         const auto identity = native_detail::modelMetadataIdentity(source);
         const auto validateImage = [&](const NativeReferenceImage &image) {
             if (!image.rgb.empty() && (image.width != request.width || image.height != request.height
@@ -75,16 +82,23 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
             const std::atomic_bool &cancelled;
             const NativeProgressCallback &progress;
             native_detail::NativeTelemetry &telemetry;
-            std::string error;
+            std::string error, warnings;
             std::mutex mutex;
             std::atomic_int nodes{0}, batches{0};
+            std::string failureContext() {
+                const std::lock_guard guard(mutex);
+                std::string context;
+                if (!warnings.empty()) context += "Engine warnings:\n" + warnings + "\n";
+                if (!error.empty()) context += "Engine errors:\n" + error;
+                return context;
+            }
             ~Callbacks() {
                 sd_set_abort_callback(nullptr, nullptr);
                 sd_set_progress_stage_callback(nullptr, nullptr);
                 sd_set_log_callback(nullptr, nullptr);
                 sd_set_backend_eval_callback(nullptr, nullptr);
             }
-        } callbacks{cancelled, progress, telemetry, {}, {}};
+        } callbacks{cancelled, progress, telemetry, {}, {}, {}};
         sd_set_abort_callback([](void *data) { return static_cast<Callbacks *>(data)->cancelled.load(); }, &callbacks);
         if (request.cpu || request.cpuTextEncoding) {
             sd_set_backend_eval_callback([](ggml_tensor *, bool ask, void *data) {
@@ -107,17 +121,19 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
         sd_set_log_callback([](sd_log_level_t level, const char *text, void *data) {
             if (!text) return;
             auto &state = *static_cast<Callbacks *>(data);
-            state.telemetry.log(text);
-            if (level >= SD_LOG_ERROR) {
+            state.telemetry.log(text, level >= SD_LOG_WARN);
+            if (level >= SD_LOG_WARN) {
                 const std::lock_guard guard(state.mutex);
-                state.error += text;
-                if (state.error.size() > 4000) state.error.erase(0, state.error.size() - 4000);
+                auto &details = level >= SD_LOG_ERROR ? state.error : state.warnings;
+                const std::size_t limit = level >= SD_LOG_ERROR ? 2400 : 1200;
+                details += text;
+                if (details.size() > limit) details.erase(0, details.size() - limit);
             }
             if (std::getenv("IILD_NATIVE_DIAGNOSTICS")) std::fputs(text, stderr);
         }, &callbacks);
         auto textEncoder = request.textEncoderPath;
         if (textEncoder.empty()) {
-            if (request.assetCacheDirectory.empty()) throw std::invalid_argument("Choose a model asset cache or explicit GGUF text encoder");
+            if (request.assetCacheDirectory.empty()) throw std::invalid_argument("Choose a model asset cache or explicit supported text encoder");
             std::stop_source stop;
             textEncoder = iild::materializeModelPackageAsset(source, request.assetCacheDirectory, "text_encoder", stop.get_token(),
                 [&](const auto &event) {
@@ -156,16 +172,21 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
         contextParameters.eager_load = false; contextParameters.max_vram = budget.c_str();
         if (request.cpu) contextParameters.backend = contextParameters.params_backend = "cpu";
         std::string backend = request.backend == "rocm" ? "HIP" : request.backend;
+        const bool explicitGpuPlacement = !request.cpu && backend != "cpu" && (request.cpuTextEncoding || backend != "auto");
         if (!request.cpu && backend != "auto") contextParameters.backend = backend.c_str();
         if (!request.cpu && request.cpuTextEncoding) {
             backend = backend == "auto" ? "te=cpu" : "te=cpu,diffusion=" + backend + ",vae=" + backend;
             contextParameters.backend = backend.c_str();
         }
+        // Any explicit placement disables the engine's auto-fit. Keep video
+        // diffusion weights reloadable so unused segments can be evicted within
+        // the live GPU budget rather than accumulating until allocation fails.
+        if (explicitGpuPlacement) contextParameters.params_backend = "diffusion=disk";
         if (request.precision != "auto") contextParameters.wtype = str_to_sd_type(request.precision == "float16" ? "f16"
             : request.precision == "bfloat16" ? "bf16" : "f32");
         std::unique_ptr<sd_ctx_t, decltype(&free_sd_ctx)> context(new_sd_ctx(&contextParameters), free_sd_ctx);
         if (!context || !sd_ctx_supports_video_generation(context.get()))
-            throw std::runtime_error("This checkpoint is not supported by the native video engine. " + callbacks.error);
+            throw std::runtime_error("This checkpoint is not supported by the native video engine. " + callbacks.failureContext());
         NativeReferenceImage previous;
         for (std::size_t index = 0; index < request.shots.size(); ++index) {
             if (cancelled) { result.cancelled = true; return result; }
@@ -193,7 +214,7 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
             const bool generated = generate_video(context.get(), &parameters, &frames.data, &frames.count, nullptr);
             if (cancelled) { result.cancelled = true; return result; }
             if (!generated || !frames.data || frames.count != shot.frames)
-                throw std::runtime_error("Native video generation returned incomplete frames. " + callbacks.error);
+                throw std::runtime_error("Native video generation returned incomplete frames. " + callbacks.failureContext());
             for (int position = 0; position < frames.count; ++position) {
                 if (cancelled) { result.cancelled = true; return result; }
                 const auto &output = frames.data[position];

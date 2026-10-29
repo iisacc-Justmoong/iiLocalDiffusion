@@ -26,13 +26,17 @@ as indeterminate because their ranges have independent totals.
 ## Container contract
 
 Metadata identifies `iild-safetensors-package-v1` in `iild_package_schema` and
-stores a JSON manifest in `iild_package_manifest`. Main Safetensors tensor keys
-and original metadata remain intact. Separate Safetensors components receive
-role and source namespaces. GGUF, tokenizer/configuration files, legacy opaque
-weights and other assets are U8 tensors under `__iild_assets__/`; their original
-bytes and quantization remain intact. This is component bundling, not tensor
-averaging or LoRA fusion. A manifest-aware consumer is required to load all
-components. Existing `.iildmodel` ZIP packages are a separate contract.
+stores a JSON manifest in `iild_package_manifest`. Main safetensors tensor keys
+and original metadata remain intact. Separate safetensors components receive
+role and source namespaces. GGUF components and tokenizer/configuration assets
+are retained as U8 assets under `__iild_assets__/`; extraction restores their
+original bytes and extension. Legacy `.safetensor` files and previously supported
+supporting files remain readable. ONNX files and manifests declaring embedded
+ONNX models are rejected during scanning, verification and materialization;
+existing input files are not modified. This is
+component bundling, not tensor averaging or LoRA fusion. A manifest-aware
+consumer is required to load all components. Existing `.iildmodel` ZIP packages
+are a separate contract.
 
 The manifest preserves each source path, role, format, raw Safetensors header,
 metadata, per-tensor mapping, SHA-256 and original-file SHA-256. Independently
@@ -43,8 +47,8 @@ Excluded, invalid and ignored files are documented but not restored.
 ## Validation and resource use
 
 Safetensors headers, dtypes, shapes, JSON keys, contiguous extents and exact
-file sizes are checked. GGUF v2/v3 metadata, tensor encodings, alignment and
-extents are checked; unknown encodings fail explicitly. Shard indexes are
+file sizes are checked. GGUF headers, supported tensor encodings and byte extents
+are checked without loading the tensors. Shard indexes are
 resolved within their source directory and every indexed tensor must exist.
 LTX 2.x requires its model, video/audio decoders, projections and text encoder.
 Diffusers model indexes require their declared non-null component directories.
@@ -57,7 +61,14 @@ before and after copying; duplicate hashes are rechecked during creation.
 Output tensor hashes and layout are validated by re-reading the output.
 Cancellation removes temporary output. Extraction validates the package and
 original hashes, rejects unsafe paths, stages into a new directory and preserves
-the source package. No network, Python, Torch, GPU or tensor cast is required.
+the source package. A selected safetensors or GGUF text encoder can also be
+reconstructed to the asset cache. Its format structure, mapping and whole-file
+SHA-256 are checked before publication; safetensors tensor hashes are checked
+separately. Other weights are not read. No network,
+Python, Torch, GPU or tensor cast is required. This packaging check does not
+establish that any particular inference backend supports the model architecture.
+Materialization requires exactly one matching encoder component; a package with
+multiple encoder files is rejected rather than silently choosing a shard.
 
 ## CLI and build
 
@@ -74,7 +85,17 @@ iild-model-package extract --input /path/to/model.safetensors --output /path/to/
 
 The CLI emits NDJSON progress and a final report. SIGINT/SIGTERM request
 cooperative cancellation. Exit codes: 0 success, 2 error, 130 cancellation.
-The integration test uses actual tiny Safetensors/GGUF files, sharded indexes,
-byte-identical reconstruction, duplicate conflicts, missing components,
-invalid JSON/shape/index bounds, truncated GGUF, output tampering,
-no-overwrite behavior and cancellation cleanup.
+On macOS the `ModelPackaging` install component also carries its selected
+OpenSSL Crypto dynamic library so its CLI can start without a developer-machine
+dynamic-library search path. CMake consumers still need an OpenSSL development
+SDK to resolve the exported static library's dependency.
+The integration suite uses tiny Safetensors and GGUF files, sharded indexes,
+byte-identical reconstruction, duplicate conflicts, missing components, ONNX
+rejection, output/cache tampering, no-overwrite behavior and cancellation.
+The controlled native video adapter test checks that either encoder format
+reaches the engine; it is not a real-model inference or hardware performance test.
+The canonical native-enabled `build/` also passed the image, controlled video
+adapter and video options tests; the packaging suite passed after its CLI target
+was rebuilt.
+
+On 2026-10-27, the macOS arm64 source and separately staged CLI each passed all 23 packaging cases; the installed C++ consumer and controlled native video adapter tests also passed.

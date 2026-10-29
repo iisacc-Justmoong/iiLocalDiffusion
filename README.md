@@ -5,7 +5,7 @@ storage roles from image/video/audio/language outputs. LTX 2 single-file package
 are recognized from bounded metadata and run through the [native video adapter](docs/NativeVideo.md),
 without introducing Qt dependencies or changing the image ABI.
 
-[Windows 빌드 및 실행](docs/WindowsBuildAndRun.md)
+[Windows build and execution](docs/WindowsBuildAndRun.md)
 
 Windows model signatures snapshot their change token through iiFileProviderNative
 0.8.2 under its metadata publication lock. Provider preview metadata therefore does
@@ -521,9 +521,20 @@ Native VAE validates the full tensor structure before mounting, and automaticall
 ## Native model packaging
 
 The Qt-free `iiLocalDiffusion::ModelPackaging` module bundles a model folder,
-Safetensors shards, LoRA/VAE and original GGUF/assets into one verified
-Safetensors container. It streams weights without casting them and provides
+safetensors shards, LoRA/VAE tensors and supporting tokenizer/configuration
+assets into one verified safetensors container. GGUF components are retained
+byte for byte and can be materialized as GGUF; ONNX model files are rejected. It streams weights
+without casting them and provides
 byte-identical original-file restoration. See [model packaging](docs/model-packaging.md)
 for the format, C++ API, `iild-model-package` CLI and validation contract.
 
 Model merging uses the reserved `.iild-merge-<tempfile token>` workspace beneath the output directory and removes it on normal success or failure. Society holds a parent temporary lease while merging; its container maintenance can recognize an abandoned workspace without deriving temporary names from a user filename.
+
+<!-- workspace-docs:readme:start -->
+## Documentation entry points
+
+- Human overview: this English `README.md`.
+- Agent instructions: [AGENT.md](AGENT.md).
+- Human documentation: [documentation index](docs/README.md).
+- Structured agent documentation: [agent index](docs/agent-index.json).
+<!-- workspace-docs:readme:end -->

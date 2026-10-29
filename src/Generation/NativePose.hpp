@@ -2,7 +2,7 @@
 #include "NativeDiffusion.hpp"
 
 namespace iiLocalDiffusion {
-// One owner retains both fully-read model byte arrays and native CPU sessions.
+// Compatibility interface for the retired automatic pose model backend.
 // No mmap, external tensor file, optimized-model cache, subprocess or downloads.
 // Keep this owner in the application runtime, including between queued jobs and
 // pause/idle transitions; destroy only for explicit release or runtime teardown.
@@ -15,7 +15,7 @@ public:
     NativePoseSession(const NativePoseSession &) = delete;
     NativePoseSession &operator=(const NativePoseSession &) = delete;
     // Serializes requests on this owner. Cooperative pause between model runs;
-    // an in-flight ONNX Run is terminated on cancellation, never evicted on pause.
+    // retired implementations reject inference without allocating model resources.
     NativeReferenceImage process(const NativeReferenceImage &image, const std::atomic_bool &cancelled,
         const std::shared_ptr<NativeExecutionControl> &control = {});
     std::uint64_t modelBytes() const noexcept;

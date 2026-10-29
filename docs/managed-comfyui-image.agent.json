@@ -1,0 +1,558 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:e52c808e70cc306ea6c7cb2227a95c50e4b21185ff688f2ab491b01efd1bf370",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "docs/managed-comfyui-image.md",
+    "sha256": "b3df173e39948cf48dadf54ae84bd15fcdc0d080addc1ff2f1082ef75215d692",
+    "bytes": 9382,
+    "line_count": 75,
+    "encoding": "utf-8",
+    "language": "ko"
+  },
+  "document": {
+    "title": "선택적 관리형 ComfyUI 체크포인트 백엔드",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "html",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "<a id=\"optional-managed-comfyui-checkpoint-backend\"></a>\n"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "heading",
+      "start_line": 3,
+      "end_line": 3,
+      "raw": "# 선택적 관리형 ComfyUI 체크포인트 백엔드\n",
+      "level": 1,
+      "title": "선택적 관리형 ComfyUI 체크포인트 백엔드"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 4,
+      "end_line": 4,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 5,
+      "end_line": 5,
+      "raw": "Dreamscapes 등 소비 앱은 `--work-dir <앱 임시 위치>/<job>/runtime`을 지정하여 작업 로그·워크플로·모델 링크·서버 중간 결과를 Society 밖에서 잠시 사용하고 정리한다. 큐와 실행 상태는 앱 메모리에만 둔다. 없거나 비어 있는 실제 디렉터리만 받으며 기존 내용과 리디렉션된 경로는 거부한다. 최종 실행기 결과는 기존 `--output-dir`로 따로 지정한다. Dreamscapes는 앱 전용 임시 위치에서 결과를 검증하고 이미지 파일만 `Generation History/` 바로 아래에 저장한다. 앱별 하위 폴더나 Asset Library 등록은 만들지 않는다. 옵션을 생략하면 기존 SDK `build/reference/local-image-jobs/` 배치를 사용한다. 원본 모델은 복사하지 않고 작업용 링크를 사용하며, `.safetensor`와 대문자 확장자는 이 링크에서 `.safetensors`로 정규화한다. 모델 원본 이름과 해시 검증은 유지한다. `LocalImageTests`가 Society 작업 경로·기존 내용 보존·링크 거부·확장자 정규화를 검사한다.\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 6,
+      "end_line": 6,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "paragraph",
+      "start_line": 7,
+      "end_line": 7,
+      "raw": "`reference/generate.py --backend comfyui-local --model /absolute/path/download.safetensors` 는 기존 로컬 가중치 파일을 명시적으로 검사하고 격리된 ComfyUI 프로세스를 시작합니다. 모델 패밀리에서 이미지 워크플로우를 조립하여 실행하고 디코딩된 이미지를 저장하며 원래 파일 해시를 기록합니다. 지원되는 자동 레시피를 위해 워크플로우 편집 또는 별도로 시작된 서버는 필요하지 않습니다.\n"
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 8,
+      "end_line": 8,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "html",
+      "start_line": 9,
+      "end_line": 9,
+      "raw": "<a id=\"install-once\"></a>\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 10,
+      "end_line": 10,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "heading",
+      "start_line": 11,
+      "end_line": 11,
+      "raw": "## 한 번 설치\n",
+      "level": 2,
+      "title": "한 번 설치"
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 12,
+      "end_line": 12,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "paragraph",
+      "start_line": 13,
+      "end_line": 13,
+      "raw": "`--cache-dir`는 실행기 캐시 경로이다. Dreamscapes는 앱 전용 임시 작업 위치의 `cache/`를 전달한다. Python bytecode·런타임 캐시·작업 로그·중간 결과는 작업 종료와 함께 정리하며 Society에 영구 저장하지 않는다. 지정하지 않으면 기존 SDK 캐시 경로를 사용한다.\n"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 14,
+      "end_line": 14,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "fenced_code",
+      "start_line": 15,
+      "end_line": 18,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/setup_comfyui.py \\\n  --python reference/diffusers/.venv/bin/python\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python reference/setup_comfyui.py \\\n  --python reference/diffusers/.venv/bin/python\n",
+      "closed": true
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 19,
+      "end_line": 19,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "paragraph",
+      "start_line": 20,
+      "end_line": 20,
+      "raw": "설치 프로그램에는 Git와 `uv`가 필요하다. ComfyUI `e80c1570b6b44a2557d5d8e341e05782d18c9bbb`와 ComfyUI-GGUF `6ea2651e7df66d7585f6ffee804b20e92fb38b8a`를 `build/reference/`에 체크아웃하고, 의존성을 `build/reference/comfyui-venv`에 설치하며, 해석된 패키지를 `build/reference/comfyui-installed.lock`에 기록한다. 소스 리비전은 고정하고 lock은 플랫폼별 의존성 해석 결과를 기록한다. 기존의 다른 출처 또는 수정된 런타임 체크아웃은 덮어쓰지 않고 거부한다. 새 체크아웃은 fetch 성공 뒤에만 게시하므로, 다운로드 실패를 불완전한 런타임 소스 디렉터리 없이 재시도할 수 있다. 원래 Diffusers 환경과 C++ 라이브러리는 독립적이다.\n"
+    },
+    {
+      "id": "b000018",
+      "kind": "blank",
+      "start_line": 21,
+      "end_line": 21,
+      "raw": "\n"
+    },
+    {
+      "id": "b000019",
+      "kind": "paragraph",
+      "start_line": 22,
+      "end_line": 22,
+      "raw": "전체 엔진은 HTTP 클라이언트보다 의존성이 훨씬 많으며 Torch, 비전/오디오 패키지, 토크나이저와 공식 프런트엔드를 포함한다. 가중치는 로컬에서 공급하며 이 명령은 소프트웨어 패키지만 다운로드한다. ComfyUI는 GPL-3.0이고 ComfyUI-GGUF는 Apache-2.0이다. 이들의 소스와 의존성은 라이브러리 패키지 밖에 유지한다.\n"
+    },
+    {
+      "id": "b000020",
+      "kind": "blank",
+      "start_line": 23,
+      "end_line": 23,
+      "raw": "\n"
+    },
+    {
+      "id": "b000021",
+      "kind": "html",
+      "start_line": 24,
+      "end_line": 24,
+      "raw": "<a id=\"bundled-checkpoint\"></a>\n"
+    },
+    {
+      "id": "b000022",
+      "kind": "blank",
+      "start_line": 25,
+      "end_line": 25,
+      "raw": "\n"
+    },
+    {
+      "id": "b000023",
+      "kind": "heading",
+      "start_line": 26,
+      "end_line": 26,
+      "raw": "## 번들 체크포인트\n",
+      "level": 2,
+      "title": "번들 체크포인트"
+    },
+    {
+      "id": "b000024",
+      "kind": "blank",
+      "start_line": 27,
+      "end_line": 27,
+      "raw": "\n"
+    },
+    {
+      "id": "b000025",
+      "kind": "fenced_code",
+      "start_line": 28,
+      "end_line": 33,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/generate.py --backend comfyui-local \\\n  --model /models/illustration.safetensors --base-model Illustrious \\\n  --prompt \"a lighthouse above a calm ocean\" --device mps \\\n  --output-dir build/reference/lighthouse\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python reference/generate.py --backend comfyui-local \\\n  --model /models/illustration.safetensors --base-model Illustrious \\\n  --prompt \"a lighthouse above a calm ocean\" --device mps \\\n  --output-dir build/reference/lighthouse\n",
+      "closed": true
+    },
+    {
+      "id": "b000026",
+      "kind": "blank",
+      "start_line": 34,
+      "end_line": 34,
+      "raw": "\n"
+    },
+    {
+      "id": "b000027",
+      "kind": "paragraph",
+      "start_line": 35,
+      "end_line": 35,
+      "raw": "SD1/SD2/SDXL/SD3/FLUX 텐서 서명은 `--base-model` 없이도 아키텍처를 추론할 수 있습니다. 사이드카 `download.civitai.info` 는 Civitai 신원을 정확히 유지할 수 있으며, 필요시 SHA256 로 선택적으로 확인할 수 있습니다. 파일명은 신원을 증명하지 않습니다. 텐서 레이아웃이 인식되지 않는 아키텍처에 대한 카테고리를 제공하십시오. 감지된 텐서와 상충하는 명시적 카테고리는 거부됩니다.\n"
+    },
+    {
+      "id": "b000028",
+      "kind": "blank",
+      "start_line": 36,
+      "end_line": 36,
+      "raw": "\n"
+    },
+    {
+      "id": "b000029",
+      "kind": "paragraph",
+      "start_line": 37,
+      "end_line": 37,
+      "raw": "NoobAI v-예측 체크포인트의 경우, 내장/사이드카 예측 메타데이터가 자동으로 사용됩니다. 그렇지 않으면  `--prediction-type v_prediction` 를 전달하세요; 모델의 샘플링 레시피가  0-종단  SNR 를 필요로 할 때는  `--zsnr` 를 전달하세요.  `--guidance-scale` 는 분류자 없는 가이드를 제어합니다.  FLUX dev/ Krea 의 별도의 내장 가이드는  `--embedded-guidance` 입니다 (기본값  3.5 ).  `--clip-skip` 는 기존 관행을 따릅니다:  0 는 마지막 레이어를 선택하며, 나머지 하나는 바로 앞 레이어입니다.\n"
+    },
+    {
+      "id": "b000030",
+      "kind": "blank",
+      "start_line": 38,
+      "end_line": 38,
+      "raw": "\n"
+    },
+    {
+      "id": "b000031",
+      "kind": "paragraph",
+      "start_line": 39,
+      "end_line": 39,
+      "raw": "레거시 `.ckpt`, `.pt`, `.pth` 및 `.bin` 컨테이너는 로드하기 전에 캐시된 safetensors로 안전하게 변환됩니다. [변환 제한 사항](checkpoint-formats.md)를 참조하세요.\n"
+    },
+    {
+      "id": "b000032",
+      "kind": "blank",
+      "start_line": 40,
+      "end_line": 40,
+      "raw": "\n"
+    },
+    {
+      "id": "b000033",
+      "kind": "paragraph",
+      "start_line": 41,
+      "end_line": 41,
+      "raw": "`--seed`를 생략하면 각 요청에 대해 새로운 무작위 기본 시드가 선택됩니다. 0을 포함한 명시적 시드는 보존됩니다. `local-image.json`는 선택한 시드를 `request.seed`에 기록하고 워크플로에서는 HiRes 패스에 동일한 시드를 사용합니다.\n"
+    },
+    {
+      "id": "b000034",
+      "kind": "blank",
+      "start_line": 42,
+      "end_line": 42,
+      "raw": "\n"
+    },
+    {
+      "id": "b000035",
+      "kind": "html",
+      "start_line": 43,
+      "end_line": 43,
+      "raw": "<a id=\"split-or-quantized-model\"></a>\n"
+    },
+    {
+      "id": "b000036",
+      "kind": "blank",
+      "start_line": 44,
+      "end_line": 44,
+      "raw": "\n"
+    },
+    {
+      "id": "b000037",
+      "kind": "heading",
+      "start_line": 45,
+      "end_line": 45,
+      "raw": "## 분할 또는 양자화 모델\n",
+      "level": 2,
+      "title": "분할 또는 양자화 모델"
+    },
+    {
+      "id": "b000038",
+      "kind": "blank",
+      "start_line": 46,
+      "end_line": 46,
+      "raw": "\n"
+    },
+    {
+      "id": "b000039",
+      "kind": "paragraph",
+      "start_line": 47,
+      "end_line": 47,
+      "raw": "디노이저에만 일치하는 텍스트 인코더와 VAE가 필요합니다. GGUF는 양자화를 유지하면서 설치된 네이티브 GGUF 로더를 선택합니다. 예를 들면:\n"
+    },
+    {
+      "id": "b000040",
+      "kind": "blank",
+      "start_line": 48,
+      "end_line": 48,
+      "raw": "\n"
+    },
+    {
+      "id": "b000041",
+      "kind": "fenced_code",
+      "start_line": 49,
+      "end_line": 57,
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/generate.py --backend comfyui-local \\\n  --model /models/krea.gguf --base-model 'Flux.1 Krea' \\\n  --vae /models/ae.safetensors \\\n  --text-encoder /models/clip_l.safetensors \\\n  --text-encoder-2 /models/t5xxl.gguf \\\n  --prompt \"a lighthouse above a calm ocean\" --device cuda \\\n  --output-dir build/reference/krea-lighthouse\n```\n",
+      "language": "bash",
+      "code": "reference/diffusers/.venv/bin/python reference/generate.py --backend comfyui-local \\\n  --model /models/krea.gguf --base-model 'Flux.1 Krea' \\\n  --vae /models/ae.safetensors \\\n  --text-encoder /models/clip_l.safetensors \\\n  --text-encoder-2 /models/t5xxl.gguf \\\n  --prompt \"a lighthouse above a calm ocean\" --device cuda \\\n  --output-dir build/reference/krea-lighthouse\n",
+      "closed": true
+    },
+    {
+      "id": "b000042",
+      "kind": "blank",
+      "start_line": 58,
+      "end_line": 58,
+      "raw": "\n"
+    },
+    {
+      "id": "b000043",
+      "kind": "paragraph",
+      "start_line": 59,
+      "end_line": 59,
+      "raw": "`--components '{\"vae\":\"...\",\"text_encoder\":\"...\"}'` 는 또한 명시적인 로컬 경로를 수락합니다. 인코더 입력은 `text_encoder_4` 까지 연속적입니다. `decoder` 는 Stable Cascade의 B 단계 노이즈 제거기를 공급하며, `model_negative` 는 Ideogram4 의 조건부 없는 노이즈 제거기를 공급합니다. 경로는 각 작업의 개인 모델 인벤토리에 있는 심링크를 통해 등록됩니다. 어떤 구성 요소 다운로드나 파일명 매칭도 수행되지 않습니다. [아키텍처 레시피 테이블](comfyui-image-workflows.md)을 참조하십시오.\n"
+    },
+    {
+      "id": "b000044",
+      "kind": "blank",
+      "start_line": 60,
+      "end_line": 60,
+      "raw": "\n"
+    },
+    {
+      "id": "b000045",
+      "kind": "paragraph",
+      "start_line": 61,
+      "end_line": 61,
+      "raw": "`--model-type checkpoint|diffusion_model` 는 번들 파일과 분리된 파일에 대한 검사 중첩을 상쇄합니다. 명시적 `--backend preset` 은 원래 이미지 오라클의 LoRA, ControlNet, 텍스트 반전 및 HiRes 입력을 유지합니다. 명시적 `--pipeline-class` / `--pipeline-inputs` 는 일반적 Diffusers 을 선택하며, `--workflow` 는 기존 로컬 API 워크플로우를 선택합니다. 지원되지 않는 인수는 오류입니다.\n"
+    },
+    {
+      "id": "b000046",
+      "kind": "blank",
+      "start_line": 62,
+      "end_line": 62,
+      "raw": "\n"
+    },
+    {
+      "id": "b000047",
+      "kind": "html",
+      "start_line": 63,
+      "end_line": 63,
+      "raw": "<a id=\"evidence-and-execution-limits\"></a>\n"
+    },
+    {
+      "id": "b000048",
+      "kind": "blank",
+      "start_line": 64,
+      "end_line": 64,
+      "raw": "\n"
+    },
+    {
+      "id": "b000049",
+      "kind": "heading",
+      "start_line": 65,
+      "end_line": 65,
+      "raw": "## 증거 및 실행 한계\n",
+      "level": 2,
+      "title": "증거 및 실행 한계"
+    },
+    {
+      "id": "b000050",
+      "kind": "blank",
+      "start_line": 66,
+      "end_line": 66,
+      "raw": "\n"
+    },
+    {
+      "id": "b000051",
+      "kind": "paragraph",
+      "start_line": 67,
+      "end_line": 67,
+      "raw": "`--print-config` 다운로드만 검사합니다. `--validate-only` 엔진을 시작하고 샘플링 없이 노드/입력 가용성을 검증합니다. 추론을 증명하지 않습니다. 성공적인 샘플링은 이미지  `generation.json` 와  `local-image.json` 를 새 또는 빈 출력 디렉토리에 씁니다. 후자는 원래 모델과 구성 요소 해시, 변환 매니페스트, 감지된 아키텍처, 완전한 그래프, 런타임@, 장치 정보 및 이미지 차원을 기록합니다. 실행 후 해시 값이 다시 확인되며, 엔진에 실제로 전달된 스테이지된 심링크 타겟도 함께 확인됩니다. 공용 명령은 필요할 때 관리된 해석자로 위임합니다; 호스트 Python 는 Torch 나 Pillow 가 필요하지 않습니다. 로그, 노드 스키마 및 준비된 경로는 `build/reference/local-image-jobs/` 에 유지됩니다.\n"
+    },
+    {
+      "id": "b000052",
+      "kind": "blank",
+      "start_line": 68,
+      "end_line": 68,
+      "raw": "\n"
+    },
+    {
+      "id": "b000053",
+      "kind": "paragraph",
+      "start_line": 69,
+      "end_line": 69,
+      "raw": "관리 프로세스는 루프백에서만 경청하며, 호스팅된 API 노드를 비활성화하고 선택된 GGUF 확장만 로드합니다. 완료 또는 실패 시 중지됩니다. `--device auto` 는 가속기가 필요합니다. CPU 는 명시적으로 선택되어야 합니다. `--runtime-source` 와 `--runtime-python` 는 독립적으로 설치된 호환 런타임 를 허용합니다. `--timeout` 와 `--startup-timeout` 는 바운드 실행/시작을 허용합니다.\n"
+    },
+    {
+      "id": "b000054",
+      "kind": "blank",
+      "start_line": 70,
+      "end_line": 70,
+      "raw": "\n"
+    },
+    {
+      "id": "b000055",
+      "kind": "paragraph",
+      "start_line": 71,
+      "end_line": 71,
+      "raw": "자동 빌더는 문서화된 텍스트-이미지 아키텍처를 모두 포함합니다. 이미지 조건부 모델은 입력 이미지와 해당 파이프라인 또는 워크플로우가 필요합니다. LoRA, VAE, 임베딩, ControlNet 및 업스케일러는 구성 요소이며, 오디오와 3D 가중치는 독립적인 텍스트-이미지 생성자가 아닙니다. 카테고리, 유효한 컨테이너 또는 기존 노드는 다운로드된 모든 가중치와 올바른 샘플링을 보장하지 않습니다. 실제 검증 증거](civitai-validation.md)를 [하세요.\n"
+    },
+    {
+      "id": "b000056",
+      "kind": "blank",
+      "start_line": 72,
+      "end_line": 72,
+      "raw": "\n"
+    },
+    {
+      "id": "b000057",
+      "kind": "paragraph",
+      "start_line": 73,
+      "end_line": 75,
+      "raw": "출처: [ComfyUI 소스](https://github.com/Comfy-Org/ComfyUI/tree/e80c1570b6b44a2557d5d8e341e05782d18c9bbb),\n[GGUF 로더 소스](https://github.com/city96/ComfyUI-GGUF/tree/6ea2651e7df66d7585f6ffee804b20e92fb38b8a),\n[공식 설치](https://docs.comfy.org/installation/manual_install).\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000003",
+      "parent_id": null,
+      "level": 1,
+      "title": "선택적 관리형 ComfyUI 체크포인트 백엔드",
+      "anchor": "선택적-관리형-comfyui-체크포인트-백엔드",
+      "start_line": 3
+    },
+    {
+      "block_id": "b000011",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "한 번 설치",
+      "anchor": "한-번-설치",
+      "start_line": 11
+    },
+    {
+      "block_id": "b000023",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "번들 체크포인트",
+      "anchor": "번들-체크포인트",
+      "start_line": 26
+    },
+    {
+      "block_id": "b000037",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "분할 또는 양자화 모델",
+      "anchor": "분할-또는-양자화-모델",
+      "start_line": 45
+    },
+    {
+      "block_id": "b000049",
+      "parent_id": "b000003",
+      "level": 2,
+      "title": "증거 및 실행 한계",
+      "anchor": "증거-및-실행-한계",
+      "start_line": 65
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000013",
+        "line": 13,
+        "text": "`--cache-dir`는 실행기 캐시 경로이다. Dreamscapes는 앱 전용 임시 작업 위치의 `cache/`를 전달한다. Python bytecode·런타임 캐시·작업 로그·중간 결과는 작업 종료와 함께 정리하며 Society에 영구 저장하지 않는다. 지정하지 않으면 기존 SDK 캐시 경로를 사용한다.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [
+      {
+        "block_id": "b000015",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python reference/setup_comfyui.py \\\n  --python reference/diffusers/.venv/bin/python\n"
+      },
+      {
+        "block_id": "b000025",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python reference/generate.py --backend comfyui-local \\\n  --model /models/illustration.safetensors --base-model Illustrious \\\n  --prompt \"a lighthouse above a calm ocean\" --device mps \\\n  --output-dir build/reference/lighthouse\n"
+      },
+      {
+        "block_id": "b000041",
+        "language": "bash",
+        "code": "reference/diffusers/.venv/bin/python reference/generate.py --backend comfyui-local \\\n  --model /models/krea.gguf --base-model 'Flux.1 Krea' \\\n  --vae /models/ae.safetensors \\\n  --text-encoder /models/clip_l.safetensors \\\n  --text-encoder-2 /models/t5xxl.gguf \\\n  --prompt \"a lighthouse above a calm ocean\" --device cuda \\\n  --output-dir build/reference/krea-lighthouse\n"
+      }
+    ],
+    "links": [
+      {
+        "block_id": "b000031",
+        "label": "변환 제한 사항",
+        "target": "checkpoint-formats.md",
+        "kind": "relative",
+        "line": 39
+      },
+      {
+        "block_id": "b000043",
+        "label": "아키텍처 레시피 테이블",
+        "target": "comfyui-image-workflows.md",
+        "kind": "relative",
+        "line": 59
+      },
+      {
+        "block_id": "b000057",
+        "label": "ComfyUI 소스",
+        "target": "https://github.com/Comfy-Org/ComfyUI/tree/e80c1570b6b44a2557d5d8e341e05782d18c9bbb",
+        "kind": "external",
+        "line": 73
+      },
+      {
+        "block_id": "b000057",
+        "label": "GGUF 로더 소스",
+        "target": "https://github.com/city96/ComfyUI-GGUF/tree/6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+        "kind": "external",
+        "line": 74
+      },
+      {
+        "block_id": "b000057",
+        "label": "공식 설치",
+        "target": "https://docs.comfy.org/installation/manual_install",
+        "kind": "external",
+        "line": 75
+      }
+    ],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

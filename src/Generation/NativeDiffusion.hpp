@@ -124,7 +124,7 @@ struct NativeAdvancedControls {
         std::string process = "Canny"; // Canny, DWPose, or unchanged RGB Tile hint.
         float weight = 1.0f;
         NativeReferenceImage mask; // Empty disables regional coverage; RGB luminance in [0,255].
-        std::filesystem::path poseDetector, poseModel; // Inline ONNX models, required only for Pose.
+        std::filesystem::path poseDetector, poseModel; // Legacy automatic-pose resources; retired backend requests are rejected.
     };
     // Ordered applied controls; each model/image/weight/mask remains independent.
     std::vector<ControlNet> controls;

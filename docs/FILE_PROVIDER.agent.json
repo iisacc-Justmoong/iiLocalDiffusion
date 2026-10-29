@@ -1,0 +1,294 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:2910eade3d4e6268925dce1673f69ec977d1ba4aaa22f5eb0a9b08019693a813",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "docs/FILE_PROVIDER.md",
+    "sha256": "fd22638f0672c6456629dd4081fe79306b27e663f070faba7ca8ae142fe5a87a",
+    "bytes": 2418,
+    "line_count": 48,
+    "encoding": "utf-8",
+    "language": "en"
+  },
+  "document": {
+    "title": "File creation ownership in iiLocalDiffusion",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# File creation ownership in iiLocalDiffusion\n",
+      "level": 1,
+      "title": "File creation ownership in iiLocalDiffusion"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "paragraph",
+      "start_line": 3,
+      "end_line": 3,
+      "raw": "Native model/cache/telemetry writers and Python image, video, PCM, checkpoint and model-package outputs use provider streams or staging. PNG generation remains PNG; editor IISC persistence is a separate domain operation. Worker scans exclude provider control files and temporary cleanup tolerates moved stages.\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 4,
+      "end_line": 4,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 5,
+      "end_line": 8,
+      "raw": "The common [ownership contract](../../iiFileProvider/docs/FILE_OWNERSHIP.md) defines stream, staging, control-file and\ninstalled-package rules. Source regression tests remain with this module; the\nworkspace creation audit also checks these boundaries. Build/deployment and target\nruntime validation are separate evidence.\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 9,
+      "end_line": 9,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "paragraph",
+      "start_line": 10,
+      "end_line": 13,
+      "raw": "Runtime installation includes the provider's Python worker adapter, shared native\nlibrary and license notices. Relocated workers resolve the adjacent SDK library;\nmacOS app workers also resolve the versioned library in `Contents/Frameworks`.\nAn installed product does not require a separate SDK in the user's home directory.\n"
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 14,
+      "end_line": 14,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 15,
+      "end_line": 15,
+      "raw": "Changed boundaries:\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 16,
+      "end_line": 17,
+      "raw": "\n\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "list",
+      "start_line": 18,
+      "end_line": 44,
+      "raw": "- `reference/diffusers/animation_video.py`\n- `reference/diffusers/checkpoint_conversion.py`\n- `reference/diffusers/comfyui_runtime.py`\n- `reference/diffusers/controlnet.py`\n- `reference/diffusers/dit_conversion.py`\n- `reference/diffusers/generate.py`\n- `reference/diffusers/generate_any.py`\n- `reference/diffusers/generation_output.py`\n- `reference/diffusers/generation_preview.py`\n- `reference/diffusers/iild_package.py`\n- `reference/diffusers/inference_session.py`\n- `reference/diffusers/inspect_pipeline.py`\n- `reference/diffusers/local_image.py`\n- `reference/diffusers/model_merge.py`\n- `reference/diffusers/model_merge_compatibility.py`\n- `reference/diffusers/model_merge_unified.py`\n- `reference/diffusers/native_image.py`\n- `reference/diffusers/remote_generation.py`\n- `reference/diffusers/standalone_image.py`\n- `reference/diffusers/unified_image.py`\n- `reference/diffusers/video_interpolator.py`\n- `reference/diffusers/video_runtime.py`\n- `reference/diffusers/weight_files.py`\n- `src/Generation/NativeDiskCache.hpp`\n- `src/Generation/NativeTelemetry.hpp`\n- `src/Generation/UnifiedModel.hpp`\n- `src/ModelPackaging/ModelPackaging.cpp`\n",
+      "items": [
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/animation_video.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/checkpoint_conversion.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/comfyui_runtime.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/controlnet.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/dit_conversion.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/generate.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/generate_any.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/generation_output.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/generation_preview.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/iild_package.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/inference_session.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/inspect_pipeline.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/local_image.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/model_merge.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/model_merge_compatibility.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/model_merge_unified.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/native_image.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/remote_generation.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/standalone_image.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/unified_image.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/video_interpolator.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/video_runtime.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`reference/diffusers/weight_files.py`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`src/Generation/NativeDiskCache.hpp`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`src/Generation/NativeTelemetry.hpp`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`src/Generation/UnifiedModel.hpp`",
+          "checked": null
+        },
+        {
+          "marker": "-",
+          "text": "`src/ModelPackaging/ModelPackaging.cpp`",
+          "checked": null
+        }
+      ]
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 45,
+      "end_line": 45,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "paragraph",
+      "start_line": 46,
+      "end_line": 48,
+      "raw": "Generation History remains PNG; IISC conversion belongs to editor persistence.\nInstaller smoke fixtures copy bounded embedding/configuration assets and exclude\nbackend weights larger than 64 MiB. They never copy multi-gigabyte developer models.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "File creation ownership in iiLocalDiffusion",
+      "anchor": "file-creation-ownership-in-iilocaldiffusion",
+      "start_line": 1
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000013",
+        "line": 48,
+        "text": "backend weights larger than 64 MiB. They never copy multi-gigabyte developer models.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [],
+    "links": [
+      {
+        "block_id": "b000005",
+        "label": "ownership contract",
+        "target": "../../iiFileProvider/docs/FILE_OWNERSHIP.md",
+        "kind": "relative",
+        "line": 5
+      }
+    ],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}
