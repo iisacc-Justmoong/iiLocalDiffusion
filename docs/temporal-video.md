@@ -56,7 +56,7 @@ reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/pat
   --backend video \
   --prompt 'A glass bottle on a stone table, warm sunlight glinting through amber liquid.' \
   --camera dolly-in --duration 5 --fps 24 --interpolation-factor 2 \
-  --output build/reference/bottle.mp4
+  --output resources/outputs/reference/bottle.mp4
 ```
 
 이미지에서 비디오를 생성하려면 `--first-frame /absolute/path/keyframe.png`를 추가한다. 선택적 `--last-frame /absolute/path/end.png`는 마지막 출력 프레임에 조건을 제공한다. 입력은 정적 로컬 이미지로 디코딩하고 EXIF 방향을 적용한 뒤 RGB로 변환하여 출력 종횡비에 맞게 중앙을 잘라낸다. 키프레임은 모델 생성에 영향을 주며 끝점의 픽셀 일치나 정체성 보존을 보장하지 않는다.
@@ -66,7 +66,7 @@ reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/pat
   --backend video --first-frame /absolute/path/keyframe.png \
   --prompt 'The subject turns slowly toward the window in warm afternoon light.' \
   --camera pan-left zoom-in --duration 3 --seed 7 \
-  --output build/reference/keyframe-video.mp4
+  --output resources/outputs/reference/keyframe-video.mp4
 ```
 
 `--camera`는 호환되는 움직임을 최대 3개 받는다. 편집 가능한 프롬프트 설명은 `--backend video --list-camera-motions`로 나열한다. 지원하는 선택에는 dolly·pan·tilt·orbit·crane·zoom·handheld·tracking·dolly zoom이 있다. `none`은 장면 프롬프트를 유지하고 `static`은 고정된 삼각대를 요청한다. 중립·정지·중복·직접 반대되는 움직임은 섞을 수 없다. 카메라 제어는 학습된 텍스트 조건이며, 측정되거나 보장된 3D 카메라 경로가 아니다. 움직임 설명은 장면 캡션보다 앞에 온다. 선택한 토크나이저 한계를 넘는 요청은 조용히 잘라내어 카메라나 장면 지시를 누락하는 대신, 조치 가능한 오류로 실패한다.
@@ -78,7 +78,7 @@ reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/pat
 ```sh
 reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \
   --backend video --storyboard reference/diffusers/video-storyboard.example.json \
-  --output build/reference/story.mp4
+  --output resources/outputs/reference/story.mp4
 ```
 
 스토리보드는 JSON 객체로 `shots` 배열을 가집니다. 샷 필드는 전역 기본값을 덮어씁니다: `prompt`, `negative_prompt`, `camera` (배열), `frames` 또는 `duration`, `seed`, `first_frame`, `last_frame`, `continue_previous`, `conditions` 입니다. 샷 내 경로는 스토리보드 파일에 상대적입니다. 시간 기반 이미지 조건을 사용하려면:

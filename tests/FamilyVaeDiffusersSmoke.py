@@ -72,7 +72,7 @@ def fixture(directory, family):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", type=Path, default=ROOT / "build/family-vae/smoke")
+    parser.add_argument("--output-dir", type=Path, default=ROOT / "resources/outputs/verification/family-vae/smoke")
     parser.add_argument("--launcher", type=Path, default=ROOT / "reference/generate.py")
     parser.add_argument("--families", nargs="+", default=["sdxl-base", "flux1", "flux2"])
     options = parser.parse_args()

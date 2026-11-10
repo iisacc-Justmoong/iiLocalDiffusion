@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Interpolator video publication without the optional Deforum/OpenCV runtime."""
+import resource_fixture
 
 import builtins
 import importlib.util
@@ -7,7 +8,6 @@ import json
 from pathlib import Path
 import shutil
 import sys
-import tempfile
 import unittest
 from local_model_fixture import local_request
 from unittest.mock import patch
@@ -21,7 +21,7 @@ from animation_video import AnimationOutput, SCHEMAS, encode_video, output_targe
 
 class InterpolatorPublicationTests(unittest.TestCase):
     def setUp(self):
-        temporary = provider.TemporaryDirectory(dir=ROOT / "build", prefix="interpolator-media-")
+        temporary = resource_fixture.TemporaryDirectory(prefix="interpolator-media-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         _, self.args = local_request({"animation_mode": "Interpolator", "max_frames": 3,

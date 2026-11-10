@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline Interpolator request, configuration and routing contracts."""
+import resource_fixture
 
 from contextlib import redirect_stderr
 import io
@@ -7,7 +8,6 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import unittest
 from local_model_fixture import local_request, MODEL
 
@@ -65,7 +65,7 @@ class InterpolatorOptionsTests(unittest.TestCase):
 
     def test_auto_route_wins_over_local_model(self):
         import argparse
-        with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="interpolator-route-") as directory:
+        with resource_fixture.TemporaryDirectory(prefix="interpolator-route-") as directory:
             path = Path(directory) / "config.json"
             path.write_text('{"animation_mode":"Interpolator"}')
             model = Path(directory) / "model.safetensors"

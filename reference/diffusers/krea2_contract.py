@@ -13,6 +13,8 @@ def add_options(parser):
                         help='Krea 2 training variant; auto requires package is_distilled metadata')
     parser.add_argument('--krea2-mu', type=float,
                         help='Explicit Krea 2 exponential timestep shift; otherwise resolution-aware Raw / 1.15 Turbo')
+    parser.add_argument('--krea2-fp8-storage', choices=('dense', 'cpu-stream'),
+                        help='Scaled FP8 single-file storage: dense (default) or layerwise CPU streaming')
 
 
 def default_mu(variant, width, height):
@@ -93,6 +95,12 @@ def validate_pipeline(pipeline, contract):
     config = scheduler.config
     if not config.use_dynamic_shifting or getattr(config, 'time_shift_type', 'exponential') != 'exponential':
         raise ValueError('Krea 2 scheduler requires dynamic exponential time shifting.')
+    # These FlowMatch options replace the published sigma sequence or Euler
+    # update. A compatible class and shift alone do not imply that contract.
+    for key in ('invert_sigmas', 'shift_terminal', 'use_karras_sigmas',
+                'use_exponential_sigmas', 'use_beta_sigmas', 'stochastic_sampling'):
+        if getattr(config, key, None):
+            raise ValueError(f'Krea 2 scheduler {key} is incompatible with the published flow schedule.')
     # This contract describes the published resolution-dependent schedule. A
     # per-request mu override is the supported way to explore another shift.
     for key, expected in (('base_shift', .5), ('max_shift', 1.15),
@@ -113,6 +121,14 @@ def execution(pipeline, inputs, contract, torch):
         value = inputs.get(key)
         if value is not None and (not torch.is_tensor(value) or not bool(torch.isfinite(value).all())):
             raise ValueError(f'Krea 2 {key} must be a finite tensor.')
+    # Krea2Pipeline does not move caller-supplied embeddings to its execution
+    # device. Preserve each tensor's dtype and move it before model execution.
+    device = pipeline._execution_device
+    for key in ('latents', 'prompt_embeds', 'prompt_embeds_mask',
+                'negative_prompt_embeds', 'negative_prompt_embeds_mask'):
+        value = inputs.get(key)
+        if torch.is_tensor(value):
+            inputs[key] = value.to(device=device)
     for prefix in ('', 'negative_'):
         embeds = inputs.get(prefix + 'prompt_embeds')
         if embeds is None:

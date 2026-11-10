@@ -20,10 +20,13 @@ from comfyui_runtime import Client, run as run_workflow, write_json
 from generation_config import json_object
 from generation_seed import resolve_seed
 from weight_files import file_sha256, model_content_sha256, file_signature
+from resource_paths import CACHE_DIRECTORY, DEPENDENCY_DIRECTORY, OUTPUT_DIRECTORY, RUNTIME_DIRECTORY
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SOURCE = ROOT / "build/reference/ComfyUI"
-DEFAULT_PYTHON = ROOT / "build/reference/comfyui-venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+DEFAULT_SOURCE = DEPENDENCY_DIRECTORY / "ComfyUI"
+DEFAULT_PYTHON = RUNTIME_DIRECTORY / "comfyui-venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+DEFAULT_CONVERSION_DIRECTORY = CACHE_DIRECTORY / "converted-checkpoints"
+DEFAULT_JOBS_DIRECTORY = OUTPUT_DIRECTORY / "local-image-jobs"
 
 
 def build_parser():
@@ -158,7 +161,7 @@ def stage_models(request, job):
     for name, value in paths.items():
         original = source_file(value, name)
         if original.suffix.lower() in (".ckpt", ".pt", ".pth", ".bin"):
-            conversion = materialize_safetensors(original, ROOT / "build/reference/converted-checkpoints")
+            conversion = materialize_safetensors(original, DEFAULT_CONVERSION_DIRECTORY)
             path = Path(conversion["converted_path"])
             identities[name] = conversion
         else:
@@ -235,12 +238,12 @@ def managed_server(args, job):
     if args.dtype != "auto":
         command.append("--force-fp32" if args.dtype == "float32" else "--force-fp16")
     environment = dict(os.environ)
-    cache = args.cache_dir.expanduser().absolute() if args.cache_dir else ROOT / "build/reference"
+    cache = args.cache_dir.expanduser().absolute() if args.cache_dir else CACHE_DIRECTORY
     environment.update(HF_HOME=str(cache / "huggingface"),
                        HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1",
                        XDG_CACHE_HOME=str(cache / "comfyui-cache"),
                        TORCH_HOME=str(cache / "torch-cache"),
-                       PYTHONPYCACHEPREFIX=str(cache / "pycache" if args.cache_dir else ROOT / "build/pycache"))
+                       PYTHONPYCACHEPREFIX=str(cache / "pycache"))
     log = job / "runtime.log"
     with provider.open(log, "w") as stream:
         process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT,
@@ -279,7 +282,7 @@ def managed_server(args, job):
 
 
 def prepare_work_directory(args):
-    job = args.work_dir.expanduser().absolute() if args.work_dir else ROOT / "build/reference/local-image-jobs" / uuid.uuid4().hex
+    job = args.work_dir.expanduser().absolute() if args.work_dir else DEFAULT_JOBS_DIRECTORY / uuid.uuid4().hex
     if job.resolve() != job or job.is_symlink():
         raise ValueError("The work directory must not be redirected.")
     if job.exists() and (not job.is_dir() or any(provider.iterdir(job))):

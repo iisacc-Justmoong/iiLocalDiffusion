@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """User-facing Civitai routing and derived-preset argument contracts."""
+import resource_fixture
 
 import argparse
 import importlib.util
@@ -10,7 +11,6 @@ from pathlib import Path
 import subprocess
 import struct
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from local_model_fixture import local_parser, MODEL
@@ -27,7 +27,7 @@ import presets
 class GenerationRouterTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="generation-router-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="generation-router-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 
@@ -45,6 +45,20 @@ class GenerationRouterTests(unittest.TestCase):
         self.assertEqual(self.backend("Illustrious", "auto", "--pipeline-inputs", "{}"), "diffusers")
         with self.assertRaises(ValueError):
             self.backend("Other")
+
+    def test_model_config_preset_selects_generic_diffusers(self):
+        self.assertEqual(self.backend(None, 'auto', '--model-config-preset', 'krea2-turbo'), 'diffusers')
+        self.assertEqual(self.backend(None, 'auto', '--model-config-preset=moss-image-sft'), 'diffusers')
+
+    def test_only_native_foreground_moss_preparation_is_deferred(self):
+        with patch.object(router, '_is_moss_checkpoint', return_value=True) as inspect:
+            self.assertTrue(router.defer_unsupported_foreground(['--model-path', 'moss.safetensors', '--backend', 'local']))
+            self.assertTrue(router.defer_unsupported_foreground(['--model=moss.safetensors', '--backend=local']))
+            self.assertFalse(router.defer_unsupported_foreground(['--model', 'moss.safetensors', '--backend', 'diffusers']))
+            self.assertFalse(router.defer_unsupported_foreground(['--model', 'moss.safetensors']))
+            inspect.assert_any_call('moss.safetensors')
+        with patch.object(router, '_is_moss_checkpoint', return_value=False):
+            self.assertFalse(router.defer_unsupported_foreground(['--model', 'other.safetensors', '--backend', 'local']))
 
     def test_unknown_hosted_and_cross_family_presets_are_rejected(self):
         for name in ("new-model-typo", "OpenAI"):
@@ -121,6 +135,46 @@ class GenerationRouterTests(unittest.TestCase):
                 self.assertEqual(self.backend(None, "auto", "--model", str(path)), "local")
                 self.assertEqual(self.backend("Illustrious", "auto", "--model=" + str(path)), "local")
 
+    def test_auto_routes_recognized_moss_by_tensor_layout_not_filename(self):
+        path = self.directory / 'unrelated-name.safetensors'
+        header = {
+            'video_embedder.weight': {'dtype': 'BF16', 'shape': [4, 2], 'data_offsets': [0, 16]},
+            'final_linear_video.weight': {'dtype': 'BF16', 'shape': [2, 4], 'data_offsets': [16, 32]},
+            'layers.0.proj.qkv.weight': {'dtype': 'I8', 'shape': [12, 4], 'data_offsets': [32, 80]},
+            'layers.0.proj.qkv.comfy_quant': {'dtype': 'U8', 'shape': [2], 'data_offsets': [80, 82]},
+        }
+        data = json.dumps(header, separators=(',', ':')).encode()
+        path.write_bytes(struct.pack('<Q', len(data)) + data + bytes(82))
+        self.assertEqual(self.backend(None, 'auto', '--model', str(path)), 'diffusers')
+        self.assertEqual(self.backend(None, 'local', '--model', str(path)), 'local')
+        config = self.directory / 'moss-request.json'
+        config.write_text(json.dumps({'model': str(path), 'prompt': 'retained'}))
+        with self.assertRaisesRegex(ValueError, 'MOSS.*--config'):
+            self.backend(None, 'auto', '--config', str(config))
+
+        header['layers.0.proj.qkv.weight']['shape'] = [11, 4]
+        header['layers.0.proj.qkv.weight']['data_offsets'] = [32, 76]
+        header['layers.0.proj.qkv.comfy_quant']['data_offsets'] = [76, 78]
+        data = json.dumps(header, separators=(',', ':')).encode()
+        path.write_bytes(struct.pack('<Q', len(data)) + data + bytes(78))
+        self.assertEqual(self.backend(None, 'auto', '--model', str(path)), 'local')
+
+    def test_moss_auto_forwards_a_verified_configuration_without_discarding_inputs(self):
+        path = self.directory / 'model.safetensors'
+        header = {
+            'video_embedder.weight': {'dtype': 'BF16', 'shape': [4, 2], 'data_offsets': [0, 16]},
+            'final_linear_video.weight': {'dtype': 'BF16', 'shape': [2, 4], 'data_offsets': [16, 32]},
+            'layers.0.proj.qkv.weight': {'dtype': 'BF16', 'shape': [12, 4], 'data_offsets': [32, 128]},
+        }
+        data = json.dumps(header, separators=(',', ':')).encode()
+        path.write_bytes(struct.pack('<Q', len(data)) + data + bytes(128))
+        calls = []
+        with patch.object(router.importlib, 'import_module', return_value=SimpleNamespace(main=lambda args: calls.append(args) or 0)):
+            self.assertEqual(router.main(['--model', str(path), '--prompt', 'retained', '--steps', '7']), 0)
+        self.assertEqual(calls[0][calls[0].index('--model-config-preset') + 1], 'moss-image-sft')
+        self.assertEqual(calls[0][calls[0].index('--prompt') + 1], 'retained')
+        self.assertEqual(calls[0][calls[0].index('--steps') + 1], '7')
+
     def test_explicit_runtime_choices_keep_precedence_over_existing_file(self):
         path = self.directory / "download.safetensors"
         path.write_bytes(b"model")
@@ -149,6 +203,43 @@ class GenerationRouterTests(unittest.TestCase):
         for flag in ("--audio-sample-rate", "--video-layout", "--tensor-outputs", "--generation-architecture"):
             with self.subTest(flag=flag):
                 self.assertEqual(self.backend(None, "auto", flag, "value"), "diffusers")
+
+    def test_generic_control_options_route_single_files_to_diffusers(self):
+        path = self.directory / 'download.safetensors'
+        path.write_bytes(b'model')
+        options = (
+            ('--controlnet-format', 'krea2-color-depth'),
+            ('--control-reference-resize', 'comfy-1mp'),
+            ('--control-preprocess', 'canny'), ('--control-preprocessor-library', 'lib'),
+            ('--control-depth-model', 'depth'), ('--control-depth-dtype', 'float16'), ('--control-map-preprocess', 'training'),
+            ('--control-color-image', 'color.png'), ('--control-color-end', '0.5'),
+            ('--control-depth-end', '0.5'), ('--control-inpaint-image', 'image.png'),
+            ('--control-mask-image', 'mask.png'), ('--krea2-edit-reference-attention', 'isolated'),
+            ('--krea2-fp8-storage', 'cpu-stream'),
+            ('--moss-transformer-storage', 'cpu-stream'),
+            ('--moss-rapid-adapter', 'adapter'), ('--moss-regions', 'regions.json'), ('--moss-text-encoder', 'encoder.safetensors'),
+            ('--flux-clip-encoder', 'encoder.safetensors'), ('--flux-t5-encoder', 'encoder.safetensors'),
+            ('--flux-t5-fp8-storage', 'cpu-stream'),
+            ('--flux-transformer-storage', 'cpu-stream'),
+            ('--krea2-regions', 'regions.json'))
+        for flag, value in options:
+            with self.subTest(flag=flag):
+                self.assertEqual(self.backend(None, 'auto', '--model', str(path), flag, value), 'diffusers')
+                self.assertEqual(self.backend(None, 'auto', '--model', str(path), flag + '=' + value), 'diffusers')
+        self.assertEqual(self.backend(None, 'auto', '--model', str(path), '--krea2-control-auto-bucket'), 'diffusers')
+        self.assertEqual(self.backend(None, 'auto', '--model', str(path), '--controlnet', 'adapter'), 'local')
+        self.assertEqual(self.backend(None, 'auto', '--model', str(path), '--preset', 'sdxl',
+                                      '--control-preprocess', 'canny'), 'preset')
+        self.assertEqual(self.backend(None, 'local', '--model', str(path), '--control-preprocess', 'canny'), 'local')
+
+    def test_generic_control_single_file_reports_missing_configuration(self):
+        path = self.directory / 'download.safetensors'
+        path.write_bytes(b'model')
+        result = subprocess.run([sys.executable, '-S', str(ROOT / 'reference/generate.py'),
+                                 '--model', str(path), '--controlnet-format', 'krea2-color-depth',
+                                 '--print-config'], capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('single-file model requires --model-config', result.stderr)
 
     def test_editing_pipeline_and_inputs_override_downloaded_file_auto_route(self):
         path = self.directory / "download.safetensors"
@@ -179,6 +270,91 @@ class GenerationRouterTests(unittest.TestCase):
         self.assertEqual(self.backend(None, "auto", "--model", str(directory)), "preset")
         (directory / "model_index.json").write_text("{}")
         self.assertEqual(self.backend(None, "auto", "--model", str(directory)), "diffusers")
+
+    def test_krea2_control_uses_existing_tokenizer_through_frontdoor(self):
+        model = self.directory / 'krea2'
+        model.mkdir()
+        (model / 'model_index.json').write_text(json.dumps({'_class_name': 'Krea2Pipeline',
+            'is_distilled': True, 'text_encoder': ['transformers', 'Qwen3VLModel'],
+            'vae': ['diffusers', 'AutoencoderKLQwenImage']}))
+        for folder, name in (('text_encoder', 'model.safetensors'), ('vae', 'diffusion_pytorch_model.safetensors')):
+            (model / folder).mkdir()
+            (model / folder / name).write_bytes(b'fixture')
+        adapter = self.directory / 'adapter.safetensors'
+        hint = self.directory / 'hint.png'
+        adapter.write_bytes(b'fixture')
+        hint.write_bytes(b'fixture')
+        result = subprocess.run([sys.executable, '-S', str(ROOT / 'reference/generate.py'), '--model', str(model),
+            '--controlnet', str(adapter), '--control-image', str(hint), '--seed', '7',
+            '--no-default-modifiers', '--print-config'], capture_output=True, text=True, check=True)
+        report = json.loads(result.stdout)
+        self.assertEqual(report['runner'], 'generic-diffusers')
+        self.assertEqual(report['controlnet']['kind'], 'krea2-expanded-input-control-lora')
+        self.assertEqual(report['tokenizer']['status'], 'fallback')
+        self.assertEqual(len(report['tokenizer']['files']), 3)
+
+    def test_flux_and_moss_control_use_generic_frontdoor_offline(self):
+        for family in ('flux', 'moss'):
+            with self.subTest(family=family):
+                model = self.directory / family
+                model.mkdir()
+                index = {'_class_name': 'FluxPipeline' if family == 'flux' else 'MOSSImagePipeline',
+                         'vae': ['diffusers', 'AutoencoderKL' if family == 'flux' else 'AutoencoderKLFlux2']}
+                if family == 'moss':
+                    index.update({'transformer': ['pipeline_moss_image', 'MOSSImageTransformer'],
+                                  'scheduler': ['pipeline_moss_image', 'MOSSImageScheduler'],
+                                  'text_encoder': ['transformers', 'Qwen3_5Model'],
+                                  'tokenizer': ['transformers', 'Qwen2Tokenizer']})
+                (model / 'model_index.json').write_text(json.dumps(index))
+                if family == 'moss':
+                    (model / 'text_encoder').mkdir()
+                    (model / 'text_encoder/model.safetensors').write_bytes(b'fixture')
+                (model / 'vae').mkdir()
+                (model / 'vae' / 'diffusion_pytorch_model.safetensors').write_bytes(b'fixture')
+                hint = model / 'hint.png'
+                hint.write_bytes(b'fixture')
+                if family == 'flux':
+                    adapter = model / 'control'
+                    adapter.mkdir()
+                    (adapter / 'config.json').write_text('{"_class_name":"FluxControlNetModel"}')
+                    (adapter / 'diffusion_pytorch_model.safetensors').write_bytes(b'fixture')
+                else:
+                    adapter = model / 'control.safetensors'
+                    adapter.write_bytes(b'fixture')
+                result = subprocess.run([sys.executable, '-S', str(ROOT / 'reference/generate.py'),
+                    '--model', str(model), '--controlnet', str(adapter), '--control-image', str(hint),
+                    '--control-preprocess', 'canny', '--seed', '7', '--no-default-modifiers', '--print-config'],
+                    capture_output=True, text=True, check=True)
+                report = json.loads(result.stdout)
+                self.assertEqual(report['runner'], 'generic-diffusers')
+                self.assertEqual(report['control_preprocess'], 'canny')
+                if family == 'flux':
+                    self.assertEqual(report['controlnet']['component_class'], 'FluxControlNetModel')
+                else:
+                    self.assertEqual(report['controlnet']['kind'], 'moss-image-color-depth-control')
+                    self.assertEqual(report['moss_tokenizer']['status'], 'fallback')
+
+    def test_klein_reference_control_uses_generic_frontdoor_offline(self):
+        model = self.directory / 'klein'
+        (model / 'vae').mkdir(parents=True)
+        (model / 'model_index.json').write_text(json.dumps({'_class_name': 'Flux2KleinPipeline',
+            'vae': ['diffusers', 'AutoencoderKLFlux2']}))
+        (model / 'vae' / 'diffusion_pytorch_model.safetensors').write_bytes(b'fixture')
+        adapter, hint, reference = (model / name for name in ('control.safetensors', 'hint.png', 'reference.png'))
+        for path in (adapter, hint, reference):
+            path.write_bytes(b'fixture')
+        result = subprocess.run([sys.executable, '-S', str(ROOT / 'reference/generate.py'),
+            '--model', str(model), '--controlnet', str(adapter), '--controlnet-format', 'flux2-klein-reference',
+            '--control-image', str(hint), '--control-preprocess', 'canny',
+            '--control-reference-resize', 'comfy-1mp',
+            '--pipeline-inputs', json.dumps({'image': {'image_path': str(reference)}}),
+            '--seed', '7', '--no-default-modifiers', '--print-config'], capture_output=True, text=True, check=True)
+        report = json.loads(result.stdout)
+        self.assertEqual(report['runner'], 'generic-diffusers')
+        self.assertEqual(report['controlnet']['kind'], 'flux2-klein-reference-lora')
+        self.assertEqual(report['controlnet']['reference_order'], ['control', 'reference'])
+        self.assertEqual(report['controlnet']['reference_resize'], 'comfy-1mp')
+        self.assertEqual(report['control_preprocess'], 'canny')
 
     def test_nonexistent_model_print_config_keeps_original_preset_contract(self):
         self.assertEqual(self.backend("Illustrious", "auto", "--model", str(self.directory / "not-downloaded.safetensors"), "--print-config"), "preset")

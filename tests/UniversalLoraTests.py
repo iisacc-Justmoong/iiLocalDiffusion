@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """LoRA routing and family defaults without importing an inference runtime."""
+import resource_fixture
 import hashlib
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +15,7 @@ from generation_defaults import read_defaults
 
 class UniversalLoraTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="universal-lora-")
+        self.temporary = resource_fixture.TemporaryDirectory(prefix="universal-lora-")
         self.directory = Path(self.temporary.name)
         self.model = self.directory / "model"
         self.model.mkdir()

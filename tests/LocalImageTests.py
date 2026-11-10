@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Downloaded-file routing, integrity and managed-process lifecycle contracts."""
+import resource_fixture
 
 import json
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 from types import SimpleNamespace
@@ -20,7 +20,7 @@ from _file_provider import provider
 class LocalImageTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = provider.TemporaryDirectory(dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.model = self.directory / "download.safetensors"
@@ -147,6 +147,21 @@ class LocalImageTests(unittest.TestCase):
         self.assertTrue((self.directory / "custom_nodes").is_dir())
         self.assertEqual(popen.call_args.kwargs["env"]["PYTHONPYCACHEPREFIX"], str(args.cache_dir / "pycache"))
         self.assertEqual(popen.call_args.kwargs["env"]["HF_HOME"], str(args.cache_dir / "huggingface"))
+        process.terminate.assert_called_once()
+        process.wait.assert_called_once()
+
+    def test_managed_server_default_python_cache_uses_resource_cache(self):
+        args = self.runtime_args()
+        process = Mock()
+        process.poll.return_value = None
+        client = Mock(url="http://127.0.0.1:1234")
+        client.json.side_effect = [{}, {"devices": [{"type": "cpu"}]}]
+        with patch("local_image.subprocess.Popen", return_value=process) as popen, \
+             patch("local_image.Client", return_value=client):
+            with local_image.managed_server(args, self.directory):
+                pass
+        self.assertEqual(popen.call_args.kwargs["env"]["PYTHONPYCACHEPREFIX"],
+                         str(local_image.CACHE_DIRECTORY / "pycache"))
         process.terminate.assert_called_once()
         process.wait.assert_called_once()
 

@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/generation-parameters.md",
-    "sha256": "5b12153c91cbe9f0adcf49cbd1d059c4681bbf48161ce0747ec949ec072db130",
-    "bytes": 27748,
+    "sha256": "bbff0cd1e0979f36b127b9ad586e1e8d51ffbd0718ae122e5b5b622016c004aa",
+    "bytes": 27764,
     "line_count": 240,
     "encoding": "utf-8",
     "language": "ko"
@@ -698,7 +698,7 @@
       "kind": "table",
       "start_line": 141,
       "end_line": 163,
-      "raw": "|인수|기본/동작|\n|---|---|\n| `--device` |`auto`: 먼저 CUDA/ROCm과 호환되고 그 다음에는 Metal; 무음 없음 CPU 대체 경로|\n| `--device-index` |0 에서 설명되며 경계 검사된 CUDA /ROCm 인덱스, CPU / Metal 는 0를 필요로 합니다.|\n| `--dtype` |`auto` 또는 명시적인 부동소수점32/부동소수점16/bfloat16]|\n| `--weight-variant` |`auto`, `none` 또는 명시적인 파일명 변형; 변환 데이터형과 독립적|\n| `--low-cpu-mem-usage` |모델, VAE, LoRA 및 ControlNet 로더에 대해 참|\n| `--cpu-text-encoding` |거짓|\n| `--cpu-text-dtype` |`auto`; 명시적인 데이터형은 CPU 텍스트 인코딩이 필요함|\n| `--cpu-threads` |설치된 런타임 기본값을 유지; 명시적인 개수는 양수여야 함|\n| `--offload` |`auto`; 오버라이드는 없음/모델/순차적|\n| `--cuda-tf32` |자동으로 자격 있는 NVIDIA 정책; 명시적인 TF32 스위치는 AMD 에서 거부됨|\n| `--attention-slicing` |사전 설정/장치 정책; 호환되지 않는 FLUX 요청이 실패합니다.|\n| `--attention-slice-size` |`auto`; 또한 최대 또는 양의 정수를 허용함|\n| `--vae-slicing`, `--vae-tiling` |사전 설정/장치 정책, 명시적 활성화/비활성화|\n| `--watermark` |SDXL 거짓; 명시적인 참은 선택적 설치된 의존성이 필요함|\n| `--progress` |참; false는 생성 진행 상황을 숨깁니다.|\n| `--cache-dir`, `--xet-cache-dir` |리포지토리 build/reference/huggingface 및 Huggingface-xet|\n| `--local-files-only` |참; 비활성화가 거부되었습니다.|\n| `--output` |build/reference 하의 사전설정 파일명; 사용자 정의/vae/lora/embedding/controlnet/hires 접미사가 구성됨|\n| `--overwrite` |거짓|\n| `--png-compress-level` |6, 범위 0–9; 무손실|\n| `--png-optimize` |거짓; 무손실 스토리지 최적화|\n",
+      "raw": "|인수|기본/동작|\n|---|---|\n| `--device` |`auto`: 먼저 CUDA/ROCm과 호환되고 그 다음에는 Metal; 무음 없음 CPU 대체 경로|\n| `--device-index` |0 에서 설명되며 경계 검사된 CUDA /ROCm 인덱스, CPU / Metal 는 0를 필요로 합니다.|\n| `--dtype` |`auto` 또는 명시적인 부동소수점32/부동소수점16/bfloat16]|\n| `--weight-variant` |`auto`, `none` 또는 명시적인 파일명 변형; 변환 데이터형과 독립적|\n| `--low-cpu-mem-usage` |모델, VAE, LoRA 및 ControlNet 로더에 대해 참|\n| `--cpu-text-encoding` |거짓|\n| `--cpu-text-dtype` |`auto`; 명시적인 데이터형은 CPU 텍스트 인코딩이 필요함|\n| `--cpu-threads` |설치된 런타임 기본값을 유지; 명시적인 개수는 양수여야 함|\n| `--offload` |`auto`; 오버라이드는 없음/모델/순차적|\n| `--cuda-tf32` |자동으로 자격 있는 NVIDIA 정책; 명시적인 TF32 스위치는 AMD 에서 거부됨|\n| `--attention-slicing` |사전 설정/장치 정책; 호환되지 않는 FLUX 요청이 실패합니다.|\n| `--attention-slice-size` |`auto`; 또한 최대 또는 양의 정수를 허용함|\n| `--vae-slicing`, `--vae-tiling` |사전 설정/장치 정책, 명시적 활성화/비활성화|\n| `--watermark` |SDXL 거짓; 명시적인 참은 선택적 설치된 의존성이 필요함|\n| `--progress` |참; false는 생성 진행 상황을 숨깁니다.|\n| `--cache-dir`, `--xet-cache-dir` |resources/.state/reference-cache/huggingface 및 huggingface-xet|\n| `--local-files-only` |참; 비활성화가 거부되었습니다.|\n| `--output` |`resources/outputs/reference/` 하의 사전설정 파일명; 사용자 정의/vae/lora/embedding/controlnet/hires 접미사가 구성됨|\n| `--overwrite` |거짓|\n| `--png-compress-level` |6, 범위 0–9; 무손실|\n| `--png-optimize` |거짓; 무손실 스토리지 최적화|\n",
       "columns": [
         "인수",
         "기본/동작"
@@ -766,7 +766,7 @@
         ],
         [
           "`--cache-dir`, `--xet-cache-dir`",
-          "리포지토리 build/reference/huggingface 및 Huggingface-xet"
+          "resources/.state/reference-cache/huggingface 및 huggingface-xet"
         ],
         [
           "`--local-files-only`",
@@ -774,7 +774,7 @@
         ],
         [
           "`--output`",
-          "build/reference 하의 사전설정 파일명; 사용자 정의/vae/lora/embedding/controlnet/hires 접미사가 구성됨"
+          "`resources/outputs/reference/` 하의 사전설정 파일명; 사용자 정의/vae/lora/embedding/controlnet/hires 접미사가 구성됨"
         ],
         [
           "`--overwrite`",
@@ -1680,7 +1680,7 @@
           ],
           [
             "`--cache-dir`, `--xet-cache-dir`",
-            "리포지토리 build/reference/huggingface 및 Huggingface-xet"
+            "resources/.state/reference-cache/huggingface 및 huggingface-xet"
           ],
           [
             "`--local-files-only`",
@@ -1688,7 +1688,7 @@
           ],
           [
             "`--output`",
-            "build/reference 하의 사전설정 파일명; 사용자 정의/vae/lora/embedding/controlnet/hires 접미사가 구성됨"
+            "`resources/outputs/reference/` 하의 사전설정 파일명; 사용자 정의/vae/lora/embedding/controlnet/hires 접미사가 구성됨"
           ],
           [
             "`--overwrite`",

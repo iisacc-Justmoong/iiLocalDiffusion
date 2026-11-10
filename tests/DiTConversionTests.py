@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """DiT-standard conversion and merge integration regressions."""
+import resource_fixture
 
 from contextlib import redirect_stdout
 import importlib.util
@@ -7,7 +8,6 @@ import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 
 
@@ -28,7 +28,7 @@ class DiTConversionTests(unittest.TestCase):
 
         self.torch, self.load, self.save, self.safe_open = torch, load_file, save_file, safe_open
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="dit-conversion-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="dit-conversion-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.template = self.root / "tsubaki.safetensors"

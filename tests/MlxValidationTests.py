@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Lightweight validation-harness contracts; no model or GPU download needed."""
+import resource_fixture
 
 from contextlib import redirect_stderr, redirect_stdout
 import io
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -17,8 +17,7 @@ import check_mlx_linear
 
 class MlxValidationTests(unittest.TestCase):
     def setUp(self):
-        (ROOT / "build").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(prefix="mlx-validation-", dir=ROOT / "build")
+        self.temporary = resource_fixture.TemporaryDirectory(prefix="mlx-validation-")
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
         self.base = ["--model", "unused.safetensors", "--weight-key", "weight",
@@ -44,7 +43,7 @@ class MlxValidationTests(unittest.TestCase):
     def test_batch_must_be_positive(self):
         self.assert_rejected(["--batch-size", "0"], "--batch-size must be positive")
 
-    def test_output_must_be_under_build(self):
+    def test_output_must_be_under_resources(self):
         self.assert_rejected(["--output-dir", str(ROOT / "outside-build")], "under the repository")
 
     def test_existing_evidence_is_preserved(self):

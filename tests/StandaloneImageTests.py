@@ -73,7 +73,7 @@ class StandaloneImageTests(unittest.TestCase):
                 patch("model_loading._load_checkpoint_pipeline", return_value=result) as assemble:
             pipeline, metadata = load_generation_pipeline(object, preset, args.model_selection, args.config_selection,
                 None, {"dtype": "float32", "cache_dir": self.directory},
-                {"AutoencoderKL": SimpleNamespace(from_pretrained=Mock(return_value=vae))},
+                {"AutoencoderKL": SimpleNamespace(from_pretrained=Mock(return_value=(vae, {})))},
                 vae_selection=args.vae_selection, vae_status=args.vae_status)
         self.assertIs(pipeline, result)
         self.assertIs(assemble.call_args.args[5]["vae"], vae)

@@ -1,4 +1,5 @@
 """Inspect metadata without loading weights; preserve manual Society classification."""
+import resource_fixture
 import hashlib
 import json
 import os
@@ -6,7 +7,6 @@ from pathlib import Path
 import struct
 import subprocess
 import sys
-import tempfile
 import unittest
 
 PROGRAM = Path(sys.argv.pop(1)).resolve()
@@ -22,7 +22,7 @@ def safetensors(path, metadata=None, names=(), payload=b"\0\0"):
 
 class InspectionTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="inspection-", dir=PROGRAM.parent)
+        self.temporary = resource_fixture.TemporaryDirectory(prefix="inspection-")
         self.root = Path(self.temporary.name)
 
     def tearDown(self):

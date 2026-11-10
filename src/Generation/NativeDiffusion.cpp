@@ -4,6 +4,7 @@
 #include "NativeDiskCache.hpp"
 #include "NativeVaePolicy.hpp"
 #include "NativeTelemetry.hpp"
+#include "NativeModelInspection.hpp"
 #include "GenerationDefaults.hpp"
 #include "UnifiedModel.hpp"
 #include "NativeEngineAccess.hpp"
@@ -27,6 +28,7 @@
 #endif
 #if IILD_HAS_NATIVE_DIFFUSION
 #include <stable-diffusion.h>
+#include "NativeImageEngineReport.hpp"
 #endif
 
 namespace iiLocalDiffusion {
@@ -97,6 +99,11 @@ ImageParameters nativeImageParameterDefaults(const std::filesystem::path &modelP
     auto defaults = ImageParameters::defaults();
     if (isOnnxModel(modelPath)) return defaults;
 #if IILD_HAS_NATIVE_DIFFUSION
+    // Parameter defaults must remain available even for unsupported or
+    // incomplete selections. Defer the actionable error to generation, but
+    // do not send a known-incompatible file to the engine's VAE inspector.
+    try { native_detail::inspectNativeImageModel(modelPath); }
+    catch (const std::exception &) { return defaults; }
     sd_model_vae_info_t info{};
     if (sd_model_inspect_vae(modelPath.string().c_str(), &info) && info.model_family
         && std::string_view(info.model_family) == "krea2") {
@@ -106,6 +113,16 @@ ImageParameters nativeImageParameterDefaults(const std::filesystem::path &modelP
     }
 #endif
     return defaults;
+}
+NativeGenerationRequest resolveNativeImageDefaults(const NativeGenerationRequest &request) {
+    auto resolved = request;
+    if (request.width == 0 || request.height == 0 || request.steps == 0) {
+        const auto defaults = nativeImageParameterDefaults(request.modelPath);
+        if (request.width == 0) resolved.width = int(std::get<std::int64_t>(defaults.values.at("width")));
+        if (request.height == 0) resolved.height = int(std::get<std::int64_t>(defaults.values.at("height")));
+        if (request.steps == 0) resolved.steps = int(std::get<std::int64_t>(defaults.values.at("steps")));
+    }
+    return resolved;
 }
 std::filesystem::path nativeGenerationResourceDirectory() { return native_detail::generationResourceDirectory(); }
 void releaseNativeDiffusionCache() noexcept {
@@ -153,7 +170,8 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
     const NativePreviewCallback &preview = {}, const NativeGenerationResult *initial = nullptr, float strength = 1.0f,
     const std::filesystem::path &explicitVae = {}, const NativeModelComponents *components = nullptr,
     const NativeSamplingControls *sampling = nullptr, bool residentWeights = false,
-    const NativeAdvancedControls *advanced = nullptr)
+    const NativeAdvancedControls *advanced = nullptr, NativeImageReport *report = nullptr,
+    bool applyComponentSettings = true)
 {
     NativeGenerationResult result;
     native_detail::NativeTelemetry telemetry;
@@ -254,6 +272,7 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             throw std::runtime_error("Invalid native image generation parameters.");
         if (options.negativePrompt.size() > 128000 || options.negativePrompt.find('\0') != std::string::npos)
             throw std::runtime_error("Invalid native negative prompt.");
+        native_detail::inspectNativeImageModel(request.modelPath);
         if (residentWeights && !request.q8CacheDirectory.empty())
             throw std::runtime_error("Memory-resident model loading cannot use a disk-backed Q8 cache.");
         if (sampling) {
@@ -938,7 +957,7 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         // Native hires.steps counts active refinement steps, unlike the full
         // Diffusers schedule. Never allow a small request to skip denoising.
         parameters.hires.steps = std::max(1, int(static_cast<float>(request.steps) * parameters.hires.denoising_strength));
-        if (components) {
+        if (components && applyComponentSettings) {
             parameters.sample_params.guidance.txt_cfg = components->guidanceScale;
             parameters.sample_params.guidance.distilled_guidance = components->distilledGuidance;
             parameters.hires.enabled = components->hires;
@@ -1037,6 +1056,20 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         telemetry.stage("text-encode");
         if (progress) progress({NativeGenerationStage::Encoding});
         bool ok = false;
+        NativeImageStageSettings stage;
+        if (report) {
+            stage.modelPath = request.modelPath;
+            stage.effectiveModelPath = effectiveModel;
+            stage.q8CacheUsed = result.q8CacheUsed;
+            stage.vaePath = vaePath;
+            stage.modelFamily = family;
+            stage.prompt = effectivePrompt;
+            stage.negativePrompt = negativePrompt;
+            stage.loras = selectedLoras;
+            stage.flowShift = parameters.sample_params.flow_shift;
+            iild_set_image_report_callback(native_detail::captureImageEngineReport, &stage);
+        }
+        struct ReportReset { ~ReportReset() { iild_set_image_report_callback(nullptr, nullptr); } } reportReset;
         {
             Elapsed timing{result.generationMilliseconds};
             ok = useRefiner
@@ -1048,6 +1081,15 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         if (timedOut()) throw std::runtime_error("Native image generation exceeded its time limit.");
         if (!ok || !images.data || images.count != 1 || !images.data[0].data || images.data[0].channel != 3)
             throw std::runtime_error(callbacks.failure("The native engine did not return a complete RGB image."));
+        if (report) {
+            if (!stage.resolved || (stage.hires && !stage.hiresResolved))
+                throw std::runtime_error("The native engine did not report its resolved image settings.");
+            if (const auto name = sd_sample_method_name(static_cast<sample_method_t>(stage.sampler))) stage.samplerName = name;
+            if (stage.scheduler < 0) stage.schedulerName = "custom_sigmas";
+            else if (const auto name = sd_scheduler_name(static_cast<scheduler_t>(stage.scheduler))) stage.schedulerName = name;
+            if (const auto name = sd_hires_upscaler_name(static_cast<sd_hires_upscaler_t>(stage.hiresUpscaler))) stage.hiresUpscalerName = name;
+            report->stages.push_back(std::move(stage));
+        }
         if (advanced && advanced->detailer) {
             if (stopped()) throw std::runtime_error("Detailer interrupted before detection.");
             // Whole-image hints/masks use different coordinates from Detailer crops.
@@ -1150,13 +1192,13 @@ static NativeGenerationResult dispatchNativeImage(const NativeGenerationRequest 
     const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control,
     bool prepareOnly, NativeComputeBackend backend = NativeComputeBackend::Automatic,
-    const NativePreviewCallback &preview = {}, bool residentWeights = false)
+    const NativePreviewCallback &preview = {}, bool residentWeights = false, NativeImageReport *report = nullptr)
 {
     std::error_code error;
     if (!std::filesystem::is_directory(request.modelPath, error)
         && !native_detail::isUnifiedModelPackage(request.modelPath))
         return nativeImage(request, options, cancelled, progress, control, prepareOnly, backend, preview,
-                           nullptr, 1.0f, {}, nullptr, nullptr, residentWeights);
+                           nullptr, 1.0f, {}, nullptr, nullptr, residentWeights, nullptr, report);
     NativeGenerationResult result;
     try {
         if (cancelled) { result.cancelled = true; return result; }
@@ -1185,7 +1227,7 @@ static NativeGenerationResult dispatchNativeImage(const NativeGenerationRequest 
                 preview ? NativePreviewCallback([&](const NativeGenerationPreview &frame) {
                     auto unified = frame; unified.sequence = ++previewSequence; preview(unified);
                 }) : NativePreviewCallback{}, i ? &result : nullptr, stage.strength, stage.vae,
-                nullptr, nullptr, residentWeights);
+                nullptr, nullptr, residentWeights, nullptr, report);
             if (next.cancelled || !next.error.empty()) {
                 if (!next.error.empty()) next.error = "Unified stage " + std::to_string(i + 1) + ": " + next.error;
                 return next;
@@ -1205,6 +1247,15 @@ static NativeGenerationResult dispatchNativeImage(const NativeGenerationRequest 
         result.rgb.clear(); result.error = failure.what();
     }
     return result;
+}
+
+NativeImageExecution generateNativeImageWithReport(const NativeGenerationRequest &request,
+    const std::atomic_bool &cancelled, const NativeProgressCallback &progress) {
+    NativeImageExecution execution;
+    execution.report.resolvedRequest = resolveNativeImageDefaults(request);
+    execution.image = dispatchNativeImage(execution.report.resolvedRequest, {}, cancelled, progress, {}, false,
+        NativeComputeBackend::Automatic, {}, false, &execution.report);
+    return execution;
 }
 
 NativeGenerationResult generateNativeImageWithOptions(const NativeGenerationRequest &request,
@@ -1228,6 +1279,17 @@ NativeGenerationResult generateNativeImageWithResidentWeights(const NativeGenera
     const std::shared_ptr<NativeExecutionControl> &control)
 {
     return dispatchNativeImage(request, options, cancelled, progress, control, false, backend, preview, true);
+}
+
+NativeGenerationResult generateNativeImageWithResidentPackage(const NativeImagePackage &package,
+    const NativeGenerationOptions &options, NativeComputeBackend backend, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const NativePreviewCallback &preview,
+    const std::shared_ptr<NativeExecutionControl> &control)
+{
+    if (!package.packaged)
+        return dispatchNativeImage(package.request, options, cancelled, progress, control, false, backend, preview, true);
+    return nativeImage(package.request, options, cancelled, progress, control, false, backend, preview,
+        nullptr, 1.0f, package.components.vae, &package.components, nullptr, true, nullptr, nullptr, false);
 }
 
 NativeGenerationResult generateNativeImageWithBackend(const NativeGenerationRequest &request,

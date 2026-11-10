@@ -35,8 +35,8 @@ def model_profile(readers, layout):
         denoiser_namespace = address[1].startswith(("model.diffusion_model.", "diffusion_model."))
         if kind == "other" and denoiser_namespace and set(identity.families) & {"sd1", "sd2", "sdxl"}:
             kind = "unet"
-        if kind == "other" and any(family in identity.families for family in ("flux1", "flux2", "anima", "sd3")):
-            if denoiser_namespace or any(token in address[1] for token in ("blocks.", "img_in.", "txt_in.", "final_layer.")):
+        if kind == "other" and any(family in identity.families for family in ("flux1", "flux2", "anima", "sd3", "moss-image")):
+            if denoiser_namespace or any(token in address[1] for token in ("blocks.", "layers.", "img_in.", "txt_in.", "final_layer.", "video_embedder.", "final_linear_video.")):
                 kind = "dit"
         group = groups[kind]
         group["tensor_count"] += 1

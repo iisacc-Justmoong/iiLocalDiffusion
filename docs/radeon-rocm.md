@@ -47,7 +47,7 @@ python reference/diffusers/generate.py --preset sdxl-base --device rocm --model-
   --vae /absolute/path/vae.safetensors \
   --lora /absolute/path/style.safetensors --lora-scale 0.75 \
   --cpu-text-encoding --offload model \
-  --output build/reference/radeon/sdxl-lora.png
+  --output resources/outputs/reference/radeon/sdxl-lora.png
 ```
 
 공급되지 않은 경우 선택적 VAE / LoRA 인수를 생략합니다. 기존 프리셋, 체크포인트 레이아웃, 보조 구성, 버전 및 라이선스 계약은 여전히 적용되며, 파일 이름 확장자만으로는 모델 호환성을 결정하지 않습니다. 모든 필수 구성과 보조 구성 요소가 이미 캐싱되어 있는 경우 `--local-files-only` 를 사용하세요. 이 기능은 새로운 모델 기본값을 제공하지 않습니다.

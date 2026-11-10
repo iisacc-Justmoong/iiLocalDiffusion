@@ -1,11 +1,11 @@
 """Archived regressions for compatibility bridges superseded by base-scoped selection."""
+import resource_fixture
 from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -23,7 +23,7 @@ class ModelMergeCompatibilityTests(unittest.TestCase):
         import torch
         from safetensors.torch import load_file, save_file
         self.t, self.save, self.load = torch, save_file, load_file
-        temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="compatibility-")
+        temporary = resource_fixture.TemporaryDirectory(prefix="compatibility-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.base, self.lora = self.root / "base.safetensors", self.root / "style.safetensors"

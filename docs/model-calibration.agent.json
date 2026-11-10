@@ -1,0 +1,121 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:afa7eb8058f930fd4f4e28f18fc008bc588d50da3094b7b2d490cc033e4517f3",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "docs/model-calibration.md",
+    "sha256": "60b7266f729da1ca39fe85e67f0cea7b4dad4979b5faf3d1e43d7f537578064b",
+    "bytes": 2152,
+    "line_count": 34,
+    "encoding": "utf-8",
+    "language": "en"
+  },
+  "document": {
+    "title": "Model calibration",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# Model calibration\n",
+      "level": 1,
+      "title": "Model calibration"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "paragraph",
+      "start_line": 3,
+      "end_line": 8,
+      "raw": "`iiLocalDiffusion::ModelPackaging` provides C++23 APIs for bounded Safetensors\nweight inspection and for creating a corrected copy. `inspectModelWeights`\ncounts non-finite IEEE F16, BF16, F32 and F64 values; it reports unchecked\ntensor types separately. Inspection does not execute a model or establish its\ngeneration quality. Integer, FP8 and other encodings are not numerically\nvalidated by this operation.\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 9,
+      "end_line": 9,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 10,
+      "end_line": 16,
+      "raw": "`calibrateModelPackage` verifies an iiLocalDiffusion package, reconstructs its\nincluded original components, reclassifies their roles using the current\npackager, and creates and verifies a new package. It leaves tensor bytes\nunchanged by default. Qwen language-model tensors are recognized as a text\nencoder when a main diffusion transformer is not present. A full MOSS\ntransformer signature takes precedence over language tensors. Recognition\ndoes not guarantee that a downstream inference engine can execute the model.\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 17,
+      "end_line": 17,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "paragraph",
+      "start_line": 18,
+      "end_line": 26,
+      "raw": "An explicit `replaceNonfiniteWithZero` option replaces non-finite values in\nsupported floating-point tensors in the reconstructed copy. For standalone\nSafetensors, `calibrateModelFile` provides the same explicit numeric operation;\nit refuses embedded iiLocalDiffusion packages so their checksums cannot be\ninvalidated. Replacing values changes weights and is not a quality guarantee.\nThe source and any existing destination are never overwritten. Temporary\nfiles are removed on normal completion, failure and cooperative cancellation.\nThe operation can require space for reconstructed components and a second\npackage. Power loss or forcible process termination may leave temporary files.\n"
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 27,
+      "end_line": 27,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 28,
+      "end_line": 34,
+      "raw": "The `iild-model-package` CLI exposes `weight-health`, `calibrate`, and\n`calibrate-file` operations. Numeric repair requires `--repair-nonfinite true`.\nThe Python module provides `inspect_weights`, `calibrate_package`, and\n`repair_standalone_weights`. `tests/ModelPackagingTests.py` uses synthetic\nmodels to verify classification, package reconstruction, numeric repair,\nsource preservation, output verification, and unchecked encodings. No\npretrained model inference or visual-quality improvement is asserted.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "Model calibration",
+      "anchor": "model-calibration",
+      "start_line": 1
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000007",
+        "line": 23,
+        "text": "The source and any existing destination are never overwritten. Temporary",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [],
+    "links": [],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

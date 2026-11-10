@@ -8,7 +8,9 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
+
+sys.dont_write_bytecode = True
+import resource_runner
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,6 +22,11 @@ def main():
     args = parser.parse_args()
     args.merge_entry = args.merge_entry.absolute()
     args.generate_entry = args.generate_entry.absolute()
+    with resource_runner.workspace(ROOT / "resources") as run:
+        run_smoke(args, run)
+
+
+def run_smoke(args, run):
     import torch
     import peft
     from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel
@@ -28,9 +35,6 @@ def main():
     from PIL import Image
 
     torch.set_num_threads(2)
-    destination = ROOT / "build/reference/model-merge-lora-smoke"
-    destination.mkdir(parents=True, exist_ok=True)
-    run = Path(tempfile.mkdtemp(prefix="run-", dir=destination))
     models = []
     for index, name in enumerate(("base", "checkpoint")):
         torch.manual_seed(31 + index)
@@ -53,7 +57,8 @@ def main():
         adapters.append(path)
     environment = {**os.environ, "IILD_PYTHON_EXECUTABLE": sys.executable,
                    "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
-                   "PYTHONPYCACHEPREFIX": str(ROOT / "build/pycache")}
+                   "PYTHONDONTWRITEBYTECODE": "1"}
+    environment.pop("PYTHONPYCACHEPREFIX", None)
     cases = []
     for mode in ("weighted-sum", "weighted-difference"):
         merged = run / mode
@@ -101,10 +106,9 @@ def main():
                       "peft_unfused_forward_verified": True, "image": str(images[0]), "merge": report})
     report = {"schema": "iild-model-merge-lora-smoke-v1", "offline": True, "peft": peft.__version__,
               "inputs": "locally initialized tiny DDPM checkpoints and two nonzero LoRAs with ranks 2 and 3",
-              "merge_entry": str(args.merge_entry), "generate_entry": str(args.generate_entry), "cases": cases}
-    report_path = run / "verification.json"
-    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(report_path)
+              "merge_entry": str(args.merge_entry), "generate_entry": str(args.generate_entry), "cases": cases,
+              "temporary_artifacts_removed_after_command": True}
+    print(json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":

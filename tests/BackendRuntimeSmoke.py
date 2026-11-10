@@ -2,7 +2,7 @@
 """Offline real Diffusers architecture/CLI/output smoke with tiny random weights.
 
 Exercises computation, not pretrained quality. Does not download any model.
-Artifacts and the machine-readable result stay in build/.
+Artifacts and the machine-readable result stay in resources/outputs/verification/.
 """
 import argparse
 import gc
@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "reference/diffusers"))
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--families", nargs="+", default=["sd3", "flux1", "flux2", "z-image", "qwen-image", "krea2"])
-    parser.add_argument("--output-dir", type=Path, default=ROOT / "build/backend-runtime-smoke")
+    parser.add_argument("--output-dir", type=Path, default=ROOT / "resources/outputs/verification/backend-runtime-smoke")
     args = parser.parse_args()
     import torch
     import diffusers as d

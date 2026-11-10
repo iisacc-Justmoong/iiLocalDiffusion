@@ -10,7 +10,9 @@ if(IILD_ENABLE_NATIVE_DIFFUSION)
         GIT_REPOSITORY https://github.com/leejet/stable-diffusion.cpp.git
         GIT_TAG d04e8950c1ec8d30248cbe996682b3182fb1adf6
         GIT_SUBMODULES ggml
-        GIT_SUBMODULES_RECURSE FALSE)
+        GIT_SUBMODULES_RECURSE FALSE
+        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies/iild_sdcpp-src"
+        BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/dependencies/iild_sdcpp-build")
     function(iild_add_native_backend)
         set(SD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
         set(SD_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -39,7 +41,8 @@ if(IILD_ENABLE_NATIVE_DIFFUSION)
         # Also apply with FETCHCONTENT_SOURCE_DIR_IILD_SDCPP (PATCH_COMMAND is
         # skipped for that override). Refuse drift instead of guessing a patch.
         find_package(Git REQUIRED)
-        foreach(patch_name native-progress-cancellation native-mapped-upload native-tensor-wakeup native-metal-shared-upload native-conversion-cancellation native-thread-safe-logging native-model-family native-mapped-buffer-compatibility native-inplace-backend-compatibility native-metal-storage-ops native-vae-fallback native-cpu-flash-attention native-vae-decode-safety native-krea2-embedded-encoder native-metal-fp8-capability native-backend-telemetry native-bulk-weight-read native-resident-model-memory native-resident-progress native-runtime-residency native-reference-capacity native-pixel-upscalers native-text-conditioning native-controlnet-fail-closed native-controlnet-hires-hint native-canny-preprocessing native-resident-alignment native-freeu native-learned-upscaler native-resident-detailer native-sdxl-refiner native-refiner-sampling native-controlnet-region-mask native-multi-controlnet native-ip-adapter-execution native-multi-ip-attention native-ip-adapter-resources native-krea2-img2img native-krea2-component-mount native-cpu-mixed-bf16)
+        target_include_directories(stable-diffusion PRIVATE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src/Generation")
+        foreach(patch_name native-progress-cancellation native-mapped-upload native-tensor-wakeup native-metal-shared-upload native-conversion-cancellation native-thread-safe-logging native-model-family native-mapped-buffer-compatibility native-inplace-backend-compatibility native-metal-storage-ops native-vae-fallback native-cpu-flash-attention native-vae-decode-safety native-krea2-embedded-encoder native-metal-fp8-capability native-backend-telemetry native-bulk-weight-read native-resident-model-memory native-resident-progress native-runtime-residency native-reference-capacity native-pixel-upscalers native-text-conditioning native-controlnet-fail-closed native-controlnet-hires-hint native-canny-preprocessing native-resident-alignment native-freeu native-learned-upscaler native-resident-detailer native-sdxl-refiner native-refiner-sampling native-controlnet-region-mask native-multi-controlnet native-ip-adapter-execution native-multi-ip-attention native-ip-adapter-resources native-krea2-img2img native-krea2-component-mount native-cpu-mixed-bf16 native-image-resolved-report)
             set(native_patch "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/patches/${patch_name}.patch")
             set(native_source "${iild_sdcpp_SOURCE_DIR}")
             if(patch_name MATCHES "^(native-krea2-embedded-encoder|native-vae-fallback|native-krea2-img2img)$")

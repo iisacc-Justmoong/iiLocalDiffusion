@@ -1,4 +1,4 @@
-if(NOT DEFINED BUILD_DIRECTORY OR NOT DEFINED WORK_DIRECTORY OR NOT DEFINED GENERATOR
+if(NOT DEFINED BUILD_DIRECTORY OR NOT DEFINED WORK_DIRECTORY OR NOT DEFINED CONSUMER_BUILD_DIRECTORY OR NOT DEFINED GENERATOR
    OR NOT DEFINED CONFIG OR NOT DEFINED EXECUTABLE_SUFFIX OR NOT DEFINED FIXTURE
    OR NOT DEFINED SDXL_FIXTURE OR NOT DEFINED FLUX_FIXTURE OR NOT DEFINED BUILD_TOOLS
    OR NOT DEFINED PYTHON_REFERENCE_ENABLED OR NOT DEFINED BIN_DIRECTORY
@@ -7,11 +7,18 @@ if(NOT DEFINED BUILD_DIRECTORY OR NOT DEFINED WORK_DIRECTORY OR NOT DEFINED GENE
         "Build, fixture, installation directory, and enabled component arguments are required")
 endif()
 
+if(EXISTS "${WORK_DIRECTORY}" OR IS_SYMLINK "${WORK_DIRECTORY}")
+    message(FATAL_ERROR "Consumer fixture workspace already exists; refusing to replace it")
+endif()
+if(EXISTS "${CONSUMER_BUILD_DIRECTORY}/consumer" OR IS_SYMLINK "${CONSUMER_BUILD_DIRECTORY}/consumer"
+   OR EXISTS "${CONSUMER_BUILD_DIRECTORY}/mlx-consumer" OR IS_SYMLINK "${CONSUMER_BUILD_DIRECTORY}/mlx-consumer")
+    message(FATAL_ERROR "Consumer fixture build already exists; refusing to replace it")
+endif()
+
 set(stage_directory "${WORK_DIRECTORY}/stage")
 set(source_directory "${WORK_DIRECTORY}/consumer")
-set(binary_directory "${source_directory}/build")
+set(binary_directory "${CONSUMER_BUILD_DIRECTORY}/consumer")
 
-file(REMOVE_RECURSE "${WORK_DIRECTORY}")
 file(MAKE_DIRECTORY "${source_directory}" "${stage_directory}/${LIB_DIRECTORY}")
 # Reinstallation must remove obsolete runtime copies, not retain an old backend.
 file(WRITE "${stage_directory}/${LIB_DIRECTORY}/libonnxruntime-retired.fixture" "obsolete")
@@ -86,7 +93,7 @@ if(MLX_ENABLED)
     file(MAKE_DIRECTORY "${mlx_consumer}")
     file(WRITE "${mlx_consumer}/CMakeLists.txt"
         "cmake_minimum_required(VERSION 3.24)\nproject(MlxExport LANGUAGES CXX)\nfind_package(MLX 0.32 CONFIG REQUIRED)\nadd_library(probe INTERFACE)\ntarget_link_libraries(probe INTERFACE mlx)\n")
-    execute_process(COMMAND "${CMAKE_COMMAND}" -S "${mlx_consumer}" -B "${mlx_consumer}/build"
+    execute_process(COMMAND "${CMAKE_COMMAND}" -S "${mlx_consumer}" -B "${CONSUMER_BUILD_DIRECTORY}/mlx-consumer"
         -G "${GENERATOR}" "-DCMAKE_BUILD_TYPE=${CONFIG}" "-DCMAKE_PREFIX_PATH=${stage_directory}"
         RESULT_VARIABLE mlx_result OUTPUT_VARIABLE mlx_output ERROR_VARIABLE mlx_error)
     if(NOT mlx_result EQUAL 0)

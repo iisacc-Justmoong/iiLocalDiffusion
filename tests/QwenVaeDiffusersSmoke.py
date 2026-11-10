@@ -2,7 +2,7 @@
 """Actual pretrained Qwen VAE decoding through the public offline generic runner.
 
 The tiny random transformer verifies wiring, not pretrained model image quality.
-Run with the Diffusers virtual environment; outputs remain under build/.
+Run with the Diffusers virtual environment; outputs remain under resources/outputs/verification/.
 """
 import argparse
 import gc
@@ -26,7 +26,7 @@ def main():
     import generate_any as generic
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", type=Path, default=ROOT / "build/qwen-vae/smoke")
+    parser.add_argument("--output-dir", type=Path, default=ROOT / "resources/outputs/verification/qwen-vae/smoke")
     parser.add_argument("--launcher", type=Path, default=ROOT / "reference/generate.py")
     options = parser.parse_args()
     output = options.output_dir.resolve()

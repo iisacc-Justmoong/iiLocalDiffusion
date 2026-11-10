@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Real adapter/checkpoint arithmetic, compatibility and preservation contracts."""
+import resource_fixture
 
 import importlib.util
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -27,7 +27,7 @@ class ModelMergeLoraTests(unittest.TestCase):
         cls.save = staticmethod(save_file)
 
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix="merge-lora-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="merge-lora-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.base = self.root / "base.safetensors"
@@ -178,6 +178,179 @@ class ModelMergeLoraTests(unittest.TestCase):
         self.merge()
         self.torch.testing.assert_close(self.load(self.output)["unet.block.attn1.to_q.weight"],
                                        self.weight + self.up @ self.down)
+
+    def test_moss_prefixed_lora_targets_its_unprefixed_floating_layer(self):
+        t = self.torch
+        target = 'layers.0.proj.qkv.weight'
+        self.save({target: self.weight, 'final_norm_video.weight': t.ones(3),
+                   'video_embedder.weight': t.zeros(3, 4),
+                   'time_embedding.2.weight': t.full((3, 4), 9.)}, str(self.base))
+        self.adapter(target='diffusion_model.layers.0.proj.qkv')
+        report = self.merge(checkpoint_policy='base-layout')
+        state = self.load(self.output)
+        t.testing.assert_close(state[target], self.weight + self.up @ self.down)
+        t.testing.assert_close(state['time_embedding.2.weight'], t.full((3, 4), 9.))
+        self.assertIsNone(report['sources'][1]['targets'][0]['adaptation'])
+
+    def test_moss_unsupported_quantized_lora_is_not_forced_onto_unrelated_float_layer(self):
+        t = self.torch
+        target = 'layers.0.proj.qkv.weight'
+        base = {target: self.weight.to(t.int8), 'final_norm_video.weight': t.ones(3),
+                'video_embedder.weight': t.zeros(3, 4),
+                'time_embedding.2.weight': t.full((3, 4), 9.),
+                'layers.0.proj.qkv.weight_scale': t.ones(3, 1),
+                'layers.0.proj.qkv.comfy_quant': t.tensor(list(b'{"format":"int8_tensorwise","convrot":false,"convrot_groupsize":4}'), dtype=t.uint8)}
+        self.save(base, str(self.base))
+        self.adapter(target='diffusion_model.layers.0.proj.qkv')
+        report = self.merge(checkpoint_policy='base-layout')
+        self.assertEqual(report['excluded_material_count'], 1)
+        self.assertIn('quantized', report['excluded_sources'][0]['reason'].lower())
+        self.assertTrue(report['no_effect'])
+        for key, original in base.items():
+            t.testing.assert_close(self.load(self.output)[key], original, rtol=0, atol=0)
+
+    def test_moss_convrot_lora_requantizes_weight_and_scale_in_rotated_basis(self):
+        t = self.torch
+        target = 'layers.0.proj.qkv.weight'
+        scale_key = 'layers.0.proj.qkv.weight_scale'
+        stored = t.tensor([[-128, -10, 11, 127], [0, 0, 0, 0], [2, -3, 12, -9]], dtype=t.int8)
+        scales = t.tensor([[.02], [.01], [.2]], dtype=t.float32)
+        metadata = t.tensor(list(b'{"format":"int8_tensorwise","convrot":true,"convrot_groupsize":4}'), dtype=t.uint8)
+        base = {target: stored, scale_key: scales, 'layers.0.proj.qkv.comfy_quant': metadata,
+                'final_norm_video.weight': t.ones(3), 'video_embedder.weight': t.zeros(3, 4),
+                'time_embedding.2.weight': t.full((3, 4), 9.)}
+        self.save(base, str(self.base))
+        self.adapter(target='diffusion_model.layers.0.proj.qkv')
+        before = [p.read_bytes() for p in (self.base, self.lora)]
+        report = self.merge(checkpoint_policy='strict', weights=.5)
+        state = self.load(self.output)
+        h = t.tensor([[1., 1., 1., -1.], [1., 1., -1., 1.],
+                      [1., -1., 1., 1.], [-1., 1., 1., 1.]]) / 2
+        rotated = stored.float() * scales + .5 * ((self.up @ self.down) @ h.T)
+        expected_scales = rotated.abs().amax(dim=1, keepdim=True).clamp_min(1e-30) / 127
+        expected_weights = (rotated / expected_scales).round().clamp(-128, 127).to(t.int8)
+        t.testing.assert_close(state[scale_key], expected_scales, rtol=2e-6, atol=1e-8)
+        t.testing.assert_close(state[target], expected_weights, rtol=0, atol=0)
+        original_basis = (stored.float() * scales) @ h + .5 * (self.up @ self.down)
+        reconstructed = (state[target].float() * state[scale_key]) @ h
+        self.assertTrue(t.all((reconstructed - original_basis).abs() <= state[scale_key] + 1e-6))
+        t.testing.assert_close(state['time_embedding.2.weight'], base['time_embedding.2.weight'])
+        self.assertIsNone(report['sources'][1]['targets'][0]['adaptation'])
+        self.assertEqual(report['output_verification']['status'], 'passed')
+        self.assertEqual(before, [p.read_bytes() for p in (self.base, self.lora)])
+
+    def test_moss_convrot_scalar_scale_and_zero_strength(self):
+        t = self.torch
+        target = 'layers.0.proj.qkv.weight'
+        scale_key = 'layers.0.proj.qkv.weight_scale'
+        base = {target: self.weight.to(t.int8), scale_key: t.tensor(.25),
+                'layers.0.proj.qkv.comfy_quant': t.tensor(list(b'{"format":"int8_tensorwise","convrot":true,"convrot_groupsize":4}'), dtype=t.uint8),
+                'final_norm_video.weight': t.ones(3), 'video_embedder.weight': t.zeros(3, 4)}
+        self.save(base, str(self.base))
+        self.adapter(target='diffusion_model.layers.0.proj.qkv')
+        report = self.merge(checkpoint_policy='strict', weights=0)
+        self.assertTrue(report['no_effect'])
+        state = self.load(self.output)
+        for key, original in base.items():
+            t.testing.assert_close(state[key], original, rtol=0, atol=0)
+        self.output.unlink()
+        self.merge(checkpoint_policy='strict', weights=.25, mode='weighted-difference')
+        state = self.load(self.output)
+        h = t.tensor([[1., 1., 1., -1.], [1., 1., -1., 1.],
+                      [1., -1., 1., 1.], [-1., 1., 1., 1.]]) / 2
+        rotated = base[target].float() * base[scale_key] - .25 * ((self.up @ self.down) @ h.T)
+        expected_scale = rotated.abs().max().clamp_min(1e-30) / 127
+        t.testing.assert_close(state[scale_key], expected_scale)
+        t.testing.assert_close(state[target], (rotated / expected_scale).round().clamp(-128, 127).to(t.int8), rtol=0, atol=0)
+
+    def test_moss_convrot_merges_multiple_adapters_in_the_same_group16_basis(self):
+        t = self.torch
+        t.manual_seed(713)
+        target = 'layers.0.proj.qkv.weight'
+        scale_key = 'layers.0.proj.qkv.weight_scale'
+        stored = t.randint(-128, 128, (6, 16), dtype=t.int8)
+        scales = t.linspace(.01, .06, 6).reshape(-1, 1)
+        base = {target: stored, scale_key: scales,
+                'layers.0.proj.qkv.comfy_quant': t.tensor(list(b'{"format":"int8_tensorwise","convrot":true,"convrot_groupsize":16}'), dtype=t.uint8),
+                'final_norm_video.weight': t.ones(3), 'video_embedder.weight': t.zeros(3, 4)}
+        self.save(base, str(self.base))
+        down1, up1 = t.randn(2, 16), t.randn(6, 2)
+        down2, up2 = t.randn(1, 16), t.randn(6, 1)
+        self.adapter(target='diffusion_model.layers.0.proj.qkv', down=down1, up=up1)
+        other = self.root / 'second.safetensors'
+        self.adapter(other, target='diffusion_model.layers.0.proj.qkv', down=down2, up=up2)
+        report = self.merge(checkpoint_policy='strict', additional_models=[other], weights=[1.25, .3])
+        state = self.load(self.output)
+        h4 = t.tensor([[1., 1., 1., -1.], [1., 1., -1., 1.],
+                       [1., -1., 1., 1.], [-1., 1., 1., 1.]]) / 2
+        h16 = t.kron(h4, h4)
+        rotated = stored.float() * scales + (1.25 * (up1 @ down1) + .3 * (up2 @ down2)) @ h16.T
+        expected_scale = rotated.abs().amax(dim=1, keepdim=True).clamp_min(1e-30) / 127
+        t.testing.assert_close(state[scale_key], expected_scale, rtol=2e-6, atol=1e-7)
+        t.testing.assert_close(state[target], (rotated / expected_scale).round().clamp(-128, 127).to(t.int8), rtol=0, atol=0)
+        self.assertEqual(report['numeric_normalization']['requantized_tensors'], 1)
+        self.assertEqual(report['lora_target_count'], 1)
+
+    def test_moss_split_q_and_v_loras_update_only_fused_qkv_rows(self):
+        t = self.torch
+        target = 'layers.0.proj.qkv.weight'
+        scale_key = 'layers.0.proj.qkv.weight_scale'
+        stored = t.arange(-12, 12, dtype=t.int8).reshape(6, 4)
+        scales = t.linspace(.1, .6, 6).reshape(-1, 1)
+        base = {target: stored, scale_key: scales,
+                'layers.0.proj.qkv.comfy_quant': t.tensor(list(b'{"format":"int8_tensorwise","convrot":true,"convrot_groupsize":4}'), dtype=t.uint8),
+                'final_norm_video.weight': t.ones(3), 'video_embedder.weight': t.zeros(3, 4)}
+        self.save(base, str(self.base))
+        q_down, q_up = t.tensor([[1., -2., 3., -4.]]), t.tensor([[.5], [1.]])
+        v_down, v_up = t.tensor([[2., 1., -1., -2.]]), t.tensor([[2.], [-3.]])
+        self.adapter(target='diffusion_model.layers.0.proj.q', down=q_down, up=q_up)
+        other = self.root / 'v-adapter.safetensors'
+        self.adapter(other, target='diffusion_model.layers.0.proj.v', down=v_down, up=v_up)
+        report = self.merge(checkpoint_policy='strict', additional_models=[other], weights=[1., .5])
+        state = self.load(self.output)
+        h = t.tensor([[1., 1., 1., -1.], [1., 1., -1., 1.],
+                      [1., -1., 1., 1.], [-1., 1., 1., 1.]]) / 2
+        rotated = stored.float() * scales
+        rotated[:2] += (q_up @ q_down) @ h.T
+        rotated[4:] += .5 * ((v_up @ v_down) @ h.T)
+        expected_scales = scales.clone()
+        expected_scales[:2] = rotated[:2].abs().amax(dim=1, keepdim=True).clamp_min(1e-30) / 127
+        expected_scales[4:] = rotated[4:].abs().amax(dim=1, keepdim=True).clamp_min(1e-30) / 127
+        expected_weights = stored.clone()
+        expected_weights[:2] = (rotated[:2] / expected_scales[:2]).round().clamp(-128, 127).to(t.int8)
+        expected_weights[4:] = (rotated[4:] / expected_scales[4:]).round().clamp(-128, 127).to(t.int8)
+        t.testing.assert_close(state[scale_key], expected_scales, rtol=1e-6, atol=1e-7)
+        t.testing.assert_close(state[target], expected_weights, rtol=0, atol=0)
+        self.assertEqual(report['sources'][1]['targets'][0]['rows'], (0, 2))
+        self.assertEqual(report['sources'][2]['targets'][0]['rows'], (4, 6))
+
+    def test_moss_convrot_rejects_mixed_checkpoint_arithmetic_without_output(self):
+        t = self.torch
+        target = 'layers.0.proj.qkv.weight'
+        state = {target: self.weight.to(t.int8), 'layers.0.proj.qkv.weight_scale': t.ones(3, 1),
+                 'layers.0.proj.qkv.comfy_quant': t.tensor(list(b'{"format":"int8_tensorwise","convrot":true,"convrot_groupsize":4}'), dtype=t.uint8),
+                 'final_norm_video.weight': t.ones(3), 'video_embedder.weight': t.zeros(3, 4)}
+        self.save(state, str(self.base))
+        other = self.root / 'second-checkpoint.safetensors'
+        self.save(state, str(other))
+        self.adapter(target='diffusion_model.layers.0.proj.qkv')
+        with self.assertRaisesRegex(ValueError, 'cannot be combined'):
+            self.merge(checkpoint_policy='strict', additional_models=[other], weights=[1., .5])
+        self.assertFalse(self.output.exists())
+
+    def test_moss_convrot_rejects_invalid_scale_without_modifying_sources(self):
+        t = self.torch
+        target = 'layers.0.proj.qkv.weight'
+        state = {target: self.weight.to(t.int8), 'layers.0.proj.qkv.weight_scale': t.tensor([[1.], [-1.], [1.]]),
+                 'layers.0.proj.qkv.comfy_quant': t.tensor(list(b'{"format":"int8_tensorwise","convrot":true,"convrot_groupsize":4}'), dtype=t.uint8),
+                 'final_norm_video.weight': t.ones(3), 'video_embedder.weight': t.zeros(3, 4)}
+        self.save(state, str(self.base))
+        self.adapter(target='diffusion_model.layers.0.proj.qkv')
+        before = [p.read_bytes() for p in (self.base, self.lora)]
+        with self.assertRaisesRegex(ValueError, 'Invalid ConvRot scale values'):
+            self.merge(checkpoint_policy='strict')
+        self.assertFalse(self.output.exists())
+        self.assertEqual(before, [p.read_bytes() for p in (self.base, self.lora)])
 
     @unittest.skipUnless(importlib.util.find_spec("diffusers"), "Requires existing Diffusers key converters")
     def test_sd_checkpoint_maps_kohya_unet_and_first_text_encoder(self):

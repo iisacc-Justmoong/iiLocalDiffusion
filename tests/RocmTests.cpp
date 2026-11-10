@@ -1,4 +1,5 @@
 #include "Compute/LinearLayer.hpp"
+#include "TestWorkspace.h"
 
 #include <algorithm>
 #include <bit>
@@ -56,7 +57,7 @@ void appendBytes(std::vector<std::uint8_t> &bytes, const std::uint64_t value, co
 std::filesystem::path writeFixture(const std::string &name, std::string header,
                                   const std::vector<std::uint8_t> &payload)
 {
-    const std::filesystem::path directory{IILD_ROCM_TEST_DIRECTORY};
+    const auto directory=iild_test::workspace(IILD_ROCM_TEST_DIRECTORY,"rocm");
     std::filesystem::create_directories(directory);
     while (header.size() % 8 != 0) header += ' ';
     std::vector<std::uint8_t> bytes;

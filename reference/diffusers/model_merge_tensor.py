@@ -7,6 +7,7 @@ deterministic approximations, not learned architecture conversion.
 from __future__ import annotations
 
 import math
+import json
 
 _COORDINATE_CHUNK = 1 << 20
 
@@ -35,6 +36,32 @@ def _parameter_address(layout, address, suffixes):
 
 def has_quantization_scale(layout, address):
     return _parameter_address(layout, address, ("_scale",)) is not None
+
+
+def convrot_group(readers, layout, address):
+    """Identify a validated Comfy ConvRot coordinate system, when declared."""
+    component, key = address
+    if not key.endswith('.weight'):
+        return None
+    quant_address = (component, key[:-len('.weight')] + '.comfy_quant')
+    if quant_address not in layout:
+        return None
+    reader = readers[layout[quant_address]]
+    descriptor = reader.get_slice(quant_address[1])
+    shape = descriptor.get_shape()
+    if descriptor.get_dtype() != 'U8' or len(shape) != 1 or not 1 <= shape[0] <= 4096:
+        return None  # Legacy opaque metadata retains its existing behavior.
+    try:
+        metadata = json.loads(bytes(reader.get_tensor(quant_address[1]).tolist()))
+    except (ValueError, TypeError, UnicodeDecodeError):
+        return None
+    if not isinstance(metadata, dict) or metadata.get('convrot') is not True:
+        return None
+    try:
+        from model_merge_convrot import tensor_spec
+        return tensor_spec(readers, layout, address)[1]
+    except ValueError as error:
+        raise QuantizationError(str(error)) from error
 
 
 def _expand_parameter(torch, parameter, shape):

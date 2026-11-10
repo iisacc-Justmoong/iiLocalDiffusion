@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """VAE omission, embedded precedence and latent-family safety contracts."""
+import resource_fixture
 import json
 import os
+import shutil
 from pathlib import Path
 import struct
 import sys
-import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -17,7 +18,7 @@ from vae_defaults import resolve_vae_selection, verify_vae_selection, load_selec
 
 class VaeDefaultsTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(dir=ROOT / "build")
+        self.tmp = resource_fixture.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.args = SimpleNamespace(vae=None, pipeline_class=None, model=str(self.root),
@@ -27,7 +28,7 @@ class VaeDefaultsTests(unittest.TestCase):
     def resolve(self):
         return resolve_vae_selection(self.args, self.index, self.root)
 
-    def test_metadata_mode_loads_fallback_without_checksum_scan(self):
+    def test_metadata_mode_loads_fallback_without_weight_checksum_scan(self):
         with patch.dict(os.environ, {"IILD_MODEL_VALIDATION": "metadata"}), \
                 patch("weight_files.cached_model_sha256", side_effect=AssertionError("Full model hash")):
             for name in ("QwenImagePipeline", "StableDiffusionXLPipeline", "FluxPipeline"):
@@ -86,7 +87,8 @@ class VaeDefaultsTests(unittest.TestCase):
                 ("StableDiffusionXLPipeline", "AutoencoderKL", "sdxl", 4),
                 ("FluxPipeline", "AutoencoderKL", "flux1", 16),
                 ("Flux2Pipeline", "AutoencoderKLFlux2", "flux2", 32),
-                ("Flux2KleinPipeline", "AutoencoderKLFlux2", "flux2", 32)):
+                ("Flux2KleinPipeline", "AutoencoderKLFlux2", "flux2", 32),
+                ("MOSSImagePipeline", "AutoencoderKLFlux2", "flux2", 32)):
             for component in (None, [None, None], ["diffusers", cls]):
                 with self.subTest(pipeline=name, component=component):
                     self.index = {"_class_name": name, "vae": component}
@@ -138,6 +140,70 @@ class VaeDefaultsTests(unittest.TestCase):
         self.assertEqual(status, "explicit")
         self.assertEqual(selected.weight, bundled.weight)
 
+    def test_moss_embedded_vae_uses_its_weights_with_verified_flux2_configuration(self):
+        self.index = {"_class_name": "MOSSImagePipeline", "vae": ["diffusers", "AutoencoderKLFlux2"]}
+        embedded = self.root / "embedded.safetensors"
+        embedded.write_bytes(b"fixture embedded vae")
+        self.args.vae = str(embedded)
+        self.args.cache_dir = self.root / "cache"
+        self.args.cache_dir.mkdir()
+        with patch.dict(os.environ, {'IILD_MODEL_VALIDATION': 'metadata'}), \
+                patch('vae_defaults.stage_moss_vae_weights', side_effect=lambda source, target, reference: (shutil.copyfile(source, target), False)[1]):
+            selected, status = self.resolve()
+            verify_vae_selection(selected)
+        self.assertEqual(status, "explicit")
+        self.assertEqual(Path(selected.weight.path).read_bytes(), embedded.read_bytes())
+        self.assertEqual(selected.class_name, "AutoencoderKLFlux2")
+        self.assertEqual(json.loads(Path(selected.config_path).read_text())["latent_channels"], 32)
+        self.index = {"_class_name": "Flux2Pipeline", "vae": ["diffusers", "AutoencoderKLFlux2"]}
+        with self.assertRaisesRegex(ValueError, "directory"):
+            self.resolve()
+
+    def test_moss_vae_legacy_names_are_converted_without_changing_tensor_bytes(self):
+        from moss_vae_conversion import _diffusers_name, stage_moss_vae_weights
+        for original, expected in {
+            'encoder.norm_out.weight': 'encoder.conv_norm_out.weight',
+            'encoder.down.2.block.1.nin_shortcut.weight': 'encoder.down_blocks.2.resnets.1.conv_shortcut.weight',
+            'encoder.down.2.downsample.conv.weight': 'encoder.down_blocks.2.downsamplers.0.conv.weight',
+            'decoder.up.3.block.1.conv1.weight': 'decoder.up_blocks.0.resnets.1.conv1.weight',
+            'decoder.up.1.upsample.conv.bias': 'decoder.up_blocks.2.upsamplers.0.conv.bias',
+            'decoder.mid.block_2.conv1.weight': 'decoder.mid_block.resnets.1.conv1.weight',
+            'decoder.mid.attn_1.proj_out.weight': 'decoder.mid_block.attentions.0.to_out.0.weight',
+            'decoder.post_quant_conv.weight': 'post_quant_conv.weight',
+        }.items():
+            self.assertEqual(_diffusers_name(original), expected)
+        def fixture(path, descriptors, data):
+            header = json.dumps(descriptors, separators=(',', ':')).encode()
+            header += b' ' * (-len(header) % 8)
+            path.write_bytes(struct.pack('<Q', len(header)) + header + data)
+        legacy = self.root / 'legacy.safetensors'
+        reference = self.root / 'reference.safetensors'
+        output = self.root / 'staged.safetensors'
+        legacy_header = {
+            'encoder.mid.attn_1.q.weight': {'dtype': 'F32', 'shape': [2, 2, 1, 1], 'data_offsets': [0, 16]},
+            'encoder.quant_conv.weight': {'dtype': 'F32', 'shape': [1], 'data_offsets': [16, 20]},
+        }
+        reference_header = {
+            'encoder.mid_block.attentions.0.to_q.weight': {'dtype': 'F32', 'shape': [2, 2], 'data_offsets': [0, 16]},
+            'quant_conv.weight': {'dtype': 'F32', 'shape': [1], 'data_offsets': [16, 20]},
+        }
+        payload = bytes(range(20))
+        fixture(legacy, legacy_header, payload); fixture(reference, reference_header, payload)
+        self.assertTrue(stage_moss_vae_weights(legacy, output, reference))
+        raw = output.read_bytes(); size, = struct.unpack('<Q', raw[:8]); header = json.loads(raw[8:8+size])
+        self.assertEqual(header, reference_header); self.assertEqual(raw[8+size:], payload)
+        self.assertEqual(legacy.read_bytes()[-20:], payload)
+        already_normal = self.root / 'already-normal.safetensors'
+        from weight_files import file_signature
+        source_signature = file_signature(reference)
+        self.assertFalse(stage_moss_vae_weights(reference, already_normal, reference))
+        self.assertEqual(already_normal.read_bytes(), reference.read_bytes())
+        self.assertEqual(file_signature(reference), source_signature)
+        legacy_header['encoder.mid.attn_1.q.weight']['shape'] = [2, 2, 2, 1]
+        fixture(legacy, legacy_header, payload)
+        with self.assertRaisesRegex(ValueError, 'VAE'):
+            stage_moss_vae_weights(legacy, self.root / 'bad.safetensors', reference)
+
     def test_wrong_vae_class_or_latent_contract_is_rejected(self):
         vae = self.root / "override"
         vae.mkdir()
@@ -154,11 +220,47 @@ class VaeDefaultsTests(unittest.TestCase):
     def test_loader_passes_the_component_before_pipeline_construction(self):
         selected, _ = self.resolve()
         vae = SimpleNamespace(named_parameters=lambda: [], named_buffers=lambda: [])
-        cls = SimpleNamespace(from_pretrained=Mock(return_value=vae))
+        cls = SimpleNamespace(from_pretrained=Mock(return_value=(vae, {})))
         runtime = SimpleNamespace(AutoencoderKLQwenImage=cls)
         self.assertIs(load_selected_vae(selected, runtime, "float32"), vae)
         self.assertTrue(cls.from_pretrained.call_args.kwargs["local_files_only"])
         self.assertTrue(cls.from_pretrained.call_args.kwargs["use_safetensors"])
+        self.assertTrue(cls.from_pretrained.call_args.kwargs["output_loading_info"])
+
+    def test_loader_rejects_incomplete_or_unexpected_vae_weights(self):
+        selected, _ = self.resolve()
+        vae = SimpleNamespace(named_parameters=lambda: [], named_buffers=lambda: [])
+        cls = SimpleNamespace(from_pretrained=Mock())
+        runtime = SimpleNamespace(AutoencoderKLQwenImage=cls)
+        for key in ('missing_keys', 'unexpected_keys', 'mismatched_keys', 'error_msgs'):
+            with self.subTest(key=key):
+                cls.from_pretrained.return_value = (vae, {key: ['fixture']})
+                with self.assertRaisesRegex(RuntimeError, 'VAE.*weights'):
+                    load_selected_vae(selected, runtime, 'float32')
+
+    def test_metadata_mode_detects_same_size_config_change(self):
+        vae = self.root / 'explicit-vae'
+        vae.mkdir()
+        config = vae / 'config.json'
+        config.write_text('{"_class_name":"AutoencoderKLQwenImage","z_dim":16,"marker":1}')
+        (vae / 'diffusion_pytorch_model.safetensors').write_bytes(b'fixture')
+        self.args.vae = str(vae)
+        with patch.dict(os.environ, {'IILD_MODEL_VALIDATION': 'metadata'}):
+            selected, _ = self.resolve()
+            self.assertIsNotNone(selected.config_sha256)
+            config.write_text(config.read_text().replace('"marker":1', '"marker":2'))
+            with self.assertRaisesRegex(RuntimeError, 'VAE.*changed'):
+                verify_vae_selection(selected)
+
+    def test_metadata_mode_still_checks_fallback_config_manifest(self):
+        from generation_defaults import read_defaults
+        root, original = read_defaults()
+        manifest = json.loads(json.dumps(original))
+        manifest['fallback_vae']['config']['sha256'] = '0' * 64
+        with patch.dict(os.environ, {'IILD_MODEL_VALIDATION': 'metadata'}), \
+             patch('vae_defaults.read_defaults', return_value=(root, manifest)):
+            with self.assertRaisesRegex(ValueError, 'VAE configuration'):
+                self.resolve()
 
     def test_changed_vae_config_invalidates_selection(self):
         import shutil

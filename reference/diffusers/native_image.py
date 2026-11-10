@@ -23,6 +23,9 @@ from inference_session import cached_pipeline, is_preparing, record_execution, v
 from lora import resolve_lora_selection
 from weight_files import file_sha256, verify_weight_file
 from backend_registry import plan_native, family
+from resource_paths import OUTPUT_DIRECTORY
+
+DEFAULT_OUTPUT = OUTPUT_DIRECTORY / "native/image.png"
 
 
 class LoRA(C.Structure):
@@ -363,7 +366,7 @@ def resolve_arguments(args, inspection):
             raise ValueError("Native inference requires a finite scale and local LoRA file.")
         args.native_loras.append((selection.local_file.resolved_file, selection.scale))
     args.output_was_default = args.output is None
-    args.output = args.output or Path(__file__).resolve().parents[2] / "build/reference/native/image.png"
+    args.output = args.output or DEFAULT_OUTPUT
     args.engine = "native"
     return None, args
 

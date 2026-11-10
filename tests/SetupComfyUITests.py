@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Pinned runtime installation preserves existing sources and Python environments."""
+import resource_fixture
 
 import importlib.util
 from pathlib import Path
 import sys
 import subprocess
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -17,8 +17,7 @@ spec.loader.exec_module(setup)
 
 class SetupComfyUITests(unittest.TestCase):
     def setUp(self):
-        (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 
@@ -46,16 +45,17 @@ class SetupComfyUITests(unittest.TestCase):
             setup.checkout(destination, setup.COMFY_URL, setup.COMFY_COMMIT)
         self.assertTrue(destination.exists())
 
-    def test_runtime_and_cache_stay_under_build_and_freeze_is_saved(self):
+    def test_runtime_and_cache_stay_under_resources_and_freeze_is_saved(self):
         with patch.object(setup, "ROOT", self.directory), patch.object(setup, "checkout"), patch.object(setup.shutil, "which", return_value="uv"), patch.object(setup.subprocess, "run") as run, patch.object(setup.subprocess, "check_output", return_value="torch==2.13.0\n"):
-            (self.directory / "build/reference").mkdir(parents=True)
             result = setup.install(sys.executable)
-        self.assertTrue(Path(result["python"]).is_relative_to(self.directory / "build"))
+        self.assertTrue(Path(result["python"]).is_relative_to(self.directory / "resources/.state"))
+        self.assertEqual(Path(result["source"]), self.directory / "resources/dependencies/ComfyUI")
         for call in run.call_args_list:
             command = call.args[0]
             self.assertEqual(command[1], "--cache-dir")
-            self.assertIn(str(self.directory / "build/reference/uv-cache"), command)
-        self.assertEqual((self.directory / "build/reference/comfyui-installed.lock").read_text(), "torch==2.13.0\n")
+            self.assertIn(str(self.directory / "resources/.state/reference-cache/uv"), command)
+        self.assertEqual((self.directory / "resources/.state/reference-runtime/comfyui-installed.lock").read_text(), "torch==2.13.0\n")
+        self.assertFalse((self.directory / "build").exists())
 
 
 if __name__ == "__main__":

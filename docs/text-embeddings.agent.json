@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/text-embeddings.md",
-    "sha256": "ec988cf10c64e6f929ce96aad0c57dc7925e43d54fe445482ac0c7d8b77c1424",
-    "bytes": 11473,
+    "sha256": "8b3f58c8a446215ba7e5db096cc1d8a2911c6bd378bec0e77a53083e622a9e78",
+    "bytes": 11485,
     "line_count": 118,
     "encoding": "utf-8",
     "language": "ko"
@@ -600,7 +600,7 @@
       "kind": "paragraph",
       "start_line": 106,
       "end_line": 106,
-      "raw": "기본 출력 스템은 `-lora` 수정자 뒤, `-controlnet` / `-hires` 앞에 `-embedding`를 추가합니다. 따라서 학습된 토큰 SD 1.5 실행은 기본적으로 `build/reference/sd15-red-cube-embedding.png`로 설정됩니다. 기존 충돌, 배치 번호 지정 및 선택적 고용 수정 기본 출력 규칙이 적용됩니다.\n"
+      "raw": "기본 출력 스템은 `-lora` 수정자 뒤, `-controlnet` / `-hires` 앞에 `-embedding`를 추가합니다. 따라서 학습된 토큰 SD 1.5 실행은 기본적으로 `resources/outputs/reference/sd15-red-cube-embedding.png`로 설정됩니다. 기존 충돌, 배치 번호 지정 및 선택적 고용 수정 기본 출력 규칙이 적용됩니다.\n"
     },
     {
       "id": "b000070",

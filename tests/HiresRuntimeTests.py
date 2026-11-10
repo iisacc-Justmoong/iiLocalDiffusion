@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Dependency-free contracts for two-pass generation and safe artifact publication."""
+import resource_fixture
 
 from contextlib import ExitStack, nullcontext, redirect_stdout
 import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from local_model_fixture import local_request
@@ -232,7 +232,7 @@ class RuntimeFixture:
 class HiresRuntimeTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = provider.TemporaryDirectory(prefix="hires-runtime-model-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="hires-runtime-model-")
         self.addCleanup(temporary.cleanup)
         self.model_directory = Path(temporary.name)
 
@@ -436,7 +436,7 @@ class HiresRuntimeTests(unittest.TestCase):
                 fixture.run()
 
     def test_base_image_and_sidecar_collisions_allocate_a_new_default_run(self):
-        with provider.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             root = Path(temporary)
             original = root / "image-base.png"
             original.write_bytes(b"base-original")
@@ -450,7 +450,7 @@ class HiresRuntimeTests(unittest.TestCase):
             self.assertEqual(original.read_bytes(), b"base-original")
 
     def test_explicit_base_collisions_are_protected_and_overwrite_requires_files(self):
-        with provider.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             root = Path(temporary)
             args = request(output=str(root / "batch.png"), num_images=2, hires_save_base=True)
             base_json = root / "batch-0002-base.json"
@@ -466,7 +466,7 @@ class HiresRuntimeTests(unittest.TestCase):
                 generation_output.resolve_output_paths(args)
 
     def test_base_artifacts_do_not_reserve_names_when_base_saving_is_disabled(self):
-        with provider.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "image-base.png").write_bytes(b"older-base")
             args = request(output=str(root / "image.png"))
@@ -486,7 +486,7 @@ class HiresRuntimeTests(unittest.TestCase):
         )
         for preset, save_base, options, final_negative, base_negative in cases:
             with self.subTest(preset=preset.name, save_base=save_base, options=options), \
-                    provider.TemporaryDirectory(dir=ROOT / "build") as temporary:
+                    resource_fixture.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 args = request(preset, output=str(root / "result.png"), hires_save_base=save_base,
                                cache_dir=str(root / "cache"), xet_cache_dir=str(root / "xet"),

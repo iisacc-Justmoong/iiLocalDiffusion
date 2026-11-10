@@ -2,6 +2,7 @@
 """Conversion policy, provenance and atomic cache tests without ML dependencies."""
 
 from __future__ import annotations
+import resource_fixture
 
 import builtins
 import importlib
@@ -10,7 +11,6 @@ import os
 from pathlib import Path
 import shutil
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -52,8 +52,7 @@ class Parameter(Tensor):
 
 class CheckpointConversionTests(unittest.TestCase):
     def setUp(self):
-        (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="checkpoint-conversion-tests-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="checkpoint-conversion-tests-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.cache = self.directory / "cache"
@@ -348,9 +347,9 @@ class RealCheckpointConversionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.torch = importlib.import_module("torch")
         cls.safetensors = importlib.import_module("safetensors.torch")
-        cls.directory = ROOT / "build" / "reference" / "checkpoint-conversion-smoke"
-        cls.directory.mkdir(parents=True, exist_ok=True)
-        cls.smoke_run = Path(tempfile.mkdtemp(prefix="run-", dir=cls.directory))
+        cls.temporary = resource_fixture.TemporaryDirectory(prefix="checkpoint-conversion-smoke-")
+        cls.addClassCleanup(cls.temporary.cleanup)
+        cls.smoke_run = Path(cls.temporary.name)
 
     def test_real_zip_and_legacy_serialization_preserve_values_dtypes_and_tied_keys(self):
         torch = self.torch
@@ -376,9 +375,9 @@ class RealCheckpointConversionTests(unittest.TestCase):
                             "manifest_path": result["manifest_path"],
                             "zip_serialization": zip_serialization,
                             "tensor_values_equal": True, "source_unchanged": True})
-        (self.directory / "tiny-conversion.json").write_text(json.dumps({
+        print(json.dumps({
             "torch_version": torch.__version__, "cases": results, "generation_verified": False,
-        }, indent=2) + "\n", encoding="utf-8")
+        }, indent=2))
 
     def test_malicious_reduce_is_rejected_without_executing_its_marker(self):
         marker = self.smoke_run / "unexpected-code-execution.txt"
@@ -394,13 +393,13 @@ class RealCheckpointConversionTests(unittest.TestCase):
         self.assertFalse(marker.exists())
         self.assertEqual(conversion.file_sha256(source), before)
         self.assertFalse((self.smoke_run / "malicious-cache").exists())
-        (self.directory / "malicious-checkpoint.json").write_text(json.dumps({
+        print(json.dumps({
             "torch_version": self.torch.__version__, "source": str(source),
             "source_sha256": before, "source_unchanged": True,
             "marker": str(marker), "marker_exists": marker.exists(),
             "error": str(caught.exception), "cause_type": type(caught.exception.__cause__).__name__,
             "unsafe_retry": False, "generation_verified": False,
-        }, indent=2) + "\n", encoding="utf-8")
+        }, indent=2))
 
 
 if __name__ == "__main__":

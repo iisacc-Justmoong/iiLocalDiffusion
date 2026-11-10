@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """LTX source timelines and the second-stage motion interpolator."""
+import resource_fixture
 
 import importlib.util
 import json
 from pathlib import Path
 import shutil
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -41,7 +41,7 @@ class VideoInterpolationPlanTests(unittest.TestCase):
 
     def test_keyframes_are_exact_source_anchors_even_between_regular_samples(self):
         # The same anchor contract applies after automatic high-FPS spacing.
-        with provider.TemporaryDirectory(dir=ROOT / "build", prefix="interpolation-plan-") as temporary:
+        with resource_fixture.TemporaryDirectory(prefix="interpolation-plan-") as temporary:
             image = Path(temporary) / "keyframe.png"
             image.write_bytes(b"decoded at runtime")
             storyboard = Path(temporary) / "shots.json"
@@ -81,7 +81,7 @@ class VideoInterpolationPlanTests(unittest.TestCase):
         self.assertEqual(args.effective_interpolation_factor, 8)
 
     def test_high_fps_short_shots_and_dense_keyframes_never_request_high_model_fps(self):
-        with provider.TemporaryDirectory(dir=ROOT / "build", prefix="high-fps-anchors-") as temporary:
+        with resource_fixture.TemporaryDirectory(prefix="high-fps-anchors-") as temporary:
             image = Path(temporary) / "keyframe.png"
             image.write_bytes(b"decoded at runtime")
             storyboard = Path(temporary) / "shots.json"
@@ -103,7 +103,7 @@ class VideoInterpolationMediaTests(unittest.TestCase):
     def setUp(self):
         from PIL import Image, ImageDraw
         self.Image, self.ImageDraw = Image, ImageDraw
-        temporary = provider.TemporaryDirectory(dir=ROOT / "build", prefix="video-interpolation-")
+        temporary = resource_fixture.TemporaryDirectory(prefix="video-interpolation-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 

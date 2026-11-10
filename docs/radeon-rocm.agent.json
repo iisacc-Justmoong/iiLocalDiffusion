@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/radeon-rocm.md",
-    "sha256": "2e98d1995d753a2a271aa30fe58211f6faa90ea06343c40efcc6cc9333c35a00",
-    "bytes": 12756,
+    "sha256": "6d4351486431efda57ede67912b4832994c98fe56c2e332f67d691f47a9fce0c",
+    "bytes": 12768,
     "line_count": 110,
     "encoding": "utf-8",
     "language": "ko"
@@ -304,9 +304,9 @@
       "kind": "fenced_code",
       "start_line": 42,
       "end_line": 51,
-      "raw": "```bash\npython -m pip install -r reference/diffusers/requirements-rocm.txt\npython reference/diffusers/hardware.py --device rocm --dtype float16\npython reference/diffusers/generate.py --preset sdxl-base --device rocm --model-config /absolute/path/model-config \\\n  --model /absolute/path/base.safetensors \\\n  --vae /absolute/path/vae.safetensors \\\n  --lora /absolute/path/style.safetensors --lora-scale 0.75 \\\n  --cpu-text-encoding --offload model \\\n  --output build/reference/radeon/sdxl-lora.png\n```\n",
+      "raw": "```bash\npython -m pip install -r reference/diffusers/requirements-rocm.txt\npython reference/diffusers/hardware.py --device rocm --dtype float16\npython reference/diffusers/generate.py --preset sdxl-base --device rocm --model-config /absolute/path/model-config \\\n  --model /absolute/path/base.safetensors \\\n  --vae /absolute/path/vae.safetensors \\\n  --lora /absolute/path/style.safetensors --lora-scale 0.75 \\\n  --cpu-text-encoding --offload model \\\n  --output resources/outputs/reference/radeon/sdxl-lora.png\n```\n",
       "language": "bash",
-      "code": "python -m pip install -r reference/diffusers/requirements-rocm.txt\npython reference/diffusers/hardware.py --device rocm --dtype float16\npython reference/diffusers/generate.py --preset sdxl-base --device rocm --model-config /absolute/path/model-config \\\n  --model /absolute/path/base.safetensors \\\n  --vae /absolute/path/vae.safetensors \\\n  --lora /absolute/path/style.safetensors --lora-scale 0.75 \\\n  --cpu-text-encoding --offload model \\\n  --output build/reference/radeon/sdxl-lora.png\n",
+      "code": "python -m pip install -r reference/diffusers/requirements-rocm.txt\npython reference/diffusers/hardware.py --device rocm --dtype float16\npython reference/diffusers/generate.py --preset sdxl-base --device rocm --model-config /absolute/path/model-config \\\n  --model /absolute/path/base.safetensors \\\n  --vae /absolute/path/vae.safetensors \\\n  --lora /absolute/path/style.safetensors --lora-scale 0.75 \\\n  --cpu-text-encoding --offload model \\\n  --output resources/outputs/reference/radeon/sdxl-lora.png\n",
       "closed": true
     },
     {
@@ -633,7 +633,7 @@
       {
         "block_id": "b000033",
         "language": "bash",
-        "code": "python -m pip install -r reference/diffusers/requirements-rocm.txt\npython reference/diffusers/hardware.py --device rocm --dtype float16\npython reference/diffusers/generate.py --preset sdxl-base --device rocm --model-config /absolute/path/model-config \\\n  --model /absolute/path/base.safetensors \\\n  --vae /absolute/path/vae.safetensors \\\n  --lora /absolute/path/style.safetensors --lora-scale 0.75 \\\n  --cpu-text-encoding --offload model \\\n  --output build/reference/radeon/sdxl-lora.png\n"
+        "code": "python -m pip install -r reference/diffusers/requirements-rocm.txt\npython reference/diffusers/hardware.py --device rocm --dtype float16\npython reference/diffusers/generate.py --preset sdxl-base --device rocm --model-config /absolute/path/model-config \\\n  --model /absolute/path/base.safetensors \\\n  --vae /absolute/path/vae.safetensors \\\n  --lora /absolute/path/style.safetensors --lora-scale 0.75 \\\n  --cpu-text-encoding --offload model \\\n  --output resources/outputs/reference/radeon/sdxl-lora.png\n"
       },
       {
         "block_id": "b000049",

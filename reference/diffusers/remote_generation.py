@@ -13,8 +13,10 @@ from model_sources import resolve_model_input
 from generation_seed import resolve_seed
 from remote_inference import RemoteInference
 from weight_files import file_sha256
+from resource_paths import OUTPUT_DIRECTORY
 
 ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_OUTPUT = OUTPUT_DIRECTORY / "remote-image.png"
 SOURCE_FIELDS = {"model", "model_api", "model_cloud", "model_provider", "model_token_env", "model_family", "model_timeout"}
 IMAGE_FIELDS = SOURCE_FIELDS | {"prompt", "negative_prompt", "width", "height", "steps", "guidance_scale",
                                "seed", "num_images", "seed_stride", "output", "overwrite",
@@ -49,7 +51,7 @@ def resolve_image_options(args):
     _text(args.prompt, "prompt")
     _text(args.negative_prompt, "negative_prompt", empty=True)
     args.output_was_default = args.output is None
-    args.output = (args.output or ROOT / "build/reference/remote-image.png").expanduser().absolute()
+    args.output = (args.output or DEFAULT_OUTPUT).expanduser().absolute()
     if args.output.suffix.lower() != ".png":
         raise ValueError("Remote image output must use the .png extension.")
     if args.config and args.config.resolve() in (args.output.resolve(), args.output.with_suffix(".json").resolve()):

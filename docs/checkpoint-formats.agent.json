@@ -10,9 +10,9 @@
   },
   "source": {
     "path": "docs/checkpoint-formats.md",
-    "sha256": "2fd0a2df8fa09bb7e1dd4255e8d1ab33cb079e3e1b1b6ca923e4268ff26d270e",
-    "bytes": 7233,
-    "line_count": 126,
+    "sha256": "eed47c92eadcc3eddd2ec424b870874aeec788eec35331bd42ec102419d9afe7",
+    "bytes": 7392,
+    "line_count": 128,
     "encoding": "utf-8",
     "language": "ko"
   },
@@ -420,8 +420,8 @@
       "id": "b000047",
       "kind": "paragraph",
       "start_line": 120,
-      "end_line": 126,
-      "raw": "2026-09-04 실행 결과는 Torch `2.13.0`에서 22개 테스트 통과이다. 실제 zip `.ckpt`와\n구형 non-zip `.pt`를 변환한 뒤 safetensors로 다시 읽어 key·값·dtype·contiguity와\n원본 SHA 불변을 검사했다. 실행 시 marker를 쓰도록 구성된 `__reduce__` fixture는\n제한된 unpickler에서 거부되었으며 marker가 생성되지 않았음을 검사했다. 증거는\n`build/reference/checkpoint-conversion-smoke/tiny-conversion.json` 및\n`malicious-checkpoint.json`에 저장된다. 이 tiny fixture 검증은 실제 배포 모델의\n생성 검증을 대신하지 않는다.\n"
+      "end_line": 128,
+      "raw": "2026-09-04 실행 결과는 Torch `2.13.0`에서 22개 테스트 통과이다. 실제 zip `.ckpt`와\n구형 non-zip `.pt`를 변환한 뒤 safetensors로 다시 읽어 key·값·dtype·contiguity와\n원본 SHA 불변을 검사했다. 실행 시 marker를 쓰도록 구성된 `__reduce__` fixture는\n제한된 unpickler에서 거부되었으며 marker가 생성되지 않았음을 검사했다. 증거는\n당시 `build/reference/checkpoint-conversion-smoke/tiny-conversion.json` 및\n`malicious-checkpoint.json`에 저장됐다. 현재 테스트는 결과 JSON을 표준 출력으로\n내보내고, 임시 입력과 변환 결과는 `resources/test-workspaces/`에서 정리한다.\n이 tiny fixture 검증은 실제 배포 모델의\n생성 검증을 대신하지 않는다.\n"
     }
   ],
   "outline": [
@@ -525,7 +525,7 @@
       },
       {
         "block_id": "b000047",
-        "line": 126,
+        "line": 128,
         "text": "생성 검증을 대신하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"

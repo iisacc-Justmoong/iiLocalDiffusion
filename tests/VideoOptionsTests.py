@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Cinematic video planning and front-door contracts, without model downloads."""
+import resource_fixture
 
 import json
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import unittest
 from local_model_fixture import local_parser, MODEL
 
@@ -17,7 +17,7 @@ from video_options import build_parser, resolve_options, configuration, CAMERA_M
 class VideoOptionsTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="video-options-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="video-options-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 

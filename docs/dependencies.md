@@ -61,7 +61,7 @@ SentencePiece 0.2.2 (Apache-2.0) 는 Kolors/ ChatGLM 토크나이징 및 기타 
 ComfyUI는 문서화된 HTTP API를 통해 접근하는 선택적이며 별도로 설치되는 로컬 프로세스이다. 유지보수되는 네이티브/사용자 정의 노드 생태계는 고정된 Diffusers에 없는 모델 아키텍처와 가중치 배치를 제공한다. ComfyUI는 GPL-3.0이며 사용자 정의 노드와 가중치는 별도 라이선스를 가진다. 이 변경으로 ComfyUI 코드, 노드 또는 가중치를 저장소에 포함하지 않는다. 표준 라이브러리 기반 HTTP 클라이언트는 Python 패키지 의존성을 추가하지 않는다. 이 프로세스 경계는 상당한 규모의 Torch/노드 환경을 C++와 고정된 Diffusers 환경 밖에 유지한다. 다음을 참고한다:
 [워크플로 설정 및 확인](comfyui-generation.md).
 
-선택적인 `reference/setup_comfyui.py` 설치기는 이제 ComfyUI 소스와 ComfyUI - GGUF 확장을 별도의 `build/reference/comfyui-venv` 에 고정하여 설치된 패키지 잠금을 유지합니다. 관리되는 로컬 이미지 백엔드는 호출마다 이 엔진을 시작하고 중지합니다. ComfyUI - GGUF 는 Apache-2.0 이며 유지되는 GGUF 리더/양자화 로더를 재사용하여 iiLocalDiffusion 에 텐서 디코더를 추가하지 않습니다. [설치 및 정확한 버전](local-image-generation.md)를 참조하십시오.
+선택적인 `reference/setup_comfyui.py` 설치기는 이제 ComfyUI 소스와 ComfyUI - GGUF 확장을 별도의 `resources/.state/reference-runtime/comfyui-venv` 에 고정하여 설치된 패키지 잠금을 유지합니다. 관리되는 로컬 이미지 백엔드는 호출마다 이 엔진을 시작하고 중지합니다. ComfyUI - GGUF 는 Apache-2.0 이며 유지되는 GGUF 리더/양자화 로더를 재사용하여 iiLocalDiffusion 에 텐서 디코더를 추가하지 않습니다. [설치 및 정확한 버전](local-image-generation.md)를 참조하십시오.
 
 Kolors 원시 체크포인트 대안도 검토되었습니다. GPL-3.0
 [ComfyUI -Kolors- MZ 소스](https://github.com/MinusZoneAI/ComfyUI-Kolors-MZ/tree/43ec2701a1390259a17ef3bea6244a3134aa5153) 는 체크포인트/ UNet 로더와 ChatGLM 조건부 경로를 포함하지만, 모델 후크는 2024에 기원하며, 최신 검토된 변경사항은 3 월 2025 레지스트리 업데이트이며, 의존성 매니페스트가 없습니다. 4비트 인코더 코드 또한 암시적인 패키지 설치 경로를 포함합니다. 이 2026 엔진과 호환되도록 설치되거나 광고된 바 없습니다. Apache-2.0
@@ -114,7 +114,7 @@ Metal 컴파일러/프레임워크 및  CUDA 툴킷, 드라이버,  cuDNN 라이
 Apple 는 추가로 시스템 Foundation 과 Core ML 프레임워크를 사내 구현 의존성으로 구축하며, `IILD_ENABLE_COREML` 에 의해 독립적으로 제어됩니다. 공개 C++ 헤더에는 Objective-C/프레임워크 타입이 포함되어 있지 않습니다. 공개 컴퓨팅 장치 및 컴퓨팅 계획 API 는 ANE 발견과 예상 배치 기능을 제공하며, 사내 `_ANE` API, 커스텀 신경망 커널, 또는 제 3 자 전체 확산 런타임 를 사용하지 않습니다. 검토된 SDK 는 macOS 14.4 API 를 노출합니다. 프레임워크는 Apple 의 SDK 조항 하에 운영 시스템 의존성으로 유지되며 설치에 복사되지 않습니다.
 
 오프라인 변환의 경우에만 `reference/coreml/requirements.txt`는 coremltools 9.0(BSD-3-Clause), NumPy 2.3.5(BSD-3-Clause), safetensors를 고정합니다. 0.6.2(Apache-2.0) 및 ml_dtypes 0.5.3(Apache-2.0). 애플의
-[coremltools](https://github.com/apple/coremltools) 는 유지 관리되며 변환/컴파일 및 계획 API 를 제공합니다. 안정적인 9.0 가 검토된 9.1 개발 릴리스보다 선택되었습니다. 그것의 CPython 3.13 macOS 휠과 작은 변환 전용 의존성 집합은 Torch / TensorFlow 를 이 환경에 추가하거나 Python 3.14 Diffusers 설치를 변경하는 것을 피합니다. 별도의 환경은 `build/reference/coreml-venv/` 하에 유지되며, NumPy 도 C++ 런타임 의존성이 아닙니다. 예측과 수치 검증은 C++ Core ML 브릿지를 사용하며, 독립적인 NumPy 오라클을 사용하여 Python 예측 버퍼 브릿지를 대신합니다. [변환 노트](../reference/coreml/README.md) 와 [하드웨어 제한 사항](neural-accelerators.md)을 참조하십시오.
+[coremltools](https://github.com/apple/coremltools) 는 유지 관리되며 변환/컴파일 및 계획 API 를 제공합니다. 안정적인 9.0 가 검토된 9.1 개발 릴리스보다 선택되었습니다. 그것의 CPython 3.13 macOS 휠과 작은 변환 전용 의존성 집합은 Torch / TensorFlow 를 이 환경에 추가하거나 Python 3.14 Diffusers 설치를 변경하는 것을 피합니다. 별도의 환경은 `resources/.state/reference-runtime/coreml-venv/` 하에 유지되며, NumPy 도 C++ 런타임 의존성이 아닙니다. 예측과 수치 검증은 C++ Core ML 브릿지를 사용하며, 독립적인 NumPy 오라클을 사용하여 Python 예측 버퍼 브릿지를 대신합니다. [변환 노트](../reference/coreml/README.md) 와 [하드웨어 제한 사항](neural-accelerators.md)을 참조하십시오.
 
 Tensor 코어 감지 및 정밀도 선택은 MLX/cuBLAS 및 이미 고정된 PyTorch API를 재사용합니다. 추가 NVIDIA SDK 또는 사용자 정의 CUDA 코드는 도입되지 않습니다.
 
@@ -137,7 +137,7 @@ MLX는 필수 AMD 백엔드를 제공하지 않으며 LibTorch에는 이에 상�
 
 이 검증된 환경에 대한 수정된 Python 버전은 macOS arm64의 CPython 3.14입니다. 패키지 버전과 하드웨어는 생성된 모든 참조 이미지 옆에 기록됩니다.
 
-오라클은 또한 `huggingface_hub`가 참조 모델의 대용량 파일을 전송하는 데 사용하는 Hugging Face Xet 1.6.0(Apache-2.0)를 고정합니다. 해당 청크 캐시는 `build/reference/huggingface-xet`로 리디렉션되므로 모델 다운로드 시 시스템 볼륨 캐시를 사용하지 않습니다.
+오라클은 또한 `huggingface_hub`가 참조 모델의 대용량 파일을 전송하는 데 사용하는 Hugging Face Xet 1.6.0(Apache-2.0)를 고정합니다. 해당 청크 캐시는 `resources/.state/reference-cache/huggingface-xet`로 리디렉션되므로 모델 다운로드 시 시스템 볼륨 캐시를 사용하지 않습니다.
 
 PEFT 0.20.0(Apache-2.0)는 Diffusers를 통한 런타임 LoRA 어댑터 주입 및 활성화를 위해 고정되어 있다. Python 검증 기준에만 필요하며 C++ 라이브러리에 링크하지 않는다. 모델/VAE 단일 파일 로딩은 이미 고정된 Diffusers 및 safetensors 패키지를 사용하며 추가 제3자 런타임 의존성을 도입하지 않는다. Diffusers는 체크포인트 배치 변환과 신경망 구성 요소 생성을 담당하고 프로젝트 코드는 인수 해석, 구성, 파일 식별과 출처를 담당한다.
 

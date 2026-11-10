@@ -16,12 +16,12 @@ import tempfile
 
 from model_merge_files import align_anima_checkpoint, inspect_merge_model, open_merge_weights, validate_package_assets
 from model_merge_common import project_checkpoint, preserves_base_tensor, POLICY, FORCED_POLICY
-from model_merge_tensor import (QuantizationError, decode_tensor, repair_nonfinite_material,
+from model_merge_tensor import (QuantizationError, convrot_group, decode_tensor, repair_nonfinite_material,
                                 record_numeric_repair, zero_nonfinite, safe_storage)
 from model_merge_ecosystem import exact_layout_compatible, identify_ecosystem
 from model_merge_diagnostics import model_profile, preflight_summary
 from model_merge_verify import verify_saved_tensors
-from model_merge_lora import is_lora_key, prepare_lora
+from model_merge_lora import UnsupportedQuantizedLoraTarget, is_lora_key, prepare_lora
 from model_merge_lora_targets import lora_target_aliases
 from model_merge_options import MergeRequest, build_parser, resolve_merge_request, resolve_merge_weights
 from weight_files import file_sha256
@@ -183,6 +183,10 @@ def _filter_compatible_materials(request, models, safe_open, torch, failures=Non
                                 "scale": delta.scale, "adaptation": delta.adaptation} for delta in deltas]
                     reason = (f"{len(deltas)} LoRA target(s) mapped to the base model."
                               if compatible else "The LoRA has no applicable target in the base model.")
+                except UnsupportedQuantizedLoraTarget as error:
+                    # Never reinterpret a known quantized LoRA as raw checkpoint
+                    # coordinates or redirect it to an unrelated floating layer.
+                    reason = f"LoRA targets do not match the base model: {error}"
                 except (ValueError, RuntimeError, OSError, ImportError) as error:
                     if isinstance(error, torch.OutOfMemoryError):
                         raise
@@ -250,7 +254,7 @@ def _filter_compatible_materials(request, models, safe_open, torch, failures=Non
         return filtered_request, filtered_models, compatibility, excluded
 
 
-def _merge_tensor(torch, readers, layouts, address, request, checkpoint_indices, loras, normalization=None):
+def _merge_tensor(torch, readers, layouts, address, request, checkpoint_indices, loras, normalization=None, quant_updates=None):
     # Only one additional tensor is materialized at a time. Output shards are
     # saved separately using the official serializer, with no custom tensor I/O.
     key = address[1]
@@ -261,6 +265,18 @@ def _merge_tensor(torch, readers, layouts, address, request, checkpoint_indices,
         base = zero_nonfinite(torch, base, normalization, address, "base_nonfinite_values")
     base_changed = base is not original_base
     base_dtype = readers[0][layouts[0][address]].get_slice(key).get_dtype()
+    if loras and base_dtype == 'I8':
+        if len(checkpoint_indices) != 1:
+            raise ValueError('ConvRot LoRA merging cannot be combined with other checkpoint weights.')
+        from model_merge_convrot import merge as merge_convrot
+        tensor, scale, scale_address, applied = merge_convrot(torch, readers[0], layouts[0], address, base, loras, request)
+        if applied:
+            if quant_updates is None:
+                raise ValueError('ConvRot LoRA merging requires atomic weight and scale updates.')
+            quant_updates[scale_address] = scale
+            if normalization is not None:
+                normalization['requantized_tensors'] += 1
+        return tensor, applied, not _equal(torch, tensor, original_base)
     if common and preserves_base_tensor(address, base_dtype, base.shape, layouts[0]):
         return base.clone().contiguous(), False, base_changed
     if not common and not base.is_floating_point():
@@ -355,6 +371,17 @@ def _merge_tensor(torch, readers, layouts, address, request, checkpoint_indices,
         return base.clone().contiguous(), False, base_changed
     if not common and not torch.isfinite(result).all().item():
         raise ValueError(f"Merge result is not finite or overflows the base dtype: {address}")
+    if common and scale is not None and convrot_group(readers[0], layouts[0], address) is not None:
+        from model_merge_convrot import requantize, tensor_spec
+        scale_address, _ = tensor_spec(readers[0], layouts[0], address)
+        stored_scale = readers[0][layouts[0][scale_address]].get_tensor(scale_address[1])
+        tensor, new_scale = requantize(torch, result, base, stored_scale)
+        if quant_updates is None:
+            raise ValueError('ConvRot merging requires atomic weight and scale updates.')
+        quant_updates[scale_address] = new_scale
+        if normalization is not None:
+            normalization['requantized_tensors'] += 1
+        return tensor, True, not _equal(torch, tensor, original_base)
     if scale is not None:
         result = result / scale + zero
         if normalization is not None:
@@ -478,13 +505,20 @@ def _execute_merge(request: MergeRequest) -> dict:
             for name, reader in readers[0].items():
                 component = str(PurePosixPath(name).parent) if directory else "."
                 tensors = {}
+                quant_updates = {}
                 for key in reader.keys():
                     address = (component, key)
                     tensor, merged, changed = _merge_tensor(torch, readers, layouts, address, request,
-                                                            checkpoint_indices, loras.get(address, ()), recipe["numeric_normalization"])
+                                                            checkpoint_indices, loras.get(address, ()), recipe["numeric_normalization"], quant_updates)
                     tensors[key] = tensor
                     merged_count += int(merged)
                     changed_count += int(changed)
+                for (scale_component, scale_key), replacement in quant_updates.items():
+                    if scale_component != component or scale_key not in tensors:
+                        raise ValueError('ConvRot weight and scale must be saved in the same checkpoint shard.')
+                    changed_count += int(not _equal(torch, tensors[scale_key], replacement))
+                    merged_count += 1
+                    tensors[scale_key] = replacement
                 relative = name if directory else request.output.name
                 target = staging / relative
                 provider.mkdir(target.parent, parents=True, exist_ok=True)

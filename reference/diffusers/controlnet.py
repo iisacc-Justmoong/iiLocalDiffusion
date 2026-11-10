@@ -202,7 +202,7 @@ def validate_controlnet_contract(controlnet: Any, pipeline: Any, preset: Pipelin
         raise RuntimeError(f"ControlNet must be {expected} for {preset.name}.")
     base = pipeline.transformer if preset.family == "flux1-schnell" else pipeline.unet
     fields = (
-        ("in_channels", "patch_size", "attention_head_dim", "num_attention_heads",
+        ("in_channels", "attention_head_dim", "num_attention_heads",
          "joint_attention_dim", "pooled_projection_dim", "axes_dims_rope")
         if preset.family == "flux1-schnell" else
         ("in_channels", "cross_attention_dim", "block_out_channels", "down_block_types",
@@ -219,6 +219,16 @@ def validate_controlnet_contract(controlnet: Any, pipeline: Any, preset: Pipelin
         if getattr(controlnet.config, "conditioning_channels", 3) != 3:
             raise RuntimeError("ControlNet must accept a three-channel RGB conditioning image.")
     else:
+        # XLabs-style models patch the output of their RGB hint encoder; this
+        # patch size is independent of the base transformer's projection.
+        if getattr(controlnet, "input_hint_block", None) is not None:
+            channels = getattr(controlnet.config, "conditioning_embedding_channels", None)
+            if (getattr(base.config, "patch_size", None) != 1
+                    or getattr(controlnet.config, "patch_size", None) != 2
+                    or type(channels) is not int or channels * 4 != controlnet.config.in_channels):
+                raise RuntimeError("FLUX pixel hint encoder patching is incompatible with the base transformer.")
+        elif getattr(controlnet.config, "patch_size", None) != getattr(base.config, "patch_size", None):
+            raise RuntimeError("ControlNet patch_size is incompatible with the base transformer.")
         mode_count = getattr(controlnet.config, "num_mode", None)
         if getattr(controlnet, "union", False):
             if args.control_mode is None or not 0 <= args.control_mode < mode_count:

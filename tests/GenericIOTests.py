@@ -2,11 +2,12 @@
 """Typed generic tensor interchange; real runtime round trips when available."""
 
 from __future__ import annotations
+import resource_fixture
 
 import json
+import importlib.util
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -16,6 +17,34 @@ sys.path.insert(0, str(ROOT / "reference/diffusers"))
 from _file_provider import provider
 import generate_any as generic
 import generic_io
+
+
+@unittest.skipUnless(importlib.util.find_spec('PIL'), 'Pillow is required for EXIF input tests')
+class GenericImageOrientationTests(unittest.TestCase):
+    def test_image_inputs_apply_exif_orientation_before_rgb_or_mask_conversion(self):
+        from PIL import Image, ImageOps
+        with resource_fixture.TemporaryDirectory(prefix='generic-orientation-') as temporary:
+            path = Path(temporary) / 'portrait.png'
+            image = Image.new('RGB', (3, 2), 'black')
+            image.putpixel((0, 0), (255, 0, 0))
+            exif = Image.Exif()
+            exif[274] = 6
+            image.save(path, exif=exif)
+            descriptors = {key: {'image_path': str(path), 'mode': 'L' if key == 'control_mask_image' else 'RGB'}
+                           for key in ('image', 'control_image', 'control_color_image',
+                                       'control_inpaint_image', 'control_mask_image', 'region_image')}
+            actual, identities = generic.prepare_inputs(descriptors, Image)
+            with Image.open(path) as opened:
+                expected = ImageOps.exif_transpose(opened)
+                for key, value in actual.items():
+                    with self.subTest(key=key):
+                        self.assertEqual(value.size, (2, 3))
+                        self.assertEqual(value.tobytes(), expected.convert(value.mode).tobytes())
+            self.assertTrue(all(item['size'] == [2, 3] for item in identities))
+            self.assertTrue(all(item['exif_transpose'] is True for item in identities))
+            import krea2_controlnet
+            width, height = krea2_controlnet.pick_bucket(*actual['control_image'].size)
+            self.assertLess(width, height, 'Krea 2 must select a portrait bucket from the oriented control image')
 
 try:
     import torch
@@ -52,7 +81,7 @@ class GenericIOContractTests(unittest.TestCase):
 class GenericIORuntimeTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        self.temporary = provider.TemporaryDirectory(dir=ROOT / "build", prefix="generic-io-tests-")
+        self.temporary = resource_fixture.TemporaryDirectory(prefix="generic-io-tests-")
         self.directory = Path(self.temporary.name)
         self.spec = {"semantic": "latents", "layout": "BSC", "representation_space": "vae-v1"}
 

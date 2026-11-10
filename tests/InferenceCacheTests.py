@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Resident inference must reuse unchanged inputs without hiding model edits."""
+import resource_fixture
 
 import io
 import json
@@ -7,7 +8,6 @@ import os
 import shutil
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import Mock, patch
 from types import SimpleNamespace
@@ -22,10 +22,10 @@ import inference_worker
 class InferenceCacheTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="inference-cache-")
+        self.temporary = resource_fixture.TemporaryDirectory(prefix="inference-cache-")
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
-        hash_cache = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="hash-cache-")
+        hash_cache = resource_fixture.TemporaryDirectory(prefix="hash-cache-")
         self.addCleanup(hash_cache.cleanup)
         cache_environment = patch.dict(os.environ, {"IILD_MODEL_HASH_CACHE": str(Path(hash_cache.name) / "hashes.sqlite3")})
         cache_environment.start()

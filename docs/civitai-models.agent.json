@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/civitai-models.md",
-    "sha256": "85be1675a6635827bdc393286fe145bd3cdedf7506bfc853fb553aec47136f10",
-    "bytes": 20779,
+    "sha256": "e6fbac1ad41dd33d040de461d18435326f887d6f113003f0c247a2bb12c9972a",
+    "bytes": 20803,
     "line_count": 225,
     "encoding": "utf-8",
     "language": "ko"
@@ -340,9 +340,9 @@
       "kind": "fenced_code",
       "start_line": 62,
       "end_line": 68,
-      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --base-model 'SD 3.5' \\\n  --model /absolute/path/sd35-diffusers \\\n  --pipeline-inputs '{\"prompt\":\"a ceramic teapot on a wooden table\",\"num_inference_steps\":28}' \\\n  --output-dir build/reference/sd35\n```\n",
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --base-model 'SD 3.5' \\\n  --model /absolute/path/sd35-diffusers \\\n  --pipeline-inputs '{\"prompt\":\"a ceramic teapot on a wooden table\",\"num_inference_steps\":28}' \\\n  --output-dir resources/outputs/reference/sd35\n```\n",
       "language": "bash",
-      "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --base-model 'SD 3.5' \\\n  --model /absolute/path/sd35-diffusers \\\n  --pipeline-inputs '{\"prompt\":\"a ceramic teapot on a wooden table\",\"num_inference_steps\":28}' \\\n  --output-dir build/reference/sd35\n",
+      "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --base-model 'SD 3.5' \\\n  --model /absolute/path/sd35-diffusers \\\n  --pipeline-inputs '{\"prompt\":\"a ceramic teapot on a wooden table\",\"num_inference_steps\":28}' \\\n  --output-dir resources/outputs/reference/sd35\n",
       "closed": true
     },
     {
@@ -371,9 +371,9 @@
       "kind": "fenced_code",
       "start_line": 72,
       "end_line": 78,
-      "raw": "```bash\npython reference/generate.py \\\n  --backend comfyui --base-model Anima \\\n  --workflow /absolute/path/anima-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a ceramic teapot on a wooden table\"}}' \\\n  --output-dir build/reference/anima --validate-only\n```\n",
+      "raw": "```bash\npython reference/generate.py \\\n  --backend comfyui --base-model Anima \\\n  --workflow /absolute/path/anima-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a ceramic teapot on a wooden table\"}}' \\\n  --output-dir resources/outputs/reference/anima --validate-only\n```\n",
       "language": "bash",
-      "code": "python reference/generate.py \\\n  --backend comfyui --base-model Anima \\\n  --workflow /absolute/path/anima-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a ceramic teapot on a wooden table\"}}' \\\n  --output-dir build/reference/anima --validate-only\n",
+      "code": "python reference/generate.py \\\n  --backend comfyui --base-model Anima \\\n  --workflow /absolute/path/anima-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a ceramic teapot on a wooden table\"}}' \\\n  --output-dir resources/outputs/reference/anima --validate-only\n",
       "closed": true
     },
     {
@@ -1401,12 +1401,12 @@
       {
         "block_id": "b000043",
         "language": "bash",
-        "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --base-model 'SD 3.5' \\\n  --model /absolute/path/sd35-diffusers \\\n  --pipeline-inputs '{\"prompt\":\"a ceramic teapot on a wooden table\",\"num_inference_steps\":28}' \\\n  --output-dir build/reference/sd35\n"
+        "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --base-model 'SD 3.5' \\\n  --model /absolute/path/sd35-diffusers \\\n  --pipeline-inputs '{\"prompt\":\"a ceramic teapot on a wooden table\",\"num_inference_steps\":28}' \\\n  --output-dir resources/outputs/reference/sd35\n"
       },
       {
         "block_id": "b000047",
         "language": "bash",
-        "code": "python reference/generate.py \\\n  --backend comfyui --base-model Anima \\\n  --workflow /absolute/path/anima-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a ceramic teapot on a wooden table\"}}' \\\n  --output-dir build/reference/anima --validate-only\n"
+        "code": "python reference/generate.py \\\n  --backend comfyui --base-model Anima \\\n  --workflow /absolute/path/anima-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a ceramic teapot on a wooden table\"}}' \\\n  --output-dir resources/outputs/reference/anima --validate-only\n"
       }
     ],
     "links": [

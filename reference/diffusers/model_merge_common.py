@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 import math
 import re
 
-from model_merge_tensor import (QuantizationError, decode_tensor, has_quantization_scale,
+from model_merge_tensor import (QuantizationError, convrot_group, decode_tensor, has_quantization_scale,
                                 is_quantization_auxiliary, project_tensor, projection_transform)
 
 
@@ -116,6 +116,8 @@ class CommonLayerReader:
             return self.base_readers[self.base_layout[address]].get_tensor(key).clone().contiguous()
         try:
             value, scale, _ = decode_tensor(torch, self.source_readers, self.source_layout, source_address)
+            source_group = convrot_group(self.source_readers, self.source_layout, source_address)
+            target_group = convrot_group(self.base_readers, self.base_layout, address)
         except QuantizationError as error:
             self.mappings[address] = None
             self.report["runtime_preserved_tensors"] += 1
@@ -124,7 +126,16 @@ class CommonLayerReader:
             return self.base_readers[self.base_layout[address]].get_tensor(key).clone().contiguous()
         if scale is not None:
             self.report["dequantized_tensors"] += 1
-        return project_tensor(torch, value, self.get_slice(key).get_shape())
+        target_shape = self.get_slice(key).get_shape()
+        same_coordinates = source_group == target_group and tuple(value.shape) == tuple(target_shape)
+        if not same_coordinates and source_group is not None:
+            from moss_convrot import rotate
+            value = rotate(value, source_group)
+        value = project_tensor(torch, value, target_shape)
+        if not same_coordinates and target_group is not None:
+            from moss_convrot import rotate
+            value = rotate(value, target_group)
+        return value
 
 
 def project_checkpoint(source_readers, source_layout, base_readers, base_layout, *, force=False):

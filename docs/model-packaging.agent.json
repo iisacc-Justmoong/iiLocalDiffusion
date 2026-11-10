@@ -10,9 +10,9 @@
   },
   "source": {
     "path": "docs/model-packaging.md",
-    "sha256": "c5635a13f491c94d1e000918df61afac29773d5abde33d947db5f6d6b71c052c",
-    "bytes": 6101,
-    "line_count": 101,
+    "sha256": "65e3c4bc1196dcbef5bdd205a50521bf01e5032b0734281f9a8d94b696f279da",
+    "bytes": 11048,
+    "line_count": 164,
     "encoding": "utf-8",
     "language": "en"
   },
@@ -56,173 +56,217 @@
       "id": "b000005",
       "kind": "fenced_code",
       "start_line": 8,
-      "end_line": 14,
-      "raw": "```cpp\n#include <ModelPackaging/ModelPackaging.hpp>\nauto inspection = iild::scanModelFolder(folder, {}, stopToken, progress);\nauto saved = iild::createModelPackage(folder, output, excludedFiles, stopToken, progress);\nauto verified = iild::verifyModelPackage(output, stopToken, progress);\nauto restored = iild::extractModelPackage(output, newFolder, stopToken, progress);\n```\n",
+      "end_line": 22,
+      "raw": "```cpp\n#include <ModelPackaging/ModelPackaging.hpp>\nauto inspection = iild::scanModelFolder(folder, {}, stopToken, progress);\nauto saved = iild::createModelPackage(folder, output, excludedFiles, stopToken, progress);\nstd::vector<std::filesystem::path> models{\"Checkpoint/base.safetensors\", \"LLM/encoder.gguf\"};\nauto selection = iild::scanModelSelection(modelsRoot, models, {}, stopToken, progress);\nauto packaged = iild::createModelPackageFromSelection(modelsRoot, models, output, excludedFiles, stopToken, progress);\nstd::vector<iild::ModelPackagingAssignment> assignments{\n    {\"Checkpoint/base.safetensors\", \"model\", \"main\"},\n    {\"LLM/encoder.gguf\", \"text_encoder\", \"\"}};\nauto manualInspection = iild::scanModelSelectionWithAssignments(modelsRoot, models, assignments, {}, stopToken, progress);\nauto manualPackage = iild::createModelPackageFromSelectionWithAssignments(modelsRoot, models, manualOutput, assignments, excludedFiles, stopToken, progress);\nauto verified = iild::verifyModelPackage(output, stopToken, progress);\nauto restored = iild::extractModelPackage(output, newFolder, stopToken, progress);\n```\n",
       "language": "cpp",
-      "code": "#include <ModelPackaging/ModelPackaging.hpp>\nauto inspection = iild::scanModelFolder(folder, {}, stopToken, progress);\nauto saved = iild::createModelPackage(folder, output, excludedFiles, stopToken, progress);\nauto verified = iild::verifyModelPackage(output, stopToken, progress);\nauto restored = iild::extractModelPackage(output, newFolder, stopToken, progress);\n",
+      "code": "#include <ModelPackaging/ModelPackaging.hpp>\nauto inspection = iild::scanModelFolder(folder, {}, stopToken, progress);\nauto saved = iild::createModelPackage(folder, output, excludedFiles, stopToken, progress);\nstd::vector<std::filesystem::path> models{\"Checkpoint/base.safetensors\", \"LLM/encoder.gguf\"};\nauto selection = iild::scanModelSelection(modelsRoot, models, {}, stopToken, progress);\nauto packaged = iild::createModelPackageFromSelection(modelsRoot, models, output, excludedFiles, stopToken, progress);\nstd::vector<iild::ModelPackagingAssignment> assignments{\n    {\"Checkpoint/base.safetensors\", \"model\", \"main\"},\n    {\"LLM/encoder.gguf\", \"text_encoder\", \"\"}};\nauto manualInspection = iild::scanModelSelectionWithAssignments(modelsRoot, models, assignments, {}, stopToken, progress);\nauto manualPackage = iild::createModelPackageFromSelectionWithAssignments(modelsRoot, models, manualOutput, assignments, excludedFiles, stopToken, progress);\nauto verified = iild::verifyModelPackage(output, stopToken, progress);\nauto restored = iild::extractModelPackage(output, newFolder, stopToken, progress);\n",
       "closed": true
     },
     {
       "id": "b000006",
       "kind": "blank",
-      "start_line": 15,
-      "end_line": 15,
+      "start_line": 23,
+      "end_line": 23,
       "raw": "\n"
     },
     {
       "id": "b000007",
       "kind": "paragraph",
-      "start_line": 16,
-      "end_line": 24,
+      "start_line": 24,
+      "end_line": 32,
       "raw": "The functions return JSON using `iild-model-package-report-v1`; I/O and\ncancellation throw `std::runtime_error`. Scans expose `ready`, `errors`,\n`files`, `components`, counts and estimated bytes. Optional selections use\nsource-relative file IDs. Creation scans again, verifies the written file,\nfsyncs it, and atomically commits without replacing an existing destination.\nA `verified: true` creation report is emitted only after the final file exists.\nProgress phases are `scan`, `deduplicate`, `write`, `verify`, `save`, and\n`extract`; byte totals are local to each phase. Duplicate checks are displayed\nas indeterminate because their ranges have independent totals.\n"
     },
     {
       "id": "b000008",
       "kind": "blank",
-      "start_line": 25,
-      "end_line": 25,
+      "start_line": 33,
+      "end_line": 33,
       "raw": "\n"
     },
     {
       "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 34,
+      "end_line": 41,
+      "raw": "The selection API reads only the explicitly selected files and model directories\nbelow its root. IDs and extraction paths remain root-relative, so same-named files\nin different categories stay distinct. Duplicate and overlapping selections are\nincluded once. It rejects traversal, missing inputs and redirected selections;\nprovider-owned `.iisacc.json` and hidden control files are never packaged. Folder\nscans also omit provider-owned `.iisacc.json` files. Source files are not copied\ninto a staging directory before inspection or altered. LLM and Text Encoder\ncategory paths identify text encoder components when filenames are inconclusive.\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 42,
+      "end_line": 42,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
       "kind": "heading",
-      "start_line": 26,
-      "end_line": 26,
+      "start_line": 43,
+      "end_line": 43,
       "raw": "## Container contract\n",
       "level": 2,
       "title": "Container contract"
     },
     {
-      "id": "b000010",
-      "kind": "blank",
-      "start_line": 27,
-      "end_line": 27,
-      "raw": "\n"
-    },
-    {
-      "id": "b000011",
-      "kind": "paragraph",
-      "start_line": 28,
-      "end_line": 39,
-      "raw": "Metadata identifies `iild-safetensors-package-v1` in `iild_package_schema` and\nstores a JSON manifest in `iild_package_manifest`. Main safetensors tensor keys\nand original metadata remain intact. Separate safetensors components receive\nrole and source namespaces. GGUF components and tokenizer/configuration assets\nare retained as U8 assets under `__iild_assets__/`; extraction restores their\noriginal bytes and extension. Legacy `.safetensor` files and previously supported\nsupporting files remain readable. ONNX files and manifests declaring embedded\nONNX models are rejected during scanning, verification and materialization;\nexisting input files are not modified. This is\ncomponent bundling, not tensor averaging or LoRA fusion. A manifest-aware\nconsumer is required to load all components. Existing `.iildmodel` ZIP packages\nare a separate contract.\n"
-    },
-    {
       "id": "b000012",
       "kind": "blank",
-      "start_line": 40,
-      "end_line": 40,
+      "start_line": 44,
+      "end_line": 44,
       "raw": "\n"
     },
     {
       "id": "b000013",
       "kind": "paragraph",
-      "start_line": 41,
-      "end_line": 45,
-      "raw": "The manifest preserves each source path, role, format, raw Safetensors header,\nmetadata, per-tensor mapping, SHA-256 and original-file SHA-256. Independently\nverified duplicate components refer to the existing main tensors, so extraction\ncan reconstruct even their original headers and filenames byte for byte.\nExcluded, invalid and ignored files are documented but not restored.\n"
+      "start_line": 45,
+      "end_line": 56,
+      "raw": "Metadata identifies `iild-safetensors-package-v1` in `iild_package_schema` and\nstores a JSON manifest in `iild_package_manifest`. Main safetensors tensor keys\nand original metadata remain intact. Separate safetensors components receive\nrole and source namespaces. GGUF components and tokenizer/configuration assets\nare retained as U8 assets under `__iild_assets__/`; extraction restores their\noriginal bytes and extension. Legacy `.safetensor` files and previously supported\nsupporting files remain readable. ONNX files and manifests declaring embedded\nONNX models are rejected during scanning, verification and materialization;\nexisting input files are not modified. This is\ncomponent bundling, not tensor averaging or LoRA fusion. A manifest-aware\nconsumer is required to load all components. Existing `.iildmodel` ZIP packages\nare a separate contract.\n"
     },
     {
       "id": "b000014",
-      "kind": "blank",
-      "start_line": 46,
-      "end_line": 46,
-      "raw": "\n"
-    },
-    {
-      "id": "b000015",
-      "kind": "heading",
-      "start_line": 47,
-      "end_line": 47,
-      "raw": "## Validation and resource use\n",
-      "level": 2,
-      "title": "Validation and resource use"
-    },
-    {
-      "id": "b000016",
-      "kind": "blank",
-      "start_line": 48,
-      "end_line": 48,
-      "raw": "\n"
-    },
-    {
-      "id": "b000017",
-      "kind": "paragraph",
-      "start_line": 49,
-      "end_line": 56,
-      "raw": "Safetensors headers, dtypes, shapes, JSON keys, contiguous extents and exact\nfile sizes are checked. GGUF headers, supported tensor encodings and byte extents\nare checked without loading the tensors. Shard indexes are\nresolved within their source directory and every indexed tensor must exist.\nLTX 2.x requires its model, video/audio decoders, projections and text encoder.\nDiffusers model indexes require their declared non-null component directories.\nConflicting embedded VAE/projection tensors block packaging. File symlinks\nretain their logical names; directory symlinks are not traversed.\n"
-    },
-    {
-      "id": "b000018",
       "kind": "blank",
       "start_line": 57,
       "end_line": 57,
       "raw": "\n"
     },
     {
-      "id": "b000019",
+      "id": "b000015",
       "kind": "paragraph",
       "start_line": 58,
-      "end_line": 71,
-      "raw": "An 8 MiB streaming buffer bounds tensor I/O; JSON header size is limited to\n64 MiB. Disk space is checked before writing. Source snapshots are checked\nbefore and after copying; duplicate hashes are rechecked during creation.\nOutput tensor hashes and layout are validated by re-reading the output.\nCancellation removes temporary output. Extraction validates the package and\noriginal hashes, rejects unsafe paths, stages into a new directory and preserves\nthe source package. A selected safetensors or GGUF text encoder can also be\nreconstructed to the asset cache. Its format structure, mapping and whole-file\nSHA-256 are checked before publication; safetensors tensor hashes are checked\nseparately. Other weights are not read. No network,\nPython, Torch, GPU or tensor cast is required. This packaging check does not\nestablish that any particular inference backend supports the model architecture.\nMaterialization requires exactly one matching encoder component; a package with\nmultiple encoder files is rejected rather than silently choosing a shard.\n"
+      "end_line": 62,
+      "raw": "The manifest preserves each source path, role, format, raw Safetensors header,\nmetadata, per-tensor mapping, SHA-256 and original-file SHA-256. Independently\nverified duplicate components refer to the existing main tensors, so extraction\ncan reconstruct even their original headers and filenames byte for byte.\nExcluded, invalid and ignored files are documented but not restored.\n"
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 63,
+      "end_line": 63,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "heading",
+      "start_line": 64,
+      "end_line": 64,
+      "raw": "## Manual component assignments\n",
+      "level": 2,
+      "title": "Manual component assignments"
+    },
+    {
+      "id": "b000018",
+      "kind": "blank",
+      "start_line": 65,
+      "end_line": 65,
+      "raw": "\n"
+    },
+    {
+      "id": "b000019",
+      "kind": "paragraph",
+      "start_line": 66,
+      "end_line": 86,
+      "raw": "Each selected Safetensors or GGUF source can have an explicitly assigned role\nand a position of main model or component. Leaving either choice automatic\nretains the detected role or the automatic main-model selection. A main position\nrequires the model role; only one model or sharded model group may be main.\nShard members identified by an included shard index share the group's assignment.\nIf automatically detected shard roles disagree, inspection requires one explicit\ngroup role rather than creating a partially classified model.\nInvalid paths, roles, positions and\nconflicting assignments are rejected before a package can be written. Assignments\nare applied before validation, duplicate detection and output key construction,\nand the report and manifest identify the effective role, position and whether each\nwas chosen by the user. Creation repeats the inspection with the same choices.\nSupported role values are `model`, `text_encoder`, `video_vae`, `audio_vae`,\n`projections`, `upscaler`, `lora` and `other`; `video_vae` remains the existing\nwire value for the VAE/decoder role. Empty values keep automatic detection.\nWhen an indexed optional sharded component is excluded, all its identified shards\nand its shard index are excluded together. An individually selected shard without\nits index cannot be identified as a group; include its index or model directory.\nCalibration retains explicitly assigned choices when repackaging an existing\npackage; older packages without explicit choices continue to be re-detected.\nAssigning a role does not establish architectural or inference compatibility.\n"
     },
     {
       "id": "b000020",
       "kind": "blank",
-      "start_line": 72,
-      "end_line": 72,
+      "start_line": 87,
+      "end_line": 87,
       "raw": "\n"
     },
     {
       "id": "b000021",
       "kind": "heading",
-      "start_line": 73,
-      "end_line": 73,
-      "raw": "## CLI and build\n",
+      "start_line": 88,
+      "end_line": 88,
+      "raw": "## Validation and resource use\n",
       "level": 2,
-      "title": "CLI and build"
+      "title": "Validation and resource use"
     },
     {
       "id": "b000022",
       "kind": "blank",
-      "start_line": 74,
-      "end_line": 74,
+      "start_line": 89,
+      "end_line": 89,
       "raw": "\n"
     },
     {
       "id": "b000023",
-      "kind": "fenced_code",
-      "start_line": 75,
-      "end_line": 84,
-      "raw": "```sh\ncmake --build build --target iild-model-package\nctest --test-dir build -R '^iiLocalDiffusion.ModelPackaging$' --output-on-failure\ncmake --install build --component ModelPackaging\niild-model-package scan --input /path/to/folder\niild-model-package create --input /path/to/folder --output /path/to/model.safetensors\niild-model-package create --input /path/to/folder --output /path/to/core.safetensors --exclude spatial_upscaler.safetensors\niild-model-package verify --input /path/to/model.safetensors\niild-model-package extract --input /path/to/model.safetensors --output /path/to/new-folder\n```\n",
-      "language": "sh",
-      "code": "cmake --build build --target iild-model-package\nctest --test-dir build -R '^iiLocalDiffusion.ModelPackaging$' --output-on-failure\ncmake --install build --component ModelPackaging\niild-model-package scan --input /path/to/folder\niild-model-package create --input /path/to/folder --output /path/to/model.safetensors\niild-model-package create --input /path/to/folder --output /path/to/core.safetensors --exclude spatial_upscaler.safetensors\niild-model-package verify --input /path/to/model.safetensors\niild-model-package extract --input /path/to/model.safetensors --output /path/to/new-folder\n",
-      "closed": true
+      "kind": "paragraph",
+      "start_line": 90,
+      "end_line": 101,
+      "raw": "Safetensors headers, dtypes, shapes, JSON keys, contiguous extents and exact\nfile sizes are checked. GGUF headers, supported tensor encodings and byte extents\nare checked without loading the tensors. Shard indexes are\nresolved within their source directory and every indexed tensor must exist.\nLTX 2.x requires its model, video/audio decoders, projections and text encoder.\nDiffusers model indexes require their declared non-null component directories.\nIndexes inside selected library directories are checked relative to their own\ndirectory as well; an incomplete selected pipeline cannot be created. Legacy\n`iild-unified-model-v1` indexes retain their separate format.\nConflicting embedded VAE/projection tensors block packaging. In folder mode file\nsymlinks retain their logical names and directory symlinks are not traversed.\nExplicit library selections reject symlinks, including within selected directories.\n"
     },
     {
       "id": "b000024",
       "kind": "blank",
-      "start_line": 85,
-      "end_line": 85,
+      "start_line": 102,
+      "end_line": 102,
       "raw": "\n"
     },
     {
       "id": "b000025",
       "kind": "paragraph",
-      "start_line": 86,
-      "end_line": 99,
-      "raw": "The CLI emits NDJSON progress and a final report. SIGINT/SIGTERM request\ncooperative cancellation. Exit codes: 0 success, 2 error, 130 cancellation.\nOn macOS the `ModelPackaging` install component also carries its selected\nOpenSSL Crypto dynamic library so its CLI can start without a developer-machine\ndynamic-library search path. CMake consumers still need an OpenSSL development\nSDK to resolve the exported static library's dependency.\nThe integration suite uses tiny Safetensors and GGUF files, sharded indexes,\nbyte-identical reconstruction, duplicate conflicts, missing components, ONNX\nrejection, output/cache tampering, no-overwrite behavior and cancellation.\nThe controlled native video adapter test checks that either encoder format\nreaches the engine; it is not a real-model inference or hardware performance test.\nThe canonical native-enabled `build/` also passed the image, controlled video\nadapter and video options tests; the packaging suite passed after its CLI target\nwas rebuilt.\n"
+      "start_line": 103,
+      "end_line": 116,
+      "raw": "An 8 MiB streaming buffer bounds tensor I/O; JSON header size is limited to\n64 MiB. Disk space is checked before writing. Source snapshots are checked\nbefore and after copying; duplicate hashes are rechecked during creation.\nOutput tensor hashes and layout are validated by re-reading the output.\nCancellation removes temporary output. Extraction validates the package and\noriginal hashes, rejects unsafe paths, stages into a new directory and preserves\nthe source package. A selected safetensors or GGUF text encoder can also be\nreconstructed to the asset cache. Its format structure, mapping and whole-file\nSHA-256 are checked before publication; safetensors tensor hashes are checked\nseparately. Other weights are not read. No network,\nPython, Torch, GPU or tensor cast is required. This packaging check does not\nestablish that any particular inference backend supports the model architecture.\nMaterialization requires exactly one matching encoder component; a package with\nmultiple encoder files is rejected rather than silently choosing a shard.\n"
     },
     {
       "id": "b000026",
       "kind": "blank",
-      "start_line": 100,
-      "end_line": 100,
+      "start_line": 117,
+      "end_line": 117,
       "raw": "\n"
     },
     {
       "id": "b000027",
+      "kind": "heading",
+      "start_line": 118,
+      "end_line": 118,
+      "raw": "## CLI and build\n",
+      "level": 2,
+      "title": "CLI and build"
+    },
+    {
+      "id": "b000028",
+      "kind": "blank",
+      "start_line": 119,
+      "end_line": 119,
+      "raw": "\n"
+    },
+    {
+      "id": "b000029",
+      "kind": "fenced_code",
+      "start_line": 120,
+      "end_line": 131,
+      "raw": "```sh\ncmake --build build --target iild-model-package\nctest --test-dir build -R '^iiLocalDiffusion.ModelPackaging$' --output-on-failure\ncmake --install build --component ModelPackaging\niild-model-package scan --input /path/to/folder\niild-model-package create --input /path/to/folder --output /path/to/model.safetensors\niild-model-package create --input /path/to/folder --output /path/to/core.safetensors --exclude spatial_upscaler.safetensors\niild-model-package create --input /path/to/Models --select Checkpoint/base.safetensors --select LLM/encoder.gguf --output /path/to/model.safetensors\niild-model-package create --input /path/to/Models --select Other/base.safetensors --select Other/encoder.safetensors --assign-position Other/base.safetensors=main --assign-role Other/encoder.safetensors=text_encoder --output /path/to/model.safetensors\niild-model-package verify --input /path/to/model.safetensors\niild-model-package extract --input /path/to/model.safetensors --output /path/to/new-folder\n```\n",
+      "language": "sh",
+      "code": "cmake --build build --target iild-model-package\nctest --test-dir build -R '^iiLocalDiffusion.ModelPackaging$' --output-on-failure\ncmake --install build --component ModelPackaging\niild-model-package scan --input /path/to/folder\niild-model-package create --input /path/to/folder --output /path/to/model.safetensors\niild-model-package create --input /path/to/folder --output /path/to/core.safetensors --exclude spatial_upscaler.safetensors\niild-model-package create --input /path/to/Models --select Checkpoint/base.safetensors --select LLM/encoder.gguf --output /path/to/model.safetensors\niild-model-package create --input /path/to/Models --select Other/base.safetensors --select Other/encoder.safetensors --assign-position Other/base.safetensors=main --assign-role Other/encoder.safetensors=text_encoder --output /path/to/model.safetensors\niild-model-package verify --input /path/to/model.safetensors\niild-model-package extract --input /path/to/model.safetensors --output /path/to/new-folder\n",
+      "closed": true
+    },
+    {
+      "id": "b000030",
+      "kind": "blank",
+      "start_line": 132,
+      "end_line": 132,
+      "raw": "\n"
+    },
+    {
+      "id": "b000031",
       "kind": "paragraph",
-      "start_line": 101,
-      "end_line": 101,
+      "start_line": 133,
+      "end_line": 162,
+      "raw": "The CLI emits NDJSON progress and a final report. SIGINT/SIGTERM request\ncooperative cancellation. Exit codes: 0 success, 2 error, 130 cancellation.\nThe `ModelPackaging` component also installs `iild_model_packaging.py` under\n`share/iiLocalDiffusion/python`. `scan_selection(root, paths, executable=...)`\nand `create_selection(root, paths, output, executable=...)` call the native CLI\nand return its final JSON report; paths are relative to the supplied root.\nThe executable defaults to `iild-model-package` on `PATH`, and failures raise\n`ModelPackagingError`. Empty selections are rejected rather than scanning the\nentire root. The wrapper does not depend on Torch or a GUI toolkit.\nBoth selection functions accept `assignments={\"relative/path\": {\"role\": \"model\",\n\"position\": \"main\"}}`; either field may be omitted for automatic selection.\nFor legacy packages with ambiguous roles, `iild-model-package materialize --input\nPACKAGE --output CACHE --asset-path RELATIVE_SOURCE` and the Python\n`materialize_package_asset(..., relative_source=...)` select the exact original\nmanifest path. The role and path options are mutually exclusive. Unsafe or\nduplicate source paths, incomplete mappings and checksum mismatches are errors;\nthe input package is not modified. This reconstructs a component, not a proof\nthat an engine can load it or generate an image.\nOn macOS the `ModelPackaging` install component also carries its selected\nOpenSSL Crypto dynamic library so its CLI can start without a developer-machine\ndynamic-library search path. CMake consumers still need an OpenSSL development\nSDK to resolve the exported static library's dependency.\nThe integration suite uses tiny Safetensors and GGUF files, sharded indexes,\nbyte-identical reconstruction, duplicate conflicts, missing components, ONNX\nrejection, output/cache tampering, no-overwrite behavior and cancellation.\nThe controlled native video adapter test checks that either encoder format\nreaches the engine; it is not a real-model inference or hardware performance test.\nThe canonical native-enabled `build/` also passed the image, controlled video\nadapter and video options tests; the packaging suite passed after its CLI target\nwas rebuilt.\n"
+    },
+    {
+      "id": "b000032",
+      "kind": "blank",
+      "start_line": 163,
+      "end_line": 163,
+      "raw": "\n"
+    },
+    {
+      "id": "b000033",
+      "kind": "paragraph",
+      "start_line": 164,
+      "end_line": 164,
       "raw": "On 2026-10-27, the macOS arm64 source and separately staged CLI each passed all 23 packaging cases; the installed C++ consumer and controlled native video adapter tests also passed.\n"
     }
   ],
@@ -236,49 +280,64 @@
       "start_line": 1
     },
     {
-      "block_id": "b000009",
+      "block_id": "b000011",
       "parent_id": "b000001",
       "level": 2,
       "title": "Container contract",
       "anchor": "container-contract",
-      "start_line": 26
+      "start_line": 43
     },
     {
-      "block_id": "b000015",
+      "block_id": "b000017",
       "parent_id": "b000001",
       "level": 2,
-      "title": "Validation and resource use",
-      "anchor": "validation-and-resource-use",
-      "start_line": 47
+      "title": "Manual component assignments",
+      "anchor": "manual-component-assignments",
+      "start_line": 64
     },
     {
       "block_id": "b000021",
       "parent_id": "b000001",
       "level": 2,
+      "title": "Validation and resource use",
+      "anchor": "validation-and-resource-use",
+      "start_line": 88
+    },
+    {
+      "block_id": "b000027",
+      "parent_id": "b000001",
+      "level": 2,
       "title": "CLI and build",
       "anchor": "cli-and-build",
-      "start_line": 73
+      "start_line": 118
     }
   ],
   "indexes": {
     "directive_candidates": [
       {
-        "block_id": "b000011",
+        "block_id": "b000009",
         "line": 38,
+        "text": "provider-owned `.iisacc.json` and hidden control files are never packaged. Folder",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000013",
+        "line": 55,
         "text": "consumer is required to load all components. Existing `.iildmodel` ZIP packages",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000017",
-        "line": 52,
+        "block_id": "b000023",
+        "line": 93,
         "text": "resolved within their source directory and every indexed tensor must exist.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000019",
-        "line": 68,
+        "block_id": "b000025",
+        "line": 113,
         "text": "Python, Torch, GPU or tensor cast is required. This packaging check does not",
         "basis": "lexical_match",
         "context": "paragraph"
@@ -286,9 +345,9 @@
     ],
     "commands": [
       {
-        "block_id": "b000023",
+        "block_id": "b000029",
         "language": "sh",
-        "code": "cmake --build build --target iild-model-package\nctest --test-dir build -R '^iiLocalDiffusion.ModelPackaging$' --output-on-failure\ncmake --install build --component ModelPackaging\niild-model-package scan --input /path/to/folder\niild-model-package create --input /path/to/folder --output /path/to/model.safetensors\niild-model-package create --input /path/to/folder --output /path/to/core.safetensors --exclude spatial_upscaler.safetensors\niild-model-package verify --input /path/to/model.safetensors\niild-model-package extract --input /path/to/model.safetensors --output /path/to/new-folder\n"
+        "code": "cmake --build build --target iild-model-package\nctest --test-dir build -R '^iiLocalDiffusion.ModelPackaging$' --output-on-failure\ncmake --install build --component ModelPackaging\niild-model-package scan --input /path/to/folder\niild-model-package create --input /path/to/folder --output /path/to/model.safetensors\niild-model-package create --input /path/to/folder --output /path/to/core.safetensors --exclude spatial_upscaler.safetensors\niild-model-package create --input /path/to/Models --select Checkpoint/base.safetensors --select LLM/encoder.gguf --output /path/to/model.safetensors\niild-model-package create --input /path/to/Models --select Other/base.safetensors --select Other/encoder.safetensors --assign-position Other/base.safetensors=main --assign-role Other/encoder.safetensors=text_encoder --output /path/to/model.safetensors\niild-model-package verify --input /path/to/model.safetensors\niild-model-package extract --input /path/to/model.safetensors --output /path/to/new-folder\n"
       }
     ],
     "links": [],

@@ -10,6 +10,8 @@ Markdown is the maintained human source. Agent JSON is a structured, source-trac
 | [`AGENT.md`](../AGENT.md) | [JSON](entrypoints/AGENT.agent.json) |
 | [`README.md`](../README.md) | [JSON](entrypoints/README.agent.json) |
 | [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) | [JSON](entrypoints/THIRD_PARTY_NOTICES.agent.json) |
+| [`docs/BuildLayout.md`](BuildLayout.md) | [JSON](BuildLayout.agent.json) |
+| [`docs/DynamicLinking.md`](DynamicLinking.md) | [JSON](DynamicLinking.agent.json) |
 | [`docs/FILE_PROVIDER.md`](FILE_PROVIDER.md) | [JSON](FILE_PROVIDER.agent.json) |
 | [`docs/ModelInspection.md`](ModelInspection.md) | [JSON](ModelInspection.agent.json) |
 | [`docs/NativeVideo.md`](NativeVideo.md) | [JSON](NativeVideo.agent.json) |
@@ -25,6 +27,7 @@ Markdown is the maintained human source. Agent JSON is a structured, source-trac
 | [`docs/civitai-validation.md`](civitai-validation.md) | [JSON](civitai-validation.agent.json) |
 | [`docs/comfyui-generation.md`](comfyui-generation.md) | [JSON](comfyui-generation.agent.json) |
 | [`docs/comfyui-image-workflows.md`](comfyui-image-workflows.md) | [JSON](comfyui-image-workflows.agent.json) |
+| [`docs/controlnet-resource-recipes.md`](controlnet-resource-recipes.md) | [JSON](controlnet-resource-recipes.agent.json) |
 | [`docs/controlnet.md`](controlnet.md) | [JSON](controlnet.agent.json) |
 | [`docs/deforum-video.md`](deforum-video.md) | [JSON](deforum-video.agent.json) |
 | [`docs/dependencies.md`](dependencies.md) | [JSON](dependencies.agent.json) |
@@ -48,6 +51,7 @@ Markdown is the maintained human source. Agent JSON is a structured, source-trac
 | [`docs/local-model-generation.md`](local-model-generation.md) | [JSON](local-model-generation.agent.json) |
 | [`docs/lora.md`](lora.md) | [JSON](lora.agent.json) |
 | [`docs/managed-comfyui-image.md`](managed-comfyui-image.md) | [JSON](managed-comfyui-image.agent.json) |
+| [`docs/model-calibration.md`](model-calibration.md) | [JSON](model-calibration.agent.json) |
 | [`docs/model-conversion.md`](model-conversion.md) | [JSON](model-conversion.agent.json) |
 | [`docs/model-families.md`](model-families.md) | [JSON](model-families.agent.json) |
 | [`docs/model-hash-cache.md`](model-hash-cache.md) | [JSON](model-hash-cache.agent.json) |

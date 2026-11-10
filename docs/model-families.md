@@ -28,18 +28,18 @@
 reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model-config /absolute/path/model-config \
   --preset illustrious --model /absolute/path/illustrious.safetensors \
   --prompt 'a blue ceramic teapot on a wooden table' \
-  --output build/reference/illustrious.png
+  --output resources/outputs/reference/illustrious.png
 
 reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model-config /absolute/path/model-config \
   --preset noobai-v-pred --model /absolute/path/noobai-vpred.safetensors \
   --prompt 'a blue ceramic teapot on a wooden table' \
-  --output build/reference/noobai-vpred.png
+  --output resources/outputs/reference/noobai-vpred.png
 
 reference/diffusers/.venv/bin/python reference/diffusers/generate.py \
   --preset flux1-krea-dev --model /absolute/path/flux1-krea-dev.safetensors \
   --model-config /absolute/path/complete-flux-dev-diffusers-package \
   --local-files-only --prompt 'a blue ceramic teapot on a wooden table' \
-  --output build/reference/krea.png
+  --output resources/outputs/reference/krea.png
 ```
 
 단일 파일 변환은 일치하는 토크나이저/구성 요소 구성이 필요합니다. Full SDXL 체크포인트는 인식된 CLIP 인코더와 VAE 를 모두 포함해야 하며, `--vae` 가 제공하는 경우를 제외합니다. 디노이저 전용 파일은 선택된 구성 패키지의 인코더와 VAE 를 사용하므로 해당 패키지는 이러한 가중치를 포함해야 합니다. 모든 모델, 구성 및 보조 가중치는 이미 로컬에 존재해야 합니다. 생성 작업은 항상 로컬 전용 로딩을 사용합니다. 저장소 선택이나 대체 경로 를 다운로드하지 않으면 누락된 구성 요소는 실패합니다.

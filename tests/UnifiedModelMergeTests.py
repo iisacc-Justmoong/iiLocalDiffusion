@@ -1,10 +1,10 @@
 """Real tensor regressions for cross-family composition and prediction markers."""
+import resource_fixture
 import importlib.util
 import hashlib
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -22,7 +22,7 @@ class UnifiedModelMergeTests(unittest.TestCase):
         import torch
         from safetensors.torch import save_file
         self.torch, self.save = torch, save_file
-        self.tmp = provider.TemporaryDirectory(dir=ROOT / "build", prefix="unified-merge-")
+        self.tmp = resource_fixture.TemporaryDirectory(prefix="unified-merge-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.base = self.root / "sdxl.safetensors"

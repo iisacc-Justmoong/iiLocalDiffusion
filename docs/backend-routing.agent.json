@@ -10,9 +10,9 @@
   },
   "source": {
     "path": "docs/backend-routing.md",
-    "sha256": "0c232c57dc9d244c291d877828e8046d43ae27127f2bd6d3540935a445cc5836",
-    "bytes": 9382,
-    "line_count": 74,
+    "sha256": "79c28e615c4a1576446f81bc0bccd3008951a8cf05906340573c38575f0928a0",
+    "bytes": 11593,
+    "line_count": 97,
     "encoding": "utf-8",
     "language": "ko"
   },
@@ -68,53 +68,95 @@
     },
     {
       "id": "b000007",
-      "kind": "html",
+      "kind": "paragraph",
       "start_line": 7,
-      "end_line": 7,
-      "raw": "<a id=\"local-image-backends\"></a>\n"
+      "end_line": 17,
+      "raw": "`--inspect-model`은 원본 또는 `model.diffusion_model.`, `diffusion_model.`,\n`transformer.` 접두어 중 같은 이름 공간에 속한 MOSS Image 변환기 형상만 인식해 `moss-image`와\n`MOSSImagePipeline`을 보고한다. 이는 모델 계열의 증거이며 네이티브 실행 계획이 아니다.\n변환기 단일 파일에 텍스트 인코더와 VAE가 없으면 누락된 구성 요소로 표시한다.\n네이티브 이미지 엔진은 MOSS를 실행하지 않는다. `--backend auto`는 이 서명이 확인된\n로컬 체크포인트를 MOSS Diffusers 경로로 선택하고 고정된 `moss-image-sft` 설정을\n제공한다. 명시적인 엔진·워크플로 선택은 유지하며, 호환되지 않는 네이티브 전용 옵션은\n조용히 버리지 않고 거부한다. 알 수 없는 구조는 기존 경로의 판단을 유지한다.\nMOSS 로더는 부동소수점 및 명시적으로 검증된 Comfy INT8 tensorwise ConvRot 변환기를\n지원한다. 헤더와 양자화 메타데이터의 일치는 텍스트 인코더·토크나이저·VAE의 준비나\n전체 가중치의 유효성, 실제 생성 성공을 증명하지 않는다.\n"
     },
     {
       "id": "b000008",
       "kind": "blank",
-      "start_line": 8,
-      "end_line": 8,
+      "start_line": 18,
+      "end_line": 18,
       "raw": "\n"
     },
     {
       "id": "b000009",
-      "kind": "heading",
-      "start_line": 9,
-      "end_line": 9,
-      "raw": "## 로컬 이미지 백엔드\n",
-      "level": 2,
-      "title": "로컬 이미지 백엔드"
+      "kind": "paragraph",
+      "start_line": 19,
+      "end_line": 23,
+      "raw": "C++의 `inspectImageModel`은 제한된 헤더를 읽어 구조·역할·양자화 표시·내장 구성 요소와\n병합 출처의 합성 매핑 수를 별도 값으로 반환한다. 잘린 파일은 오류를 내고, 64 MiB보다\n큰 헤더 등 판단 불가 상태는 `Unknown`으로 남긴다. 구성 요소의 존재 또는 인식은 실행\n가능 여부를 뜻하지 않는다. 실제 양자화 알고리즘과 스케일은 워커가 별도로 검증한다.\n모델 파일이나 병합 메타데이터는 수정하지 않는다.\n"
     },
     {
       "id": "b000010",
       "kind": "blank",
-      "start_line": 10,
-      "end_line": 10,
+      "start_line": 24,
+      "end_line": 24,
       "raw": "\n"
     },
     {
       "id": "b000011",
       "kind": "paragraph",
-      "start_line": 11,
-      "end_line": 11,
-      "raw": "`--backend local --engine auto` 는 기존 Diffusers SD1/SDXL 프레셋을 유지하며, Diffusers 구성이 요청되지 않은 경우 아래 다른 계약에 대해 프로세스 내 네이티브 엔진을 선택합니다. `--engine native` 는 명시적으로 모든 지원된 계약, SD1 및 SDXL 를 포함하여 네이티브 추론을 사용합니다. 명시적인 Diffusers 구성/패키지는 Diffusers 를 계속 사용합니다.\n"
+      "start_line": 25,
+      "end_line": 28,
+      "raw": "패키지 내 모델은 원본 경로와 텐서 매핑이 같은 구성 요소의 구조 서명을 확인한 후에만\n선택한다. 패키지 자체를 단일 변환기 파일로 전달하지 않는다. 선택된 구성 요소는\n원본 해시를 검증하여 별도 캐시에 복원하며, 중복되거나 모호한 후보는 명시적으로 거부한다.\n헤더 검사와 캐시 복원은 사전 학습 모델의 실제 생성 성공을 의미하지 않는다.\n"
     },
     {
       "id": "b000012",
       "kind": "blank",
-      "start_line": 12,
-      "end_line": 12,
+      "start_line": 29,
+      "end_line": 29,
       "raw": "\n"
     },
     {
       "id": "b000013",
+      "kind": "html",
+      "start_line": 30,
+      "end_line": 30,
+      "raw": "<a id=\"local-image-backends\"></a>\n"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 31,
+      "end_line": 31,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "heading",
+      "start_line": 32,
+      "end_line": 32,
+      "raw": "## 로컬 이미지 백엔드\n",
+      "level": 2,
+      "title": "로컬 이미지 백엔드"
+    },
+    {
+      "id": "b000016",
+      "kind": "blank",
+      "start_line": 33,
+      "end_line": 33,
+      "raw": "\n"
+    },
+    {
+      "id": "b000017",
+      "kind": "paragraph",
+      "start_line": 34,
+      "end_line": 34,
+      "raw": "`--backend local --engine auto` 는 기존 Diffusers SD1/SDXL 프레셋을 유지하며, Diffusers 구성이 요청되지 않은 경우 아래 다른 계약에 대해 프로세스 내 네이티브 엔진을 선택합니다. `--engine native` 는 명시적으로 모든 지원된 계약, SD1 및 SDXL 를 포함하여 네이티브 추론을 사용합니다. 명시적인 Diffusers 구성/패키지는 Diffusers 를 계속 사용합니다.\n"
+    },
+    {
+      "id": "b000018",
+      "kind": "blank",
+      "start_line": 35,
+      "end_line": 35,
+      "raw": "\n"
+    },
+    {
+      "id": "b000019",
       "kind": "table",
-      "start_line": 13,
-      "end_line": 26,
+      "start_line": 36,
+      "end_line": 49,
       "raw": "|건축|네이티브 텍스트 구성 요소 슬롯|VAE 계약|\n| --- | --- | --- |\n| SD 1.x | `clip_l` | SD1 |\n| SD 2.x |`clip_l`(일치하는 OpenCLIP 가중치)| SD2 |\n|SDXL, 일러스트리어스, NoobAI, 포니| `clip_l`, `clip_g` | SDXL |\n| SD3 / SD3.5 | `clip_l`, `clip_g`, `t5xxl` | SD3 |\n|FLUX.1 개발 / 슈넬 / Krea| `clip_l`, `t5xxl` | FLUX.1|\n|FLUX.2 dev|`llm`(미스트랄과 일치)| FLUX.2|\n|FLUX.2 Klein|`llm`(Qwen3 크기와 일치)| FLUX.2|\n|Z 이미지 베이스/터보|`llm` (Qwen3)| FLUX.1|\n|Qwen 이미지|`llm`(Qwen VL와 일치)|Qwen 이미지 RGB|\n|크로마| `t5xxl` | FLUX.1|\n| Krea 2 |`llm` (Qwen3-VL)|Qwen 이미지 RGB, 네이티브 Wan 텐서 표현|\n|Anima| `llm` |애니마 / Qwen 이미지 RGB|\n",
       "columns": [
         "건축",
@@ -185,278 +227,278 @@
       ]
     },
     {
-      "id": "b000014",
-      "kind": "blank",
-      "start_line": 27,
-      "end_line": 27,
-      "raw": "\n"
-    },
-    {
-      "id": "b000015",
-      "kind": "paragraph",
-      "start_line": 28,
-      "end_line": 28,
-      "raw": "이 어댑터는 고정된 stable-diffusion.cpp 의존성에 있는 실제 아키텍처 구현을 사용합니다. 호환되지 않는 텐서를 리사이즈하거나 모든 모델을 SDXL 로 변환하지 않습니다. 완전한 체크포인트는 임베딩된 인코더와 VAE 를 사용할 수 있습니다. safetensors / GGUF 파일은 명시적인 동반 파일을 받습니다. GGUF 양자화는 네이티브 엔진에 의해 디코딩되며, 레거시 pickle 컨테이너는 먼저 기존 안전한 변환 경로를 사용해야 합니다.\n"
-    },
-    {
-      "id": "b000016",
-      "kind": "blank",
-      "start_line": 29,
-      "end_line": 29,
-      "raw": "\n"
-    },
-    {
-      "id": "b000017",
-      "kind": "fenced_code",
-      "start_line": 30,
-      "end_line": 37,
-      "raw": "```sh\niild-generate --list-backends\niild-generate --inspect-model --model /models/z-image.safetensors\niild-generate --model /models/z-image.safetensors \\\n  --base-model ZImageTurbo \\\n  --components '{\"llm\":\"/models/qwen3-4b.safetensors\",\"vae\":\"/models/ae.safetensors\"}' \\\n  --prompt 'A cabin beside a lake' --output-dir /outputs/cabin\n```\n",
-      "language": "sh",
-      "code": "iild-generate --list-backends\niild-generate --inspect-model --model /models/z-image.safetensors\niild-generate --model /models/z-image.safetensors \\\n  --base-model ZImageTurbo \\\n  --components '{\"llm\":\"/models/qwen3-4b.safetensors\",\"vae\":\"/models/ae.safetensors\"}' \\\n  --prompt 'A cabin beside a lake' --output-dir /outputs/cabin\n",
-      "closed": true
-    },
-    {
-      "id": "b000018",
-      "kind": "blank",
-      "start_line": 38,
-      "end_line": 38,
-      "raw": "\n"
-    },
-    {
-      "id": "b000019",
-      "kind": "paragraph",
-      "start_line": 39,
-      "end_line": 39,
-      "raw": "`--inspect-model --components '{...}'` 는 추론을 시작하지 않고 선택된 네이티브 백엔드, 아키텍처, 내장/누락된 구성 요소 슬롯 및 기본값을 보고합니다. `--validate-only` 는 모델을 로드하지 않고 모든 로컬 파일 식별자를 해결합니다. 전경 작업자 준비는 실제 네이티브 컨텍스트를 로드하고 유효성을 검사합니다. 생성은 결과 RGB 이미지를 유효성 검사하고 게시합니다.\n"
-    },
-    {
       "id": "b000020",
-      "kind": "blank",
-      "start_line": 40,
-      "end_line": 40,
-      "raw": "\n"
-    },
-    {
-      "id": "b000021",
-      "kind": "paragraph",
-      "start_line": 41,
-      "end_line": 41,
-      "raw": "동일한 텐서 레이아웃은 Base/Turbo 또는 디스틸드 변형을 나타낼 수 있습니다. 아키텍처 서명만으로는 훈련 레시피를 확립할 수 없습니다. 가능한 경우 일치하는 `--base-model` 메타데이터를 제공하거나 명시적인 `--steps`, `--guidance-scale` 및 `--embedded-guidance` 를 제공하십시오. 네이티브 `guidance-scale` 는 표준 CFG 입니다; 내장 가이드는 별도의 플로우 모델 입력입니다. Krea 의 2 의 게시된 Diffusers 가이드는 `cond + scale*(cond-uncond)` 를 사용하므로, 네이티브 표준 CFG 는 그 값에 하나를 더한 것입니다. 명시적인 `--krea2-variant raw|turbo` 계약은 Raw 를 52 단계/네이티브 CFG 4.5 로, Turbo 를 8 단계/네이티브 CFG 1로 해결합니다. 알 수 없는 변형은 파일명에서 추론되지 않습니다. [Krea 2 컨트롤](krea2.md) 를 정밀도, 플로우 시프트, 시그마 일정표 및 네이티브 V3 를 위해 참조하십시오.\n"
-    },
-    {
-      "id": "b000022",
-      "kind": "blank",
-      "start_line": 42,
-      "end_line": 42,
-      "raw": "\n"
-    },
-    {
-      "id": "b000023",
-      "kind": "paragraph",
-      "start_line": 43,
-      "end_line": 43,
-      "raw": "SD1/2/XL 는 `--prediction-type epsilon|v_prediction` 를 지원합니다; 인식된 예측 메타데이터는 네이티브 컨텍스트로 전파됩니다. 예측 유형을 변경하면 컨텍스트가 재구성됩니다. 플로우 아키텍처는 자체 네이티브 예측 계약을 유지합니다. Krea 2 의 `text_encoder_select_layers` 파이프라인 구성은 레이어 인덱스로 유효성 검사되며, 가져올 수 있는 모델 구성 요소로 오해받지 않습니다.\n"
-    },
-    {
-      "id": "b000024",
-      "kind": "blank",
-      "start_line": 44,
-      "end_line": 44,
-      "raw": "\n"
-    },
-    {
-      "id": "b000025",
-      "kind": "paragraph",
-      "start_line": 45,
-      "end_line": 45,
-      "raw": "새로운 네이티브 계약은 요청된 출력 크기에서 단일 디노이징 패스를 사용합니다 (엔진 캔버스 그리드로 반올림된 후 정확한 요청된 크기로 로크됩니다). 기존 완전 Anima V1 라우트는 이전 Hires 동작을 유지합니다. C++ V2 컴포넌트 API 는 Hires 를 명시적으로 제어합니다. 지원되지 않는 편집, 인페인팅 및 RGBA /레이어 요청은 이미지/마스크 입력과 일치하는 Diffusers 파이프라인이 필요합니다; 이들은 아무런 알림 없이 텍스트로 이미지로 해석되지 않습니다.\n"
-    },
-    {
-      "id": "b000026",
-      "kind": "blank",
-      "start_line": 46,
-      "end_line": 46,
-      "raw": "\n"
-    },
-    {
-      "id": "b000027",
-      "kind": "html",
-      "start_line": 47,
-      "end_line": 47,
-      "raw": "<a id=\"pipeline-packages-and-output-publication\"></a>\n"
-    },
-    {
-      "id": "b000028",
-      "kind": "blank",
-      "start_line": 48,
-      "end_line": 48,
-      "raw": "\n"
-    },
-    {
-      "id": "b000029",
-      "kind": "heading",
-      "start_line": 49,
-      "end_line": 49,
-      "raw": "## 파이프라인 패키지 및 출력 게시\n",
-      "level": 2,
-      "title": "파이프라인 패키지 및 출력 게시"
-    },
-    {
-      "id": "b000030",
       "kind": "blank",
       "start_line": 50,
       "end_line": 50,
       "raw": "\n"
     },
     {
-      "id": "b000031",
+      "id": "b000021",
       "kind": "paragraph",
       "start_line": 51,
       "end_line": 51,
-      "raw": "`model_index.json` 로 선택된 로컬 디렉토리는 설치된 내장 Diffusers 클래스를 선택합니다. 이는 기존 타입화된 입력/출력 시스템을 통해 추가 이미지, 비디오, 오디오 및 텐서 파이프라인을 포함합니다. `--inspect-model` 도 이러한 디렉토리를 받습니다. 패키지 검사 보고서는 구성 증거를 보고하며, 실제 클래스 가용성, 필요한 입력, 동반 텐서 및 출력 타입은 로더에 의해 검증됩니다. 사용자 다운로드 Python 코드는 실행되지 않습니다.\n"
+      "raw": "이 어댑터는 고정된 stable-diffusion.cpp 의존성에 있는 실제 아키텍처 구현을 사용합니다. 호환되지 않는 텐서를 리사이즈하거나 모든 모델을 SDXL 로 변환하지 않습니다. 완전한 체크포인트는 임베딩된 인코더와 VAE 를 사용할 수 있습니다. safetensors / GGUF 파일은 명시적인 동반 파일을 받습니다. GGUF 양자화는 네이티브 엔진에 의해 디코딩되며, 레거시 pickle 컨테이너는 먼저 기존 안전한 변환 경로를 사용해야 합니다.\n"
     },
     {
-      "id": "b000032",
+      "id": "b000022",
       "kind": "blank",
       "start_line": 52,
       "end_line": 52,
       "raw": "\n"
     },
     {
-      "id": "b000033",
-      "kind": "paragraph",
+      "id": "b000023",
+      "kind": "fenced_code",
       "start_line": 53,
-      "end_line": 53,
-      "raw": "네이티브 워커는 PNG 파일, 이미지별 기원 및 `iild-standalone-image-v1` `generation.json` 를 게시합니다. 기원은 아키텍처, 백엔드 계획, 컴포넌트 식별자, 시드, CFG , 증류된 가이드, Hires 모드, 타이밍, 차원 및 출력 SHA-256 를 포함합니다. 최종 디렉토리는 전체 배치의 출력 검사가 통과한 후에만 게시됩니다. 기존 Diffusers 이미지/비디오/오디오/텐서 매니페스트는 기존 스키마 및 미디어 계약을 유지합니다.\n"
+      "end_line": 60,
+      "raw": "```sh\niild-generate --list-backends\niild-generate --inspect-model --model /models/z-image.safetensors\niild-generate --model /models/z-image.safetensors \\\n  --base-model ZImageTurbo \\\n  --components '{\"llm\":\"/models/qwen3-4b.safetensors\",\"vae\":\"/models/ae.safetensors\"}' \\\n  --prompt 'A cabin beside a lake' --output-dir /outputs/cabin\n```\n",
+      "language": "sh",
+      "code": "iild-generate --list-backends\niild-generate --inspect-model --model /models/z-image.safetensors\niild-generate --model /models/z-image.safetensors \\\n  --base-model ZImageTurbo \\\n  --components '{\"llm\":\"/models/qwen3-4b.safetensors\",\"vae\":\"/models/ae.safetensors\"}' \\\n  --prompt 'A cabin beside a lake' --output-dir /outputs/cabin\n",
+      "closed": true
+    },
+    {
+      "id": "b000024",
+      "kind": "blank",
+      "start_line": 61,
+      "end_line": 61,
+      "raw": "\n"
+    },
+    {
+      "id": "b000025",
+      "kind": "paragraph",
+      "start_line": 62,
+      "end_line": 62,
+      "raw": "`--inspect-model --components '{...}'` 는 추론을 시작하지 않고 선택된 네이티브 백엔드, 아키텍처, 내장/누락된 구성 요소 슬롯 및 기본값을 보고합니다. `--validate-only` 는 모델을 로드하지 않고 모든 로컬 파일 식별자를 해결합니다. 전경 작업자 준비는 실제 네이티브 컨텍스트를 로드하고 유효성을 검사합니다. 생성은 결과 RGB 이미지를 유효성 검사하고 게시합니다.\n"
+    },
+    {
+      "id": "b000026",
+      "kind": "blank",
+      "start_line": 63,
+      "end_line": 63,
+      "raw": "\n"
+    },
+    {
+      "id": "b000027",
+      "kind": "paragraph",
+      "start_line": 64,
+      "end_line": 64,
+      "raw": "동일한 텐서 레이아웃은 Base/Turbo 또는 디스틸드 변형을 나타낼 수 있습니다. 아키텍처 서명만으로는 훈련 레시피를 확립할 수 없습니다. 가능한 경우 일치하는 `--base-model` 메타데이터를 제공하거나 명시적인 `--steps`, `--guidance-scale` 및 `--embedded-guidance` 를 제공하십시오. 네이티브 `guidance-scale` 는 표준 CFG 입니다; 내장 가이드는 별도의 플로우 모델 입력입니다. Krea 의 2 의 게시된 Diffusers 가이드는 `cond + scale*(cond-uncond)` 를 사용하므로, 네이티브 표준 CFG 는 그 값에 하나를 더한 것입니다. 명시적인 `--krea2-variant raw|turbo` 계약은 Raw 를 52 단계/네이티브 CFG 4.5 로, Turbo 를 8 단계/네이티브 CFG 1로 해결합니다. 알 수 없는 변형은 파일명에서 추론되지 않습니다. [Krea 2 컨트롤](krea2.md) 를 정밀도, 플로우 시프트, 시그마 일정표 및 네이티브 V3 를 위해 참조하십시오.\n"
+    },
+    {
+      "id": "b000028",
+      "kind": "blank",
+      "start_line": 65,
+      "end_line": 65,
+      "raw": "\n"
+    },
+    {
+      "id": "b000029",
+      "kind": "paragraph",
+      "start_line": 66,
+      "end_line": 66,
+      "raw": "SD1/2/XL 는 `--prediction-type epsilon|v_prediction` 를 지원합니다; 인식된 예측 메타데이터는 네이티브 컨텍스트로 전파됩니다. 예측 유형을 변경하면 컨텍스트가 재구성됩니다. 플로우 아키텍처는 자체 네이티브 예측 계약을 유지합니다. Krea 2 의 `text_encoder_select_layers` 파이프라인 구성은 레이어 인덱스로 유효성 검사되며, 가져올 수 있는 모델 구성 요소로 오해받지 않습니다.\n"
+    },
+    {
+      "id": "b000030",
+      "kind": "blank",
+      "start_line": 67,
+      "end_line": 67,
+      "raw": "\n"
+    },
+    {
+      "id": "b000031",
+      "kind": "paragraph",
+      "start_line": 68,
+      "end_line": 68,
+      "raw": "새로운 네이티브 계약은 요청된 출력 크기에서 단일 디노이징 패스를 사용합니다 (엔진 캔버스 그리드로 반올림된 후 정확한 요청된 크기로 로크됩니다). 기존 완전 Anima V1 라우트는 이전 Hires 동작을 유지합니다. C++ V2 컴포넌트 API 는 Hires 를 명시적으로 제어합니다. 지원되지 않는 편집, 인페인팅 및 RGBA /레이어 요청은 이미지/마스크 입력과 일치하는 Diffusers 파이프라인이 필요합니다; 이들은 아무런 알림 없이 텍스트로 이미지로 해석되지 않습니다.\n"
+    },
+    {
+      "id": "b000032",
+      "kind": "blank",
+      "start_line": 69,
+      "end_line": 69,
+      "raw": "\n"
+    },
+    {
+      "id": "b000033",
+      "kind": "html",
+      "start_line": 70,
+      "end_line": 70,
+      "raw": "<a id=\"pipeline-packages-and-output-publication\"></a>\n"
     },
     {
       "id": "b000034",
       "kind": "blank",
-      "start_line": 54,
-      "end_line": 54,
+      "start_line": 71,
+      "end_line": 71,
       "raw": "\n"
     },
     {
       "id": "b000035",
-      "kind": "html",
-      "start_line": 55,
-      "end_line": 55,
-      "raw": "<a id=\"c-and-c-interfaces\"></a>\n"
+      "kind": "heading",
+      "start_line": 72,
+      "end_line": 72,
+      "raw": "## 파이프라인 패키지 및 출력 게시\n",
+      "level": 2,
+      "title": "파이프라인 패키지 및 출력 게시"
     },
     {
       "id": "b000036",
       "kind": "blank",
-      "start_line": 56,
-      "end_line": 56,
+      "start_line": 73,
+      "end_line": 73,
       "raw": "\n"
     },
     {
       "id": "b000037",
-      "kind": "heading",
-      "start_line": 57,
-      "end_line": 57,
-      "raw": "## C++ 및 C 인터페이스\n",
-      "level": 2,
-      "title": "C++ 및 C 인터페이스"
+      "kind": "paragraph",
+      "start_line": 74,
+      "end_line": 74,
+      "raw": "`model_index.json` 로 선택된 로컬 디렉토리는 설치된 내장 Diffusers 클래스를 선택합니다. 이는 기존 타입화된 입력/출력 시스템을 통해 추가 이미지, 비디오, 오디오 및 텐서 파이프라인을 포함합니다. `--inspect-model` 도 이러한 디렉토리를 받습니다. 패키지 검사 보고서는 구성 증거를 보고하며, 실제 클래스 가용성, 필요한 입력, 동반 텐서 및 출력 타입은 로더에 의해 검증됩니다. 사용자 다운로드 Python 코드는 실행되지 않습니다.\n"
     },
     {
       "id": "b000038",
       "kind": "blank",
-      "start_line": 58,
-      "end_line": 58,
+      "start_line": 75,
+      "end_line": 75,
       "raw": "\n"
     },
     {
       "id": "b000039",
       "kind": "paragraph",
-      "start_line": 59,
-      "end_line": 59,
-      "raw": "`NativeModelComponents` 및 `generateNativeImageWithComponents` 는 명시적 CLIP-L /OpenCLIP, CLIP-G, T5, LLM 및 VAE 파일, CFG /증류된 가이드, CPU /자동 배치 및 준비만 실행을 추가합니다. 기존 C++ 구조 레이아웃 및 진입점은 변경되지 않습니다. `iild_native_request_v2` 는 V1 이미지 요청을 내장하고 이러한 옵션을 추가합니다. `iild_native_generate_v2` 는 V1 와 동일한 소유 결과, 메타데이터, RGB, 진행, 미리보기, 취소 및 자유 함수를 사용합니다.\n"
+      "start_line": 76,
+      "end_line": 76,
+      "raw": "네이티브 워커는 PNG 파일, 이미지별 기원 및 `iild-standalone-image-v1` `generation.json` 를 게시합니다. 기원은 아키텍처, 백엔드 계획, 컴포넌트 식별자, 시드, CFG , 증류된 가이드, Hires 모드, 타이밍, 차원 및 출력 SHA-256 를 포함합니다. 최종 디렉토리는 전체 배치의 출력 검사가 통과한 후에만 게시됩니다. 기존 Diffusers 이미지/비디오/오디오/텐서 매니페스트는 기존 스키마 및 미디어 계약을 유지합니다.\n"
     },
     {
       "id": "b000040",
       "kind": "blank",
-      "start_line": 60,
-      "end_line": 60,
+      "start_line": 77,
+      "end_line": 77,
       "raw": "\n"
     },
     {
       "id": "b000041",
-      "kind": "paragraph",
-      "start_line": 61,
-      "end_line": 61,
-      "raw": "모든 제공된 파일은 거주성 신원 확인 및 생성 후 변이 검사에 참여합니다. 동반자 바인딩을 변경하면 이전 컨텍스트가 무효화됩니다. 알려진 VAE 계약은 로딩 전에 검증되며, 자동 마운트 계약이 없는 새로운 가족은 명시적인 VAE 이 필요하고 전체 네이티브 컨텍스트 로더는 그 텐서를 검증합니다. 임의의 값으로 동반자가 대체되지 않습니다.\n"
+      "kind": "html",
+      "start_line": 78,
+      "end_line": 78,
+      "raw": "<a id=\"c-and-c-interfaces\"></a>\n"
     },
     {
       "id": "b000042",
       "kind": "blank",
-      "start_line": 62,
-      "end_line": 62,
+      "start_line": 79,
+      "end_line": 79,
       "raw": "\n"
     },
     {
       "id": "b000043",
-      "kind": "html",
-      "start_line": 63,
-      "end_line": 63,
-      "raw": "<a id=\"validation\"></a>\n"
+      "kind": "heading",
+      "start_line": 80,
+      "end_line": 80,
+      "raw": "## C++ 및 C 인터페이스\n",
+      "level": 2,
+      "title": "C++ 및 C 인터페이스"
     },
     {
       "id": "b000044",
       "kind": "blank",
-      "start_line": 64,
-      "end_line": 64,
+      "start_line": 81,
+      "end_line": 81,
       "raw": "\n"
     },
     {
       "id": "b000045",
-      "kind": "heading",
-      "start_line": 65,
-      "end_line": 65,
-      "raw": "## 검증\n",
-      "level": 2,
-      "title": "검증"
+      "kind": "paragraph",
+      "start_line": 82,
+      "end_line": 82,
+      "raw": "`NativeModelComponents` 및 `generateNativeImageWithComponents` 는 명시적 CLIP-L /OpenCLIP, CLIP-G, T5, LLM 및 VAE 파일, CFG /증류된 가이드, CPU /자동 배치 및 준비만 실행을 추가합니다. 기존 C++ 구조 레이아웃 및 진입점은 변경되지 않습니다. `iild_native_request_v2` 는 V1 이미지 요청을 내장하고 이러한 옵션을 추가합니다. `iild_native_generate_v2` 는 V1 와 동일한 소유 결과, 메타데이터, RGB, 진행, 미리보기, 취소 및 자유 함수를 사용합니다.\n"
     },
     {
       "id": "b000046",
       "kind": "blank",
-      "start_line": 66,
-      "end_line": 66,
+      "start_line": 83,
+      "end_line": 83,
       "raw": "\n"
     },
     {
       "id": "b000047",
       "kind": "paragraph",
-      "start_line": 67,
-      "end_line": 67,
-      "raw": "`BackendRegistryTests` 는 한계가 설정된 실제 safetensors 픽스처 픽스처를 원본과 Diffusers 텐서 이름, 구성 요소 완전성, 메타데이터 충돌, 재생 및 Python /C V2 경계용으로 사용합니다. `NativeResultTests` 와 `NativeMobileResultTests` 는 제어된 엔진 픽스처 에 대해 실제 C++ 어댑터를 컴파일하여 구성 요소 포워딩, 샘플링 매개변수, 캐시 무효화, 차원, 취소, 소유권 및 V1/V2 ABI 거부를 확인합니다. 이 테스트는 사전 학습된 모델의 품질을 측정하지 않습니다. 실제 런타임 런타임 연기 아티팩트는 `build/` 에 유지되며, 모든 가능한 체크포인트가 실행되었다고 주장하는 대신 사용된 특정 가족과 가중치를 기록합니다.\n"
+      "start_line": 84,
+      "end_line": 84,
+      "raw": "모든 제공된 파일은 거주성 신원 확인 및 생성 후 변이 검사에 참여합니다. 동반자 바인딩을 변경하면 이전 컨텍스트가 무효화됩니다. 알려진 VAE 계약은 로딩 전에 검증되며, 자동 마운트 계약이 없는 새로운 가족은 명시적인 VAE 이 필요하고 전체 네이티브 컨텍스트 로더는 그 텐서를 검증합니다. 임의의 값으로 동반자가 대체되지 않습니다.\n"
     },
     {
       "id": "b000048",
       "kind": "blank",
-      "start_line": 68,
-      "end_line": 68,
+      "start_line": 85,
+      "end_line": 85,
       "raw": "\n"
     },
     {
       "id": "b000049",
-      "kind": "paragraph",
-      "start_line": 69,
-      "end_line": 69,
-      "raw": "`tests/BackendRuntimeSmoke.py` 는 SD3 , FLUX.1 , FLUX.2 클라인, Z-Image, Qwen Image 및 Krea 2 를 공개 라우터를 통해 실제 작은 무작위 초기화 Diffusers 네트워크와 명시적인 조건부 텐서를 사용하여 실행합니다. 그것은 텐서 가족 검사, 실제 디노이징/디코딩, 상수 아님 64x64 RGB PNG 및 다운로드 없이 출력 매니페스트를 확인합니다. 그것의 `build/backend-runtime-smoke/results.json` 는 계산/내보내기 증거이며, 사전 학습된 품질이나 네이티브 엔진 벤치마크가 아닙니다.\n"
+      "kind": "html",
+      "start_line": 86,
+      "end_line": 86,
+      "raw": "<a id=\"validation\"></a>\n"
     },
     {
       "id": "b000050",
       "kind": "blank",
-      "start_line": 70,
-      "end_line": 70,
+      "start_line": 87,
+      "end_line": 87,
       "raw": "\n"
     },
     {
       "id": "b000051",
+      "kind": "heading",
+      "start_line": 88,
+      "end_line": 88,
+      "raw": "## 검증\n",
+      "level": 2,
+      "title": "검증"
+    },
+    {
+      "id": "b000052",
+      "kind": "blank",
+      "start_line": 89,
+      "end_line": 89,
+      "raw": "\n"
+    },
+    {
+      "id": "b000053",
       "kind": "paragraph",
-      "start_line": 71,
-      "end_line": 74,
+      "start_line": 90,
+      "end_line": 90,
+      "raw": "`BackendRegistryTests` 는 한계가 설정된 실제 safetensors 픽스처 픽스처를 원본과 Diffusers 텐서 이름, 구성 요소 완전성, 메타데이터 충돌, 재생 및 Python /C V2 경계용으로 사용합니다. `NativeResultTests` 와 `NativeMobileResultTests` 는 제어된 엔진 픽스처 에 대해 실제 C++ 어댑터를 컴파일하여 구성 요소 포워딩, 샘플링 매개변수, 캐시 무효화, 차원, 취소, 소유권 및 V1/V2 ABI 거부를 확인합니다. 이 테스트는 사전 학습된 모델의 품질을 측정하지 않습니다. 새 런타임 스모크 아티팩트는 `resources/outputs/verification/`에 유지되며, 모든 가능한 체크포인트가 실행되었다고 주장하는 대신 사용된 특정 가족과 가중치를 기록합니다.\n"
+    },
+    {
+      "id": "b000054",
+      "kind": "blank",
+      "start_line": 91,
+      "end_line": 91,
+      "raw": "\n"
+    },
+    {
+      "id": "b000055",
+      "kind": "paragraph",
+      "start_line": 92,
+      "end_line": 92,
+      "raw": "`tests/BackendRuntimeSmoke.py` 는 SD3 , FLUX.1 , FLUX.2 클라인, Z-Image, Qwen Image 및 Krea 2 를 공개 라우터를 통해 실제 작은 무작위 초기화 Diffusers 네트워크와 명시적인 조건부 텐서를 사용하여 실행합니다. 그것은 텐서 가족 검사, 실제 디노이징/디코딩, 상수 아님 64x64 RGB PNG 및 다운로드 없이 출력 매니페스트를 확인합니다. 현재 출력 경로 `resources/outputs/verification/backend-runtime-smoke/results.json`은 계산/내보내기 증거이며, 사전 학습된 품질이나 네이티브 엔진 벤치마크가 아닙니다.\n"
+    },
+    {
+      "id": "b000056",
+      "kind": "blank",
+      "start_line": 93,
+      "end_line": 93,
+      "raw": "\n"
+    },
+    {
+      "id": "b000057",
+      "kind": "paragraph",
+      "start_line": 94,
+      "end_line": 97,
       "raw": "참고 자료: [고정 네이티브 백엔드](https://github.com/leejet/stable-diffusion.cpp/tree/d04e8950c1ec8d30248cbe996682b3182fb1adf6),\n[Z-이미지 파이프라인](https://huggingface.co/docs/diffusers/main/api/pipelines/z_image),\n[Krea 2 파이프라인 및 CFG 규칙](https://huggingface.co/docs/diffusers/main/api/pipelines/krea2),\n[FLUX.2 파이프라인](https://huggingface.co/docs/diffusers/main/api/pipelines/flux2).\n"
     }
   ],
@@ -470,87 +512,130 @@
       "start_line": 3
     },
     {
-      "block_id": "b000009",
+      "block_id": "b000015",
       "parent_id": "b000003",
       "level": 2,
       "title": "로컬 이미지 백엔드",
       "anchor": "로컬-이미지-백엔드",
-      "start_line": 9
+      "start_line": 32
     },
     {
-      "block_id": "b000029",
+      "block_id": "b000035",
       "parent_id": "b000003",
       "level": 2,
       "title": "파이프라인 패키지 및 출력 게시",
       "anchor": "파이프라인-패키지-및-출력-게시",
-      "start_line": 49
+      "start_line": 72
     },
     {
-      "block_id": "b000037",
+      "block_id": "b000043",
       "parent_id": "b000003",
       "level": 2,
       "title": "C++ 및 C 인터페이스",
       "anchor": "c-및-c-인터페이스",
-      "start_line": 57
+      "start_line": 80
     },
     {
-      "block_id": "b000045",
+      "block_id": "b000051",
       "parent_id": "b000003",
       "level": 2,
       "title": "검증",
       "anchor": "검증",
-      "start_line": 65
+      "start_line": 88
     }
   ],
   "indexes": {
-    "directive_candidates": [],
+    "directive_candidates": [
+      {
+        "block_id": "b000007",
+        "line": 11,
+        "text": "네이티브 이미지 엔진은 MOSS를 실행하지 않는다. `--backend auto`는 이 서명이 확인된",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000007",
+        "line": 17,
+        "text": "전체 가중치의 유효성, 실제 생성 성공을 증명하지 않는다.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000009",
+        "line": 22,
+        "text": "가능 여부를 뜻하지 않는다. 실제 양자화 알고리즘과 스케일은 워커가 별도로 검증한다.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000009",
+        "line": 23,
+        "text": "모델 파일이나 병합 메타데이터는 수정하지 않는다.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000011",
+        "line": 26,
+        "text": "선택한다. 패키지 자체를 단일 변환기 파일로 전달하지 않는다. 선택된 구성 요소는",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000011",
+        "line": 28,
+        "text": "헤더 검사와 캐시 복원은 사전 학습 모델의 실제 생성 성공을 의미하지 않는다.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
     "commands": [
       {
-        "block_id": "b000017",
+        "block_id": "b000023",
         "language": "sh",
         "code": "iild-generate --list-backends\niild-generate --inspect-model --model /models/z-image.safetensors\niild-generate --model /models/z-image.safetensors \\\n  --base-model ZImageTurbo \\\n  --components '{\"llm\":\"/models/qwen3-4b.safetensors\",\"vae\":\"/models/ae.safetensors\"}' \\\n  --prompt 'A cabin beside a lake' --output-dir /outputs/cabin\n"
       }
     ],
     "links": [
       {
-        "block_id": "b000021",
+        "block_id": "b000027",
         "label": "Krea 2 컨트롤",
         "target": "krea2.md",
         "kind": "relative",
-        "line": 41
+        "line": 64
       },
       {
-        "block_id": "b000051",
+        "block_id": "b000057",
         "label": "고정 네이티브 백엔드",
         "target": "https://github.com/leejet/stable-diffusion.cpp/tree/d04e8950c1ec8d30248cbe996682b3182fb1adf6",
         "kind": "external",
-        "line": 71
+        "line": 94
       },
       {
-        "block_id": "b000051",
+        "block_id": "b000057",
         "label": "Z-이미지 파이프라인",
         "target": "https://huggingface.co/docs/diffusers/main/api/pipelines/z_image",
         "kind": "external",
-        "line": 72
+        "line": 95
       },
       {
-        "block_id": "b000051",
+        "block_id": "b000057",
         "label": "Krea 2 파이프라인 및 CFG 규칙",
         "target": "https://huggingface.co/docs/diffusers/main/api/pipelines/krea2",
         "kind": "external",
-        "line": 73
+        "line": 96
       },
       {
-        "block_id": "b000051",
+        "block_id": "b000057",
         "label": "FLUX.2 파이프라인",
         "target": "https://huggingface.co/docs/diffusers/main/api/pipelines/flux2",
         "kind": "external",
-        "line": 74
+        "line": 97
       }
     ],
     "tables": [
       {
-        "block_id": "b000013",
+        "block_id": "b000019",
         "columns": [
           "건축",
           "네이티브 텍스트 구성 요소 슬롯",

@@ -45,13 +45,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--native-test", type=Path, default=ROOT / "build" / "ComputeTests")
     parser.add_argument("--output-dir", type=Path,
-                        default=ROOT / "build" / "reference" / "hardware" / "mlx-linear")
+                        default=ROOT / "resources" / "outputs" / "reference" / "hardware" / "mlx-linear")
     args = parser.parse_args(argv)
     if args.batch_size <= 0:
         parser.error("--batch-size must be positive")
     directory = args.output_dir.resolve()
-    if not directory.is_relative_to((ROOT / "build").resolve()):
-        parser.error("Validation artifacts must be kept under the repository build/ directory")
+    if not directory.is_relative_to((ROOT / "resources").resolve()):
+        parser.error("Validation artifacts must be kept under the repository resources/ directory")
     if directory.exists() and (not directory.is_dir() or any(directory.iterdir())):
         parser.error("--output-dir must be new or empty; existing evidence is not overwritten")
     if not args.native_test.is_file():

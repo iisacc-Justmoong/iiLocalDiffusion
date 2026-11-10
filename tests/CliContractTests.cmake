@@ -3,6 +3,10 @@ if(NOT DEFINED CLI OR NOT DEFINED FIXTURE OR NOT DEFINED SDXL_FIXTURE
     message(FATAL_ERROR "CLI, FIXTURE, SDXL_FIXTURE, FLUX_FIXTURE, and WORK_DIRECTORY are required")
 endif()
 
+if(EXISTS "${WORK_DIRECTORY}" OR IS_SYMLINK "${WORK_DIRECTORY}")
+    message(FATAL_ERROR "CLI fixture workspace already exists; refusing to replace it")
+endif()
+
 function(assert_process name expected_result expected_output expected_error)
     execute_process(
         COMMAND "${CLI}" ${ARGN}
@@ -89,7 +93,6 @@ string(CONCAT usage_output
 assert_process("help" 0 "${usage_output}" "" --help)
 assert_process("missing arguments" 2 "" "${usage_output}")
 
-file(REMOVE_RECURSE "${WORK_DIRECTORY}")
 file(MAKE_DIRECTORY "${WORK_DIRECTORY}/invalid")
 set(missing_root "${WORK_DIRECTORY}/missing")
 assert_process(

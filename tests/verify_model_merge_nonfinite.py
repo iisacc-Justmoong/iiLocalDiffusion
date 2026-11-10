@@ -1,6 +1,6 @@
 """Replay nonfinite checkpoint failures using real tensors and the installed CLI.
 
-Original models are read-only. Evidence and sample outputs remain in build/.
+Original models are read-only. Temporary samples use project resources.
 This validates arithmetic and publication, not a full model or image generation.
 """
 
@@ -9,21 +9,20 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 
-import torch
-from safetensors import safe_open
-from safetensors.torch import load_file, save_file
+sys.dont_write_bytecode = True
+import resource_runner
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
-from model_merge_ecosystem import identify_ecosystem
 
 TARGET = "conditioner.embedders.0.transformer.text_model.encoder.layers.11.mlp.fc1.weight"
 PROBE = "conditioner.embedders.0.transformer.text_model.encoder.layers.10.mlp.fc1.bias"
 
 
 def sample(path):
+    from safetensors import safe_open
+    from model_merge_ecosystem import identify_ecosystem
     with safe_open(path, framework="pt") as reader:
         layout = {(".", key): "model" for key in reader.keys()}
         family = identify_ecosystem({"model": reader}, layout)
@@ -36,9 +35,17 @@ def main():
     parser.add_argument("--base", required=True, type=Path)
     parser.add_argument("--material", required=True, type=Path, action="append")
     parser.add_argument("--repair-base", action="store_true", help="Replay a real nonfinite base with usable material.")
-    parser.add_argument("--executable", type=Path, default=ROOT / "build/unified-runtime/bin/iild-merge")
+    parser.add_argument("--executable", type=Path,
+                        default=Path.home() / ".local/SDK/iiLocalDiffusion/bin/iild-merge")
     args = parser.parse_args()
-    root = Path(tempfile.mkdtemp(prefix="nonfinite-real-", dir=ROOT / "build"))
+    with resource_runner.workspace(ROOT / "resources") as root:
+        run_verification(args, root)
+
+
+def run_verification(args, root):
+    import torch
+    from safetensors.torch import load_file, save_file
+
     sources = [args.base, *args.material]
     before = [(p.stat().st_size, p.stat().st_mtime_ns) for p in sources]
     base, metadata = sample(args.base)
@@ -59,7 +66,6 @@ def main():
                 "--additional-model", str(material_path), "--weights", "0.5", "--mode", mode,
                 "--output", str(output)], text=True, capture_output=True, check=True)
             report = json.loads(process.stdout)
-            (root / f"report-{index}-{mode}.json").write_text(json.dumps(report, indent=2) + "\n")
             merged = load_file(output)
             for key in (TARGET, PROBE):
                 a = torch.nan_to_num(base[key].float(), nan=0., posinf=0., neginf=0.)
@@ -79,14 +85,14 @@ def main():
             results.append({"material": str(path), "mode": mode, "nonfinite_values": invalid,
                             "output_verification": verification,
                             "changed_tensors": report["changed_tensor_count"], "output": str(output),
-                            "output_sha256": report["output_files"][0]["sha256"]})
+                            "output_sha256": report["output_files"][0]["sha256"], "merge_report": report})
     assert before == [(p.stat().st_size, p.stat().st_mtime_ns) for p in sources]
     evidence = {"base": str(args.base), "tensor": TARGET, "probe": PROBE,
                 "installed_executable": str(args.executable), "originals_unchanged": True,
                 "base_nonfinite_values": base_invalid,
-                "full_model_inference_tested": False, "results": results}
-    (root / "verification.json").write_text(json.dumps(evidence, indent=2) + "\n")
-    print(json.dumps({"evidence": str(root / "verification.json"), "verified_merges": len(results)}, indent=2))
+                "full_model_inference_tested": False, "results": results,
+                "temporary_artifacts_removed_after_command": True}
+    print(json.dumps(evidence, indent=2))
 
 
 if __name__ == "__main__":

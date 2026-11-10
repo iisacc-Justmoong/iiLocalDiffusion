@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline contracts for Deforum schedules, request validation and CLI routing."""
+import resource_fixture
 
 from contextlib import redirect_stderr
 import io
@@ -7,7 +8,6 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import unittest
 from local_model_fixture import local_request, MODEL
 
@@ -105,7 +105,7 @@ class DeforumOptionsTests(unittest.TestCase):
 
     def test_configured_animation_wins_over_local_checkpoint_auto_route(self):
         import argparse
-        with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="deforum-route-") as directory:
+        with resource_fixture.TemporaryDirectory(prefix="deforum-route-") as directory:
             path = Path(directory) / "config.json"
             path.write_text('{"animation_mode":"2D"}')
             model = Path(directory) / "model.safetensors"
@@ -116,7 +116,7 @@ class DeforumOptionsTests(unittest.TestCase):
             self.assertEqual(router.select_backend(args, [*flags, "--animation-mode", "none"]), "local")
 
     def test_router_and_json_configuration_are_offline(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="deforum-options-") as directory:
+        with resource_fixture.TemporaryDirectory(prefix="deforum-options-") as directory:
             path = Path(directory) / "settings.json"
             path.write_text(json.dumps({"animation_mode": "2D", "max_frames": 3, "fps": 12,
                                         "animation_prompts": {"0": "a city"}}))

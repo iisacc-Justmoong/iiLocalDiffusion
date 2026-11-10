@@ -2,6 +2,7 @@
 """Dependency-free regressions for explicit ControlNet generation requests."""
 
 from __future__ import annotations
+import resource_fixture
 
 import base64
 from contextlib import redirect_stderr, redirect_stdout
@@ -10,7 +11,6 @@ import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from local_model_fixture import local_parser, local_request, MODEL
@@ -41,7 +41,7 @@ class ControlNetTests(unittest.TestCase):
     def setUp(self):
         build = ROOT / "build"
         build.mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="controlnet-tests-", dir=build)
+        temporary = resource_fixture.TemporaryDirectory(prefix="controlnet-tests-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.model_directory = self.directory / "local-checkpoint"
@@ -594,6 +594,23 @@ class ControlNetTests(unittest.TestCase):
         controlnet.validate_controlnet_contract(component, base, preset, args)
         component.union = False
         with self.assertRaisesRegex(ValueError, "Union"):
+            controlnet.validate_controlnet_contract(component, base, preset, args)
+
+    def test_flux_pixel_hint_patch_size_is_distinct_from_base_transformer(self):
+        preset = presets.FLUX1_SCHNELL_PRESET
+        args, base, component, _, _, _ = self.loader_fixture(preset)
+        component.input_hint_block = object()
+        component.config.patch_size = 2
+        component.config.conditioning_embedding_channels = 16
+        controlnet.validate_controlnet_contract(component, base, preset, args)
+        for patch_size, channels in ((1, 16), (2, 8), (4, 16)):
+            component.config.patch_size = patch_size
+            component.config.conditioning_embedding_channels = channels
+            with self.subTest(patch_size=patch_size, channels=channels), self.assertRaisesRegex(RuntimeError, 'pixel.*hint'):
+                controlnet.validate_controlnet_contract(component, base, preset, args)
+        component.input_hint_block = None
+        component.config.patch_size = 2
+        with self.assertRaisesRegex(RuntimeError, 'patch_size'):
             controlnet.validate_controlnet_contract(component, base, preset, args)
 
     def test_image_changed_after_argument_resolution_is_rejected_before_decode(self):

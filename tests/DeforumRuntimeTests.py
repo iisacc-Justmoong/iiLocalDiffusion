@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Feedback, adapter, sampling and publication contracts without model weights."""
+import resource_fixture
 
 from contextlib import redirect_stdout
 import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from local_model_fixture import local_request
@@ -176,7 +176,7 @@ class DeforumRuntimeTests(unittest.TestCase):
 
 class AnimationPublicationTests(unittest.TestCase):
     def setUp(self):
-        temporary = provider.TemporaryDirectory(dir=ROOT / "build", prefix="deforum-publication-")
+        temporary = resource_fixture.TemporaryDirectory(prefix="deforum-publication-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.args = SimpleNamespace(output=self.directory / "movie.mp4", overwrite=False, max_frames=2)

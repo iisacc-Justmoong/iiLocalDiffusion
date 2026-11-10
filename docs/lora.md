@@ -27,7 +27,7 @@ reference/diffusers/.venv/bin/python \
   --preset flux1-schnell \
   --lora /absolute/path/to/style.safetensors \
   --lora-scale 0.75 \
-  --output build/reference/flux-style.png
+  --output resources/outputs/reference/flux-style.png
 ```
 
 디렉토리는 정확한 파일 이름이 명시적으로 지정된 경우에만 허용됩니다.
@@ -49,7 +49,7 @@ SD2, SD3 및 기타 내장 이미지 파이프라인은 전체 로컬 Diffusers 
 reference/diffusers/.venv/bin/python reference/generate.py \
   --backend diffusers --model /absolute/path/sd3-diffusers \
   --lora /absolute/path/sd3-style.safetensors --lora-scale 0.75 \
-  --prompt 'a red cube' --output-dir build/reference/sd3-style
+  --prompt 'a red cube' --output-dir resources/outputs/reference/sd3-style
 ```
 
 동일한 `--lora`와 `--lora-scale` 입력은 `--backend deforum`에서도 작동한다. 여기에는 SD, SDXL 및 FLUX.1의 텍스트에서 이미지 생성 이후 이미지에서 이미지 생성 프레임이 포함된다. 생성되는 모든 프레임은 프롬프트 인코딩 전, 장치 배치 후와 추론 후에 어댑터를 검증한다. `from_pipe`로 변환할 때 이를 유지해야 한다. 디노이징 강도가 0인 프레임은 이전 이미지를 워핑하고 `frames[].lora.applied: false`를 기록할 뿐이며 새로운 LoRA 추론을 수행했다고 주장하지 않는다.

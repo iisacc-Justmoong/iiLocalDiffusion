@@ -1,4 +1,5 @@
 #include "Generation/NativeDiffusion.hpp"
+#include "Generation/NativeImageEngineReport.hpp"
 #include "Generation/NativePose.hpp"
 #include "Generation/NativeImageBridge.hpp"
 #include "Generation/NativeCachePolicy.hpp"
@@ -33,6 +34,8 @@ struct sd_ctx_t { bool refiner = false; std::vector<std::string> multiPaths; uns
 struct adetailer_ctx_t {};
 namespace {
 sd_log_cb_t logCallback = nullptr;
+IildImageReportCallback imageReportCallback = nullptr;
+void *imageReportData = nullptr;
 void *logData = nullptr;
 sd_progress_stage_cb_t progressCallback = nullptr;
 void *progressData = nullptr;
@@ -95,7 +98,7 @@ std::string loraPath;
 std::string modelFamily = "sdxl-base";
 bool missingVae = false;
 bool validExternalVae = true;
-int vaeValidationCalls = 0;
+int vaeValidationCalls = 0, vaeInspectionCalls = 0;
 bool embeddedLlm = true, validExternalLlm = true;
 int llmValidationCalls = 0;
 bool expectCpu = false;
@@ -119,6 +122,16 @@ constexpr auto warning = "No valid VAE specified with --vae or --force-sdxl-vae-
 void require(bool condition, const std::string &message) {
     if (!condition) throw std::runtime_error(message);
 }
+void writeModelFixture(const std::filesystem::path &path, const std::string &payload) {
+    const auto count = std::to_string(payload.size());
+    const auto header = "{\"fixture\":{\"dtype\":\"U8\",\"shape\":[" + count
+        + "],\"data_offsets\":[0," + count + "]}}";
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    const auto size = static_cast<std::uint64_t>(header.size());
+    for (unsigned shift = 0; shift != 64; shift += 8) file.put(static_cast<char>((size >> shift) & 0xff));
+    file.write(header.data(), static_cast<std::streamsize>(header.size()));
+    file.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+}
 }
 #if defined(__APPLE__)
 namespace iiLocalDiffusion::native_detail {
@@ -126,6 +139,12 @@ ResourceLimits resourceLimits() { return {8ull << 30, 4ull << 30, 6ull << 30, tr
 }
 #endif
 extern "C" {
+const char *sd_sample_method_name(sample_method_t) { return "fixture-sampler"; }
+const char *sd_scheduler_name(scheduler_t) { return "fixture-scheduler"; }
+const char *sd_hires_upscaler_name(sd_hires_upscaler_t) { return "fixture-upscaler"; }
+void iild_set_image_report_callback(IildImageReportCallback callback, void *data) {
+    imageReportCallback = callback; imageReportData = data;
+}
 void sd_set_log_callback(sd_log_cb_t callback, void *data) { logCallback = callback; logData = data; }
 void sd_set_progress_stage_callback(sd_progress_stage_cb_t callback, void *data) { progressCallback = callback; progressData = data; }
 void sd_set_abort_callback(sd_abort_cb_t callback, void *data) { abortCallback = callback; abortData = data; }
@@ -220,6 +239,7 @@ bool sd_ctx_can_refine(const sd_ctx_t *base, const sd_ctx_t *refiner) {
     return base && !base->refiner && refiner && refiner->refiner && refinerCompatible;
 }
 bool sd_model_inspect_vae(const char *path, sd_model_vae_info_t *info) {
+    ++vaeInspectionCalls;
     if (!refinerFixturePath.empty() && path == refinerFixturePath) {
         *info = {refinerFamily.c_str(), "sdxl-base", SD_VAE_EMBEDDED};
         return true;
@@ -323,6 +343,25 @@ void sd_cancel_generation(sd_ctx_t *, sd_cancel_mode_t) {}
 bool convert_with_components(const char *, const char *, const char *, const char *, const char *,
     const char *, const char *, sd_type_t, const char *, bool, int) { return false; }
 bool generate_image(sd_ctx_t *, const sd_img_gen_params_t *parameters, sd_image_t **images, int *count) {
+    if (imageReportCallback) {
+        const std::vector<float> sigmas{1.f, .5f, 0.f};
+        const IildResolvedImageParameters resolved{
+            0, 0,
+            (parameters->width + 63) / 64 * 64, (parameters->height + 63) / 64 * 64,
+            parameters->hires.target_width, parameters->hires.target_height,
+            parameters->sample_params.sample_steps, parameters->hires.steps,
+            int(parameters->sample_params.sample_method), int(parameters->sample_params.scheduler),
+            int(parameters->hires.upscaler), parameters->hires.enabled ? 1 : 0, parameters->init_image.data ? 1 : 0,
+            parameters->seed < 0 ? 987654321 : parameters->seed,
+            parameters->sample_params.guidance.txt_cfg, 1.0f,
+            parameters->sample_params.guidance.distilled_guidance, parameters->hires.denoising_strength,
+            parameters->strength, sigmas.data(), int(sigmas.size())};
+        imageReportCallback(&resolved, imageReportData);
+        if (parameters->hires.enabled) {
+            auto hires = resolved; hires.phase = 1; hires.hiresSchedulerSteps = 8;
+            imageReportCallback(&hires, imageReportData);
+        }
+    }
     require(!detailerExpected || liveDetailers == 1, "Detailer weights must be prepared before base generation");
     if (parameters->hires.enabled && parameters->hires.upscaler == SD_HIRES_UPSCALER_MODEL)
         require(upscalerPrepareCalls > 0 && parameters->hires.model_path
@@ -473,7 +512,32 @@ int main(int argc, char **argv) {
         std::filesystem::create_directories(std::filesystem::path(argv[1]));
         const auto directory = std::filesystem::canonical(std::filesystem::path(argv[1]));
         const auto model = directory / "result-fixture.safetensors";
-        { std::ofstream file(model); file << "C API fixture"; }
+        writeModelFixture(model, "C API fixture");
+        {
+            const auto unsupported = directory / "unsupported-moss.safetensors";
+            const std::string header = R"({"video_embedder.weight":{"dtype":"BF16","shape":[4,2],"data_offsets":[0,16]},"final_linear_video.weight":{"dtype":"BF16","shape":[2,4],"data_offsets":[16,32]},"layers.0.proj.qkv.weight":{"dtype":"I8","shape":[12,4],"data_offsets":[32,80]},"layers.0.proj.qkv.comfy_quant":{"dtype":"U8","shape":[2],"data_offsets":[80,82]}})";
+            std::ofstream file(unsupported, std::ios::binary | std::ios::trunc);
+            const auto size = static_cast<std::uint64_t>(header.size());
+            for (unsigned shift = 0; shift != 64; shift += 8) file.put(static_cast<char>((size >> shift) & 0xff));
+            file.write(header.data(), static_cast<std::streamsize>(header.size()));
+            const std::string payload(82, '\0'); file.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+            file.close();
+            const auto before = vaeInspectionCalls;
+            require(nativeImageParameterDefaults(unsupported) == ImageParameters::defaults(),
+                "Unsupported model defaults should remain generic");
+            require(vaeInspectionCalls == before, "Unsupported model reached VAE inspection while selecting defaults");
+        }
+        {
+            const auto largeHeader = directory / "large-header.safetensors";
+            constexpr std::uint64_t length = 64ull * 1024 * 1024 + 1;
+            std::ofstream file(largeHeader, std::ios::binary | std::ios::trunc);
+            for (unsigned shift = 0; shift != 64; shift += 8) file.put(static_cast<char>((length >> shift) & 0xff));
+            file.seekp(static_cast<std::streamoff>(8 + length)); file.put('\0'); file.close();
+            const auto before = vaeInspectionCalls;
+            (void)nativeImageParameterDefaults(largeHeader);
+            require(vaeInspectionCalls == before + 1,
+                "A header beyond the inspection budget should be left to the engine");
+        }
         NativeGenerationRequest request;
         request.modelPath = std::filesystem::canonical(model);
         request.prompt = "portrait";
@@ -633,6 +697,21 @@ int main(int argc, char **argv) {
         request.steps = 10;
         std::atomic_bool cancelled{false};
         {
+            auto reported = request;
+            reported.width = 64; reported.height = 120; reported.seed = -1;
+            const auto execution = generateNativeImageWithReport(reported, cancelled);
+            require(execution.image.error.empty() && execution.report.stages.size() == 1,
+                "Native generation must return one resolved settings report per executed model stage");
+            const auto &stage = execution.report.stages.front();
+            require(stage.resolved && stage.seed == 987654321 && stage.baseWidth == 64 && stage.baseHeight == 64
+                && stage.canvasWidth == 64 && stage.canvasHeight == 128 && stage.steps == 10
+                && stage.hires && stage.hiresResolved && stage.hiresSteps == 2 && stage.hiresSchedulerSteps == 8
+                && stage.sigmas == std::vector<float>({1.f,.5f,0.f}) && stage.hiresSigmas == stage.sigmas
+                && stage.modelPath == reported.modelPath && stage.effectiveModelPath == reported.modelPath && !stage.q8CacheUsed,
+                "Resolved seed, alignment, sampling or Hires settings were not captured from the engine");
+            require(!imageReportCallback && !imageReportData, "Engine settings callback outlived its generation");
+        }
+        {
             NativeAdvancedControls advanced;
             NativeGenerationOptions modifiers;
             modifiers.defaultModifiers = false;
@@ -724,6 +803,11 @@ int main(int argc, char **argv) {
             require(std::get<std::int64_t>(kreaDefaults.values.at("steps")) == 52
                 && std::get<double>(kreaDefaults.values.at("cfgScale")) == 7.0,
                 "Quick Krea2 defaults did not retain CFG 7 and 52 steps");
+            auto partial = request; partial.width = 0; partial.steps = 0; partial.seed = 2147483648LL;
+            const auto resolved = resolveNativeImageDefaults(partial);
+            require(resolved.width == std::get<std::int64_t>(kreaDefaults.values.at("width"))
+                && resolved.height == partial.height && resolved.steps == 52 && resolved.seed == 2147483648LL,
+                "Backend model defaults must fill only unspecified values");
             advanced.references.resize(1); advanced.imageStrength = .65f;
             advanced.sampler = advanced.scheduler = "auto";
             expectedReferenceCount = 0;
@@ -1258,9 +1342,30 @@ int main(int argc, char **argv) {
             std::filesystem::create_directories(emptyResources);
             options.resourceDirectory = emptyResources;
             modelFamily = "anima";
+            {
+                const auto model = directory / "anima-pack-result-fixture.safetensors";
+                const auto llm = directory / "anima-text-result-fixture.safetensors";
+                const auto vae = directory / "anima-vae-result-fixture.safetensors";
+                writeModelFixture(model, "Anima package fixture");
+                writeModelFixture(llm, "Anima encoder fixture");
+                writeModelFixture(vae, "Anima decoder fixture");
+                NativeImagePackage package; package.request = request; package.request.modelPath = model;
+                package.packaged = true; package.components.llm = llm; package.components.vae = vae;
+                package.components.guidanceScale = 37; package.components.hires = false;
+                missingVae = true; expectResidentModel = true; expectHires = true;
+                releaseNativeDiffusionCache();
+                const auto image = generateNativeImageWithResidentPackage(package, options,
+                    NativeComputeBackend::Automatic, cancelled);
+                require(image.error.empty() && !image.rgb.empty(), "Packaged quick-generation fixture failed");
+                require(selectedLlm == llm.string() && selectedVae == vae.string(),
+                    "Packaged components did not reach the native context");
+                require(actualCfg == 0, "Package binding changed the quick-generation guidance default");
+                expectResidentModel = false;
+                releaseNativeDiffusionCache();
+            }
             for (bool needsVae : {false, true}) {
                 request.modelPath = directory / (needsVae ? "anima-denoiser.safetensors" : "anima-complete.safetensors");
-                { std::ofstream file(request.modelPath); file << "Anima C API fixture"; }
+                writeModelFixture(request.modelPath, "Anima C API fixture");
                 missingVae = needsVae;
                 const auto beforeCalls = generationCalls;
                 const auto result = generateNativeImageWithOptions(request, options, cancelled);
@@ -1277,7 +1382,7 @@ int main(int argc, char **argv) {
             options.resourceDirectory.clear();
             for (const auto &vaeFamily : {"qwen-image", "sdxl-base", "flux1", "flux2", "anima", "z-image", "krea2"}) {
             const auto qwenModel = directory / (std::string(vaeFamily) + "-result-fixture.safetensors");
-            { std::ofstream file(qwenModel); file << "Qwen C API fixture"; }
+            writeModelFixture(qwenModel, "Qwen C API fixture");
             const auto previous = request.modelPath;
             request.modelPath = std::filesystem::canonical(qwenModel);
             missingVae = true;
@@ -1295,7 +1400,7 @@ int main(int argc, char **argv) {
                 require(!selectedLlm.empty() && llmValidationCalls == llmValidationsBefore + 1,
                         "Split Krea2 did not retain its verified Qwen3-VL encoder");
                 validExternalLlm = false;
-                { std::ofstream file(qwenModel); file << "Changed model metadata requiring text encoder revalidation"; }
+                writeModelFixture(qwenModel, "Changed model metadata requiring text encoder revalidation");
                 const auto callsBefore = generationCalls;
                 const auto wrongEncoder = generateNativeImageWithOptions(request, options, cancelled);
                 require(wrongEncoder.error.find("Qwen3-VL-4B tensor contract") != std::string::npos
@@ -1303,7 +1408,7 @@ int main(int argc, char **argv) {
                 validExternalLlm = true;
             }
             const auto beforeCalls = generationCalls;
-            { std::ofstream file(qwenModel); file << "Changed model metadata requiring VAE revalidation"; }
+            writeModelFixture(qwenModel, "Changed model metadata requiring VAE revalidation");
             validExternalVae = false;
             const auto rejected = generateNativeImageWithOptions(request, options, cancelled);
             require(!rejected.error.empty() && rejected.error.find("tensor contract") != std::string::npos
@@ -1315,7 +1420,7 @@ int main(int argc, char **argv) {
             {
                 const auto previous = request.modelPath;
                 const auto sd3Model = directory / "unbundled-sd3.safetensors";
-                { std::ofstream file(sd3Model); file << "SD3 fixture with missing VAE"; }
+                writeModelFixture(sd3Model, "SD3 fixture with missing VAE");
                 request.modelPath = std::filesystem::canonical(sd3Model);
                 modelFamily = "sd3";
                 const auto beforeCalls = generationCalls;
@@ -1428,13 +1533,13 @@ int main(int argc, char **argv) {
             const auto package = std::filesystem::canonical(directory) / "cascade.iildmodel";
             std::filesystem::create_directories(package);
             for (const auto *name : {"a.safetensors", "b.safetensors"}) {
-                std::ofstream file(package / name); file << "C API fixture";
+                writeModelFixture(package / name, "C API fixture");
             }
             const auto writeManifest = [&](const std::string &second, double strength = 0.35, const std::string &vae = "") {
                 std::ofstream file(package / "model_index.json");
                 file << R"({"schema":"iild-unified-model-v1","container":"zip-stored-v1","_class_name":"IILDUnifiedCascade","composition":"ordered-image-refinement","stages":[)"
-                     << R"({"model":"a.safetensors","size_bytes":13,"strength":1},)"
-                     << "{\"model\":\"" << second << "\",\"size_bytes\":13,\"strength\":" << strength
+                     << R"({"model":"a.safetensors","size_bytes":)" << std::filesystem::file_size(package / "a.safetensors") << R"(,"strength":1},)"
+                     << "{\"model\":\"" << second << "\",\"size_bytes\":" << std::filesystem::file_size(package / "b.safetensors") << ",\"strength\":" << strength
                      << (vae.empty() ? "" : ",\"vae\":\"" + vae + "\"") << "}]}";
             };
             writeManifest("b.safetensors");
@@ -1494,6 +1599,12 @@ int main(int argc, char **argv) {
             writeManifest("b.safetensors", 0.35, "../result-fixture.safetensors");
             cascade = generateNativeImageWithOptions(request, options, cancelled);
             require(!cascade.error.empty(), "An explicit VAE must stay inside its package");
+            writeManifest("b.safetensors");
+            const auto reportedCascade = generateNativeImageWithReport(request, cancelled);
+            require(reportedCascade.image.error.empty() && reportedCascade.report.stages.size() == 2
+                && !reportedCascade.report.stages[0].imageToImage && reportedCascade.report.stages[1].imageToImage
+                && std::abs(reportedCascade.report.stages[1].imageStrength - .35f) < 1e-6f,
+                "A unified cascade must report each model and its actual image-to-image strength");
             request.modelPath = original;
         }
         request.timeoutMilliseconds = 200;

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Local HTTP contract tests; no ComfyUI installation or model weights required."""
+import resource_fixture
 
 import argparse
 from contextlib import contextmanager
@@ -7,7 +8,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import sys
-import tempfile
 import threading
 import unittest
 from unittest.mock import patch
@@ -25,7 +25,7 @@ OBJECTS = {"Loader": {"input": {"required": {"model": [["local.safetensors"]]}},
 
 class ComfyUIRuntimeTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="comfy-test-")
+        self.temporary = resource_fixture.TemporaryDirectory(prefix="comfy-test-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
 

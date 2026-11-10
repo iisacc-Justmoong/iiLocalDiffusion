@@ -1,11 +1,11 @@
 """Unified inference routing, integrity and publication contracts."""
+import resource_fixture
 from contextlib import redirect_stdout
 import importlib.util
 import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -21,7 +21,7 @@ from weight_files import file_sha256
 
 class UnifiedImageTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = provider.TemporaryDirectory(dir=ROOT / "build", prefix="unified-image-")
+        self.tmp = resource_fixture.TemporaryDirectory(prefix="unified-image-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.package = self.root / "model.iildmodel"

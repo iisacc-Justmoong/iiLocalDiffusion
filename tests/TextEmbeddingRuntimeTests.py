@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Dependency-free learned-token validation, registration, and prompt expansion contracts."""
+import resource_fixture
 
 import argparse
 from contextlib import contextmanager
@@ -8,7 +9,6 @@ import json
 import math
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -186,7 +186,7 @@ class Fixture:
 class TextEmbeddingRuntimeTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="text-embedding-runtime-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="text-embedding-runtime-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
 

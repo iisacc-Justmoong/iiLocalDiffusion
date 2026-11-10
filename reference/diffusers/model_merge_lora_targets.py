@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 from types import SimpleNamespace
 
 
@@ -26,6 +27,12 @@ def normalize_module(name):
 
 def lora_target_aliases(layout, readers):
     aliases = {}
+    # MOSS single-file exports commonly omit the denoiser namespace that its
+    # adapters retain. Limit this equivalence to a recognizable MOSS layout;
+    # ordinary unqualified names must not acquire cross-component aliases.
+    single_file_names = {key for component, key in layout if component == "."}
+    moss_single = {"layers.0.proj.qkv.weight", "video_embedder.weight",
+                   "final_norm_video.weight"}.issubset(single_file_names)
 
     def add(name, target):
         aliases.setdefault(normalize_module(name), set()).add(target)
@@ -56,6 +63,19 @@ def lora_target_aliases(layout, readers):
             component_aliases(component, key, target)
         else:
             single_keys[key] = target
+            if moss_single and key.endswith(".weight"):
+                for prefix in ("diffusion_model.", "model.diffusion_model."):
+                    add(prefix + _module(key), target)
+                if re.fullmatch(r"layers\.\d+\.proj\.qkv\.weight", key):
+                    shape = readers[layout[address]].get_slice(key).get_shape()
+                    if len(shape) != 2 or shape[0] % 3:
+                        raise ValueError(f"Invalid MOSS fused QKV weight: {key}")
+                    width = shape[0] // 3
+                    for index, projection in enumerate(("q", "k", "v")):
+                        split = _module(key).removesuffix("qkv") + projection
+                        split_target = LoraTarget(address, (index * width, (index + 1) * width))
+                        for prefix in ("", "diffusion_model.", "model.diffusion_model."):
+                            add(prefix + split, split_target)
             for prefix in ("unet", "transformer", "text_encoder", "text_encoder_2"):
                 if key.startswith(prefix + "."):
                     component_aliases(prefix, key[len(prefix) + 1:], target)

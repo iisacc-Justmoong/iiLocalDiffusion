@@ -7,7 +7,9 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
+
+sys.dont_write_bytecode = True
+import resource_runner
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,13 +21,15 @@ def main():
     args = parser.parse_args()
     args.merge_entry = args.merge_entry.resolve(strict=True)
     args.generate_entry = args.generate_entry.resolve(strict=True)
+    with resource_runner.workspace(ROOT / "resources") as run:
+        run_smoke(args, run)
+
+
+def run_smoke(args, run):
     import torch
     from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel
     from PIL import Image
 
-    destination = ROOT / "build/reference/model-merge-smoke"
-    destination.mkdir(parents=True, exist_ok=True)
-    run = Path(tempfile.mkdtemp(prefix="run-", dir=destination))
     pipelines = []
     for index, name in enumerate(("base", "additional")):
         torch.manual_seed(100 + index)
@@ -37,7 +41,8 @@ def main():
         pipelines.append(pipeline)
     environment = {**os.environ, "IILD_PYTHON_EXECUTABLE": sys.executable,
                    "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
-                   "PYTHONPYCACHEPREFIX": str(ROOT / "build/pycache")}
+                   "PYTHONDONTWRITEBYTECODE": "1"}
+    environment.pop("PYTHONPYCACHEPREFIX", None)
     cases = []
     for mode in ("weighted-sum", "weighted-difference"):
         merged = run / mode
@@ -68,10 +73,9 @@ def main():
                       "generation_report": str(generated / "generation.json")})
     report = {"schema": "iild-model-merge-smoke-v1", "offline": True,
               "weights": "locally initialized tiny models; no image-quality claim",
-              "merge_entry": str(args.merge_entry), "generate_entry": str(args.generate_entry), "cases": cases}
-    report_path = run / "verification.json"
-    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(report_path)
+              "merge_entry": str(args.merge_entry), "generate_entry": str(args.generate_entry), "cases": cases,
+              "temporary_artifacts_removed_after_command": True}
+    print(json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":

@@ -13,23 +13,23 @@ framework, not the Python package. This conversion path requires macOS 14.4+
 for compute-plan inspection.
 
 ```bash
-UV_PYTHON_INSTALL_DIR="$PWD/build/dependencies/python" \
-UV_CACHE_DIR="$PWD/build/dependencies/uv-cache" \
-  uv venv --python 3.13 build/reference/coreml-venv
-UV_CACHE_DIR="$PWD/build/dependencies/uv-cache" \
-  uv pip install --python build/reference/coreml-venv/bin/python \
+UV_PYTHON_INSTALL_DIR="$PWD/resources/.state/reference-runtime/python" \
+UV_CACHE_DIR="$PWD/resources/.state/reference-cache/uv" \
+  uv venv --python 3.13 resources/.state/reference-runtime/coreml-venv
+UV_CACHE_DIR="$PWD/resources/.state/reference-cache/uv" \
+  uv pip install --python resources/.state/reference-runtime/coreml-venv/bin/python \
     -r reference/coreml/requirements.txt
 cmake -S . -B build
 cmake --build build --parallel
 
-build/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \
+resources/.state/reference-runtime/coreml-venv/bin/python reference/coreml/convert_linear.py \
   --model /absolute/path/to/text-encoder.safetensors \
   --weight-key text_model.encoder.layers.0.mlp.fc1.weight \
   --bias-key text_model.encoder.layers.0.mlp.fc1.bias --batch-size 128 \
-  --output-dir build/reference/neural/my-clip-component --native-test build/CoreMLTests
+  --output-dir resources/outputs/reference/neural/my-clip-component --native-test build/CoreMLTests
 
 ./build/iild-run neural-compute \
-  --model build/reference/neural/my-clip-component/model.mlmodelc
+  --model resources/outputs/reference/neural/my-clip-component/model.mlmodelc
 ```
 
 The source may contain FP32, FP16, or BF16 tensors. Weights are converted to
@@ -54,11 +54,11 @@ conversion is not a full-model compatibility or image-quality certification.
 Run an explicit synthetic API check, or add a verified fixture to CTest:
 
 ```bash
-build/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \
-  --fixture --io-precision fp16 --output-dir build/reference/neural/my-fixture \
+resources/.state/reference-runtime/coreml-venv/bin/python reference/coreml/convert_linear.py \
+  --fixture --io-precision fp16 --output-dir resources/outputs/reference/neural/my-fixture \
   --native-test build/CoreMLTests
 cmake -S . -B build \
-  -DIILD_COREML_TEST_FIXTURE="$PWD/build/reference/neural/my-clip-component"
+  -DIILD_COREML_TEST_FIXTURE="$PWD/resources/outputs/reference/neural/my-clip-component"
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```

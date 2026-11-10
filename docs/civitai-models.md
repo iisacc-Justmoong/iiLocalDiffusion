@@ -64,7 +64,7 @@ reference/diffusers/.venv/bin/python reference/generate.py \
   --backend diffusers --base-model 'SD 3.5' \
   --model /absolute/path/sd35-diffusers \
   --pipeline-inputs '{"prompt":"a ceramic teapot on a wooden table","num_inference_steps":28}' \
-  --output-dir build/reference/sd35
+  --output-dir resources/outputs/reference/sd35
 ```
 
 ComfyUI 에 대해, 일치하는 로컬 모델, 로더 및 출력 노드를 가진 **API 형식** 워크플로우를 내보냅니다. 워크플로우는 모델 컴포넌트 및 작업별 입력의 권한입니다. `--workflow-inputs` 의 노드 ID 는 해당 워크플로우에 존재해야 하며, `6` 는 오직 예시일 뿐입니다. 큐잉 전에 바인딩을 확인합니다.
@@ -74,7 +74,7 @@ python reference/generate.py \
   --backend comfyui --base-model Anima \
   --workflow /absolute/path/anima-api.json \
   --workflow-inputs '{"6":{"text":"a ceramic teapot on a wooden table"}}' \
-  --output-dir build/reference/anima --validate-only
+  --output-dir resources/outputs/reference/anima --validate-only
 ```
 
 로컬 ComfyUI 서버, 모델 및 출력 노드가 준비되면 `--validate-only` 없이 동일한 명령을 실행합니다. 카테고리 이름은 누락된 가중치를 제공하지 않으며 호스팅 제공자를 로컬 모델로 변경하지 않으며 모델 액세스 또는 사용 권한을 부여하지 않습니다.

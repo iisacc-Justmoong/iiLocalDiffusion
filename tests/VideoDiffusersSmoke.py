@@ -42,7 +42,7 @@ def main():
     parser.add_argument("--device", choices=("cpu", "mps"), default="cpu")
     parser.add_argument("--fps", type=float, default=24, help="Final rate; >12 exercises LTX plus frame interpolation")
     args = parser.parse_args()
-    directory = ROOT / "build/video-smoke"
+    directory = ROOT / "resources/outputs/verification/video-smoke"
     directory.mkdir(parents=True, exist_ok=True)
     model = directory / "model"
     if not (model / "model_index.json").exists():

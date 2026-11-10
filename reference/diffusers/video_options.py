@@ -9,8 +9,11 @@ from pathlib import Path
 
 from generation_config import ConfigurationArgumentParser, json_object
 from generation_seed import resolve_seed
+from resource_paths import CACHE_DIRECTORY, OUTPUT_DIRECTORY
 
 ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_OUTPUT = OUTPUT_DIRECTORY / "video.mp4"
+DEFAULT_CACHE = CACHE_DIRECTORY / "huggingface"
 # The supported LTX pipelines use 25 FPS as their nominal temporal coordinate
 # rate. Higher output rates are produced by the existing frame interpolator.
 LTX_SOURCE_FPS = 25.0
@@ -46,7 +49,7 @@ def build_parser():
     add_model_arguments(parser, local_help="Local LTX Diffusers directory or native video checkpoint/package")
     parser.add_argument("--text-encoder", type=Path, help="Optional GGUF text encoder for a native video checkpoint")
     parser.add_argument("--revision", help=argparse.SUPPRESS)
-    parser.add_argument("--cache-dir", type=Path, default=ROOT / "build/reference/huggingface")
+    parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
     parser.add_argument("--local-files-only", action=argparse.BooleanOptionalAction, default=True,
                         help="Local model loading is mandatory; disabling it is rejected")
     parser.add_argument("--prompt", default="A red cube rotates slowly on a white table in a bright studio.")
@@ -251,7 +254,7 @@ def resolve_options(args):
         if getattr(args, name) is not None:
             setattr(args, name, getattr(args, name).expanduser().resolve())
     args.output_was_default = args.output is None
-    args.output = (args.output or ROOT / "build/reference/video.mp4").expanduser().absolute()
+    args.output = (args.output or DEFAULT_OUTPUT).expanduser().absolute()
     if args.output.suffix.lower() != ".mp4":
         raise ValueError("Video output must use the .mp4 extension.")
     args.interpolation_enabled = args.fps > 12

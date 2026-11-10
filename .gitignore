@@ -1,4 +1,12 @@
 /build/
+/resources/.recovery/
+/resources/.state/
+/resources/dependencies/
+/resources/test-workspaces/
+/resources/outputs/
+**/.iisacc-temporary.lock
+**/.*.iisacc-preview
+**/*.iisacc.json
 /cmake-build-*/
 /.idea/
 /reference/diffusers/.venv/
@@ -8,3 +16,14 @@
 # This pinned upstream encoder exceeds GitHub's maximum LFS object size.
 # Keep its identity in generation-defaults.json and provision it as documented.
 /resources/text_encoders/qwen3vl_4b_bf16.safetensors
+/resources/text_encoders/flux1_clip_l.safetensors
+/resources/text_encoders/flux1_t5xxl_fp8_scaled.safetensors
+/resources/text_encoders/moss_qwen35_int8_convrot.safetensors
+/resources/models/moss_image_sft_bf16.safetensors
+/resources/models/moss_image_color_depth_control.safetensors
+/resources/models/flux1-schnell-fp8.safetensors
+/resources/models/krea2_turbo_fp8_scaled.safetensors
+/resources/models/krea2-depth-control-lora.safetensors
+/resources/models/krea2-turbo-openpose-controlnet.safetensors
+/resources/depth-estimators/
+/resources/models/flux1-instantx-canny/

@@ -1,11 +1,11 @@
 """Exercise native launcher quoting, redirected output, and child exit status."""
+import resource_fixture
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 import ctypes
 import time
@@ -15,7 +15,7 @@ LAUNCHER = Path(sys.argv.pop(1))
 
 class WindowsPythonLauncherTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix="native launcher 한글 ", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="native launcher 한글 ")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.executable = self.directory / "iild-merge.exe"

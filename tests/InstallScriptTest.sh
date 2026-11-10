@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-work="${IILD_INSTALL_SCRIPT_TEST_DIRECTORY:-${source_root}/build/install-script-test}"
+if [[ -z "${IILD_INSTALL_SCRIPT_TEST_DIRECTORY:-}" ]]; then
+    exec "${IILD_PYTHON_EXECUTABLE:-python3}" -B "${source_root}/tests/resource_runner.py" auto \
+        "${source_root}/resources" env "IILD_INSTALL_SCRIPT_TEST_DIRECTORY=@WORK@/install-script-test" \
+        bash "${BASH_SOURCE[0]}"
+fi
+work="${IILD_INSTALL_SCRIPT_TEST_DIRECTORY}"
+"${IILD_PYTHON_EXECUTABLE:-python3}" -B -c \
+    'from pathlib import Path; import os,sys; root=Path(sys.argv[1]); path=Path(sys.argv[2]); work=path.resolve(); resources=root / "resources"; state=resources / "test-workspaces"; inherited=os.environ.get("IIFILEPROVIDER_TEST_DIRECTORY"); valid=not resources.is_symlink() and not state.is_symlink() and not path.is_symlink() and work != state.resolve() and work.is_relative_to(state.resolve()) and (not inherited or work.is_relative_to(Path(inherited).resolve())); sys.exit("Installer test workspace must be under project resources/test-workspaces") if not valid else None; sys.exit("Installer test workspace already contains files") if work.exists() and (not work.is_dir() or any(work.iterdir())) else None' \
+    "${source_root}" "${work}"
 mkdir -p "${work}/bin" "${work}/home/.local/SDK/iiPaintEngine/lib/cmake/iiPaintEngine"
 touch "${work}/home/.local/SDK/iiPaintEngine/lib/cmake/iiPaintEngine/iiPaintEngineConfig.cmake"
 cat > "${work}/bin/cmake" <<'MOCK'
@@ -55,8 +63,9 @@ reference.mkdir(parents=True, exist_ok=True)
 # Exercise the installed launcher with its small embedding/configuration assets.
 # Backend model weights are not needed for --print-config and must not be copied.
 def large_models(directory, names):
-    return [name for name in names if (Path(directory) / name).is_file()
-            and (Path(directory) / name).stat().st_size > 64 * 1024 * 1024]
+    private = {".cache", ".state", ".recovery", "dependencies", "outputs", "test-workspaces", "__pycache__"}
+    return [name for name in names if name in private or ((Path(directory) / name).is_file()
+            and (Path(directory) / name).stat().st_size > 64 * 1024 * 1024)]
 shutil.copytree(source / "resources", reference.parent / "resources", dirs_exist_ok=True,
                 ignore=large_models)
 for entry in ("generate.py", "merge.py"):

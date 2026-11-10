@@ -15,6 +15,10 @@ _PROCESSOR_PAIR = re.compile(r"^(.*_lora)\.(down|up)\.weight$")
 _FLOAT_DTYPES = {"F8_E4M3", "F8_E5M2", "F16", "BF16", "F32", "F64"}
 
 
+class UnsupportedQuantizedLoraTarget(ValueError):
+    """A known target cannot safely be merged with the available arithmetic."""
+
+
 def is_lora_key(key):
     return any(token in key for token in ("lora_", "_lora.", ".lora.", "dora_", "hada_", "lokr_", "oft_", "boft_"))
 
@@ -177,13 +181,22 @@ def prepare_lora(model, readers, aliases, base_readers, base_layout, base_model,
             remapped = True
         base = base_readers[base_layout[target.address]].get_slice(target.address[1])
         shape = list(base.get_shape())
-        if base.get_dtype() not in _FLOAT_DTYPES or not 2 <= len(shape) <= 5:
+        quantized = base.get_dtype() in ("I8", "U8")
+        if quantized:
+            try:
+                from model_merge_convrot import tensor_spec
+                tensor_spec(base_readers, base_layout, target.address)
+                if remapped:
+                    raise ValueError("Synthetic reassignment cannot update a quantized target.")
+            except (ValueError, KeyError, TypeError) as error:
+                raise UnsupportedQuantizedLoraTarget(f"LoRA target {module} has unsupported quantized weights: {error}") from error
+        if (not quantized and base.get_dtype() not in _FLOAT_DTYPES) or not 2 <= len(shape) <= 5:
             raise ValueError(f"Unsupported LoRA target dtype/rank: {module}")
         if target.rows:
             shape[0] = target.rows[1] - target.rows[0]
         if target.transpose:
             expected.reverse()
-        if shape != expected and policy == "strict":
+        if shape != expected and (policy == "strict" or quantized):
             raise ValueError(f"LoRA delta shape {expected} differs from base target {shape}: {module}")
         delta = LoraDelta(target, pair["down"], pair["up"], scaling, fan, module,
                           adaptation_report(module, target, expected, shape, remapped)

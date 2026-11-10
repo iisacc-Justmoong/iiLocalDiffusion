@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/deforum-video.md",
-    "sha256": "7028feafedbfe014bf09103842a5608467e79c6d68acfefcfe3af1aa8b3410a1",
-    "bytes": 12482,
+    "sha256": "e6b5c1fc21ce141a8e27a94893c0579b8688cc27bc8f5e276f763ddb7a777466",
+    "bytes": 12518,
     "line_count": 95,
     "encoding": "utf-8",
     "language": "ko"
@@ -143,9 +143,9 @@
       "kind": "fenced_code",
       "start_line": 18,
       "end_line": 30,
-      "raw": "```sh\nuv pip install --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements-deforum.txt\n\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend deforum --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --animation-prompts '{\"0\":\"a city at sunrise\",\"60\":\"a forest at sunrise\"}' \\\n  --max-frames 120 --fps 12 --steps 20 \\\n  --strength-schedule '0:(0.35), 119:(0.45)' \\\n  --zoom '0:(1.01)' --angle '0:(0.2*sin(2*pi*t/fps))' \\\n  --output build/deforum.mp4\n```\n",
+      "raw": "```sh\nuv pip install --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements-deforum.txt\n\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend deforum --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --animation-prompts '{\"0\":\"a city at sunrise\",\"60\":\"a forest at sunrise\"}' \\\n  --max-frames 120 --fps 12 --steps 20 \\\n  --strength-schedule '0:(0.35), 119:(0.45)' \\\n  --zoom '0:(1.01)' --angle '0:(0.2*sin(2*pi*t/fps))' \\\n  --output resources/outputs/reference/deforum.mp4\n```\n",
       "language": "sh",
-      "code": "uv pip install --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements-deforum.txt\n\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend deforum --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --animation-prompts '{\"0\":\"a city at sunrise\",\"60\":\"a forest at sunrise\"}' \\\n  --max-frames 120 --fps 12 --steps 20 \\\n  --strength-schedule '0:(0.35), 119:(0.45)' \\\n  --zoom '0:(1.01)' --angle '0:(0.2*sin(2*pi*t/fps))' \\\n  --output build/deforum.mp4\n",
+      "code": "uv pip install --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements-deforum.txt\n\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend deforum --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --animation-prompts '{\"0\":\"a city at sunrise\",\"60\":\"a forest at sunrise\"}' \\\n  --max-frames 120 --fps 12 --steps 20 \\\n  --strength-schedule '0:(0.35), 119:(0.45)' \\\n  --zoom '0:(1.01)' --angle '0:(0.2*sin(2*pi*t/fps))' \\\n  --output resources/outputs/reference/deforum.mp4\n",
       "closed": true
     },
     {
@@ -456,7 +456,7 @@
       "kind": "paragraph",
       "start_line": 83,
       "end_line": 83,
-      "raw": "`build/deforum.mp4`  에 대한 번들에는 `deforum.mp4` , `deforum.json`  및 `deforum-frames/frame-000000.png`  이후의 항목이 포함됩니다. 카메라 변환 및 픽셀 노이즈는 CPU 에서 실행되며 디노이징은 선택된 장치에서 실행됩니다. 이전/참조 이미지만 메모리에 유지되며 PNG 는 임시 디렉토리로 스트리밍됩니다. FFprobe 는 인코딩된 비디오를 디코딩하고 게시 전에 H.264/yuv420p, 해상도, FPS , 지속 시간 및 정확한 프레임 수를 확인합니다. 보고서는 모델/로딩 식별자, 어댑터 출처, 초기 이미지 식별자, 각 프레임의 프롬프트, 시드, 소스/출력 픽셀 해시, PNG  해시, 실제 샘플링 시간 단계, 유한한 잠재 표현 및 출력 해시를 기록합니다. GIF 는 Pillow 로 디코딩되어 10  밀isecond 시간 분해능으로 정확한 프레임 수, 차원, 루프 및 지속 시간을 확인합니다. 시드는 하드웨어 또는 런타임  버전 간에 동일한 픽셀을 보장하지 않습니다.\n"
+      "raw": "`resources/outputs/reference/deforum.mp4` 에 대한 번들에는 `deforum.mp4`, `deforum.json` 및 `deforum-frames/frame-000000.png` 이후의 항목이 포함됩니다. 카메라 변환 및 픽셀 노이즈는 CPU 에서 실행되며 디노이징은 선택된 장치에서 실행됩니다. 이전/참조 이미지만 메모리에 유지되며 PNG 는 임시 디렉토리로 스트리밍됩니다. FFprobe 는 인코딩된 비디오를 디코딩하고 게시 전에 H.264/yuv420p, 해상도, FPS, 지속 시간 및 정확한 프레임 수를 확인합니다. 보고서는 모델/로딩 식별자, 어댑터 출처, 초기 이미지 식별자, 각 프레임의 프롬프트, 시드, 소스/출력 픽셀 해시, PNG 해시, 실제 샘플링 시간 단계, 유한한 잠재 표현 및 출력 해시를 기록합니다. GIF 는 Pillow 로 디코딩되어 10 밀isecond 시간 분해능으로 정확한 프레임 수, 차원, 루프 및 지속 시간을 확인합니다. 시드는 하드웨어 또는 런타임 버전 간에 동일한 픽셀을 보장하지 않습니다.\n"
     },
     {
       "id": "b000046",
@@ -558,7 +558,7 @@
       {
         "block_id": "b000017",
         "language": "sh",
-        "code": "uv pip install --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements-deforum.txt\n\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend deforum --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --animation-prompts '{\"0\":\"a city at sunrise\",\"60\":\"a forest at sunrise\"}' \\\n  --max-frames 120 --fps 12 --steps 20 \\\n  --strength-schedule '0:(0.35), 119:(0.45)' \\\n  --zoom '0:(1.01)' --angle '0:(0.2*sin(2*pi*t/fps))' \\\n  --output build/deforum.mp4\n"
+        "code": "uv pip install --python reference/diffusers/.venv/bin/python \\\n  -r reference/diffusers/requirements-deforum.txt\n\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend deforum --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --animation-prompts '{\"0\":\"a city at sunrise\",\"60\":\"a forest at sunrise\"}' \\\n  --max-frames 120 --fps 12 --steps 20 \\\n  --strength-schedule '0:(0.35), 119:(0.45)' \\\n  --zoom '0:(1.01)' --angle '0:(0.2*sin(2*pi*t/fps))' \\\n  --output resources/outputs/reference/deforum.mp4\n"
       },
       {
         "block_id": "b000025",

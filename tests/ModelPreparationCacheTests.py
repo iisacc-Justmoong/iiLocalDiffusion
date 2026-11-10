@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Model construction and device placement outlive individual generation settings."""
+import resource_fixture
 
 from contextlib import ExitStack, redirect_stdout
 import io
@@ -73,7 +74,7 @@ class Pipeline:
 class ModelPreparationCacheTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="model-preparation-")
+        temporary = resource_fixture.TemporaryDirectory(prefix="model-preparation-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.folder = self.directory / "model"

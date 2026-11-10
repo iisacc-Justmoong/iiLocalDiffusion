@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Video defaults and the low-FPS/GIF image-animation boundary."""
+import resource_fixture
 
 import argparse
 import json
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import unittest
 
 from local_model_fixture import local_request, MODEL
@@ -60,7 +60,7 @@ class VideoRoutingPolicyTests(unittest.TestCase):
         self.assertEqual(self.backend("--pipeline-class", "LTXPipeline", "--fps", "24"), "diffusers")
 
     def test_malformed_routing_values_fail_as_input_errors(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="video-policy-invalid-") as directory:
+        with resource_fixture.TemporaryDirectory(prefix="video-policy-invalid-") as directory:
             config = Path(directory) / "request.json"
             for value in ({"output": 12}, {"fps": {}}, {"fps": True}):
                 with self.subTest(value=value):
@@ -69,7 +69,7 @@ class VideoRoutingPolicyTests(unittest.TestCase):
                         self.backend("--config", str(config))
 
     def test_config_and_cli_precedence_choose_the_same_route_without_ml(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="video-policy-") as directory:
+        with resource_fixture.TemporaryDirectory(prefix="video-policy-") as directory:
             config = Path(directory) / "request.json"
             for values, extra, expected in (
                 ({"fps": 12, "frames": 3, "output": "movie.mp4"}, [], "2D"),

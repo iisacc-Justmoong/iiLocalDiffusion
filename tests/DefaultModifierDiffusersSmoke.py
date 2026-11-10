@@ -6,6 +6,7 @@ this checks conditioning and execution, not image quality or a trained base.
 """
 import json
 from pathlib import Path
+import resource_runner
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,8 +78,10 @@ def main():
               "sequence_length": negative.shape[1], "all_registered_tokens_encoded": True,
               "last_vector_changes_conditioning_and_denoiser": True,
               "negative_shape": list(negative.shape), "maximum_denoiser_difference": float((before-after).abs().max())}
-    output = ROOT / "build/default-modifiers-diffusers.json"
-    output.write_text(json.dumps(report, indent=2) + "\n")
+    output = ROOT / "resources/outputs/verification/default-modifiers-diffusers.json"
+    provider = resource_runner._provider()
+    provider.mkdir(output.parent, parents=True, exist_ok=True)
+    provider.write_text(output, json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))
 
 

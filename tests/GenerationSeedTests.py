@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Per-request random defaults and explicit seed replay across generation routes."""
+import resource_fixture
 
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -22,7 +22,7 @@ from comfyui_image_workflow import build_workflow
 class GenerationSeedTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="generation-seed-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="generation-seed-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 

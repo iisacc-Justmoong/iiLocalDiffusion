@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """CPU conditioning and RAM offload contracts without large model dependencies."""
+import resource_fixture
 
 from contextlib import nullcontext
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from local_model_fixture import local_parser
@@ -67,7 +67,7 @@ class ResourcePolicyTests(unittest.TestCase):
     def setUp(self):
         build = REFERENCE.parents[1] / "build"
         build.mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="resource-policy-model-", dir=build)
+        temporary = resource_fixture.TemporaryDirectory(prefix="resource-policy-model-")
         self.addCleanup(temporary.cleanup)
         self.model_directory = Path(temporary.name)
 

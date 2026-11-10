@@ -2,7 +2,7 @@
 """Offline real-inference smoke with small random weights; not a visual-quality test.
 
 Run with the Diffusers venv and optional requirements-deforum.txt. All model
-fixtures, videos and logs are written to build/deforum-smoke. No weights are
+fixtures, videos and logs are written to resources/outputs/verification/deforum-smoke. No weights are
 downloaded, and production model contracts are not relaxed for this fixture.
 """
 
@@ -70,7 +70,7 @@ def main():
     parser.add_argument("--device", choices=("cpu", "mps"), default="cpu")
     parser.add_argument("--families", nargs="+", choices=("sd15", "sdxl"), default=["sd15", "sdxl"])
     args = parser.parse_args()
-    directory = ROOT / "build/deforum-smoke"
+    directory = ROOT / "resources/outputs/verification/deforum-smoke"
     directory.mkdir(parents=True, exist_ok=True)
     os.environ["HF_HUB_OFFLINE"] = "1"
     from PIL import Image

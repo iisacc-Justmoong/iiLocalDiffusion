@@ -1,11 +1,11 @@
 """Persist only verified hashes; changes and unusable caches must fail safe."""
+import resource_fixture
 import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
@@ -13,7 +13,7 @@ sys.path.insert(0,str(ROOT/'reference/diffusers'))
 import weight_files as w
 class PersistentModelHashTests(unittest.TestCase):
  def setUp(self):
-  self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='persistent-hash-');self.addCleanup(self.tmp.cleanup)
+  self.tmp=resource_fixture.TemporaryDirectory(prefix='persistent-hash-');self.addCleanup(self.tmp.cleanup)
   self.root=Path(self.tmp.name);self.model=self.root/'model.safetensors';self.model.write_bytes(b'original')
   self.env=patch.dict(os.environ,{'IILD_MODEL_HASH_CACHE':str(self.root/'hashes.sqlite3')});self.env.start();self.addCleanup(self.env.stop)
   w.clear_model_hash_cache()

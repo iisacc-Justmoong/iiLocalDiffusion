@@ -4,6 +4,29 @@
 
 공공 `iild-generate` 런처는 모델 컨테이너와 요청에서 실행 경로를 선택합니다. 로컬 체크포인트 텐서는 값 로딩 없이 검사되며, Diffusers 디렉토리는 `model_index.json` 를 통해 검사됩니다. 파일명은 아키텍처 증거가 아닙니다. Civitai 메타데이터는 변형을 이름 붙일 수 있지만, 인식된 텐서와 일치해야 합니다. 헤더 검사는 완전한 가중치 호환성 확인이 아니며, 성공적인 생성으로 보고되지 않습니다.
 
+`--inspect-model`은 원본 또는 `model.diffusion_model.`, `diffusion_model.`,
+`transformer.` 접두어 중 같은 이름 공간에 속한 MOSS Image 변환기 형상만 인식해 `moss-image`와
+`MOSSImagePipeline`을 보고한다. 이는 모델 계열의 증거이며 네이티브 실행 계획이 아니다.
+변환기 단일 파일에 텍스트 인코더와 VAE가 없으면 누락된 구성 요소로 표시한다.
+네이티브 이미지 엔진은 MOSS를 실행하지 않는다. `--backend auto`는 이 서명이 확인된
+로컬 체크포인트를 MOSS Diffusers 경로로 선택하고 고정된 `moss-image-sft` 설정을
+제공한다. 명시적인 엔진·워크플로 선택은 유지하며, 호환되지 않는 네이티브 전용 옵션은
+조용히 버리지 않고 거부한다. 알 수 없는 구조는 기존 경로의 판단을 유지한다.
+MOSS 로더는 부동소수점 및 명시적으로 검증된 Comfy INT8 tensorwise ConvRot 변환기를
+지원한다. 헤더와 양자화 메타데이터의 일치는 텍스트 인코더·토크나이저·VAE의 준비나
+전체 가중치의 유효성, 실제 생성 성공을 증명하지 않는다.
+
+C++의 `inspectImageModel`은 제한된 헤더를 읽어 구조·역할·양자화 표시·내장 구성 요소와
+병합 출처의 합성 매핑 수를 별도 값으로 반환한다. 잘린 파일은 오류를 내고, 64 MiB보다
+큰 헤더 등 판단 불가 상태는 `Unknown`으로 남긴다. 구성 요소의 존재 또는 인식은 실행
+가능 여부를 뜻하지 않는다. 실제 양자화 알고리즘과 스케일은 워커가 별도로 검증한다.
+모델 파일이나 병합 메타데이터는 수정하지 않는다.
+
+패키지 내 모델은 원본 경로와 텐서 매핑이 같은 구성 요소의 구조 서명을 확인한 후에만
+선택한다. 패키지 자체를 단일 변환기 파일로 전달하지 않는다. 선택된 구성 요소는
+원본 해시를 검증하여 별도 캐시에 복원하며, 중복되거나 모호한 후보는 명시적으로 거부한다.
+헤더 검사와 캐시 복원은 사전 학습 모델의 실제 생성 성공을 의미하지 않는다.
+
 <a id="local-image-backends"></a>
 
 ## 로컬 이미지 백엔드
@@ -64,9 +87,9 @@ SD1/2/XL 는 `--prediction-type epsilon|v_prediction` 를 지원합니다; 인�
 
 ## 검증
 
-`BackendRegistryTests` 는 한계가 설정된 실제 safetensors 픽스처 픽스처를 원본과 Diffusers 텐서 이름, 구성 요소 완전성, 메타데이터 충돌, 재생 및 Python /C V2 경계용으로 사용합니다. `NativeResultTests` 와 `NativeMobileResultTests` 는 제어된 엔진 픽스처 에 대해 실제 C++ 어댑터를 컴파일하여 구성 요소 포워딩, 샘플링 매개변수, 캐시 무효화, 차원, 취소, 소유권 및 V1/V2 ABI 거부를 확인합니다. 이 테스트는 사전 학습된 모델의 품질을 측정하지 않습니다. 실제 런타임 런타임 연기 아티팩트는 `build/` 에 유지되며, 모든 가능한 체크포인트가 실행되었다고 주장하는 대신 사용된 특정 가족과 가중치를 기록합니다.
+`BackendRegistryTests` 는 한계가 설정된 실제 safetensors 픽스처 픽스처를 원본과 Diffusers 텐서 이름, 구성 요소 완전성, 메타데이터 충돌, 재생 및 Python /C V2 경계용으로 사용합니다. `NativeResultTests` 와 `NativeMobileResultTests` 는 제어된 엔진 픽스처 에 대해 실제 C++ 어댑터를 컴파일하여 구성 요소 포워딩, 샘플링 매개변수, 캐시 무효화, 차원, 취소, 소유권 및 V1/V2 ABI 거부를 확인합니다. 이 테스트는 사전 학습된 모델의 품질을 측정하지 않습니다. 새 런타임 스모크 아티팩트는 `resources/outputs/verification/`에 유지되며, 모든 가능한 체크포인트가 실행되었다고 주장하는 대신 사용된 특정 가족과 가중치를 기록합니다.
 
-`tests/BackendRuntimeSmoke.py` 는 SD3 , FLUX.1 , FLUX.2 클라인, Z-Image, Qwen Image 및 Krea 2 를 공개 라우터를 통해 실제 작은 무작위 초기화 Diffusers 네트워크와 명시적인 조건부 텐서를 사용하여 실행합니다. 그것은 텐서 가족 검사, 실제 디노이징/디코딩, 상수 아님 64x64 RGB PNG 및 다운로드 없이 출력 매니페스트를 확인합니다. 그것의 `build/backend-runtime-smoke/results.json` 는 계산/내보내기 증거이며, 사전 학습된 품질이나 네이티브 엔진 벤치마크가 아닙니다.
+`tests/BackendRuntimeSmoke.py` 는 SD3 , FLUX.1 , FLUX.2 클라인, Z-Image, Qwen Image 및 Krea 2 를 공개 라우터를 통해 실제 작은 무작위 초기화 Diffusers 네트워크와 명시적인 조건부 텐서를 사용하여 실행합니다. 그것은 텐서 가족 검사, 실제 디노이징/디코딩, 상수 아님 64x64 RGB PNG 및 다운로드 없이 출력 매니페스트를 확인합니다. 현재 출력 경로 `resources/outputs/verification/backend-runtime-smoke/results.json`은 계산/내보내기 증거이며, 사전 학습된 품질이나 네이티브 엔진 벤치마크가 아닙니다.
 
 참고 자료: [고정 네이티브 백엔드](https://github.com/leejet/stable-diffusion.cpp/tree/d04e8950c1ec8d30248cbe996682b3182fb1adf6),
 [Z-이미지 파이프라인](https://huggingface.co/docs/diffusers/main/api/pipelines/z_image),

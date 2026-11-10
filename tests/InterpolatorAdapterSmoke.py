@@ -27,7 +27,7 @@ def main():
     from peft.utils import get_peft_model_state_dict
     from PIL import Image
     from safetensors.torch import save_file
-    directory = ROOT / "build/interpolator-smoke"
+    directory = ROOT / "resources/outputs/verification/interpolator-smoke"
     fixture = directory / "sd15"
     if not (fixture / "model/model_index.json").is_file():
         create_interpolator_fixture(fixture, "sd15")

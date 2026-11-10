@@ -1,17 +1,17 @@
 """Installed launcher selection without model loading or merge execution."""
+import resource_fixture
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 class PythonLauncherTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="launcher-")
+        self.temp = resource_fixture.TemporaryDirectory(prefix="launcher-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / "reference").mkdir()

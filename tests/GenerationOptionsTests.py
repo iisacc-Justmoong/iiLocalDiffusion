@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Complete generation values, defaults, and configuration precedence."""
+import resource_fixture
 
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from local_model_fixture import local_parser, local_request, MODEL
@@ -26,7 +26,7 @@ def resolved(*arguments):
 class GenerationOptionsTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="generation-options-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="generation-options-")
         self.addCleanup(temporary.cleanup)
         self.model_directory = Path(temporary.name)
 
@@ -191,7 +191,7 @@ class GenerationOptionsTests(unittest.TestCase):
         self.assertTrue(values["add_watermarker"])
 
     def test_config_file_values_cli_precedence_and_null_fallback(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             path = Path(temporary) / "generation.json"
             path.write_text(json.dumps({
                 "preset": "sdxl-base", "width": 768, "height": None, "seed": 0,
@@ -209,7 +209,7 @@ class GenerationOptionsTests(unittest.TestCase):
             self.assertEqual(args.scheduler_config, {"timestep_spacing": "trailing"})
 
     def test_config_paths_are_relative_to_the_configuration_file(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "model").mkdir()
             path = root / "options.json"
@@ -225,7 +225,7 @@ class GenerationOptionsTests(unittest.TestCase):
             '{"vae_tiling":"false"}', '{"config":"other.json"}', '[]',
             '{"scheduler_config":{"beta_start":Infinity}}',
         ]
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             path = Path(temporary) / "options.json"
             for text in invalid:
                 with self.subTest(text=text), redirect_stderr(io.StringIO()):
@@ -234,7 +234,7 @@ class GenerationOptionsTests(unittest.TestCase):
                         resolved("--config", str(path))
 
     def test_reusing_parser_does_not_leak_previous_configuration(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             path = Path(temporary) / "options.json"
             path.write_text('{"seed":99}')
             parser = local_parser(generate.build_parser)
@@ -286,7 +286,7 @@ class GenerationOptionsTests(unittest.TestCase):
         self.assertTrue(generate.build_load_arguments(preset, args, "dtype", True)["low_cpu_mem_usage"])
 
     def test_portable_attention_scale_is_forwarded_and_unknown_keys_are_rejected(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             lora = Path(temporary) / "adapter.safetensors"
             lora.write_bytes(b"simulated adapter")
             preset, args = resolved("--lora", str(lora), "--cross-attention-kwargs", '{"scale":0.5}')

@@ -181,7 +181,7 @@ CPU 샤드는 자체 MLX CPU 스트림을 사용하는 독립적인 워커에서
 reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \
   --offload model --local-files-only \
-  --output build/reference/sdxl-cpu-ram.png
+  --output resources/outputs/reference/sdxl-cpu-ram.png
 ```
 
 사이드카 JSON 기록은 `runtime.cpu_conditioning` (실제 CPU 텐서, 구성 요소, dtype, 형상), `runtime.cpu_threads`, `runtime.hardware.participating_devices`, 및 `runtime.optimization` (`requested_offload`, 유효 `offload_policy`, 및 `weight_storage`)) 를 포함합니다. 모델, VAE, 및 LoRA provenance 는 변경되지 않습니다. 이 필드들은 모든 작업이 계측되었다는 주장이나 메모리/잠재 표현이 개선되었다는 주장을 하지 않습니다.
@@ -199,7 +199,7 @@ reference/diffusers/.venv/bin/python reference/validation/check_mlx_linear.py \
   --model /absolute/path/to/text-encoder.safetensors \
   --weight-key text_model.encoder.layers.0.mlp.fc1.weight \
   --bias-key text_model.encoder.layers.0.mlp.fc1.bias \
-  --output-dir build/reference/hardware/my-linear-parity
+  --output-dir resources/outputs/reference/hardware/my-linear-parity
 ```
 
 출력 디렉토리는 새이거나 비어 있어야 합니다. 해arness 는 선택된 텐서만 내보내고, 네이티브 GPU 및 CPU / GPU / RAM 테스트를 실행하며, 소스/ 픽스처 해시, 텐서 키, 시드, dtype, 런타임 버전, 형상, 및 최대 절대 오차를 기록합니다. 각 요소에 대한 수락 규칙은 `absolute_error <= 0.0004 + 0.0001 * abs(reference)` 입니다. 네이비 비교 하위 프로세스는 TF32 를 `MLX_ENABLE_TF32=0` 로 명시적으로 비활성화하고 해당 설정을 기록합니다. 이 비교에는 GPU 가 필수이며, 런타임 는 일반 호출자에서 기본값으로 설정되어 수정되지 않습니다. 하이브리드 비교는 1 MiB 가중치 블록 예산을 사용하며, 단일 행이 더 크다면 한 행으로 증가됩니다. 한 출력 레이어는 GPU 비교만 실행할 수 있으며 `hybrid: null` 를 기록하며 해당 형식에 대해 CPU / GPU 협력은 주장되지 않습니다.

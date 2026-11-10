@@ -2,13 +2,13 @@
 """Dependency-free regression coverage for explicit model/VAE weight composition."""
 
 from __future__ import annotations
+import resource_fixture
 
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from local_model_fixture import local_parser, MODEL
@@ -75,7 +75,7 @@ class ModelLoadingTests(unittest.TestCase):
     def setUp(self) -> None:
         build = ROOT / "build"
         build.mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="model-loading-tests-", dir=build)
+        temporary = resource_fixture.TemporaryDirectory(prefix="model-loading-tests-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 
@@ -824,7 +824,7 @@ class ModelLoadingTests(unittest.TestCase):
         self.assertEqual(args.config_selection.source, str(directory))
         self.assertEqual(args.lora_selection.scale, 0.75)
         self.assertNotEqual(args.output.name, preset.generation_filename)
-        self.assertTrue(args.output.is_relative_to(ROOT / "build"))
+        self.assertTrue(args.output.is_relative_to(ROOT / "resources" / "outputs" / "reference"))
 
     def test_single_file_configuration_rejects_invalid_weights_and_remote_config(self):
         model = self.weight()

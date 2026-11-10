@@ -26,6 +26,20 @@ def read_defaults(directory=None):
     return root, manifest
 
 
+def sdk_resource_directory():
+    """The installed SDK catalog, independent of an application override."""
+    return (Path(__file__).resolve().parents[2] / 'resources').resolve()
+
+
+def resource_catalogs(directory=None):
+    """Requested catalog first, then the installed SDK catalog when present."""
+    root, manifest = read_defaults(directory)
+    yield root, manifest
+    sdk = sdk_resource_directory()
+    if sdk != root and (sdk / 'generation-defaults.json').is_file():
+        yield read_defaults(sdk)
+
+
 def checked_resource(root, item):
     relative = Path(item["file"])
     path = root / relative

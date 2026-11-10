@@ -17,7 +17,7 @@ python3 reference/generate.py --backend comfyui \
 python3 reference/generate.py --backend comfyui --base-model Illustrious \
   --workflow /absolute/path/workflow-api.json \
   --workflow-inputs '{"6":{"text":"a lighthouse at sunrise"},"3":{"seed":42}}' \
-  --output-dir build/reference/illustrious-workflow
+  --output-dir resources/outputs/reference/illustrious-workflow
 ```
 
 ID `6`/`3`는 제공된 워크플로에 있어야 하는 예입니다. `--workflow-inputs @/path/values.json`는 파일에서 동일한 객체를 읽습니다. 기존 입력만 재정의할 수 있습니다. 로컬 모델 이름은 서버의 인벤토리와 일치해야 합니다. 이미지/비디오 입력은 해당 로컬 서버에 이미 존재해야 합니다.
@@ -28,7 +28,7 @@ ID `6`/`3`는 제공된 워크플로에 있어야 하는 예입니다. `--workfl
 
 출력 노드가 반환하는 이미지/비디오/오디오/메시 파일 설명자는 `/view` 를 통해 다운로드됩니다. 경로는 확인되며, 스트리밍은 크기 제한이 있고 파일은 원자적으로 게시됩니다. 모든 아티팩트가 도착한 후에만 `generation.json` 가 작성되며, 해시와 크기를 포함합니다. 새 또는 빈 출력 디렉토리는 기존 사용자 파일을 유지합니다.
 
-기본값: `http://127.0.0.1:8188`, 3600초 작업 시간 초과, 1 초 폴링, 2 GiB 아티팩트당 제한. `--timeout`, `--poll-interval`, 및 `--max-artifact-bytes` 는 이러한 제한을 노출합니다. 요청은 한계가 설정된 에서 30 초 또는 더 짧은 작업 시간 초과입니다. 출력 저장소는 `build/` 아래 기본값입니다.
+기본값: `http://127.0.0.1:8188`, 3600초 작업 시간 초과, 1 초 폴링, 2 GiB 아티팩트당 제한. `--timeout`, `--poll-interval`, 및 `--max-artifact-bytes` 는 이러한 제한을 노출합니다. 요청은 한계가 설정된 에서 30 초 또는 더 짧은 작업 시간 초과입니다. 출력 저장소의 기본값은 `resources/outputs/reference/`입니다.
 
 기본 모델 레이블은 출처로 선언되며, 클라이언트는 서버 측 텐서를 검사하거나 해당 이름의 모델을 로드한 워크플로우를 증명하지 않습니다. HTTP 통합 테스트는 픽스처 서버를 사용하여 사전 검사, 대기열, 완료, 바이트, 해시, 오류 및 기존 파일 보존을 확인합니다. 모든 모델 또는 플러그인에 대한 실제 생성 지원이 있음을 증명하지는 않습니다.
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Video tensor, keyframe, model identity and transactional output contracts."""
+import resource_fixture
 
 import importlib.util
 import json
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from local_model_fixture import local_parser
@@ -22,7 +22,7 @@ from video_runtime import model_contract, verify_model_files
 class VideoModelTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = provider.TemporaryDirectory(prefix="video-runtime-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="video-runtime-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 

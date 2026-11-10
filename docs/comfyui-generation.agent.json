@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/comfyui-generation.md",
-    "sha256": "e91f16a0b9d930f35374b5473392dcc7d58933e50f7786f9bb57385b385f57ba",
-    "bytes": 4185,
+    "sha256": "5105fd0c6b45ec03c85f9c9543ea3f63966ba449da099665e18a50e82eb79351",
+    "bytes": 4215,
     "line_count": 35,
     "encoding": "utf-8",
     "language": "ko"
@@ -116,9 +116,9 @@
       "kind": "fenced_code",
       "start_line": 16,
       "end_line": 21,
-      "raw": "```bash\npython3 reference/generate.py --backend comfyui --base-model Illustrious \\\n  --workflow /absolute/path/workflow-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a lighthouse at sunrise\"},\"3\":{\"seed\":42}}' \\\n  --output-dir build/reference/illustrious-workflow\n```\n",
+      "raw": "```bash\npython3 reference/generate.py --backend comfyui --base-model Illustrious \\\n  --workflow /absolute/path/workflow-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a lighthouse at sunrise\"},\"3\":{\"seed\":42}}' \\\n  --output-dir resources/outputs/reference/illustrious-workflow\n```\n",
       "language": "bash",
-      "code": "python3 reference/generate.py --backend comfyui --base-model Illustrious \\\n  --workflow /absolute/path/workflow-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a lighthouse at sunrise\"},\"3\":{\"seed\":42}}' \\\n  --output-dir build/reference/illustrious-workflow\n",
+      "code": "python3 reference/generate.py --backend comfyui --base-model Illustrious \\\n  --workflow /absolute/path/workflow-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a lighthouse at sunrise\"},\"3\":{\"seed\":42}}' \\\n  --output-dir resources/outputs/reference/illustrious-workflow\n",
       "closed": true
     },
     {
@@ -189,7 +189,7 @@
       "kind": "paragraph",
       "start_line": 31,
       "end_line": 31,
-      "raw": "기본값: `http://127.0.0.1:8188`, 3600초 작업 시간 초과, 1 초 폴링, 2 GiB 아티팩트당 제한. `--timeout`, `--poll-interval`, 및 `--max-artifact-bytes` 는 이러한 제한을 노출합니다. 요청은 한계가 설정된 에서 30 초 또는 더 짧은 작업 시간 초과입니다. 출력 저장소는 `build/` 아래 기본값입니다.\n"
+      "raw": "기본값: `http://127.0.0.1:8188`, 3600초 작업 시간 초과, 1 초 폴링, 2 GiB 아티팩트당 제한. `--timeout`, `--poll-interval`, 및 `--max-artifact-bytes` 는 이러한 제한을 노출합니다. 요청은 한계가 설정된 에서 30 초 또는 더 짧은 작업 시간 초과입니다. 출력 저장소의 기본값은 `resources/outputs/reference/`입니다.\n"
     },
     {
       "id": "b000024",
@@ -241,7 +241,7 @@
       {
         "block_id": "b000013",
         "language": "bash",
-        "code": "python3 reference/generate.py --backend comfyui --base-model Illustrious \\\n  --workflow /absolute/path/workflow-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a lighthouse at sunrise\"},\"3\":{\"seed\":42}}' \\\n  --output-dir build/reference/illustrious-workflow\n"
+        "code": "python3 reference/generate.py --backend comfyui --base-model Illustrious \\\n  --workflow /absolute/path/workflow-api.json \\\n  --workflow-inputs '{\"6\":{\"text\":\"a lighthouse at sunrise\"},\"3\":{\"seed\":42}}' \\\n  --output-dir resources/outputs/reference/illustrious-workflow\n"
       }
     ],
     "links": [

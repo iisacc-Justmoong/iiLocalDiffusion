@@ -61,8 +61,22 @@ def family(architecture):
     return architecture
 
 
+def detect_moss_transformer(shapes):
+    """Require the three MOSS tensors to share one exact namespace."""
+    for prefix in ("", "model.diffusion_model.", "diffusion_model.", "transformer."):
+        video = tuple(shapes.get(prefix + "video_embedder.weight", ()))
+        final = tuple(shapes.get(prefix + "final_linear_video.weight", ()))
+        qkv = tuple(shapes.get(prefix + "layers.0.proj.qkv.weight", ()))
+        if (len(video) == 2 and video[0] > 0 and video[1] > 0
+                and final == (video[1], video[0]) and qkv == (3 * video[0], video[0])):
+            return True
+    return False
+
+
 def detect_transformer(shapes):
     """Match original and Diffusers layouts before generic Flux/UNet tests."""
+    if detect_moss_transformer(shapes):
+        return "moss-image"
     if any(k in shapes for k in ("txtfusion.projector.weight", "text_fusion.projector.weight")):
         return "krea2"
     if "cap_embedder.0.weight" in shapes and any(k.startswith(("layers.", "noise_refiner.")) for k in shapes):

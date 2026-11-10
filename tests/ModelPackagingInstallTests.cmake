@@ -2,13 +2,18 @@ if(NOT DEFINED BUILD_DIRECTORY OR NOT DEFINED STAGE_DIRECTORY OR NOT DEFINED BIN
     message(FATAL_ERROR "Build, staging, and binary directories are required")
 endif()
 
-file(REMOVE_RECURSE "${STAGE_DIRECTORY}")
+if(EXISTS "${STAGE_DIRECTORY}" OR IS_SYMLINK "${STAGE_DIRECTORY}")
+    message(FATAL_ERROR "Packaging stage already exists; refusing to replace it")
+endif()
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --install "${BUILD_DIRECTORY}"
         --prefix "${STAGE_DIRECTORY}" --component ModelPackaging
     RESULT_VARIABLE install_result OUTPUT_VARIABLE install_output ERROR_VARIABLE install_error)
 if(NOT install_result EQUAL 0)
     message(FATAL_ERROR "ModelPackaging installation failed: ${install_output}\n${install_error}")
+endif()
+if(NOT EXISTS "${STAGE_DIRECTORY}/share/iiLocalDiffusion/python/iild_model_packaging.py")
+    message(FATAL_ERROR "The ModelPackaging Python API was not installed")
 endif()
 
 # An argument error must reach the installed CLI after the loader resolves all

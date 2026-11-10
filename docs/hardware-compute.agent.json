@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/hardware-compute.md",
-    "sha256": "b4fc1bf174705742dc880992216f1edbdc08ee7a5a7a1b5fa4001a2742a88f1e",
-    "bytes": 23582,
+    "sha256": "342f40359c192c941b93dc56371096578aa0a96a42399b6f901a6785a978de56",
+    "bytes": 23606,
     "line_count": 211,
     "encoding": "utf-8",
     "language": "ko"
@@ -896,9 +896,9 @@
       "kind": "fenced_code",
       "start_line": 180,
       "end_line": 185,
-      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \\\n  --offload model --local-files-only \\\n  --output build/reference/sdxl-cpu-ram.png\n```\n",
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \\\n  --offload model --local-files-only \\\n  --output resources/outputs/reference/sdxl-cpu-ram.png\n```\n",
       "language": "bash",
-      "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \\\n  --offload model --local-files-only \\\n  --output build/reference/sdxl-cpu-ram.png\n",
+      "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \\\n  --offload model --local-files-only \\\n  --output resources/outputs/reference/sdxl-cpu-ram.png\n",
       "closed": true
     },
     {
@@ -985,9 +985,9 @@
       "kind": "fenced_code",
       "start_line": 197,
       "end_line": 203,
-      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/validation/check_mlx_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias \\\n  --output-dir build/reference/hardware/my-linear-parity\n```\n",
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/validation/check_mlx_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias \\\n  --output-dir resources/outputs/reference/hardware/my-linear-parity\n```\n",
       "language": "bash",
-      "code": "reference/diffusers/.venv/bin/python reference/validation/check_mlx_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias \\\n  --output-dir build/reference/hardware/my-linear-parity\n",
+      "code": "reference/diffusers/.venv/bin/python reference/validation/check_mlx_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias \\\n  --output-dir resources/outputs/reference/hardware/my-linear-parity\n",
       "closed": true
     },
     {
@@ -1164,12 +1164,12 @@
       {
         "block_id": "b000103",
         "language": "bash",
-        "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \\\n  --offload model --local-files-only \\\n  --output build/reference/sdxl-cpu-ram.png\n"
+        "code": "reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \\\n  --offload model --local-files-only \\\n  --output resources/outputs/reference/sdxl-cpu-ram.png\n"
       },
       {
         "block_id": "b000115",
         "language": "bash",
-        "code": "reference/diffusers/.venv/bin/python reference/validation/check_mlx_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias \\\n  --output-dir build/reference/hardware/my-linear-parity\n"
+        "code": "reference/diffusers/.venv/bin/python reference/validation/check_mlx_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias \\\n  --output-dir resources/outputs/reference/hardware/my-linear-parity\n"
       }
     ],
     "links": [

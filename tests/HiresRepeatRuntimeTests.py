@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Repeated refinement must consume the last result and retain each stage's evidence."""
+import resource_fixture
 
 from contextlib import nullcontext
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -19,7 +19,7 @@ import presets
 class HiresRepeatRuntimeTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.model = temporary.name
 

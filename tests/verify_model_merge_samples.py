@@ -1,7 +1,7 @@
 """Bounded, reproducible validation against real checkpoint tensors.
 
 Usage: build/merge-python/bin/python tests/verify_model_merge_samples.py BASE MATERIAL
-Artifacts stay in a new build/real-merge-* directory; originals are read-only.
+Temporary artifacts stay in resources/test-workspaces/; originals are read-only.
 This checks sampled arithmetic and the complete header plan, not inference.
 """
 
@@ -9,15 +9,12 @@ import argparse
 import json
 from pathlib import Path
 import sys
-import tempfile
+
+sys.dont_write_bytecode = True
+import resource_runner
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
-import torch
-from safetensors import safe_open
-from safetensors.torch import load_file, save_file
-from model_merge import inspect_merge_request, merge_models
-from model_merge_options import resolve_merge_request
 
 
 def main():
@@ -25,11 +22,20 @@ def main():
     parser.add_argument("base", type=Path)
     parser.add_argument("material", type=Path)
     args = parser.parse_args()
-    output = Path(tempfile.mkdtemp(prefix="real-merge-", dir=ROOT / "build"))
+    with resource_runner.workspace(ROOT / "resources") as output:
+        run_verification(args, output)
+
+
+def run_verification(args, output):
+    import torch
+    from safetensors import safe_open
+    from safetensors.torch import load_file, save_file
+    from model_merge import inspect_merge_request, merge_models
+    from model_merge_options import resolve_merge_request
+
     sources = [args.base, args.material]
     identities = [(p.stat().st_size, p.stat().st_mtime_ns) for p in sources]
     inspection = inspect_merge_request(resolve_merge_request(*sources, output=output / "full-plan.safetensors"))
-    (output / "full-header-plan.json").write_text(json.dumps(inspection, indent=2) + "\n")
     with safe_open(args.base, framework="pt") as base, safe_open(args.material, framework="pt") as material:
         shared = [key for key in base.keys() if key in material.keys()
                   and base.get_slice(key).get_shape() == material.get_slice(key).get_shape()
@@ -69,11 +75,9 @@ def main():
     if identities != [(p.stat().st_size, p.stat().st_mtime_ns) for p in sources]:
         raise RuntimeError("Original source identity changed during verification.")
     evidence = {"sources": [str(p) for p in sources], "originals_unchanged": True,
-                "full_model_inference_tested": False, "sample_arithmetic": checked, "merge_report": report}
-    (output / "verification.json").write_text(json.dumps(evidence, indent=2) + "\n")
-    print(json.dumps({"artifact_directory": str(output), "checked_tensors": len(keys),
-                      "changed_tensors": report["changed_tensor_count"],
-                      "full_header_transform_counts": inspection["common_layers"]["1"]["transform_counts"]}, indent=2))
+                "full_model_inference_tested": False, "sample_arithmetic": checked, "merge_report": report,
+                "header_plan": inspection, "temporary_artifacts_removed_after_command": True}
+    print(json.dumps(evidence, indent=2))
 
 
 if __name__ == "__main__":

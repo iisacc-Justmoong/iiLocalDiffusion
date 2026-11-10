@@ -10,9 +10,11 @@ from numbers import Real
 from pathlib import Path
 
 from checkpoint_conversion import LEGACY_SUFFIXES, SAFETENSORS_SUFFIXES
+from resource_paths import CACHE_DIRECTORY, OUTPUT_DIRECTORY
 
 MODES = ("weighted-sum", "weighted-difference", "unified")
-DEFAULT_DIRECTORY = Path(__file__).resolve().parents[2] / "build/reference"
+DEFAULT_DIRECTORY = OUTPUT_DIRECTORY
+DEFAULT_CONVERSION_CACHE = CACHE_DIRECTORY / "model-merge-cache"
 
 
 @dataclass(frozen=True)
@@ -170,7 +172,7 @@ def resolve_merge_request(
         raise ValueError("A merged checkpoint output must end in .safetensors or .safetensor.")
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"Merge output already exists; choose a new path: {destination}")
-    cache = _path(cache_dir, "Conversion cache") if cache_dir is not None else DEFAULT_DIRECTORY / "model-merge-cache"
+    cache = _path(cache_dir, "Conversion cache") if cache_dir is not None else DEFAULT_CONVERSION_CACHE
     for source in (base, *additional, *(candidates or ())):
         resolved = source.resolve()
         if destination.resolve() == resolved or (source.is_dir() and destination.resolve().is_relative_to(resolved)):
@@ -219,7 +221,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=MODES, default="weighted-sum", help="Unified mode preserves independent architectures and refines images in order.")
     parser.add_argument("--weights", "--weight", nargs="+", type=float,
                         help="One strength for all materials, or one per material. Default LoRA strength: 1.")
-    parser.add_argument("--output", help="New output file/directory; default: build/reference/merged/.")
+    parser.add_argument("--output", help="New output file/directory; default: resources/outputs/reference/merged/.")
     parser.add_argument("--cache-dir", help="Cache for existing safe legacy-checkpoint conversion.")
     compatibility = parser.add_mutually_exclusive_group()
     compatibility.add_argument("--compatibility-model", action="append", dest="compatibility_models",

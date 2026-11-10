@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/interpolator-video.md",
-    "sha256": "64a878dc7d31fdfcf06dc741e4cd9a49cc2cf142a4b3b7402db3e79f12cacfa9",
-    "bytes": 12580,
+    "sha256": "f0e3b7f0e1c11c919dde398ae2a48f1e1dba827a595bc614865df257e7582c85",
+    "bytes": 12734,
     "line_count": 87,
     "encoding": "utf-8",
     "language": "ko"
@@ -157,9 +157,9 @@
       "kind": "fenced_code",
       "start_line": 22,
       "end_line": 30,
-      "raw": "```sh\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend interpolator --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --prompt 'a city at sunrise' --end-prompt 'a forest at sunrise' \\\n  --negative-prompt 'blur, low quality' \\\n  --seed 42 --end-seed 43 --max-frames 120 --fps 12 --steps 20 \\\n  --output build/interpolator.mp4\n```\n",
+      "raw": "```sh\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend interpolator --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --prompt 'a city at sunrise' --end-prompt 'a forest at sunrise' \\\n  --negative-prompt 'blur, low quality' \\\n  --seed 42 --end-seed 43 --max-frames 120 --fps 12 --steps 20 \\\n  --output resources/outputs/reference/interpolator.mp4\n```\n",
       "language": "sh",
-      "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend interpolator --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --prompt 'a city at sunrise' --end-prompt 'a forest at sunrise' \\\n  --negative-prompt 'blur, low quality' \\\n  --seed 42 --end-seed 43 --max-frames 120 --fps 12 --steps 20 \\\n  --output build/interpolator.mp4\n",
+      "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend interpolator --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --prompt 'a city at sunrise' --end-prompt 'a forest at sunrise' \\\n  --negative-prompt 'blur, low quality' \\\n  --seed 42 --end-seed 43 --max-frames 120 --fps 12 --steps 20 \\\n  --output resources/outputs/reference/interpolator.mp4\n",
       "closed": true
     },
     {
@@ -410,7 +410,7 @@
       "kind": "paragraph",
       "start_line": 70,
       "end_line": 70,
-      "raw": "`build/interpolator.mp4` 은 `interpolator.json` 과 `interpolator-frames/frame-000000.png` 이후로 함께 제공됩니다. 각 프레임은 디스크로 스트리밍되며, 엔드포인트 텐서와 현재 프레임만 메모리에 유지되고, 압축된 프레임별 기원이 JSON 보고서에 축적됩니다. 보고서는 엔드포인트 구성, 모델/어댑터 식별자, 텐서 형식 및 표준 부동소수점32 해시, 보간 비율, 실제 디노이징 시간 단계, 유한한 잠재 상태, PNG 해시 및 디코딩된 MP4/GIF 속성을 기록합니다.\n"
+      "raw": "`resources/outputs/reference/interpolator.mp4` 은 `interpolator.json` 과 `interpolator-frames/frame-000000.png` 이후로 함께 제공됩니다. 각 프레임은 디스크로 스트리밍되며, 엔드포인트 텐서와 현재 프레임만 메모리에 유지되고, 압축된 프레임별 기원이 JSON 보고서에 축적됩니다. 보고서는 엔드포인트 구성, 모델/어댑터 식별자, 텐서 형식 및 표준 부동소수점32 해시, 보간 비율, 실제 디노이징 시간 단계, 유한한 잠재 상태, PNG 해시 및 디코딩된 MP4/GIF 속성을 기록합니다.\n"
     },
     {
       "id": "b000048",
@@ -469,7 +469,7 @@
       "kind": "paragraph",
       "start_line": 85,
       "end_line": 85,
-      "raw": "스모크는 로컬로 생성된 작은 무작위 SD / SDXL 호환 safetensors 를 사용하여 ControlNet 를 포함하고 포함하지 않은 상태로 실행됩니다. 그것은 변경되는 임베딩/노이즈/픽셀, 엔드포인트 해시, 실제 유한 확산 단계 및 비디오 디코딩을 확인합니다. 그것은 훈련된 모델의 시각적 품질, FLUX 추론 또는 CUDA /ROCm 하드웨어 실행을 확립하지 않습니다. 아티팩트와 로그는 `build/interpolator-smoke` 에 있습니다. 어댑터 스모크는 합성 비영수 LoRA, 학습된 2-벡터 토큰, 정적 ControlNet 및 선택 가능한 정밀도/오프로드를 추가합니다. 텍스트 인버전 벡터는 엔드포인트 인코딩 전에 검증되며, 오프로드가 그들을 메타 텐서로 변환한 후 텍스트 인코더 가중치를 읽지 않고 프레임 루프는 캐시된 조건을 사용합니다.\n"
+      "raw": "스모크는 로컬로 생성된 작은 무작위 SD / SDXL 호환 safetensors 를 사용하여 ControlNet 를 포함하고 포함하지 않은 상태로 실행됩니다. 그것은 변경되는 임베딩/노이즈/픽셀, 엔드포인트 해시, 실제 유한 확산 단계 및 비디오 디코딩을 확인합니다. 그것은 훈련된 모델의 시각적 품질, FLUX 추론 또는 CUDA /ROCm 하드웨어 실행을 확립하지 않습니다. 새 아티팩트와 로그는 `resources/outputs/verification/interpolator-smoke/`에 저장됩니다. 이전 실행 기록의 원래 경로는 `build/interpolator-smoke`입니다. 어댑터 스모크는 합성 비영수 LoRA, 학습된 2-벡터 토큰, 정적 ControlNet 및 선택 가능한 정밀도/오프로드를 추가합니다. 텍스트 인버전 벡터는 엔드포인트 인코딩 전에 검증되며, 오프로드가 그들을 메타 텐서로 변환한 후 텍스트 인코더 가중치를 읽지 않고 프레임 루프는 캐시된 조건을 사용합니다.\n"
     },
     {
       "id": "b000056",
@@ -534,7 +534,7 @@
       {
         "block_id": "b000019",
         "language": "sh",
-        "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend interpolator --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --prompt 'a city at sunrise' --end-prompt 'a forest at sunrise' \\\n  --negative-prompt 'blur, low quality' \\\n  --seed 42 --end-seed 43 --max-frames 120 --fps 12 --steps 20 \\\n  --output build/interpolator.mp4\n"
+        "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend interpolator --preset sd15-compatible \\\n  --model /absolute/path/to/diffusers-model --local-files-only \\\n  --prompt 'a city at sunrise' --end-prompt 'a forest at sunrise' \\\n  --negative-prompt 'blur, low quality' \\\n  --seed 42 --end-seed 43 --max-frames 120 --fps 12 --steps 20 \\\n  --output resources/outputs/reference/interpolator.mp4\n"
       },
       {
         "block_id": "b000027",

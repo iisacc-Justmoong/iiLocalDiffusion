@@ -47,6 +47,8 @@ install(FILES "${iild_torch_license}"
 FetchContent_Declare(iild_safetensors_cpp
     URL https://codeload.github.com/syoyo/safetensors-cpp/tar.gz/af90b6c3006cdcecf8b7d7254f5f32d301728acc
     URL_HASH SHA256=f978132be070d6e0ae0be097c6cd5b65edeedf19f78c57158b2c43ffa412323d
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies/iild_safetensors_cpp-src"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/dependencies/iild_safetensors_cpp-build"
     SOURCE_SUBDIR iild-header-only
     SYSTEM
 )

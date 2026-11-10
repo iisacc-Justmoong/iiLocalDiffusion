@@ -70,6 +70,29 @@ struct NativeLoRA {
     std::filesystem::path path;
     float strength = 1.0f;
 };
+// Additive report types keep the existing request/result ABI unchanged.
+struct NativeImageStageSettings {
+    std::filesystem::path modelPath, effectiveModelPath, vaePath;
+    std::string modelFamily, prompt, negativePrompt, samplerName, schedulerName, hiresUpscalerName;
+    int baseWidth = 0, baseHeight = 0, canvasWidth = 0, canvasHeight = 0;
+    int steps = 0, hiresSteps = 0, hiresSchedulerSteps = 0;
+    std::int64_t seed = 0;
+    bool resolved = false, hires = false, hiresResolved = false, imageToImage = false, q8CacheUsed = false;
+    int sampler = -1, scheduler = -1, hiresUpscaler = -1;
+    float cfgScale = 0, imageCfgScale = 0, distilledGuidance = 0, hiresStrength = 0, imageStrength = 0;
+    float flowShift = std::numeric_limits<float>::infinity();
+    std::vector<NativeLoRA> loras;
+    std::vector<float> sigmas, hiresSigmas;
+};
+struct NativeImageReport {
+    NativeGenerationRequest resolvedRequest;
+    std::vector<NativeImageStageSettings> stages;
+};
+struct NativeImageExecution { NativeGenerationResult image; NativeImageReport report; };
+// Zero width/height/steps request the selected model's native defaults.
+IILD_EXPORT NativeGenerationRequest resolveNativeImageDefaults(const NativeGenerationRequest &request);
+IILD_EXPORT NativeImageExecution generateNativeImageWithReport(const NativeGenerationRequest &request,
+    const std::atomic_bool &cancelled, const NativeProgressCallback &progress = {});
 // Separate options preserve the ABI of existing request/result structures.
 // An empty LoRA list selects the manifest fallback for the loaded model family.
 // Custom LoRAs replace it; each adapter must match its actual base architecture.
@@ -99,6 +122,22 @@ struct NativeModelComponents {
     bool hires = false;
     NativePrediction prediction = NativePrediction::Automatic;
 };
+// Prepares recognized embedded image components in a caller-owned cache. The
+// original package is never changed; explicit component paths take precedence.
+struct NativeImagePackage {
+    NativeGenerationRequest request;
+    NativeModelComponents components;
+    bool packaged = false;
+};
+IILD_EXPORT NativeImagePackage prepareNativeImagePackage(const NativeGenerationRequest &request,
+    const std::filesystem::path &cacheDirectory, const NativeModelComponents &components,
+    const std::atomic_bool &cancelled, const NativeProgressCallback &progress = {},
+    const std::shared_ptr<NativeExecutionControl> &control = {});
+// Quick-generation settings are unchanged while supplying prepared weights.
+IILD_EXPORT NativeGenerationResult generateNativeImageWithResidentPackage(const NativeImagePackage &package,
+    const NativeGenerationOptions &options, NativeComputeBackend backend, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress = {}, const NativePreviewCallback &preview = {},
+    const std::shared_ptr<NativeExecutionControl> &control = {});
 // Advanced generation is opt-in; legacy request/options layouts and symbols stay intact.
 // Names use the ImageParameters catalog. The engine resolves "auto" per model.
 struct NativeReferenceImage {

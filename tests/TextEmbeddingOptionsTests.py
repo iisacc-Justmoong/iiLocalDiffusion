@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Dependency-free Textual Inversion selection, configuration, and identity contracts."""
+import resource_fixture
 
 import argparse
 from contextlib import redirect_stderr
@@ -8,7 +9,6 @@ import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 
 
@@ -38,7 +38,7 @@ def resolved(*arguments, preset=presets.SD15_PRESET):
 class TextEmbeddingOptionsTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="text-embedding-options-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="text-embedding-options-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
 

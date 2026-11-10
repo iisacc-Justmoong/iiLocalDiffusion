@@ -233,6 +233,7 @@ struct Tensor {
 struct Source {
     fs::path logical, actual;
     std::string relative, role, format, status = "included", reason, group, header, digest = emptyDigest;
+    std::string position = "component", detectedRole, roleSource = "detected", positionSource = "automatic";
     U64 size = 0, base = 0;
     fs::file_time_type time;
     J metadata = J::object();
@@ -379,16 +380,25 @@ void readGGUF(Source &source) {
 bool prefix(const Source &source, const std::string &value) {
     return std::any_of(source.tensors.begin(), source.tensors.end(), [&](const auto &tensor) { return tensor.key.starts_with(value); });
 }
+bool tensorNamed(const Source &source, const std::string &value) {
+    return std::any_of(source.tensors.begin(), source.tensors.end(), [&](const auto &tensor) { return tensor.key == value; });
+}
 std::string inferRole(const Source &source) {
     const auto path = lower(source.relative), config = source.metadata.contains("config") ? lower(source.metadata.at("config").str()) : "";
     if (has(path,"lora") || prefix(source,"lora_") ||
         std::any_of(source.tensors.begin(),source.tensors.end(),[](const auto &t){return has(t.key,".lora_A.") || has(t.key,".lora_down.");})) return "lora";
     if (has(path,"upscaler") || has(config,"latentupsampler")) return "upscaler";
     if (prefix(source,"model.diffusion_model.") || prefix(source,"diffusion_model.") || has(path,"transformer/") || has(path,"unet/")) return "model";
+    // A complete MOSS transformer can coexist with language-model tensors.
+    // Check the transformer signature before classifying an isolated Qwen encoder.
+    if (tensorNamed(source,"video_embedder.weight") && tensorNamed(source,"final_linear_video.weight")
+        && tensorNamed(source,"layers.0.proj.qkv.weight")) return "model";
     if (has(path,"audio_vae") || prefix(source,"audio_vae.") || prefix(source,"vocoder.")) return "audio_vae";
     if (has(path,"projection") || prefix(source,"text_embedding_projection.")) return "projections";
     if (has(path,"vae") || has(config,"autoencoder")) return "video_vae";
-    if (source.format == "gguf" || has(path,"text_encoder") || prefix(source,"text_model.")) return "text_encoder";
+    if (source.format == "gguf" || has(path,"text_encoder") || has(path,"text encoder/")
+        || path.starts_with("llm/") || has(path,"/llm/") || prefix(source,"text_model.")
+        || prefix(source,"model.language_model.")) return "text_encoder";
     return source.format == "safetensors" ? "model" : "other";
 }
 fs::path resolvedSource(const fs::path &path) {
@@ -453,18 +463,45 @@ std::string roleKey(const Source &file, const Tensor &tensor) {
 }
 
 Plan scan(const fs::path &input, std::span<const std::string> excluded, std::stop_token stop,
-          const ModelPackagingObserver &observer) {
+          const ModelPackagingObserver &observer, std::span<const fs::path> selected = {},
+          std::span<const ModelPackagingAssignment> assignments = {}) {
     if (!fs::is_directory(input)) fail("Choose an existing model folder");
     Plan plan; plan.input = fs::absolute(input).lexically_normal(); plan.name = input.filename().string();
     std::vector<fs::path> paths;
-    for (const auto &entry : fs::recursive_directory_iterator(plan.input)) {
-        check(stop);
-        const auto relative = entry.path().lexically_relative(plan.input);
-        if (std::any_of(relative.begin(),relative.end(),[](const auto &part){return part.string().starts_with(".");})) continue;
-        if (entry.is_regular_file()) paths.push_back(entry.path());
-        if (paths.size() > 10'000) fail("Model folder contains more than 10,000 files");
+    const auto internal = [](const fs::path &relative) {
+        return lower(relative.filename().string()).ends_with(".iisacc.json")
+            || std::any_of(relative.begin(),relative.end(),[](const auto &part){return part.string().starts_with(".");});
+    };
+    const auto collect = [&](const fs::path &directory, bool rejectRedirects) {
+        for (const auto &entry : fs::recursive_directory_iterator(directory)) {
+            check(stop);
+            const auto relative = entry.path().lexically_relative(plan.input);
+            if (internal(relative)) continue;
+            if (rejectRedirects && entry.is_symlink()) fail("A selected model contains a redirected path: " + relative.generic_string());
+            if (entry.is_regular_file()) paths.push_back(entry.path());
+            if (paths.size() > 10'000) fail("Model selection contains more than 10,000 files");
+        }
+    };
+    if (selected.empty()) collect(plan.input, false);
+    else {
+        if (fs::is_symlink(fs::symlink_status(plan.input))) fail("The model library is redirected");
+        for (const auto &relative : selected) {
+            check(stop);
+            if (!safeRelative(relative) || internal(relative)) fail("Invalid selected model path: " + relative.generic_string());
+            auto current = plan.input;
+            for (const auto &part : relative) {
+                current /= part;
+                const auto status = fs::symlink_status(current);
+                if (!fs::exists(status) || fs::is_symlink(status)) fail("Selected model is unavailable or redirected: " + relative.generic_string());
+            }
+            if (fs::is_directory(current)) collect(current, true);
+            else if (fs::is_regular_file(current)) paths.push_back(current);
+            else fail("Selected model is not a regular file or directory: " + relative.generic_string());
+            if (paths.size() > 10'000) fail("Model selection contains more than 10,000 files");
+        }
     }
     std::sort(paths.begin(),paths.end());
+    paths.erase(std::unique(paths.begin(),paths.end()),paths.end());
     for (const auto &path : paths) {
         progress(observer,stop,"scan",path.filename().string(),plan.files.size(),paths.size());
         Source source; source.logical = path; source.actual = resolvedSource(path);
@@ -492,12 +529,8 @@ Plan scan(const fs::path &input, std::span<const std::string> excluded, std::sto
                     blob(source);
                 }
             }
-            source.role = inferRole(source); source.optional = source.role == "upscaler" || source.role == "lora";
+            source.role = inferRole(source); source.detectedRole=source.role; source.optional = source.role == "upscaler" || source.role == "lora";
             source.group = source.relative;
-            if (std::find(excluded.begin(),excluded.end(),source.relative) != excluded.end()) {
-                if (!source.optional) plan.errors.push_back("Required component cannot be excluded: " + source.relative);
-                else { source.status="excluded"; source.reason="Optional component excluded"; }
-            }
         } catch (const std::exception &error) {
             source.status="invalid"; source.reason=error.what(); source.tensors.clear();
             if (source.size <= 4096) {
@@ -529,12 +562,79 @@ Plan scan(const fs::path &input, std::span<const std::string> excluded, std::sto
             }
         } catch (const std::exception &error) { plan.errors.push_back(error.what()); }
     }
+    static const std::set<std::string> allowedRoles{"model","text_encoder","video_vae","audio_vae","projections","upscaler","lora","other"};
+    std::map<std::string,std::pair<std::string,std::string>> groupChoices;
+    std::set<std::string> assignedPaths;
+    for (const auto &assignment : assignments) {
+        const auto path=assignment.relativePath.generic_string();
+        if (!safeRelative(assignment.relativePath) || !assignedPaths.insert(path).second)
+            fail("Invalid or repeated assignment path: " + path);
+        const auto found=byPath.find(path);
+        if (found==byPath.end()) fail("Assigned source is not selected: " + path);
+        const auto &file=plan.files[found->second];
+        if (file.status!="included" || (file.format!="safetensors" && file.format!="gguf"))
+            fail("Assigned source is not a valid model file: " + path);
+        if (!assignment.role.empty() && !allowedRoles.contains(assignment.role)) fail("Unknown model role: " + assignment.role);
+        if (!assignment.position.empty() && assignment.position!="main" && assignment.position!="component")
+            fail("Unknown model position: " + assignment.position);
+        auto &choice=groupChoices[file.group];
+        if (!assignment.role.empty()) {
+            if (!choice.first.empty() && choice.first!=assignment.role) fail("Conflicting roles in a sharded model: " + file.group);
+            choice.first=assignment.role;
+        }
+        if (!assignment.position.empty()) {
+            if (!choice.second.empty() && choice.second!=assignment.position) fail("Conflicting positions in a sharded model: " + file.group);
+            choice.second=assignment.position;
+        }
+    }
+    std::string requestedMain;
+    for (auto &file : plan.files) {
+        const auto choice=groupChoices.find(file.group);
+        if (choice!=groupChoices.end() && (file.format=="safetensors" || file.format=="gguf")) {
+            if (!choice->second.first.empty()) { file.role=choice->second.first; file.roleSource="user"; }
+            if (!choice->second.second.empty()) {
+                if (choice->second.second=="main" && file.role!="model") fail("Only a model can be the main position: " + file.relative);
+                file.positionSource="user";
+                if (choice->second.second=="main") {
+                    if (!requestedMain.empty() && requestedMain!=file.group) fail("Only one model group can be the main model");
+                    requestedMain=file.group;
+                }
+            }
+        }
+        file.optional=file.role=="upscaler" || file.role=="lora";
+    }
+    std::map<std::string,std::string> indexedRoles;
+    std::set<std::string> ambiguousGroups;
+    for (const auto &file : plan.files) {
+        if (file.status!="included" || file.format!="safetensors" || file.group==file.relative
+            || !file.group.ends_with(".safetensors.index.json")) continue;
+        const auto [found,inserted]=indexedRoles.emplace(file.group,file.role);
+        if (!inserted && found->second!=file.role) ambiguousGroups.insert(file.group);
+    }
+    for (const auto &group : ambiguousGroups)
+        plan.errors.push_back("Inconsistent roles in sharded model; assign one shared role: " + group);
+    std::set<std::string> excludedGroups;
+    for (const auto &path : excluded) {
+        const auto found=byPath.find(path);
+        if (found==byPath.end()) continue;
+        const auto &file=plan.files[found->second];
+        if (!file.optional) plan.errors.push_back("Required component cannot be excluded: " + file.relative);
+        else excludedGroups.insert(file.group);
+    }
+    for (auto &file : plan.files) {
+        const bool shardIndex=file.format=="asset" && file.relative==file.group && file.relative.ends_with(".safetensors.index.json");
+        if (file.status=="included" && excludedGroups.contains(file.group) && (file.optional || shardIndex)) {
+            file.status="excluded"; file.reason="Optional component excluded";
+        }
+    }
     std::map<std::string,U64> groups;
-    for (const auto &file : plan.files) if (file.status=="included" && file.role=="model") groups[file.group]=add(groups[file.group],file.size);
-    std::string primaryGroup;
-    if (!groups.empty()) primaryGroup=std::max_element(groups.begin(),groups.end(),[](const auto &a,const auto &b){return a.second<b.second;})->first;
+    for (const auto &file : plan.files) if (file.status=="included" && file.role=="model" &&
+        (!groupChoices.contains(file.group) || groupChoices.at(file.group).second!="component")) groups[file.group]=add(groups[file.group],file.size);
+    std::string primaryGroup=requestedMain;
+    if (primaryGroup.empty() && !groups.empty()) primaryGroup=std::max_element(groups.begin(),groups.end(),[](const auto &a,const auto &b){return a.second<b.second;})->first;
     for (const auto &file : plan.files) {
         if (file.status=="invalid" || !file.metadata.contains("model_version")) continue;
+        if (!assignments.empty() && (file.role!="model" || file.group!=primaryGroup)) continue;
         const auto version=file.metadata.at("model_version").str();
         if ((has(lower(file.relative),"ltx") || has(lower(file.metadata.dump()),"ltx")) && version.starts_with("2.")) {
             plan.ltx=true; plan.family="LTX "+version.substr(0,version.find('.',version.find('.')+1));
@@ -543,12 +643,18 @@ Plan scan(const fs::path &input, std::span<const std::string> excluded, std::sto
     }
     for (std::size_t i=0;i<plan.files.size();++i)
         if (plan.files[i].status=="included" && plan.files[i].role=="model" && plan.files[i].group==primaryGroup) plan.primary.push_back(i);
-    if (plan.primary.empty() && !plan.ltx) {
+    const bool modelDeclared=std::any_of(plan.files.begin(),plan.files.end(),[](const auto &file) {
+        return file.status=="included" && file.role=="model";
+    });
+    if (plan.primary.empty() && !plan.ltx && !modelDeclared) {
         for (std::size_t i=0;i<plan.files.size();++i) if (plan.files[i].status=="included" && plan.files[i].format=="gguf") {
-            plan.primary.push_back(i); plan.files[i].role="model"; break;
+            const auto choice=groupChoices.find(plan.files[i].group);
+            if (choice!=groupChoices.end() && (!choice->second.first.empty() || choice->second.second=="component")) continue;
+            plan.primary.push_back(i); plan.files[i].role="model"; plan.files[i].detectedRole="model"; break;
         }
     }
     if (plan.primary.empty()) plan.errors.push_back("No valid main model was found in this folder");
+    for (const auto i : plan.primary) plan.files[i].position="main";
     std::map<std::string,std::size_t> outputKeys;
     auto append=[&](std::size_t i, std::size_t t, std::string key) {
         auto &tensor=plan.files[i].tensors[t];
@@ -612,8 +718,11 @@ Plan scan(const fs::path &input, std::span<const std::string> excluded, std::sto
             {"projections","text_embedding_projection.","text projections"},{"text_encoder","text_encoder.","text encoder"}}})
             if (!roleAvailable(role,key)) plan.errors.push_back("Required "+label+" is missing");
     }
-    for (const auto &file : plan.files) if (file.relative=="model_index.json" && file.status=="included") {
+    for (const auto &file : plan.files) if (fs::path(file.relative).filename()=="model_index.json" && file.status=="included") {
         const auto index=parse(readSmall(file.actual));
+        if (index.contains("schema") && index.at("schema").is(json_type_string)
+            && index.at("schema").str() == "iild-unified-model-v1") continue;
+        const auto parent = fs::path(file.relative).parent_path();
         for (const auto &[name,value] : index.members()) {
             if (name.starts_with("_") || !value.is(json_type_array) || value.size()!=2) continue;
             auto *classValue=json_object_array_get_idx(value.get(),1);
@@ -622,8 +731,9 @@ Plan scan(const fs::path &input, std::span<const std::string> excluded, std::sto
                 fail("Unsafe Diffusers component name: " + name);
             const bool weightsRequired = name == "unet" || name == "transformer" || name == "vae"
                 || name.starts_with("text_encoder") || name.starts_with("controlnet");
+            const auto componentPrefix = (parent / name).generic_string() + "/";
             const bool exists=std::any_of(plan.files.begin(),plan.files.end(),[&](const auto &f){
-                if (!f.relative.starts_with(name+"/") || f.status!="included") return false;
+                if (!f.relative.starts_with(componentPrefix) || f.status!="included") return false;
                 if (!weightsRequired) return true;
                 const auto extension = lower(fs::path(f.relative).extension().string());
                 return f.format == "safetensors" || f.format == "gguf" ||
@@ -642,6 +752,7 @@ J manifest(const Plan &plan) {
     for (const auto &source : plan.files) {
         auto file=J::object(), tensors=J::array();
         file.set("path",source.relative); file.set("format",source.format); file.set("role",source.role);
+        file.set("position",source.position); file.set("role_source",source.roleSource); file.set("position_source",source.positionSource);
         file.set("status",source.status); file.set("reason",source.reason); file.set("size",source.size);
         file.set("sha256",source.digest); file.set("metadata",source.metadata); file.set("header",source.header);
         if (source.status=="included" || source.status=="duplicate") for (const auto &tensor : source.tensors) {
@@ -705,7 +816,9 @@ J components(const Plan &plan) {
         if (std::find(plan.primary.begin(),plan.primary.end(),i)!=plan.primary.end() ||
             (plan.ltx && (file.role=="video_vae" || file.role=="audio_vae" || file.role=="projections")) ||
             file.status=="duplicate" || file.status=="invalid" || file.status=="ignored" || file.status=="conflict") continue;
-        const auto label=file.role=="text_encoder"?"Text encoder":file.role=="upscaler"?"Spatial upscaler":file.role=="lora"?"LoRA":file.role=="model"?"Additional checkpoint":file.role=="video_vae"?"Video decoder":file.relative;
+        const auto label=file.role=="text_encoder"?"Text encoder":file.role=="upscaler"?"Spatial upscaler":file.role=="lora"?"LoRA":
+            file.role=="model"?"Additional checkpoint":file.role=="video_vae"?"VAE / decoder":
+            file.role=="audio_vae"?"Audio decoder":file.role=="projections"?"Text projections":file.relative;
         const auto detail=file.format=="gguf"?"GGUF · Original format and quantization retained":
             file.role=="upscaler"?"2× resolution · Optional":file.role=="lora"?"Separate adapter · Original weights retained":file.relative;
         push(file.relative,label,detail,"toolWindowModelChecker",file.size,file.optional,file.status=="included");
@@ -717,6 +830,9 @@ J report(const Plan &plan, const std::string &operation) {
     for (const auto &source : plan.files) {
         auto file=J::object(); file.set("id",source.relative); file.set("path",source.logical.string());
         file.set("relative_path",source.relative); file.set("role",source.role); file.set("format",source.format);
+        file.set("detected_role",source.detectedRole);
+        file.set("position",source.position); file.set("group",source.group);
+        file.set("role_source",source.roleSource); file.set("position_source",source.positionSource);
         file.set("size",source.size); file.set("status",source.status); file.set("reason",source.reason); file.set("optional",source.optional); files.push(file);
         if (source.status=="included") ++included;
         if (source.status=="duplicate") { ++duplicates; duplicateSize=add(duplicateSize,source.size); }
@@ -874,12 +990,27 @@ std::string scanModelFolder(const fs::path &input,std::span<const std::string> e
                            std::stop_token stop,const ModelPackagingObserver &observer) {
     return report(scan(input,excluded,stop,observer),"scan").dump();
 }
-std::string createModelPackage(const fs::path &input,const fs::path &output,std::span<const std::string> excluded,
-                              std::stop_token stop,const ModelPackagingObserver &observer) {
+std::string scanModelSelection(const fs::path &root,std::span<const fs::path> selected,
+                               std::span<const std::string> excluded,std::stop_token stop,
+                               const ModelPackagingObserver &observer) {
+    if (selected.empty()) fail("Choose at least one model from the library");
+    return report(scan(root,excluded,stop,observer,selected),"scan").dump();
+}
+std::string scanModelFolderWithAssignments(const fs::path &input,std::span<const ModelPackagingAssignment> assignments,
+    std::span<const std::string> excluded,std::stop_token stop,const ModelPackagingObserver &observer) {
+    return report(scan(input,excluded,stop,observer,{},assignments),"scan").dump();
+}
+std::string scanModelSelectionWithAssignments(const fs::path &root,std::span<const fs::path> selected,
+    std::span<const ModelPackagingAssignment> assignments,std::span<const std::string> excluded,
+    std::stop_token stop,const ModelPackagingObserver &observer) {
+    if (selected.empty()) fail("Choose at least one model from the library");
+    return report(scan(root,excluded,stop,observer,selected,assignments),"scan").dump();
+}
+static std::string writePackage(Plan plan,const fs::path &output,std::stop_token stop,
+                                const ModelPackagingObserver &observer) {
     const auto target=fs::absolute(output).lexically_normal();
     if (target.extension() != ".safetensors") fail("Model package output must use the .safetensors extension");
     destination(target,0);
-    auto plan=scan(input,excluded,stop,observer);
     if (!plan.errors.empty()) fail(plan.errors.front());
     auto header=outputHeader(plan);
     destination(target,add(add(8,header.size()),plan.payload));
@@ -932,6 +1063,33 @@ std::string createModelPackage(const fs::path &input,const fs::path &output,std:
     auto result=report(plan,"create"); result.set("verified",true); result.set("output",target.string());
     result.set("size",static_cast<U64>(fs::file_size(target))); result.set("sha256",verified.digest);
     return result.dump();
+}
+std::string createModelPackage(const fs::path &input,const fs::path &output,std::span<const std::string> excluded,
+                              std::stop_token stop,const ModelPackagingObserver &observer) {
+    const auto target=fs::absolute(output).lexically_normal();
+    if (target.extension() != ".safetensors") fail("Model package output must use the .safetensors extension");
+    destination(target,0);
+    return writePackage(scan(input,excluded,stop,observer),target,stop,observer);
+}
+std::string createModelPackageFromSelection(const fs::path &root,std::span<const fs::path> selected,
+                                           const fs::path &output,std::span<const std::string> excluded,
+                                           std::stop_token stop,const ModelPackagingObserver &observer) {
+    if (selected.empty()) fail("Choose at least one model from the library");
+    const auto target=fs::absolute(output).lexically_normal();
+    if (target.extension() != ".safetensors") fail("Model package output must use the .safetensors extension");
+    destination(target,0);
+    return writePackage(scan(root,excluded,stop,observer,selected),target,stop,observer);
+}
+std::string createModelPackageWithAssignments(const fs::path &input,const fs::path &output,
+    std::span<const ModelPackagingAssignment> assignments,std::span<const std::string> excluded,
+    std::stop_token stop,const ModelPackagingObserver &observer) {
+    return writePackage(scan(input,excluded,stop,observer,{},assignments),output,stop,observer);
+}
+std::string createModelPackageFromSelectionWithAssignments(const fs::path &root,std::span<const fs::path> selected,
+    const fs::path &output,std::span<const ModelPackagingAssignment> assignments,std::span<const std::string> excluded,
+    std::stop_token stop,const ModelPackagingObserver &observer) {
+    if (selected.empty()) fail("Choose at least one model from the library");
+    return writePackage(scan(root,excluded,stop,observer,selected,assignments),output,stop,observer);
 }
 std::string verifyModelPackage(const fs::path &input,std::stop_token stop,const ModelPackagingObserver &observer) {
     if (input.extension() != ".safetensors") fail("Model package input must use the .safetensors extension");
@@ -1000,25 +1158,185 @@ std::string extractModelPackage(const fs::path &input,const fs::path &output,std
     result.set("output",target.string()); result.set("file_count",countFiles); return result.dump();
 }
 
-fs::path materializeModelPackageAsset(const fs::path &input, const fs::path &cacheDirectory,
-                                     const std::string &role, std::stop_token stop,
-                                     const ModelPackagingObserver &observer) {
+namespace {
+struct WeightHealth {
+    U64 checkedTensors=0, checkedValues=0, nonfinite=0, uncheckedTensors=0;
+    std::set<std::string> uncheckedTypes;
+};
+
+WeightHealth weightHealth(const fs::path &input,bool repair,std::stop_token stop,
+                          const ModelPackagingObserver &observer) {
+    Source source;
+    source.logical=fs::absolute(input); source.actual=resolvedSource(input);
+    source.size=fs::file_size(source.actual); source.time=fs::last_write_time(source.actual);
+    readSafetensors(source);
+    auto mode=std::ios::binary|std::ios::in;
+    if (repair) mode|=std::ios::out;
+    std::fstream file(source.actual,mode);
+    if (!file) fail("Could not open model weights");
+    std::vector<char> buffer(chunkSize);
+    WeightHealth result;
+    for (const auto &tensor:source.tensors) {
+        unsigned width=0; U64 exponentMask=0;
+        if (tensor.dtype=="F16") { width=2; exponentMask=0x7c00; }
+        else if (tensor.dtype=="BF16") { width=2; exponentMask=0x7f80; }
+        else if (tensor.dtype=="F32") { width=4; exponentMask=0x7f800000; }
+        else if (tensor.dtype=="F64") { width=8; exponentMask=0x7ff0000000000000ULL; }
+        else { ++result.uncheckedTensors; result.uncheckedTypes.insert(tensor.dtype); continue; }
+        ++result.checkedTensors;
+        const auto bytes=tensor.end-tensor.begin;
+        result.checkedValues=add(result.checkedValues,bytes/width);
+        for (U64 pos=0;pos<bytes;) {
+            progress(observer,stop,"weight-health",tensor.key,pos,bytes);
+            const auto count=static_cast<std::size_t>(std::min<U64>(bytes-pos,buffer.size()));
+            file.clear(); file.seekg(static_cast<std::streamoff>(source.base+tensor.begin+pos));
+            if (!file.read(buffer.data(),static_cast<std::streamsize>(count))) fail("Could not read model weights");
+            bool changed=false;
+            for (std::size_t i=0;i<count;i+=width) {
+                U64 bits=0;
+                for (unsigned j=0;j<width;++j)
+                    bits|=static_cast<U64>(static_cast<unsigned char>(buffer[i+j]))<<(8*j);
+                if ((bits&exponentMask)==exponentMask) {
+                    result.nonfinite=add(result.nonfinite,1);
+                    if (repair) { std::fill_n(buffer.data()+i,width,0); changed=true; }
+                }
+            }
+            if (changed) {
+                file.clear(); file.seekp(static_cast<std::streamoff>(source.base+tensor.begin+pos));
+                file.write(buffer.data(),static_cast<std::streamsize>(count));
+                if (!file) fail("Could not repair temporary model weights");
+            }
+            pos+=count;
+        }
+    }
+    if (repair) { file.flush(); if (!file) fail("Could not finalize temporary model weights"); }
+    else stamp(source);
+    check(stop);
+    return result;
+}
+}
+
+std::string inspectModelWeights(const fs::path &input,std::stop_token stop,const ModelPackagingObserver &observer) {
+    const auto health=weightHealth(input,false,stop,observer);
+    auto result=J::object(), types=J::array();
+    for (const auto &type:health.uncheckedTypes) types.push(type);
+    result.set("schema",reportSchema); result.set("operation","weight-health");
+    result.set("checked_tensors",health.checkedTensors); result.set("checked_values",health.checkedValues);
+    result.set("nonfinite_values",health.nonfinite); result.set("unchecked_tensors",health.uncheckedTensors);
+    result.set("unchecked_dtypes",types); return result.dump();
+}
+
+std::string calibrateModelFile(const fs::path &input,const fs::path &output,std::stop_token stop,
+                               const ModelPackagingObserver &observer) {
+    const auto target=fs::absolute(output).lexically_normal();
+    if (input.extension()!=".safetensors" || target.extension()!=".safetensors")
+        fail("Choose a Safetensors model and a new .safetensors output");
+    Source source;
+    source.logical=fs::absolute(input); source.actual=resolvedSource(input);
+    source.size=fs::file_size(source.actual); source.time=fs::last_write_time(source.actual);
+    readSafetensors(source);
+    if (source.metadata.contains("iild_package_schema")) fail("Use package calibration for packaged models");
+    destination(target,source.size);
+    Temporary temporary{temporaryPath(target)}; createExclusive(temporary.path);
+    std::ifstream in(source.actual,std::ios::binary);
+    iiFileProvider::native::OutputFile out(temporary.path,std::ios::binary);
+    if (!in || !out) fail("Could not open calibration files");
+    std::vector<char> buffer(chunkSize);
+    for (U64 done=0;done<source.size;) {
+        progress(observer,stop,"copy","Copying model weights",done,source.size);
+        const auto count=static_cast<std::size_t>(std::min<U64>(source.size-done,buffer.size()));
+        if (!in.read(buffer.data(),static_cast<std::streamsize>(count))) fail("Could not read source model");
+        out.write(buffer.data(),static_cast<std::streamsize>(count));
+        if (!out) fail("Could not write the corrected model");
+        done+=count;
+    }
+    out.close(); stamp(source);
+    const auto corrected=weightHealth(temporary.path,true,stop,observer);
+    const auto verified=weightHealth(temporary.path,false,stop,observer);
+    if (verified.nonfinite) fail("Numeric verification failed");
+    const auto digest=hashRange(temporary.path,0,source.size,stop,observer,"Hashing corrected model");
+    check(stop); syncFile(temporary.path); commit(temporary.path,target);
+    auto result=J::object(); result.set("schema",reportSchema); result.set("operation","calibrate-file");
+    result.set("verified",true); result.set("output",target.string()); result.set("sha256",digest);
+    result.set("weights_modified",corrected.nonfinite!=0);
+    result.set("nonfinite_values_replaced",corrected.nonfinite);
+    result.set("unchecked_tensors",corrected.uncheckedTensors); return result.dump();
+}
+
+std::string calibrateModelPackage(const fs::path &input,const fs::path &output,std::stop_token stop,
+                                  const ModelPackagingObserver &observer,ModelCalibrationOptions options) {
+    const auto target = fs::absolute(output).lexically_normal();
+    if (input.extension() != ".safetensors" || target.extension() != ".safetensors")
+        fail("Choose a model package and a new .safetensors output");
+    destination(target,0);
+    const auto workspace = temporaryPath(target);
+    if (!fs::create_directory(workspace)) fail("Could not create the calibration workspace");
+    Temporary temporary{workspace,true};
+    Source packaged;
+    packaged.actual=resolvedSource(input); packaged.size=fs::file_size(packaged.actual);
+    readSafetensors(packaged);
+    if (!packaged.metadata.contains("iild_package_manifest")) fail("Model package manifest is missing");
+    const auto previous=parse(packaged.metadata.at("iild_package_manifest").str());
+    std::vector<ModelPackagingAssignment> assignments;
+    const auto previousFiles=previous.at("files");
+    for (std::size_t i=0;i<previousFiles.size();++i) {
+        const auto file=previousFiles.at(i);
+        const auto status=file.at("status").str();
+        if (status!="included" && status!="duplicate") continue;
+        ModelPackagingAssignment choice; choice.relativePath=file.at("path").str();
+        if (file.contains("role_source") && file.at("role_source").str()=="user") choice.role=file.at("role").str();
+        if (file.contains("position_source") && file.at("position_source").str()=="user") choice.position=file.at("position").str();
+        if (!choice.role.empty() || !choice.position.empty()) assignments.push_back(std::move(choice));
+    }
+    const auto sources = workspace / "sources";
+    (void)extractModelPackage(input,sources,stop,observer);
+    check(stop);
+    U64 replaced=0,unchecked=0;
+    if (options.replaceNonfiniteWithZero) {
+        for (const auto &entry:fs::recursive_directory_iterator(sources)) {
+            check(stop);
+            if (!entry.is_regular_file() || entry.path().extension() != ".safetensors") continue;
+            const auto health=weightHealth(entry.path(),true,stop,observer);
+            replaced=add(replaced,health.nonfinite); unchecked=add(unchecked,health.uncheckedTensors);
+        }
+    }
+    auto result = parse(createModelPackageWithAssignments(sources,target,assignments,{},stop,observer));
+    result.set("operation","calibrate");
+    result.set("source_package",fs::absolute(input).string());
+    result.set("weights_modified",replaced!=0);
+    result.set("nonfinite_values_replaced",replaced);
+    result.set("unchecked_tensors",unchecked);
+    return result.dump();
+}
+
+static fs::path materializeAsset(const fs::path &input, const fs::path &cacheDirectory,
+                                 const std::string &role, const fs::path &relativeSource,
+                                 std::stop_token stop, const ModelPackagingObserver &observer) {
+    if (!relativeSource.empty() && !safeRelative(relativeSource)) fail("Invalid embedded asset path");
     if (input.extension() != ".safetensors") fail("Model package input must use the .safetensors extension");
     Source source;
     source.logical = fs::absolute(input); source.actual = resolvedSource(input);
     source.size = fs::file_size(input); source.time = fs::last_write_time(input);
     readSafetensors(source);
     if (!source.metadata.contains("iild_package_schema") || source.metadata.at("iild_package_schema").str() != schema)
-        fail("This model has no embedded text encoder package; supply a supported local text encoder");
+        fail("This file has no supported embedded model package manifest");
     const auto manifest = parse(source.metadata.at("iild_package_manifest").str());
     if (manifest.at("schema").str() != schema) fail("Unsupported model-package manifest");
     requireNoOnnxManifest(manifest);
     const auto files = manifest.at("files");
     std::optional<J> selected;
+    std::set<std::string> sourcePaths;
+    const auto utf8 = relativeSource.generic_u8string();
+    const std::string requestedPath(utf8.begin(), utf8.end());
     for (std::size_t i = 0; i < files.size(); ++i) {
         const auto file = files.at(i);
-        if (file.at("status").str() == "included" && file.at("role").str() == role && (file.at("format").str() == "safetensors" || file.at("format").str() == "gguf")) {
-            if (selected) fail("Multiple embedded text encoders; choose an explicit encoder");
+        const auto manifestPath = file.at("path").str();
+        const std::u8string pathUtf8(reinterpret_cast<const char8_t *>(manifestPath.data()), manifestPath.size());
+        if (!safeRelative(fs::path(pathUtf8)) || !sourcePaths.insert(manifestPath).second)
+            fail("Unsafe or duplicate package source path");
+        const bool matches = relativeSource.empty() ? file.at("role").str() == role : manifestPath == requestedPath;
+        if (file.at("status").str() == "included" && matches && (file.at("format").str() == "safetensors" || file.at("format").str() == "gguf")) {
+            if (selected) fail("Multiple matching embedded assets; choose an unambiguous source");
             selected = file;
         }
     }
@@ -1049,7 +1367,7 @@ fs::path materializeModelPackageAsset(const fs::path &input, const fs::path &cac
         if (fs::exists(target)) {
             if (fs::canonical(target) != target || !fs::is_regular_file(target) || fs::file_size(target) != bytes
                 || hashRange(target, 0, bytes, stop, observer, "Checking cached " + role) != digest)
-                fail("The cached text encoder has changed; remove the invalid cache asset and retry");
+                fail("The cached model component has changed; remove the invalid cache asset and retry");
             validateGGUF(target);
             stamp(source); return target;
         }
@@ -1069,12 +1387,12 @@ fs::path materializeModelPackageAsset(const fs::path &input, const fs::path &cac
             const auto count = static_cast<std::size_t>(std::min<U64>(bytes - done, buffer.size()));
             if (!file.read(buffer.data(), static_cast<std::streamsize>(count))) fail("Embedded asset is truncated");
             output.write(buffer.data(), static_cast<std::streamsize>(count));
-            if (!output) fail("Cannot write the embedded text encoder cache");
+            if (!output) fail("Cannot write the embedded model component cache");
             hash.update(buffer.data(), count); done += count;
         }
         progress(observer, stop, "materialize", "Preparing embedded " + role, done, bytes);
         output.close();
-        if (hash.finish() != digest) fail("Embedded text encoder checksum mismatch");
+        if (hash.finish() != digest) fail("Embedded model component checksum mismatch");
         validateGGUF(temporary.path);
         stamp(source); check(stop); syncFile(temporary.path);
         if (fs::exists(target)) {
@@ -1120,7 +1438,7 @@ fs::path materializeModelPackageAsset(const fs::path &input, const fs::path &cac
     if (fs::exists(target)) {
         if (fs::canonical(target) != target || !fs::is_regular_file(target) || fs::file_size(target) != bytes
             || hashRange(target, 0, bytes, stop, observer, "Checking cached " + role) != digest)
-            fail("The cached text encoder has changed; remove the invalid cache asset and retry");
+            fail("The cached model component has changed; remove the invalid cache asset and retry");
         validateCached();
         stamp(source); return target;
     }
@@ -1147,7 +1465,7 @@ fs::path materializeModelPackageAsset(const fs::path &input, const fs::path &cac
             const auto count = static_cast<std::size_t>(std::min<U64>(tensor->end - tensor->begin - position, buffer.size()));
             if (!file.read(buffer.data(), static_cast<std::streamsize>(count))) fail("Embedded asset is truncated");
             output.write(buffer.data(), static_cast<std::streamsize>(count));
-            if (!output) fail("Cannot write the embedded text encoder cache");
+            if (!output) fail("Cannot write the embedded model component cache");
             tensorHash.update(buffer.data(), count); hash.update(buffer.data(), count);
             position += count; done += count;
         }
@@ -1155,7 +1473,7 @@ fs::path materializeModelPackageAsset(const fs::path &input, const fs::path &cac
     }
     progress(observer, stop, "materialize", "Preparing embedded " + role, done, bytes);
     output.close();
-    if (hash.finish() != digest) fail("Embedded text encoder checksum mismatch");
+    if (hash.finish() != digest) fail("Embedded model component checksum mismatch");
     Source reconstructed;
     reconstructed.logical = temporary.path; reconstructed.actual = temporary.path;
     reconstructed.size = fs::file_size(temporary.path);
@@ -1168,5 +1486,19 @@ fs::path materializeModelPackageAsset(const fs::path &input, const fs::path &cac
         validateCached();
     } else commit(temporary.path, target);
     return target;
+}
+
+fs::path materializeModelPackageAsset(const fs::path &input, const fs::path &cacheDirectory,
+                                     const std::string &role, std::stop_token stop,
+                                     const ModelPackagingObserver &observer) {
+    return materializeAsset(input, cacheDirectory, role, {}, stop, observer);
+}
+
+fs::path materializeModelPackageAssetByPath(const fs::path &input, const fs::path &cacheDirectory,
+                                           const fs::path &relativeSource, std::stop_token stop,
+                                           const ModelPackagingObserver &observer) {
+    if (relativeSource.empty()) fail("Choose an embedded asset path");
+    const auto utf8 = relativeSource.generic_u8string();
+    return materializeAsset(input, cacheDirectory, std::string(utf8.begin(), utf8.end()), relativeSource, stop, observer);
 }
 }

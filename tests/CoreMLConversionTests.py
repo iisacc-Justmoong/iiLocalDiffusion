@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Conversion argument and plan-policy checks without optional ML packages."""
+import resource_fixture
 
 from contextlib import redirect_stderr, redirect_stdout
 import io
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -17,7 +17,7 @@ import convert_linear
 class CoreMLConversionTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(prefix="coreml-conversion-", dir=ROOT / "build")
+        self.temporary = resource_fixture.TemporaryDirectory(prefix="coreml-conversion-")
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
         self.base = ["--fixture", "--output-dir", str(self.directory / "output")]
@@ -54,9 +54,11 @@ class CoreMLConversionTests(unittest.TestCase):
                                 ("--fixture-width", "0")):
             self.assert_rejected(self.base + [argument, value], "must be positive")
 
-    def test_evidence_must_stay_under_build(self):
-        self.assert_rejected(self.base + ["--output-dir", str(ROOT / "outside-build")],
-                             "under the repository build/")
+    def test_evidence_must_stay_under_resources(self):
+        for directory in (ROOT / "outside-build", ROOT / "build" / "coreml-evidence"):
+            with self.subTest(directory=directory):
+                self.assert_rejected(self.base + ["--output-dir", str(directory)],
+                                     "under the repository resources/")
 
     def test_previous_evidence_is_preserved(self):
         output = self.directory / "output"

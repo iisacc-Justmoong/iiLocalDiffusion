@@ -32,7 +32,7 @@ class _StderrTail:
         return getattr(self._stream, name)
 
 
-def serve(generate, stream=None):
+def serve(generate, stream=None, *, defer_foreground=None):
     """Read one request at a time. EOF releases the model; no job is persisted."""
     stream = sys.stdin.buffer if stream is None else stream
     print('IILD_READY ' + json.dumps({"schema": "iild-worker-v1", "pid": os.getpid(),
@@ -67,8 +67,9 @@ def serve(generate, stream=None):
                     foreground = request.get("foreground")
                     if not isinstance(foreground, bool) or (not foreground and arguments):
                         raise ValueError("Foreground control requires a boolean; background control cannot contain arguments.")
+                    deferred = bool(arguments and defer_foreground is not None and defer_foreground(arguments))
                     with redirect_stderr(stderr):
-                        code = session.set_foreground(foreground, (lambda: generate(arguments)) if arguments else None)
+                        code = session.set_foreground(foreground, (lambda: generate(arguments)) if arguments and not deferred else None)
                 else:
                     with redirect_stderr(stderr):
                         code = generate(arguments) or 0

@@ -26,7 +26,7 @@ reference/diffusers/.venv/bin/python reference/generate.py \
   --max-frames 120 --fps 12 --steps 20 \
   --strength-schedule '0:(0.35), 119:(0.45)' \
   --zoom '0:(1.01)' --angle '0:(0.2*sin(2*pi*t/fps))' \
-  --output build/deforum.mp4
+  --output resources/outputs/reference/deforum.mp4
 ```
 
 `--preset sdxl`, `illustrious`, `noobai`, `noobai-v-pred`, `pony`, `flux1-dev`, `flux1-krea-dev` 또는 해당 가중식과 호환되는 기존 프레셋을 사용하세요. `--base-model` 는 카탈로그의 정확한 패밀리 라우팅을 유지합니다. 로컬 체크포인트는 기존 `--model-config` 동반 디렉토리를 사용할 수 있습니다. Deforum 은 프레셋 로더를 사용하므로, 원시 GGUF / ComfyUI 워크플로우와 관련 없는 일반적인 아키텍처는 지원되지 않는 애니메이션 모델로 변환되지 않습니다.
@@ -80,7 +80,7 @@ python3 reference/generate.py --backend deforum --model /absolute/path/image-dif
 
 ## 아티팩트 및 검증
 
-`build/deforum.mp4`  에 대한 번들에는 `deforum.mp4` , `deforum.json`  및 `deforum-frames/frame-000000.png`  이후의 항목이 포함됩니다. 카메라 변환 및 픽셀 노이즈는 CPU 에서 실행되며 디노이징은 선택된 장치에서 실행됩니다. 이전/참조 이미지만 메모리에 유지되며 PNG 는 임시 디렉토리로 스트리밍됩니다. FFprobe 는 인코딩된 비디오를 디코딩하고 게시 전에 H.264/yuv420p, 해상도, FPS , 지속 시간 및 정확한 프레임 수를 확인합니다. 보고서는 모델/로딩 식별자, 어댑터 출처, 초기 이미지 식별자, 각 프레임의 프롬프트, 시드, 소스/출력 픽셀 해시, PNG  해시, 실제 샘플링 시간 단계, 유한한 잠재 표현 및 출력 해시를 기록합니다. GIF 는 Pillow 로 디코딩되어 10  밀isecond 시간 분해능으로 정확한 프레임 수, 차원, 루프 및 지속 시간을 확인합니다. 시드는 하드웨어 또는 런타임  버전 간에 동일한 픽셀을 보장하지 않습니다.
+`resources/outputs/reference/deforum.mp4` 에 대한 번들에는 `deforum.mp4`, `deforum.json` 및 `deforum-frames/frame-000000.png` 이후의 항목이 포함됩니다. 카메라 변환 및 픽셀 노이즈는 CPU 에서 실행되며 디노이징은 선택된 장치에서 실행됩니다. 이전/참조 이미지만 메모리에 유지되며 PNG 는 임시 디렉토리로 스트리밍됩니다. FFprobe 는 인코딩된 비디오를 디코딩하고 게시 전에 H.264/yuv420p, 해상도, FPS, 지속 시간 및 정확한 프레임 수를 확인합니다. 보고서는 모델/로딩 식별자, 어댑터 출처, 초기 이미지 식별자, 각 프레임의 프롬프트, 시드, 소스/출력 픽셀 해시, PNG 해시, 실제 샘플링 시간 단계, 유한한 잠재 표현 및 출력 해시를 기록합니다. GIF 는 Pillow 로 디코딩되어 10 밀isecond 시간 분해능으로 정확한 프레임 수, 차원, 루프 및 지속 시간을 확인합니다. 시드는 하드웨어 또는 런타임 버전 간에 동일한 픽셀을 보장하지 않습니다.
 
 기존 명시적 출력 경로는 `--overwrite` 가 제공되지 않는 한 실패합니다. 충돌 시 기본 경로는 새 번호가 붙은 접미사를 받습니다. 오버라이트는 오직 iiLocalDiffusion 애니메이션 번들로 표시된 프레임 디렉토리를만 바꿉니다. 샘플링 또는 인코딩 실패는 이전 번들을 그대로 유지하며, 파일 시스템 오류가 정상적으로 발생하면 출판 롤백은 이전 아티팩트를 복원합니다. 완성 보고서는 마지막에 게시됩니다. 프로세스 잠금 (@number@) 은 동일한 출력에 대한 동시 작성자를 방지합니다. 강제 프로세스 종료/전원 손실은 잠금 또는 임시 디렉토리를 남길 수 있습니다; 프로세스가 종료되었음을 확인한 후에만 해당 디렉토리를 제거해야 합니다. 이것은 재개 가능한 렌더링 형식이 아니거나 ACID 크로스 파일 시스템 트랜잭션이 아닙니다.
 

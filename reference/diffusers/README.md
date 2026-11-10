@@ -40,7 +40,7 @@ uv pip install \
   -r reference/diffusers/requirements.txt
 ```
 
-For AMD Radeon, use a separate environment under `build/`, install the
+For AMD Radeon, use a separate environment under `resources/.state/reference-runtime/`, install the
 GPU/OS-compatible HIP PyTorch wheel first, then install
 `requirements-rocm.txt`. It reuses the common direct pins without imposing
 the standard Torch version. The [Radeon guide](../../docs/radeon-rocm.md)
@@ -59,8 +59,10 @@ Both scripts use the shared immutable presets in `presets.py`:
 | `flux1-schnell` | `741f7c3ce8b383c54771c7003378a50191e9efe9` | 1024 x 1024 | 0.0 |
 
 They use only safetensors and disable remote code. The default cache is
-`build/reference/huggingface`, and the Xet chunk cache defaults to
-`build/reference/huggingface-xet`, not the system-volume Hugging Face cache.
+`resources/.state/reference-cache/huggingface`, and the Xet chunk cache defaults to
+`resources/.state/reference-cache/huggingface-xet`, not the system-volume Hugging Face cache.
+Generated files default to `resources/outputs/reference/` and remain available
+until explicitly removed. Cache contents can be removed when no process uses them.
 
 Inspect and persist component configs without running denoising:
 
@@ -156,7 +158,7 @@ intra-op parallelism (positive integer; default retains PyTorch's setting).
 ```bash
 reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sdxl-base --device auto --cpu-text-encoding --cpu-threads 4 \
-  --offload model --output build/reference/sdxl-cpu-ram.png
+  --offload model --output resources/outputs/reference/sdxl-cpu-ram.png
 ```
 
 `--offload` independently selects `auto`, `none`, `model`, or `sequential`.
@@ -250,7 +252,7 @@ reference/diffusers/.venv/bin/python \
   --preset flux1-schnell \
   --lora /absolute/path/to/style.safetensors \
   --lora-scale 0.75 \
-  --output build/reference/flux-style.png
+  --output resources/outputs/reference/flux-style.png
 ```
 
 LoRA adapters must be local files or directories. Directory inputs require an
@@ -390,9 +392,9 @@ Multi-ControlNet and IP-Adapter pipelines are outside this interface.
 ## Interpretation
 
 `inspect_pipeline.py` loads actual component weights through Diffusers and
-writes normalized metadata to `build/reference/pipeline-inspection.json` for
-SD 1.5, `build/reference/pipeline-inspection-sdxl-base.json` for SDXL Base, or
-`build/reference/pipeline-inspection-flux1-schnell.json` for FLUX.1-schnell.
+writes normalized metadata to `resources/outputs/reference/pipeline-inspection.json` for
+SD 1.5, `resources/outputs/reference/pipeline-inspection-sdxl-base.json` for SDXL Base, or
+`resources/outputs/reference/pipeline-inspection-flux1-schnell.json` for FLUX.1-schnell.
 It verifies the selected pipeline's required component classes; for SDXL it
 also checks the critical 2,048/2,816 conditioning widths and VAE contract. For
 FLUX.1-schnell it checks both tokenizers and text encoders, the 64-channel

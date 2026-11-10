@@ -1,5 +1,6 @@
 #include "Compute/ComputeRuntime.hpp"
 #include "Compute/LinearLayer.hpp"
+#include "TestWorkspace.h"
 
 #include <algorithm>
 #include <chrono>
@@ -500,7 +501,7 @@ int main(const int argc, const char *const argv[])
         testBatchedAndConcurrentLinear();
         testCpuAndRamParticipation();
 #if IILD_TEST_MLX_ENABLED
-        testSafetensors(IILD_COMPUTE_TEST_DIRECTORY);
+        testSafetensors(iild_test::workspace(IILD_COMPUTE_TEST_DIRECTORY,"compute"));
         if (argc == 2)
         {
             oracleParity(argv[1]);

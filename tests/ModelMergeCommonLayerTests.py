@@ -1,10 +1,10 @@
 """Cross-architecture base-layout projection and explicit instability contract."""
+import resource_fixture
 
 import importlib.util
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +20,7 @@ class ModelMergeCommonLayerTests(unittest.TestCase):
         import torch
         from safetensors.torch import save_file
         self.torch, self.save = torch, save_file
-        self.tmp = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="common-layer-")
+        self.tmp = resource_fixture.TemporaryDirectory(prefix="common-layer-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.base = self.root / "flux.safetensors"
@@ -102,6 +102,39 @@ class ModelMergeCommonLayerTests(unittest.TestCase):
                 groups = report["base_profile"]["components"]
                 self.assertEqual([groups[name]["tensor_count"] for name in ("unet", "dit", "vae", "text_encoder")], [2, 0, 1, 2])
                 self.assertEqual(report["resource_compatibility"][0]["status"], "compatible")
+
+    def test_moss_checkpoint_namespaces_are_accepted_without_synthetic_layers(self):
+        shape = {'video_embedder.weight': (4, 2), 'final_linear_video.weight': (2, 4),
+                 'layers.0.proj.qkv.weight': (12, 4)}
+        base = {key: self.torch.ones(size) for key, size in shape.items()}
+        base['rope.bands'] = self.torch.tensor([.1, .2])
+        material = {'model.diffusion_model.' + key: self.torch.full(size, 3., dtype=self.torch.float16)
+                    for key, size in shape.items()}
+        from safetensors.torch import load_file
+        self.save(base, self.base)
+        self.save(material, self.krea)
+        report = merge_models(self.base, self.krea, output=self.output, checkpoint_policy='common-layer', weights=.5)
+        tensors = load_file(self.output)
+        self.assertEqual(report['base_profile']['ecosystems'], ['moss-image'])
+        self.assertEqual(report['included_material_count'], 1)
+        self.assertEqual(report['excluded_material_count'], 0)
+        self.torch.testing.assert_close(tensors['layers.0.proj.qkv.weight'], self.torch.full((12, 4), 2.))
+        self.torch.testing.assert_close(tensors['rope.bands'], base['rope.bands'])
+        self.assertEqual(set(report['common_layers']['1']['transform_counts']), {'identity', 'base-preserved'})
+
+    def test_moss_family_requires_consistent_transformer_shapes(self):
+        from model_merge_ecosystem import identify_ecosystem
+        class Slice:
+            def __init__(self, shape): self.shape = shape
+            def get_shape(self): return self.shape
+        class Reader:
+            def __init__(self, values): self.values = values
+            def get_slice(self, key): return Slice(self.values[key])
+            def metadata(self): return {}
+        values = {'video_embedder.weight': (4, 2), 'final_linear_video.weight': (2, 4),
+                  'layers.0.proj.qkv.weight': (11, 4)}
+        layout = {('.', key): 'one' for key in values}
+        self.assertNotIn('moss-image', identify_ecosystem({'one': Reader(values)}, layout).families)
 
     def test_output_is_reopened_and_all_tensor_values_verified(self):
         report = merge_models(self.base, self.krea, output=self.output)
@@ -324,6 +357,53 @@ class ModelMergeCommonLayerTests(unittest.TestCase):
         self.torch.testing.assert_close(tensors["layer.weight"], self.torch.tensor([[3, 5], [3, 5]], dtype=self.torch.uint8))
         self.torch.testing.assert_close(tensors["layer.weight_scale"], self.torch.tensor([2., 4.]))
         self.assertEqual(report["changed_tensor_count"], 1)
+
+    def test_convrot_material_is_unrotated_before_float_blend(self):
+        h = self.torch.tensor([[1., 1., 1., -1.], [1., 1., -1., 1.],
+                               [1., -1., 1., 1.], [-1., 1., 1., 1.]]) / 2
+        encoded = self.torch.tensor([[1, 2, 3, 4], [-2, 4, 1, 8]], dtype=self.torch.int8)
+        scales = self.torch.tensor([[.25], [.5]])
+        quant = self.torch.tensor(list(json.dumps({'format': 'int8_tensorwise', 'convrot': True,
+                                                  'convrot_groupsize': 4, 'per_row': True}).encode()), dtype=self.torch.uint8)
+        tensors, _ = self.merge_fixture(
+            {'layer.weight': self.torch.zeros((2, 4))},
+            {'layer.weight': encoded, 'layer.weight_scale': scales, 'layer.comfy_quant': quant})
+        expected = (encoded.float() * scales) @ h / 2
+        self.torch.testing.assert_close(tensors['layer.weight'], expected, rtol=0, atol=0)
+
+    def test_convrot_base_requantizes_new_scales_after_float_blend(self):
+        h = self.torch.tensor([[1., 1., 1., -1.], [1., 1., -1., 1.],
+                               [1., -1., 1., 1.], [-1., 1., 1., 1.]]) / 2
+        encoded = self.torch.tensor([[10, -5, 2, 1], [4, 2, -3, 7]], dtype=self.torch.int8)
+        scales = self.torch.tensor([[.01], [.02]])
+        dense = self.torch.tensor([[10., -20., 30., 50.], [-40., 30., 60., 80.]])
+        quant = self.torch.tensor(list(json.dumps({'format': 'int8_tensorwise', 'convrot': True,
+                                                  'convrot_groupsize': 4}).encode()), dtype=self.torch.uint8)
+        tensors, report = self.merge_fixture(
+            {'layer.weight': encoded, 'layer.weight_scale': scales, 'layer.comfy_quant': quant},
+            {'layer.weight': dense})
+        target = .5 * (encoded.float() * scales + dense @ h)
+        result = tensors['layer.weight'].float() * tensors['layer.weight_scale']
+        self.assertTrue(self.torch.all((result - target).abs() <= tensors['layer.weight_scale'] * .51))
+        self.assertGreater(float(tensors['layer.weight_scale'].min()), .02)
+        self.assertEqual(report['numeric_normalization'].get('output_clipped_values', 0), 0)
+
+    def test_convrot_different_groups_merge_in_original_coordinates(self):
+        h = self.torch.tensor([[1., 1., 1., -1.], [1., 1., -1., 1.],
+                               [1., -1., 1., 1.], [-1., 1., 1., 1.]]) / 2
+        source = self.torch.arange(-8, 8, dtype=self.torch.int8).reshape(1, 16)
+        base = self.torch.arange(16, dtype=self.torch.int8).reshape(1, 16)
+        def metadata(group):
+            return self.torch.tensor(list(json.dumps({'format': 'int8_tensorwise', 'convrot': True,
+                                                      'convrot_groupsize': group}).encode()), dtype=self.torch.uint8)
+        tensors, _ = self.merge_fixture(
+            {'layer.weight': base, 'layer.weight_scale': self.torch.tensor([[.2]]), 'layer.comfy_quant': metadata(4)},
+            {'layer.weight': source, 'layer.weight_scale': self.torch.tensor([[.3]]), 'layer.comfy_quant': metadata(16)})
+        dense_base = (base.float() * .2).reshape(-1, 4) @ h
+        dense_source = (source.float() * .3) @ self.torch.kron(h, h)
+        target = ((dense_base.reshape(1, 16) + dense_source) / 2).reshape(-1, 4) @ h
+        actual = tensors['layer.weight'].float() * tensors['layer.weight_scale']
+        self.assertTrue(self.torch.all((actual.reshape(-1, 4) - target).abs() <= tensors['layer.weight_scale'] * .51))
 
     def test_block_quantization_uses_contiguous_scale_groups(self):
         tensors, _ = self.merge_fixture(

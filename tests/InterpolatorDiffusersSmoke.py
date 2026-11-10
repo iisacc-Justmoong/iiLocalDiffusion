@@ -30,7 +30,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", choices=("cpu", "mps"), default="cpu")
     args = parser.parse_args()
-    directory = ROOT / "build/interpolator-smoke"
+    directory = ROOT / "resources/outputs/verification/interpolator-smoke"
     directory.mkdir(parents=True, exist_ok=True)
     os.environ["HF_HUB_OFFLINE"] = "1"
     from PIL import Image

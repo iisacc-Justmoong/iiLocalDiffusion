@@ -5,11 +5,14 @@ from dataclasses import asdict, dataclass
 import json
 import math
 from pathlib import Path
+import shutil
 import struct
+import tempfile
 from types import SimpleNamespace
 
 from generation_defaults import checked_resource, read_defaults, canonical_lora_family
-from weight_files import LocalWeightFile, model_content_sha256, resolve_weight_file, file_signature
+from moss_vae_conversion import stage_moss_vae_weights
+from weight_files import LocalWeightFile, file_sha256, resolve_weight_file, file_signature, verify_weight_file
 
 # RGB Qwen Image 1.x pipelines share the published 16-channel latent space.
 # Layered requires an RGBA VAE; similarly sized latents from other families are
@@ -35,7 +38,7 @@ VAE_PIPELINES = {
         "FluxControlImg2ImgPipeline", "FluxControlInpaintPipeline", "FluxControlNetPipeline",
         "FluxControlNetImg2ImgPipeline", "FluxControlNetInpaintPipeline",
     }),
-    "flux2": frozenset({"Flux2Pipeline", "Flux2KleinPipeline", "Flux2KleinKVPipeline", "Flux2KleinInpaintPipeline"}),
+    "flux2": frozenset({"Flux2Pipeline", "Flux2KleinPipeline", "Flux2KleinKVPipeline", "Flux2KleinInpaintPipeline", "MOSSImagePipeline"}),
 }
 VAE_CLASSES = {"qwen-image": "AutoencoderKLQwenImage", "sdxl-base": "AutoencoderKL",
                "flux1": "AutoencoderKL", "flux2": "AutoencoderKLFlux2"}
@@ -54,7 +57,7 @@ class VaeSelection:
     class_name: str
     weight: LocalWeightFile
     config_path: str
-    config_sha256: str | None
+    config_sha256: str
 
 
 def single_file_has_vae(path):
@@ -80,7 +83,7 @@ def _select_directory(directory, expected_class, family):
         raise ValueError("VAE configuration is too large.")
     before = file_signature(config_path)
     config = json.loads(config_path.read_text())
-    digest = model_content_sha256(config_path)
+    digest = file_sha256(config_path)
     if file_signature(config_path) != before:
         raise RuntimeError("VAE configuration changed while reading.")
     if not isinstance(config, dict) or config.get("_class_name") != expected_class:
@@ -113,6 +116,8 @@ def resolve_vae_selection(args, index, folder):
     if getattr(args, "vae", None) is not None:
         if expected_class is None or name == "QwenImageLayeredPipeline":
             raise ValueError("This pipeline has no supported explicit VAE override contract.")
+        if name == "MOSSImagePipeline" and Path(args.vae).is_file():
+            return _select_moss_embedded_vae(args), "explicit"
         return _select_directory(args.vae, expected_class, family), "explicit"
     if not family:
         return None, "not-configured-for-pipeline"
@@ -129,6 +134,32 @@ def resolve_vae_selection(args, index, folder):
     if component not in (None, [None, None], ["diffusers", expected_class]):
         raise ValueError(f"The {family} model declares an incompatible VAE architecture.")
     return select_fallback_vae(family, getattr(args, "generation_resources", None)), "fallback"
+
+
+def _select_moss_embedded_vae(args):
+    """Pair package weights with the verified FLUX.2 config, then load strictly."""
+    source = resolve_weight_file(args.vae, "MOSS embedded VAE")
+    config = select_fallback_vae("flux2", getattr(args, "generation_resources", None))
+    verify_vae_selection(config)
+    cache = Path(args.cache_dir).resolve(strict=True)
+    if not cache.is_dir():
+        raise ValueError("MOSS VAE preparation requires the job cache directory.")
+    directory = Path(tempfile.mkdtemp(prefix="moss-vae-", dir=cache))
+    try:
+        destination = directory / "diffusion_pytorch_model.safetensors"
+        converted = stage_moss_vae_weights(source.resolved_file, destination, config.weight.resolved_file)
+        verify_weight_file(source, "MOSS embedded VAE")
+        shutil.copyfile(config.config_path, directory / "config.json")
+        verify_vae_selection(config)
+        selected = _select_directory(directory, "AutoencoderKLFlux2", "flux2")
+        if not converted and (selected.weight.sha256 != source.sha256 or selected.weight.size_bytes != source.size_bytes):
+            raise RuntimeError("The MOSS embedded VAE changed while preparing its configuration.")
+        if selected.config_sha256 != config.config_sha256:
+            raise RuntimeError("The MOSS VAE configuration changed while preparing the model.")
+        return selected
+    except Exception:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
 
 
 def select_fallback_vae(family, directory=None):
@@ -164,20 +195,25 @@ def select_fallback_vae(family, directory=None):
     config_path = (root / relative).resolve(strict=True)
     if not config_path.is_relative_to(root):
         raise ValueError("Bundled VAE configuration escapes its package.")
-    digest = model_content_sha256(config_path)
-    if digest is not None and (config_path.stat().st_size != config["size"] or digest != config["sha256"]):
-        raise ValueError("Bundled VAE configuration differs from its manifest.")
     selection = _select_directory(Path(weight.path).parent, item["class_name"], family)
     if selection.config_path != str(config_path):
         raise ValueError("Bundled VAE weights and configuration must share a directory.")
+    if config_path.stat().st_size != config["size"] or selection.config_sha256 != config["sha256"]:
+        raise ValueError("Bundled VAE configuration differs from its manifest.")
     return selection
 
 
 def verify_vae_selection(selection):
     if selection is None:
         return
-    if (resolve_weight_file(selection.weight.path, "VAE") != selection.weight
-            or model_content_sha256(Path(selection.config_path)) != selection.config_sha256):
+    config = Path(selection.config_path)
+    try:
+        before = file_signature(config)
+        digest = file_sha256(config)
+        config_changed = file_signature(config) != before or digest != selection.config_sha256
+    except OSError as error:
+        raise RuntimeError("The selected VAE changed while loading or generating.") from error
+    if resolve_weight_file(selection.weight.path, "VAE") != selection.weight or config_changed:
         raise RuntimeError("The selected VAE changed while loading or generating.")
 
 
@@ -207,8 +243,11 @@ def resolve_preset_vae(preset, args):
 def load_selected_vae(selection, diffusers, dtype):
     verify_vae_selection(selection)
     component_class = getattr(diffusers, selection.class_name)
-    component = component_class.from_pretrained(selection.directory, dtype=dtype,
-        local_files_only=True, use_safetensors=True, trust_remote_code=False)
+    component, info = component_class.from_pretrained(selection.directory, dtype=dtype,
+        local_files_only=True, use_safetensors=True, trust_remote_code=False, output_loading_info=True)
+    if not isinstance(info, dict) or any(info.get(key) for key in (
+            "missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs")):
+        raise RuntimeError(f"VAE weights do not exactly match their configuration: {info}")
     from model_loading import require_materialized_component
     require_materialized_component(component, "vae")
     verify_vae_selection(selection)

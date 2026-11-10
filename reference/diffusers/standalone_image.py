@@ -16,9 +16,11 @@ from generation_config import configuration_values, json_object
 from inference_session import is_preparing
 from weight_files import file_sha256, verify_weight_file
 from presets import PRESETS
+from resource_paths import OUTPUT_DIRECTORY
 from vae_defaults import pipeline_vae_family, verify_vae_selection
 
 ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_OUTPUT_DIRECTORY = OUTPUT_DIRECTORY / "standalone-image"
 
 
 def build_parser():
@@ -118,7 +120,7 @@ def main(argv=None):
             return 0
         if is_preparing() or (args.output_dir is None and not args.output_was_default):
             return runner(preset, args)
-        output = empty_directory(args.output_dir or ROOT / "build/reference/standalone-image" / uuid.uuid4().hex, defer_creation=True)
+        output = empty_directory(args.output_dir or DEFAULT_OUTPUT_DIRECTORY / uuid.uuid4().hex, defer_creation=True)
         if args.work_dir:
             work = empty_directory(args.work_dir)
             provider.write_text(work / "request.json", json.dumps(configuration(args), indent=2))

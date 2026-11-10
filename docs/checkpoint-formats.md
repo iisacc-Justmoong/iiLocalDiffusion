@@ -121,6 +121,8 @@ IILD_CHECKPOINT_REAL_RUNTIME_TESTS=1 \
 구형 non-zip `.pt`를 변환한 뒤 safetensors로 다시 읽어 key·값·dtype·contiguity와
 원본 SHA 불변을 검사했다. 실행 시 marker를 쓰도록 구성된 `__reduce__` fixture는
 제한된 unpickler에서 거부되었으며 marker가 생성되지 않았음을 검사했다. 증거는
-`build/reference/checkpoint-conversion-smoke/tiny-conversion.json` 및
-`malicious-checkpoint.json`에 저장된다. 이 tiny fixture 검증은 실제 배포 모델의
+당시 `build/reference/checkpoint-conversion-smoke/tiny-conversion.json` 및
+`malicious-checkpoint.json`에 저장됐다. 현재 테스트는 결과 JSON을 표준 출력으로
+내보내고, 임시 입력과 변환 결과는 `resources/test-workspaces/`에서 정리한다.
+이 tiny fixture 검증은 실제 배포 모델의
 생성 검증을 대신하지 않는다.

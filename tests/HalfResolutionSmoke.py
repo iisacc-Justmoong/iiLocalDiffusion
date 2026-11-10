@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline two-stage image smoke; artifacts stay under build/.
+"""Offline two-stage image smoke; artifacts stay under resources/outputs/verification/.
 
 The default uses random tiny SD1/SDXL weights and the public preset runner.
 --native-model additionally exercises a caller-provided real checkpoint via
@@ -9,7 +9,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-import tempfile
+import resource_runner
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +20,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native-model", type=Path)
     args = parser.parse_args()
-    output = Path(tempfile.mkdtemp(prefix="half-resolution-", dir=ROOT / "build"))
+    base = ROOT / "resources/outputs/verification/half-resolution"
+    provider = resource_runner._provider()
+    provider.mkdir(base, parents=True, exist_ok=True)
+    output = Path(provider.mkdtemp(prefix="run-", dir=base))
     reports = []
     if args.native_model:
         from native_image import NativeEngine

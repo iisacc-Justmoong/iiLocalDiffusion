@@ -10,9 +10,9 @@
   },
   "source": {
     "path": "THIRD_PARTY_NOTICES.md",
-    "sha256": "b2458ca7c8cf9f659632fc726468e39ea33d5429239ebcd5a91e5e3fb2485ff4",
-    "bytes": 12010,
-    "line_count": 160,
+    "sha256": "9a7a4d533a81b1203ae6c20aabce7d59304795adddbcbe4be285ffc0136d8dc9",
+    "bytes": 15411,
+    "line_count": 192,
     "encoding": "utf-8",
     "language": "en"
   },
@@ -196,50 +196,50 @@
       "id": "b000025",
       "kind": "paragraph",
       "start_line": 108,
-      "end_line": 113,
-      "raw": "Optional Deforum 2D animation uses OpenCV through\n`opencv-python-headless==4.13.0.92` (OpenCV Apache-2.0, plus the wheel's packaging\nand third-party notices). It also invokes separately installed FFmpeg/FFprobe;\nthe required libx264-enabled FFmpeg build is GPL. These executables are not\nbundled. No Deforum notebook or AUTOMATIC1111 extension source is copied into\nthis repository. See `docs/deforum-video.md` and `docs/dependencies.md`.\n"
+      "end_line": 114,
+      "raw": "The FLUX.2 Fun control integration adapts the control-branch architecture\nand conditioning contract of Alibaba VideoX-Fun revision\n`e8c314fbfa494d0429bbef605c9f6112b79a7ead`, copyright Alibaba, Inc. and\naffiliates (Apache-2.0). It uses Diffusers blocks with temporary hooks instead\nof the upstream custom pipeline. The Apache-2.0 license text is included as\n`reference/diffusers/vendor_moss/LICENSE.txt`. User-selected model weights,\nincluding the separately licensed FLUX.2 Fun checkpoints, are not bundled.\n"
     },
     {
       "id": "b000026",
       "kind": "blank",
-      "start_line": 114,
-      "end_line": 114,
+      "start_line": 115,
+      "end_line": 115,
       "raw": "\n"
     },
     {
       "id": "b000027",
       "kind": "paragraph",
-      "start_line": 115,
-      "end_line": 119,
-      "raw": "Interpolator reuses the existing PyTorch, Diffusers, NumPy and Pillow packages\nand the shared external FFmpeg/FFprobe video path. It introduces no additional\nthird-party package or bundled model. The DiffusionBee Interpolator's published\nprompt/seed blending behavior was reviewed as a method reference; no\nDiffusionBee source is vendored or imported. See `docs/interpolator-video.md`.\n"
+      "start_line": 116,
+      "end_line": 121,
+      "raw": "Optional Deforum 2D animation uses OpenCV through\n`opencv-python-headless==4.13.0.92` (OpenCV Apache-2.0, plus the wheel's packaging\nand third-party notices). It also invokes separately installed FFmpeg/FFprobe;\nthe required libx264-enabled FFmpeg build is GPL. These executables are not\nbundled. No Deforum notebook or AUTOMATIC1111 extension source is copied into\nthis repository. See `docs/deforum-video.md` and `docs/dependencies.md`.\n"
     },
     {
       "id": "b000028",
       "kind": "blank",
-      "start_line": 120,
-      "end_line": 120,
+      "start_line": 122,
+      "end_line": 122,
       "raw": "\n"
     },
     {
       "id": "b000029",
       "kind": "paragraph",
-      "start_line": 121,
-      "end_line": 124,
-      "raw": "The separate post-LTX frame Interpolator invokes the existing external FFmpeg\n`minterpolate` filter and uses Pillow to validate output PNGs. No FFmpeg source,\nnew third-party runtime or interpolation-model weights are bundled. The external\nFFmpeg build retains the licensing described above. See `docs/temporal-video.md`.\n"
+      "start_line": 123,
+      "end_line": 127,
+      "raw": "Interpolator reuses the existing PyTorch, Diffusers, NumPy and Pillow packages\nand the shared external FFmpeg/FFprobe video path. It introduces no additional\nthird-party package or bundled model. The DiffusionBee Interpolator's published\nprompt/seed blending behavior was reviewed as a method reference; no\nDiffusionBee source is vendored or imported. See `docs/interpolator-video.md`.\n"
     },
     {
       "id": "b000030",
       "kind": "blank",
-      "start_line": 125,
-      "end_line": 125,
+      "start_line": 128,
+      "end_line": 128,
       "raw": "\n"
     },
     {
       "id": "b000031",
       "kind": "paragraph",
-      "start_line": 126,
+      "start_line": 129,
       "end_line": 132,
-      "raw": "Apple builds link privately against the system Foundation and Core ML\nframeworks, subject to Apple's platform/SDK terms. These frameworks are not\nredistributed by the install. The optional offline `reference/coreml/` tool\nuses coremltools 9.0 (BSD-3-Clause), NumPy 2.3.5 (BSD-3-Clause), safetensors\n0.6.2 (Apache-2.0), and ml_dtypes 0.5.3 (Apache-2.0), plus their packaged\ndependencies. Their Python environment is not part of the C++ runtime or\ninstalled library. Each upstream distribution retains its full notices.\n"
+      "raw": "The separate post-LTX frame Interpolator invokes the existing external FFmpeg\n`minterpolate` filter and uses Pillow to validate output PNGs. No FFmpeg source,\nnew third-party runtime or interpolation-model weights are bundled. The external\nFFmpeg build retains the licensing described above. See `docs/temporal-video.md`.\n"
     },
     {
       "id": "b000032",
@@ -252,121 +252,135 @@
       "id": "b000033",
       "kind": "paragraph",
       "start_line": 134,
-      "end_line": 139,
-      "raw": "No model weights are included. The configured Stable Diffusion 1.5 reference\nrepository declares the CreativeML OpenRAIL-M model license. The configured\nStable Diffusion XL Base 1.0 reference declares the CreativeML Open RAIL++-M\nmodel license. The configured Black Forest Labs FLUX.1-schnell reference is\nlicensed under Apache-2.0. FLUX.1-dev is not a configured reference and its\nseparate non-commercial terms are not treated as interchangeable with Schnell.\n"
+      "end_line": 140,
+      "raw": "Apple builds link privately against the system Foundation and Core ML\nframeworks, subject to Apple's platform/SDK terms. These frameworks are not\nredistributed by the install. The optional offline `reference/coreml/` tool\nuses coremltools 9.0 (BSD-3-Clause), NumPy 2.3.5 (BSD-3-Clause), safetensors\n0.6.2 (Apache-2.0), and ml_dtypes 0.5.3 (Apache-2.0), plus their packaged\ndependencies. Their Python environment is not part of the C++ runtime or\ninstalled library. Each upstream distribution retains its full notices.\n"
     },
     {
       "id": "b000034",
       "kind": "blank",
-      "start_line": 140,
-      "end_line": 140,
+      "start_line": 141,
+      "end_line": 141,
       "raw": "\n"
     },
     {
       "id": "b000035",
       "kind": "paragraph",
-      "start_line": 141,
-      "end_line": 141,
-      "raw": "Native inference also applies `native-mapped-upload.patch` to the pinned MIT backend. It removes a redundant host allocation/copy for unchanged memory-mapped tensors; conversion paths retain upstream behavior.\n"
+      "start_line": 142,
+      "end_line": 147,
+      "raw": "No model weights are included. The configured Stable Diffusion 1.5 reference\nrepository declares the CreativeML OpenRAIL-M model license. The configured\nStable Diffusion XL Base 1.0 reference declares the CreativeML Open RAIL++-M\nmodel license. The configured Black Forest Labs FLUX.1-schnell reference is\nlicensed under Apache-2.0. FLUX.1-dev is not a configured reference and its\nseparate non-commercial terms are not treated as interchangeable with Schnell.\n"
     },
     {
       "id": "b000036",
       "kind": "blank",
-      "start_line": 142,
-      "end_line": 142,
+      "start_line": 148,
+      "end_line": 148,
       "raw": "\n"
     },
     {
       "id": "b000037",
       "kind": "paragraph",
-      "start_line": 143,
-      "end_line": 143,
-      "raw": "The tensor-wakeup patch wakes progress waits when model readers finish, preserving progress cadence, conversion behavior, and joined-thread cancellation.\n"
+      "start_line": 149,
+      "end_line": 149,
+      "raw": "Native inference also applies `native-mapped-upload.patch` to the pinned MIT backend. It removes a redundant host allocation/copy for unchanged memory-mapped tensors; conversion paths retain upstream behavior.\n"
     },
     {
       "id": "b000038",
       "kind": "blank",
-      "start_line": 144,
-      "end_line": 144,
+      "start_line": 150,
+      "end_line": 150,
       "raw": "\n"
     },
     {
       "id": "b000039",
       "kind": "paragraph",
-      "start_line": 145,
-      "end_line": 145,
-      "raw": "The pinned ggml Metal backend includes `native-metal-shared-upload.patch` to identify shared storage. The mapped loader copies disjoint shared-memory tensors concurrently; private GPU buffers retain serialized uploads. MIT licenses remain unchanged.\n"
+      "start_line": 151,
+      "end_line": 151,
+      "raw": "The tensor-wakeup patch wakes progress waits when model readers finish, preserving progress cadence, conversion behavior, and joined-thread cancellation.\n"
     },
     {
       "id": "b000040",
       "kind": "blank",
-      "start_line": 146,
-      "end_line": 146,
+      "start_line": 152,
+      "end_line": 152,
       "raw": "\n"
     },
     {
       "id": "b000041",
       "kind": "paragraph",
-      "start_line": 147,
-      "end_line": 148,
-      "raw": "Q8 disk preparation uses the pinned MIT backend streaming converter. `native-conversion-cancellation.patch` adds cooperative abort checks before and after tensor conversion, preserving worker joining and error propagation. No new dependency is introduced.\nThe conversion patch also uses read-only mmap and reduces queued output reservations to 256 MiB to leave headroom for source and conversion scratch memory on mobile devices.\n"
+      "start_line": 153,
+      "end_line": 153,
+      "raw": "The pinned ggml Metal backend includes `native-metal-shared-upload.patch` to identify shared storage. The mapped loader copies disjoint shared-memory tensors concurrently; private GPU buffers retain serialized uploads. MIT licenses remain unchanged.\n"
     },
     {
       "id": "b000042",
       "kind": "blank",
-      "start_line": 149,
-      "end_line": 149,
+      "start_line": 154,
+      "end_line": 154,
       "raw": "\n"
     },
     {
       "id": "b000043",
       "kind": "paragraph",
-      "start_line": 150,
-      "end_line": 150,
-      "raw": "`native-thread-safe-logging.patch` gives concurrent logging calls independent buffers and passes preformatted ggml messages as string arguments. Conversion scratch contexts use RAII so cancellation exceptions release them.\n"
+      "start_line": 155,
+      "end_line": 156,
+      "raw": "Q8 disk preparation uses the pinned MIT backend streaming converter. `native-conversion-cancellation.patch` adds cooperative abort checks before and after tensor conversion, preserving worker joining and error propagation. No new dependency is introduced.\nThe conversion patch also uses read-only mmap and reduces queued output reservations to 256 MiB to leave headroom for source and conversion scratch memory on mobile devices.\n"
     },
     {
       "id": "b000044",
       "kind": "blank",
-      "start_line": 151,
-      "end_line": 151,
+      "start_line": 157,
+      "end_line": 157,
       "raw": "\n"
     },
     {
       "id": "b000045",
       "kind": "paragraph",
-      "start_line": 152,
-      "end_line": 152,
-      "raw": "The bundled Qwen-Image VAE and original configuration are from [Qwen/Qwen-Image](https://huggingface.co/Qwen/Qwen-Image/tree/75e0b4be04f60ec59a75f475837eced720f823b6/vae), revision `75e0b4be04f60ec59a75f475837eced720f823b6`, under Apache-2.0. The unmodified license is installed at `share/iiLocalDiffusion/resources/vae/qwen-image/LICENSE`; file identities are recorded in `generation-defaults.json`. The SDK consumes the unmodified weights through its existing Diffusers and stable-diffusion.cpp dependencies. `native-vae-fallback.patch` adds metadata-only Qwen RGB, SDXL, FLUX.1 and FLUX.2 VAE omission inspection to the MIT native backend; no new dependency or weights conversion is introduced.\n"
+      "start_line": 158,
+      "end_line": 158,
+      "raw": "`native-thread-safe-logging.patch` gives concurrent logging calls independent buffers and passes preformatted ggml messages as string arguments. Conversion scratch contexts use RAII so cancellation exceptions release them.\n"
     },
     {
       "id": "b000046",
       "kind": "blank",
-      "start_line": 153,
-      "end_line": 153,
+      "start_line": 159,
+      "end_line": 159,
       "raw": "\n"
     },
     {
       "id": "b000047",
+      "kind": "paragraph",
+      "start_line": 160,
+      "end_line": 160,
+      "raw": "The bundled Qwen-Image VAE and original configuration are from [Qwen/Qwen-Image](https://huggingface.co/Qwen/Qwen-Image/tree/75e0b4be04f60ec59a75f475837eced720f823b6/vae), revision `75e0b4be04f60ec59a75f475837eced720f823b6`, under Apache-2.0. The unmodified license is installed at `share/iiLocalDiffusion/resources/vae/qwen-image/LICENSE`; file identities are recorded in `generation-defaults.json`. The SDK consumes the unmodified weights through its existing Diffusers and stable-diffusion.cpp dependencies. `native-vae-fallback.patch` adds metadata-only Qwen RGB, SDXL, FLUX.1 and FLUX.2 VAE omission inspection to the MIT native backend; no new dependency or weights conversion is introduced.\n"
+    },
+    {
+      "id": "b000048",
+      "kind": "blank",
+      "start_line": 161,
+      "end_line": 161,
+      "raw": "\n"
+    },
+    {
+      "id": "b000049",
       "kind": "heading",
-      "start_line": 154,
-      "end_line": 154,
+      "start_line": 162,
+      "end_line": 162,
       "raw": "### Additional bundled VAE components\n",
       "level": 3,
       "title": "Additional bundled VAE components"
     },
     {
-      "id": "b000048",
+      "id": "b000050",
       "kind": "blank",
-      "start_line": 155,
-      "end_line": 155,
+      "start_line": 163,
+      "end_line": 163,
       "raw": "\n"
     },
     {
-      "id": "b000049",
+      "id": "b000051",
       "kind": "list",
-      "start_line": 156,
-      "end_line": 158,
+      "start_line": 164,
+      "end_line": 166,
       "raw": "- SDXL: unmodified `stabilityai/sdxl-vae` at `6f5909a7e596173e25d4e97b07fd19cdf9611c76`. Upstream declares MIT in its model card; the original card is preserved in `resources/vae/sdxl/README.md` (upstream supplies no separate license file).\n- FLUX.1: `diffusers/FLUX.1-vae` at `da548cfb003bdeebaff6da0211fc8fbc67cb563a`, byte-identical weights and configuration to BFL FLUX.1 schnell at `741f7c3ce8b383c54771c7003378a50191e9efe9`. Apache-2.0 terms and provenance are in `resources/vae/flux1/LICENSE` and `NOTICE.md`.\n- FLUX.2: unmodified VAE from `black-forest-labs/FLUX.2-klein-4B` at `e7b7dc27f91deacad38e78976d1f2b499d76a294`, Apache-2.0. Original license and model card are included in `resources/vae/flux2/`.\n",
       "items": [
         {
@@ -387,18 +401,106 @@
       ]
     },
     {
-      "id": "b000050",
+      "id": "b000052",
       "kind": "blank",
-      "start_line": 159,
-      "end_line": 159,
+      "start_line": 167,
+      "end_line": 167,
       "raw": "\n"
     },
     {
-      "id": "b000051",
+      "id": "b000053",
       "kind": "paragraph",
-      "start_line": 160,
-      "end_line": 160,
+      "start_line": 168,
+      "end_line": 168,
       "raw": "Only these VAE components are bundled, with pinned SHA-256 and configuration identities in `generation-defaults.json`. Other denoiser checkpoints retain their own licenses. Existing Diffusers and stable-diffusion.cpp load the files; no additional runtime dependency is introduced.\n"
+    },
+    {
+      "id": "b000054",
+      "kind": "blank",
+      "start_line": 169,
+      "end_line": 169,
+      "raw": "\n"
+    },
+    {
+      "id": "b000055",
+      "kind": "heading",
+      "start_line": 170,
+      "end_line": 170,
+      "raw": "### Krea 2 checkpoint name mapping\n",
+      "level": 3,
+      "title": "Krea 2 checkpoint name mapping"
+    },
+    {
+      "id": "b000056",
+      "kind": "blank",
+      "start_line": 171,
+      "end_line": 171,
+      "raw": "\n"
+    },
+    {
+      "id": "b000057",
+      "kind": "paragraph",
+      "start_line": 172,
+      "end_line": 172,
+      "raw": "The original Krea 2 transformer name mapping in `reference/diffusers/krea2_single_file.py` follows the Apache-2.0 [Diffusers conversion contract](https://github.com/huggingface/diffusers/blob/86ef420b17363c28e36ebad6b58555e9aa8feda2/src/diffusers/loaders/single_file_utils.py). The scalar FP8 layout and dequantization behavior also follow the Apache-2.0 [ComfyUI quantization format](https://github.com/Comfy-Org/ComfyUI/blob/master/QUANTIZATION.md) and [Comfy Kitchen eager backend](https://github.com/Comfy-Org/comfy-kitchen/blob/main/comfy_kitchen/backends/eager/quantization.py). Krea 2 model weights have their own community license.\n"
+    },
+    {
+      "id": "b000058",
+      "kind": "blank",
+      "start_line": 173,
+      "end_line": 173,
+      "raw": "\n"
+    },
+    {
+      "id": "b000059",
+      "kind": "paragraph",
+      "start_line": 174,
+      "end_line": 174,
+      "raw": "The original FLUX.1 transformer mapping in `reference/diffusers/flux1_transformer_stream.py` follows the Apache-2.0 [Diffusers single-file conversion contract](https://github.com/huggingface/diffusers/blob/86ef420b17363c28e36ebad6b58555e9aa8feda2/src/diffusers/loaders/single_file_utils.py), including its fused projections and modulation ordering. FLUX model weights have their own licenses.\n"
+    },
+    {
+      "id": "b000060",
+      "kind": "blank",
+      "start_line": 175,
+      "end_line": 175,
+      "raw": "\n"
+    },
+    {
+      "id": "b000061",
+      "kind": "paragraph",
+      "start_line": 176,
+      "end_line": 176,
+      "raw": "The MOSS Qwen3.5 ConvRot INT8 format and portable arithmetic in `reference/diffusers/moss_convrot.py` follow the Apache-2.0 [Comfy Kitchen eager backend](https://github.com/Comfy-Org/comfy-kitchen/blob/cdab4787a89de5ea9d2bd0bf6ddc6b9e94249d27/comfy_kitchen/backends/eager/quantization.py) and [rotation helpers](https://github.com/Comfy-Org/comfy-kitchen/blob/cdab4787a89de5ea9d2bd0bf6ddc6b9e94249d27/comfy_kitchen/tensor/int8_utils.py). Unmodified copies of those files and the corresponding activations module are held under `resources/test-fixtures/comfy-kitchen-cdab-*.py` solely as offline test references, alongside their upstream `LICENSE` and `NOTICE` files. The Apache 2.0 license text is also included in `reference/diffusers/vendor_moss/LICENSE.txt`. Model files have separate licenses.\n"
+    },
+    {
+      "id": "b000062",
+      "kind": "blank",
+      "start_line": 177,
+      "end_line": 177,
+      "raw": "\n"
+    },
+    {
+      "id": "b000063",
+      "kind": "heading",
+      "start_line": 178,
+      "end_line": 178,
+      "raw": "### MOSS-Image reference pipeline\n",
+      "level": 3,
+      "title": "MOSS-Image reference pipeline"
+    },
+    {
+      "id": "b000064",
+      "kind": "blank",
+      "start_line": 179,
+      "end_line": 179,
+      "raw": "\n"
+    },
+    {
+      "id": "b000065",
+      "kind": "paragraph",
+      "start_line": 180,
+      "end_line": 192,
+      "raw": "The MOSS-Image reference pipeline in `reference/diffusers/vendor_moss/pipeline.py`\nis distributed by OpenMOSS under the Apache License 2.0, included alongside it\nas `LICENSE.txt`. It is based on model repository revision\n`85975793d8b3d432f1b6e27f352abaa4c2a4c0d3`; the upstream source SHA-256 is\n`1dac1aca9feb1bfdfc727a401e4b67d61a505d3190706d1b7d2d784f88678b31`.\nThe local source changes the MPS timestep sinusoid to run in float64 on the CPU,\nas in the upstream MPS runtime, because MPS does not support float64. It also\naccepts optional masks for iiLocalDiffusion's color-map regional attention; the\noriginal unmasked path remains the default. Its SHA-256 is\n`15696ad1d31d9dd4fcc44cb1cee966766ff7b7b5f293f7213721a65cdf9569db`.\nAn unmodified copy of that source is retained as the offline comparison fixture\n`resources/test-fixtures/moss-image-pipeline-upstream-85975793.py`.\nSource: https://huggingface.co/OpenMOSS-Team/MOSS-Image-Base/tree/85975793d8b3d432f1b6e27f352abaa4c2a4c0d3\n"
     }
   ],
   "outline": [
@@ -411,12 +513,28 @@
       "start_line": 1
     },
     {
-      "block_id": "b000047",
+      "block_id": "b000049",
       "parent_id": "b000001",
       "level": 3,
       "title": "Additional bundled VAE components",
       "anchor": "additional-bundled-vae-components",
-      "start_line": 154
+      "start_line": 162
+    },
+    {
+      "block_id": "b000055",
+      "parent_id": "b000001",
+      "level": 3,
+      "title": "Krea 2 checkpoint name mapping",
+      "anchor": "krea-2-checkpoint-name-mapping",
+      "start_line": 170
+    },
+    {
+      "block_id": "b000063",
+      "parent_id": "b000001",
+      "level": 3,
+      "title": "MOSS-Image reference pipeline",
+      "anchor": "moss-image-reference-pipeline",
+      "start_line": 178
     }
   ],
   "indexes": {
@@ -436,8 +554,8 @@
         "context": "paragraph"
       },
       {
-        "block_id": "b000025",
-        "line": 111,
+        "block_id": "b000027",
+        "line": 119,
         "text": "the required libx264-enabled FFmpeg build is GPL. These executables are not",
         "basis": "lexical_match",
         "context": "paragraph"
@@ -467,11 +585,53 @@
         "line": 63
       },
       {
-        "block_id": "b000045",
+        "block_id": "b000047",
         "label": "Qwen/Qwen-Image",
         "target": "https://huggingface.co/Qwen/Qwen-Image/tree/75e0b4be04f60ec59a75f475837eced720f823b6/vae",
         "kind": "external",
-        "line": 152
+        "line": 160
+      },
+      {
+        "block_id": "b000057",
+        "label": "Diffusers conversion contract",
+        "target": "https://github.com/huggingface/diffusers/blob/86ef420b17363c28e36ebad6b58555e9aa8feda2/src/diffusers/loaders/single_file_utils.py",
+        "kind": "external",
+        "line": 172
+      },
+      {
+        "block_id": "b000057",
+        "label": "ComfyUI quantization format",
+        "target": "https://github.com/Comfy-Org/ComfyUI/blob/master/QUANTIZATION.md",
+        "kind": "external",
+        "line": 172
+      },
+      {
+        "block_id": "b000057",
+        "label": "Comfy Kitchen eager backend",
+        "target": "https://github.com/Comfy-Org/comfy-kitchen/blob/main/comfy_kitchen/backends/eager/quantization.py",
+        "kind": "external",
+        "line": 172
+      },
+      {
+        "block_id": "b000059",
+        "label": "Diffusers single-file conversion contract",
+        "target": "https://github.com/huggingface/diffusers/blob/86ef420b17363c28e36ebad6b58555e9aa8feda2/src/diffusers/loaders/single_file_utils.py",
+        "kind": "external",
+        "line": 174
+      },
+      {
+        "block_id": "b000061",
+        "label": "Comfy Kitchen eager backend",
+        "target": "https://github.com/Comfy-Org/comfy-kitchen/blob/cdab4787a89de5ea9d2bd0bf6ddc6b9e94249d27/comfy_kitchen/backends/eager/quantization.py",
+        "kind": "external",
+        "line": 176
+      },
+      {
+        "block_id": "b000061",
+        "label": "rotation helpers",
+        "target": "https://github.com/Comfy-Org/comfy-kitchen/blob/cdab4787a89de5ea9d2bd0bf6ddc6b9e94249d27/comfy_kitchen/tensor/int8_utils.py",
+        "kind": "external",
+        "line": 176
       }
     ],
     "tables": []

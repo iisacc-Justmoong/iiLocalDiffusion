@@ -1,5 +1,7 @@
 """Exercise native packaging with real file formats and independent byte checks."""
+import resource_fixture
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -7,7 +9,6 @@ import signal
 import struct
 import subprocess
 import sys
-import tempfile
 import unittest
 
 PROGRAM = Path(sys.argv.pop(1)).resolve()
@@ -70,7 +71,7 @@ def fixture(folder, encoder=True):
 
 class PackagingTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="model-packaging-test-", dir=PROGRAM.parent)
+        self.temporary = resource_fixture.TemporaryDirectory(prefix="model-packaging-test-")
         self.root = Path(self.temporary.name)
         self.input = self.root / "input"
         self.input.mkdir()
@@ -88,6 +89,396 @@ class PackagingTests(unittest.TestCase):
         else:
             self.assertNotEqual(result.returncode, 0, result.stdout)
         return reports[-1]
+
+    def test_python_api_packaging_selection(self):
+        spec = importlib.util.spec_from_file_location("iild_model_packaging",
+            Path(__file__).resolve().parents[1] / "src/ModelPackaging/python/iild_model_packaging.py")
+        api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(api)
+        main = self.input / "Checkpoint" / "main.safetensors"
+        safetensors(main, [("model.diffusion_model.weight", "BF16", [1], b"\x01\x02")])
+        safetensors(self.input / "Checkpoint" / "other.safetensors", [("other", "BF16", [1], b"\x03\x04")])
+        selected = ["Checkpoint/main.safetensors"]
+        report = api.scan_selection(self.input, selected, executable=PROGRAM)
+        self.assertEqual([item["relative_path"] for item in report["files"]], selected)
+        output = self.root / "python.safetensors"
+        self.assertTrue(api.create_selection(self.input, selected, output, executable=PROGRAM)["verified"])
+        with self.assertRaises(ValueError):
+            api.scan_selection(self.input, [], executable=PROGRAM)
+        with self.assertRaises(api.ModelPackagingError):
+            api.scan_selection(self.input, ["../outside.safetensors"], executable=PROGRAM)
+
+    def test_manual_roles_and_main_position_are_packaged_and_survive_calibration(self):
+        large = self.input / "Checkpoint" / "large.safetensors"
+        small = self.input / "Checkpoint" / "small.safetensors"
+        encoder = self.input / "Other" / "ambiguous.safetensors"
+        safetensors(large, [("large.weight", "BF16", [100], b"\x01\x02" * 100)])
+        safetensors(small, [("small.weight", "BF16", [1], b"\x03\x04")])
+        safetensors(encoder, [("encoder.weight", "BF16", [1], b"\x05\x06")])
+        options = ("--assign-position", "Checkpoint/small.safetensors=main",
+                   "--assign-role", "Other/ambiguous.safetensors=text_encoder")
+        report = self.run_tool("scan", "--input", self.input, *options)
+        self.assertTrue(report["ready"], report["errors"])
+        rows = {entry["relative_path"]: entry for entry in report["files"]}
+        self.assertEqual(rows["Checkpoint/small.safetensors"]["position"], "main")
+        self.assertEqual(rows["Checkpoint/large.safetensors"]["position"], "component")
+        self.assertEqual(rows["Other/ambiguous.safetensors"]["role"], "text_encoder")
+        self.assertTrue(any(c["id"] == "Other/ambiguous.safetensors" and c["label"] == "Text encoder" for c in report["components"]))
+        output = self.root / "manual.safetensors"
+        self.assertTrue(self.run_tool("create", "--input", self.input, "--output", output, *options)["verified"])
+        header, _ = read_header(output)
+        self.assertIn("small.weight", header)
+        self.assertIn("components/model/Checkpoint/large.safetensors/large.weight", header)
+        self.assertIn("components/text_encoder/Other/ambiguous.safetensors/encoder.weight", header)
+        manifest = json.loads(header["__metadata__"]["iild_package_manifest"])
+        rows = {entry["path"]: entry for entry in manifest["files"]}
+        self.assertEqual(rows["Checkpoint/small.safetensors"]["position_source"], "user")
+        self.assertEqual(rows["Other/ambiguous.safetensors"]["role_source"], "user")
+        restored = self.root / "restored-manual"
+        self.run_tool("extract", "--input", output, "--output", restored)
+        for source in (large, small, encoder):
+            self.assertEqual((restored / source.relative_to(self.input)).read_bytes(), source.read_bytes())
+        calibrated = self.root / "calibrated-manual.safetensors"
+        self.run_tool("calibrate", "--input", output, "--output", calibrated)
+        calibrated_header, _ = read_header(calibrated)
+        self.assertIn("small.weight", calibrated_header)
+        self.assertIn("components/text_encoder/Other/ambiguous.safetensors/encoder.weight", calibrated_header)
+
+    def test_manual_assignments_validate_and_python_api_forwards_them(self):
+        help_result = subprocess.run([str(PROGRAM)], text=True, capture_output=True, timeout=30)
+        self.assertIn("--assign-position", json.loads(help_result.stdout)["error"])
+        safetensors(self.input / "a.safetensors", [("a", "BF16", [1], b"\x01\x02")])
+        safetensors(self.input / "b.safetensors", [("b", "BF16", [1], b"\x03\x04")])
+        bad = [
+            ("--assign-role", "../a.safetensors=model"),
+            ("--assign-role", "missing.safetensors=model"),
+            ("--assign-role", "a.safetensors=imaginary"),
+            ("--assign-position", "a.safetensors=front"),
+            ("--assign-role", "a.safetensors=text_encoder", "--assign-position", "a.safetensors=main"),
+            ("--assign-position", "a.safetensors=main", "--assign-position", "b.safetensors=main"),
+        ]
+        for options in bad:
+            with self.subTest(options=options):
+                output = self.root / "invalid.safetensors"
+                self.run_tool("create", "--input", self.input, "--output", output, *options, success=False)
+                self.assertFalse(output.exists())
+        no_main = self.run_tool("scan", "--input", self.input,
+                                "--assign-position", "a.safetensors=component",
+                                "--assign-position", "b.safetensors=component")
+        self.assertFalse(no_main["ready"])
+        self.assertIn("main model", " ".join(no_main["errors"]).lower())
+        spec = importlib.util.spec_from_file_location("iild_model_packaging", Path(__file__).resolve().parents[1] / "src/ModelPackaging/python/iild_model_packaging.py")
+        api = importlib.util.module_from_spec(spec); spec.loader.exec_module(api)
+        choices = {"b.safetensors": {"position": "main"}}
+        report = api.scan_selection(self.input, ["a.safetensors", "b.safetensors"], assignments=choices, executable=PROGRAM)
+        self.assertEqual(next(f for f in report["files"] if f["id"] == "b.safetensors")["position"], "main")
+
+    def test_manual_main_position_applies_to_whole_sharded_model(self):
+        safetensors(self.input / "a.safetensors", [("a", "BF16", [1], b"\x01\x02")])
+        safetensors(self.input / "b.safetensors", [("b", "BF16", [1], b"\x03\x04")])
+        safetensors(self.input / "larger.safetensors", [("big", "BF16", [100], b"\x05\x06" * 100)])
+        (self.input / "model.safetensors.index.json").write_text(json.dumps({"weight_map": {"a": "a.safetensors", "b": "b.safetensors"}}))
+        report = self.run_tool("scan", "--input", self.input, "--assign-position", "a.safetensors=main")
+        positions = {f["id"]: f["position"] for f in report["files"]}
+        self.assertEqual(positions["a.safetensors"], "main")
+        self.assertEqual(positions["b.safetensors"], "main")
+        self.assertEqual(positions["larger.safetensors"], "component")
+        self.run_tool("create", "--input", self.input, "--output", self.root / "bad-shards.safetensors",
+                      "--assign-role", "a.safetensors=model", "--assign-role", "b.safetensors=text_encoder", success=False)
+
+    def test_excluding_a_manually_optional_shard_excludes_its_whole_group(self):
+        safetensors(self.input / "a.safetensors", [("a", "BF16", [1], b"\x01\x02")])
+        safetensors(self.input / "b.safetensors", [("b", "BF16", [1], b"\x03\x04")])
+        safetensors(self.input / "main.safetensors", [("main", "BF16", [1], b"\x05\x06")])
+        (self.input / "model.safetensors.index.json").write_text(json.dumps({"weight_map": {"a": "a.safetensors", "b": "b.safetensors"}}))
+        options = ("--assign-role", "a.safetensors=lora", "--exclude", "a.safetensors")
+        report = self.run_tool("scan", "--input", self.input, *options)
+        self.assertTrue(report["ready"], report["errors"])
+        rows = {f["id"]: f for f in report["files"]}
+        for name in ("a.safetensors", "b.safetensors", "model.safetensors.index.json"):
+            self.assertEqual(rows[name]["status"], "excluded")
+        output = self.root / "without-shards.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", output, *options)
+        restored = self.root / "without-shards"
+        self.run_tool("extract", "--input", output, "--output", restored)
+        self.assertTrue((restored / "main.safetensors").exists())
+        self.assertFalse((restored / "a.safetensors").exists())
+        self.assertFalse((restored / "b.safetensors").exists())
+        self.assertFalse((restored / "model.safetensors.index.json").exists())
+
+    def test_inconsistent_detected_shard_roles_require_one_explicit_role(self):
+        safetensors(self.input / "a.safetensors", [("layer.lora_down.weight", "BF16", [1], b"\x01\x02")])
+        safetensors(self.input / "b.safetensors", [("layer.weight", "BF16", [1], b"\x03\x04")])
+        (self.input / "model.safetensors.index.json").write_text(json.dumps({"weight_map": {
+            "layer.lora_down.weight": "a.safetensors", "layer.weight": "b.safetensors"}}))
+        report = self.run_tool("scan", "--input", self.input)
+        self.assertFalse(report["ready"])
+        self.assertIn("sharded", " ".join(report["errors"]).lower())
+        report = self.run_tool("scan", "--input", self.input, "--assign-role", "a.safetensors=model")
+        self.assertTrue(report["ready"], report["errors"])
+        for file in report["files"]:
+            if file["id"] in ("a.safetensors", "b.safetensors"):
+                self.assertEqual(file["position"], "main")
+
+    def test_secondary_ltx_does_not_impose_its_requirements_on_a_different_main(self):
+        safetensors(self.input / "ltx.safetensors", [("ltx.weight", "BF16", [10], b"\x01\x02" * 10)],
+                    {"model_version": "2.3.0", "config": '{"_class_name":"LTXModel"}'})
+        safetensors(self.input / "other.safetensors", [("other.weight", "BF16", [1], b"\x03\x04")])
+        report = self.run_tool("scan", "--input", self.input, "--assign-position", "other.safetensors=main")
+        self.assertTrue(report["ready"], report["errors"])
+        self.assertEqual(report["family"], "Model")
+
+    def test_automatic_gguf_main_survives_an_unrelated_role_override(self):
+        gguf(self.input / "encoder.gguf"); gguf(self.input / "main.gguf")
+        report = self.run_tool("scan", "--input", self.input, "--assign-role", "encoder.gguf=text_encoder")
+        self.assertTrue(report["ready"], report["errors"])
+        rows = {f["id"]: f for f in report["files"]}
+        self.assertEqual(rows["main.gguf"]["position"], "main")
+        self.assertEqual(rows["encoder.gguf"]["position"], "component")
+
+    def test_selected_models_from_multiple_categories_roundtrip_without_other_files(self):
+        checkpoint = self.input / "Checkpoint" / "main.safetensors"
+        vae = self.input / "VAE" / "decoder.safetensors"
+        encoder = self.input / "LLM" / "encoder.gguf"
+        safetensors(checkpoint, [("model.diffusion_model.weight", "BF16", [1], b"\x01\x02")])
+        safetensors(vae, [("decoder.weight", "BF16", [1], b"\x03\x04")])
+        encoder.parent.mkdir()
+        gguf(encoder)
+        safetensors(self.input / "Checkpoint" / "unselected.safetensors", [("other", "BF16", [1], b"\x05\x06")])
+        (checkpoint.parent / (checkpoint.name + ".iisacc.json")).write_text('{"private":true}')
+        selected = ["Checkpoint/main.safetensors", "VAE/decoder.safetensors", "LLM/encoder.gguf"]
+        options = [part for path in selected for part in ("--select", path)]
+        report = self.run_tool("scan", "--input", self.input, *options)
+        self.assertTrue(report["ready"], report["errors"])
+        self.assertEqual({item["relative_path"] for item in report["files"]}, set(selected))
+        output = self.root / "selected.safetensors"
+        self.assertTrue(self.run_tool("create", "--input", self.input, *options, "--output", output)["verified"])
+        restored = self.root / "restored"
+        self.run_tool("extract", "--input", output, "--output", restored)
+        for path in selected:
+            self.assertEqual((restored / path).read_bytes(), (self.input / path).read_bytes())
+        self.assertFalse((restored / "Checkpoint" / "unselected.safetensors").exists())
+        self.assertFalse((restored / "Checkpoint" / (checkpoint.name + ".iisacc.json")).exists())
+
+    def test_selected_models_reject_paths_outside_the_library_or_redirected(self):
+        model = self.input / "model.safetensors"
+        safetensors(model, [("model.weight", "BF16", [1], b"\x01\x02")])
+        outside = self.root / "outside.safetensors"
+        safetensors(outside, [("model.weight", "BF16", [1], b"\x01\x02")])
+        (self.input / "model.safetensors.iisacc.json").write_text('{}')
+        (self.input / "redirect.safetensors").symlink_to(outside)
+        for selected in ("../outside.safetensors", "redirect.safetensors", "model.safetensors.iisacc.json"):
+            with self.subTest(selected=selected):
+                self.run_tool("scan", "--input", self.input, "--select", selected, success=False)
+
+    def test_selected_directory_keeps_components_but_omits_provider_sidecars(self):
+        package = self.input / "Checkpoint" / "Pipeline"
+        model = package / "unet" / "model.safetensors"
+        safetensors(model, [("model.diffusion_model.weight", "BF16", [1], b"\x01\x02")])
+        (package / "model_index.json").write_text('{"_class_name":"Pipeline"}')
+        (model.parent / (model.name + ".iisacc.json")).write_text('{"private":true}')
+        report = self.run_tool("scan", "--input", self.input, "--select", "Checkpoint/Pipeline", "--select", "Checkpoint/Pipeline/unet/model.safetensors")
+        names = [item["relative_path"] for item in report["files"]]
+        self.assertTrue(report["ready"], report["errors"])
+        self.assertEqual(names.count("Checkpoint/Pipeline/unet/model.safetensors"), 1)
+        self.assertIn("Checkpoint/Pipeline/model_index.json", names)
+        self.assertFalse(any(name.endswith(".iisacc.json") for name in names))
+
+    def test_selected_safetensors_in_llm_category_are_text_encoder_components(self):
+        safetensors(self.input / "Checkpoint" / "main.safetensors", [("model.diffusion_model.weight", "BF16", [1], b"\x01\x02")])
+        safetensors(self.input / "LLM" / "encoder.safetensors", [("encoder.weight", "BF16", [1], b"\x03\x04")])
+        report = self.run_tool("scan", "--input", self.input, "--select", "Checkpoint/main.safetensors", "--select", "LLM/encoder.safetensors")
+        roles = {item["relative_path"]: item["role"] for item in report["files"]}
+        self.assertEqual(roles["LLM/encoder.safetensors"], "text_encoder")
+
+    def test_qwen_language_encoder_does_not_become_larger_moss_primary(self):
+        # Synthetic tensors reproduce the role ambiguity without pretrained weights.
+        main = self.input / "Other" / "moss.safetensors"
+        encoder = self.input / "VLM" / "encoder.safetensors"
+        safetensors(main, [("video_embedder.weight", "F32", [1], struct.pack("<f", 1)),
+                           ("final_linear_video.weight", "F32", [1], struct.pack("<f", 2)),
+                           ("layers.0.proj.qkv.weight", "F32", [1], struct.pack("<f", 3))])
+        safetensors(encoder, [("model.language_model.embed_tokens.weight", "F32", [100],
+                               struct.pack("<100f", *([0.5] * 100)))])
+        report = self.run_tool("scan", "--input", self.input)
+        roles = {item["relative_path"]: item["role"] for item in report["files"]}
+        self.assertEqual(roles["Other/moss.safetensors"], "model")
+        self.assertEqual(roles["VLM/encoder.safetensors"], "text_encoder")
+        output = self.root / "moss.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", output)
+        header, _ = read_header(output)
+        self.assertIn("video_embedder.weight", header)
+        self.assertNotIn("model.language_model.embed_tokens.weight", header)
+
+    def test_moss_primary_with_language_tensors_is_not_reclassified_as_encoder(self):
+        safetensors(self.input / "model.safetensors", [
+            ("video_embedder.weight", "F32", [1], struct.pack("<f", 1)),
+            ("final_linear_video.weight", "F32", [1], struct.pack("<f", 2)),
+            ("layers.0.proj.qkv.weight", "F32", [1], struct.pack("<f", 3)),
+            ("model.language_model.embed_tokens.weight", "F32", [1], struct.pack("<f", 4))])
+        report = self.run_tool("scan", "--input", self.input)
+        self.assertEqual(report["files"][0]["role"], "model")
+
+    def test_calibration_repackages_legacy_roles_without_changing_source_weights(self):
+        main = self.input / "Other" / "moss.safetensors"
+        encoder = self.input / "VLM" / "encoder.safetensors"
+        safetensors(main, [("video_embedder.weight", "F32", [1], struct.pack("<f", 1)),
+                           ("final_linear_video.weight", "F32", [1], struct.pack("<f", 2)),
+                           ("layers.0.proj.qkv.weight", "F32", [1], struct.pack("<f", 3))])
+        safetensors(encoder, [("model.language_model.embed_tokens.weight", "F32", [100],
+                               struct.pack("<100f", *([0.5] * 100)))])
+        valid = self.root / "valid.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", valid)
+        header, base = read_header(valid)
+        manifest = json.loads(header["__metadata__"]["iild_package_manifest"])
+        for source in manifest["files"]:
+            source["role"] = "model"
+            for tensor in source["tensors"]:
+                old = tensor["output_key"]
+                new = ("components/model/" + source["path"] + "/" + tensor["key"]
+                       if source["path"] == "Other/moss.safetensors" else tensor["key"])
+                header[new] = header.pop(old)
+                tensor["output_key"] = new
+        header["__metadata__"]["iild_package_manifest"] = json.dumps(manifest, separators=(",", ":"))
+        encoded = json.dumps(header, separators=(",", ":")).encode()
+        encoded += b" " * (-len(encoded) % 8)
+        legacy = self.root / "legacy.safetensors"
+        legacy.write_bytes(struct.pack("<Q", len(encoded)) + encoded + valid.read_bytes()[base:])
+        self.assertTrue(self.run_tool("verify", "--input", legacy)["verified"])
+        original = legacy.read_bytes()
+        cache = self.root / "selected-components"
+        for relative, expected in (("Other/moss.safetensors", main), ("VLM/encoder.safetensors", encoder)):
+            report = self.run_tool("materialize", "--input", legacy, "--output", cache,
+                                   "--asset-path", relative)
+            self.assertEqual(Path(report["output"]).read_bytes(), expected.read_bytes())
+        self.run_tool("materialize", "--input", legacy, "--output", cache,
+                      "--asset-path", "../outside.safetensors", success=False)
+        spec = importlib.util.spec_from_file_location("iild_model_packaging",
+            Path(__file__).resolve().parents[1] / "src/ModelPackaging/python/iild_model_packaging.py")
+        api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(api)
+        result = api.materialize_package_asset(legacy, cache, relative_source="Other/moss.safetensors", executable=PROGRAM)
+        self.assertEqual(Path(result["output"]).read_bytes(), main.read_bytes())
+        with self.assertRaises(ValueError):
+            api.materialize_package_asset(legacy, cache, role="model", relative_source="Other/moss.safetensors", executable=PROGRAM)
+        corrected = self.root / "corrected.safetensors"
+        report = self.run_tool("calibrate", "--input", legacy, "--output", corrected)
+        self.assertTrue(report["verified"])
+        self.assertEqual(report["operation"], "calibrate")
+        result, _ = read_header(corrected)
+        self.assertIn("video_embedder.weight", result)
+        self.assertNotIn("model.language_model.embed_tokens.weight", result)
+        self.assertEqual(legacy.read_bytes(), original)
+        restored = self.root / "restored-calibrated"
+        self.run_tool("extract", "--input", corrected, "--output", restored)
+        self.assertEqual((restored / "Other/moss.safetensors").read_bytes(), main.read_bytes())
+        self.assertEqual((restored / "VLM/encoder.safetensors").read_bytes(), encoder.read_bytes())
+        self.run_tool("calibrate", "--input", legacy, "--output", corrected, success=False)
+        self.assertFalse(any(".partial-" in p.name for p in self.root.iterdir()))
+
+    def test_weight_health_counts_nonfinite_values_and_skips_quantized_data(self):
+        model = self.input / "model.safetensors"
+        safetensors(model, [
+            ("fp32", "F32", [3], struct.pack("<fff", 1, float("nan"), float("inf"))),
+            ("fp16", "F16", [2], struct.pack("<HH", 0x3c00, 0xfc00)),
+            ("bf16", "BF16", [2], struct.pack("<HH", 0x3f80, 0x7fc0)),
+            ("fp64", "F64", [2], struct.pack("<dd", 1, -float("inf"))),
+            ("int8", "I8", [2], b"\x7f\x80")])
+        before = model.read_bytes()
+        report = self.run_tool("weight-health", "--input", model)
+        self.assertEqual(report["checked_tensors"], 4)
+        self.assertEqual(report["checked_values"], 9)
+        self.assertEqual(report["nonfinite_values"], 5)
+        self.assertEqual(report["unchecked_tensors"], 1)
+        self.assertEqual(model.read_bytes(), before)
+
+    def test_calibration_repairs_nonfinite_weights_only_when_requested(self):
+        main = self.input / "main.safetensors"
+        safetensors(main, [("model.diffusion_model.weight", "F32", [3],
+                            struct.pack("<fff", 1, float("nan"), float("inf")))])
+        package = self.root / "package.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", package)
+        original = package.read_bytes()
+        output = self.root / "repaired.safetensors"
+        report = self.run_tool("calibrate", "--input", package, "--output", output,
+                               "--repair-nonfinite", "true")
+        self.assertTrue(report["weights_modified"])
+        self.assertEqual(report["nonfinite_values_replaced"], 2)
+        restored = self.root / "repaired-sources"
+        self.run_tool("extract", "--input", output, "--output", restored)
+        header, base = read_header(restored / "main.safetensors")
+        data = (restored / "main.safetensors").read_bytes()
+        self.assertEqual(struct.unpack("<fff", data[base:base + 12]), (1, 0, 0))
+        self.assertEqual(package.read_bytes(), original)
+
+    def test_standalone_numeric_calibration_keeps_source_and_refuses_package(self):
+        main = self.input / "main.safetensors"
+        safetensors(main, [("model.diffusion_model.weight", "F32", [2],
+                            struct.pack("<ff", 1, float("nan")))])
+        before = main.read_bytes()
+        output = self.root / "standalone-repaired.safetensors"
+        report = self.run_tool("calibrate-file", "--input", main, "--output", output,
+                               "--repair-nonfinite", "true")
+        self.assertEqual(report["nonfinite_values_replaced"], 1)
+        self.assertEqual(main.read_bytes(), before)
+        self.assertEqual(self.run_tool("weight-health", "--input", output)["nonfinite_values"], 0)
+        spec = importlib.util.spec_from_file_location("iild_model_packaging",
+            Path(__file__).resolve().parents[1] / "src/ModelPackaging/python/iild_model_packaging.py")
+        api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(api)
+        self.assertEqual(api.inspect_weights(main, executable=PROGRAM)["nonfinite_values"], 1)
+        python_output = self.root / "python-repaired.safetensors"
+        self.assertTrue(api.repair_standalone_weights(main, python_output, executable=PROGRAM)["verified"])
+        package = self.root / "packaged.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", package)
+        rejected = self.root / "invalid.safetensors"
+        self.run_tool("calibrate-file", "--input", package, "--output", rejected,
+                      "--repair-nonfinite", "true", success=False)
+        self.assertFalse(rejected.exists())
+
+    def test_calibration_cancel_keeps_source_and_removes_workspace(self):
+        size = 32 * 1024 * 1024
+        safetensors(self.input / "main.safetensors", [("model.diffusion_model.weight", "U8", [size], b"\x11" * size)])
+        package = self.root / "package.safetensors"
+        self.run_tool("create", "--input", self.input, "--output", package)
+        original = hashlib.sha256(package.read_bytes()).hexdigest()
+        output = self.root / "cancelled-calibration.safetensors"
+        process = subprocess.Popen([str(PROGRAM), "calibrate", "--input", str(package), "--output", str(output)],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        for line in process.stdout:
+            if json.loads(line).get("phase") == "verify":
+                process.send_signal(signal.SIGTERM)
+                break
+        stdout, stderr = process.communicate(timeout=30)
+        self.assertNotEqual(process.returncode, 0, stdout + stderr)
+        self.assertFalse(output.exists())
+        self.assertFalse(any(".partial-" in p.name for p in self.root.iterdir()))
+        self.assertEqual(hashlib.sha256(package.read_bytes()).hexdigest(), original)
+
+    def test_selected_diffusers_directory_validates_its_declared_components(self):
+        package = self.input / "Checkpoint" / "Pipeline"
+        safetensors(package / "unet" / "model.safetensors", [("model.diffusion_model.weight", "BF16", [1], b"\x01\x02")])
+        (package / "model_index.json").write_text(json.dumps({
+            "_class_name": "Pipeline", "unet": ["diffusers", "UNet"], "vae": ["diffusers", "VAE"]}))
+        options = ("--input", self.input, "--select", "Checkpoint/Pipeline")
+        report = self.run_tool("scan", *options)
+        self.assertFalse(report["ready"])
+        self.assertIn("vae", " ".join(report["errors"]).lower())
+        output = self.root / "incomplete.safetensors"
+        self.run_tool("create", *options, "--output", output, success=False)
+        self.assertFalse(output.exists())
+        safetensors(package / "vae" / "decoder.safetensors", [("decoder.weight", "BF16", [1], b"\x03\x04")])
+        report = self.run_tool("scan", *options)
+        self.assertTrue(report["ready"], report["errors"])
+        self.assertTrue(self.run_tool("create", *options, "--output", output)["verified"])
+
+    def test_selected_unified_directory_is_not_treated_as_a_diffusers_index(self):
+        package = self.input / "Checkpoint" / "legacy.iildmodel"
+        safetensors(package / "model.safetensors", [("model.diffusion_model.weight", "BF16", [1], b"\x01\x02")])
+        (package / "model_index.json").write_text(json.dumps({"schema": "iild-unified-model-v1",
+            "stages": [{"model": "model.safetensors"}, {"model": "model.safetensors"}]}))
+        report = self.run_tool("scan", "--input", self.input, "--select", "Checkpoint/legacy.iildmodel")
+        self.assertTrue(report["ready"], report["errors"])
 
     def test_ltx_deduplication_formats_and_byte_exact_extraction(self):
         fixture(self.input)

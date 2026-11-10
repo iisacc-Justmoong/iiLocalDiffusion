@@ -45,38 +45,54 @@ endif()
 FetchContent_Declare(mlx
     URL https://codeload.github.com/ml-explore/mlx/tar.gz/1f8e74e3f12f31365464a6867c6579f0e9b29d85
     URL_HASH SHA256=cb988a5bdc38c798918d042b9b1c6edda3ccc5f23a2155138d3aa5c1b2acc301
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies/mlx-src"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/dependencies/mlx-build"
     SYSTEM
 )
 FetchContent_Declare(metal_cpp
     URL https://developer.apple.com/metal/cpp/files/metal-cpp_26.zip
     URL_HASH SHA256=4df3c078b9aadcb516212e9cb03004cbc5ce9a3e9c068fa3144d021db585a3a4
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies/metal_cpp-src"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/dependencies/metal_cpp-build"
 )
 FetchContent_Declare(json
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
     URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies/json-src"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/dependencies/json-build"
 )
 FetchContent_Declare(fmt
     URL https://codeload.github.com/fmtlib/fmt/tar.gz/refs/tags/12.1.0
     URL_HASH SHA256=ea7de4299689e12b6dddd392f9896f08fb0777ac7168897a244a6d6085043fea
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies/fmt-src"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/dependencies/fmt-build"
     EXCLUDE_FROM_ALL
 )
 FetchContent_Declare(cccl
     URL https://github.com/NVIDIA/cccl/releases/download/v3.1.3/cccl-v3.1.3.zip
     URL_HASH SHA256=30f388ef784eb691d7de9d2cf918d53ab33464672500a17945b99d16af136cd6
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies/cccl-src"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/dependencies/cccl-build"
 )
 FetchContent_Declare(nvtx3
     URL https://codeload.github.com/NVIDIA/NVTX/tar.gz/refs/tags/v3.1.1
     URL_HASH SHA256=30c9fe2034d5da90c7b2051570dd8b9d59e05b8b9037a1c80bb088dce9c1f5d9
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies/nvtx3-src"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/dependencies/nvtx3-build"
     SOURCE_SUBDIR c EXCLUDE_FROM_ALL
 )
 FetchContent_Declare(cudnn
     URL https://codeload.github.com/NVIDIA/cudnn-frontend/tar.gz/refs/tags/v1.16.0
     URL_HASH SHA256=77ed731e0885ea2de1b6f272ad156b48292c2299a2571ae576280011fd5626bd
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies/cudnn-src"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/dependencies/cudnn-build"
     EXCLUDE_FROM_ALL
 )
 FetchContent_Declare(cutlass
     URL https://codeload.github.com/NVIDIA/cutlass/tar.gz/refs/tags/v4.4.2
     URL_HASH SHA256=ef62816841b8cbcd0ed3ec45d3ab56cf67d569a0f39329b43eeeebea86f58473
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies/cutlass-src"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/dependencies/cutlass-build"
     SOURCE_SUBDIR include EXCLUDE_FROM_ALL
 )
 
@@ -107,6 +123,14 @@ block()
     endif()
     FetchContent_MakeAvailable(mlx)
 endblock()
+
+if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    FetchContent_GetProperties(mlx SOURCE_DIR _iild_mlx_layout_source)
+    add_test(NAME DependencyLayoutTests COMMAND "${CMAKE_COMMAND}"
+        "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}" "-DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
+        "-DMLX_SOURCE=${_iild_mlx_layout_source}" "-DSOURCE_OVERRIDE=${IILD_MLX_USER_SOURCE}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/DependencyLayoutTests.cmake")
+endif()
 
 if(iild_gpu_backend STREQUAL "metal")
     FetchContent_GetProperties(mlx SOURCE_DIR iild_mlx_source)
@@ -162,12 +186,23 @@ if(iild_gpu_backend STREQUAL "cuda")
     # take precedence over this build-tree fallback in MLX's path resolver.
     target_compile_definitions(mlx_dirs PRIVATE MLX_CCCL_DIR="${cccl_source}/include")
     # The upstream header-only release zip omits the full license document.
-    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dependencies")
-    set(cccl_license "${CMAKE_CURRENT_BINARY_DIR}/dependencies/cccl-3.1.3-LICENSE")
-    file(DOWNLOAD https://raw.githubusercontent.com/NVIDIA/cccl/v3.1.3/LICENSE
-        "${cccl_license}"
-        EXPECTED_HASH SHA256=f96f51edda77fb9897de29d924d615e6bd153f4969db85fc6b7a22d7a624631e
-        TLS_VERIFY ON)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies")
+    set(cccl_license "${CMAKE_CURRENT_SOURCE_DIR}/resources/dependencies/cccl-3.1.3-LICENSE")
+    set(cccl_license_hash f96f51edda77fb9897de29d924d615e6bd153f4969db85fc6b7a22d7a624631e)
+    if(IS_SYMLINK "${cccl_license}")
+        message(FATAL_ERROR "Cached CCCL license cannot be a symlink: ${cccl_license}")
+    endif()
+    if(EXISTS "${cccl_license}")
+        file(SHA256 "${cccl_license}" cccl_license_actual_hash)
+        if(NOT cccl_license_actual_hash STREQUAL cccl_license_hash)
+            message(FATAL_ERROR "Cached CCCL license does not match the pinned checksum: ${cccl_license}")
+        endif()
+    else()
+        file(DOWNLOAD https://raw.githubusercontent.com/NVIDIA/cccl/v3.1.3/LICENSE
+            "${cccl_license}"
+            EXPECTED_HASH "SHA256=${cccl_license_hash}"
+            TLS_VERIFY ON)
+    endif()
     install(FILES "${cccl_license}"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/iiLocalDiffusion/cccl" RENAME LICENSE)
 endif()

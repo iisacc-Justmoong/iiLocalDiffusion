@@ -2,6 +2,7 @@
 """Bounded real-container fixtures for downloaded model identity and routing."""
 
 from __future__ import annotations
+import resource_fixture
 
 import hashlib
 import json
@@ -9,7 +10,6 @@ import math
 from pathlib import Path
 import struct
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -23,7 +23,7 @@ from _file_provider import provider
 class DownloadedModelTests(unittest.TestCase):
     def setUp(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        temporary = provider.TemporaryDirectory(prefix="downloaded-model-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="downloaded-model-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 
@@ -73,6 +73,28 @@ class DownloadedModelTests(unittest.TestCase):
                 self.assertEqual(found["weights_role"], "denoiser")
                 self.assertEqual(found["missing_components"], ["vae", "text_encoder"])
                 self.assertIsNone(found["base_model"])
+
+    def test_moss_transformer_identity_is_tensor_based_and_not_a_native_plan(self):
+        for prefix in ("", "model.diffusion_model.", "diffusion_model.", "transformer."):
+            with self.subTest(prefix=prefix):
+                model = self.safetensors({
+                    prefix + "video_embedder.weight": [4, 2],
+                    prefix + "final_linear_video.weight": [2, 4],
+                    prefix + "layers.0.proj.qkv.weight": [12, 4],
+                }, name="renamed.safetensors")
+                found = downloaded_model.inspect_downloaded_model(model)
+                self.assertEqual((found["architecture"], found["role"], found["pipeline_class"]),
+                                 ("moss-image", "checkpoint", "MOSSImagePipeline"))
+                self.assertEqual(found["weights_role"], "denoiser")
+                self.assertEqual(found["missing_components"], ["vae", "text_encoder"])
+                self.assertNotIn("backend_plan", found)
+        near_miss = self.safetensors({"video_embedder.weight": [4, 2],
+            "final_linear_video.weight": [3, 4], "layers.0.proj.qkv.weight": [12, 4]})
+        self.assertNotEqual(downloaded_model.inspect_downloaded_model(near_miss)["architecture"], "moss-image")
+        mixed = self.safetensors({"video_embedder.weight": [4, 2],
+            "model.diffusion_model.final_linear_video.weight": [2, 4],
+            "transformer.layers.0.proj.qkv.weight": [12, 4]})
+        self.assertNotEqual(downloaded_model.inspect_downloaded_model(mixed)["architecture"], "moss-image")
 
     def test_complete_anima_is_not_its_embedded_vae(self):
         for prefix in ("", "net.", "model.diffusion_model.net.", "diffusion_model."):

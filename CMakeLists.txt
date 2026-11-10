@@ -28,6 +28,10 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 include(CheckCXXSourceCompiles)
 include(CMakePushCheckState)
+option(BUILD_SHARED_LIBS "Build selectable SDK components as shared libraries" ON)
+if(EMSCRIPTEN AND BUILD_SHARED_LIBS)
+    set_property(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS TRUE)
+endif()
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 set(IILD_PACKAGED_CRYPTO OFF)
@@ -62,11 +66,15 @@ endif()
 if(PROJECT_IS_TOP_LEVEL)
     include(CTest)
 endif()
+include(cmake/IildTestWorkspace.cmake)
 if(BUILD_TESTING)
     add_test(NAME MlxDeploymentTargetTests COMMAND "${CMAKE_COMMAND}"
         "-DIILD_TEST_COMPILER=${CMAKE_CXX_COMPILER}"
         "-DIILD_TEST_SYSROOT=${CMAKE_OSX_SYSROOT}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/MlxDeploymentTargetTests.cmake")
+    add_test(NAME DefaultTargetsTests COMMAND "${CMAKE_COMMAND}"
+        "-DBUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/DefaultTargetsTests.cmake")
 endif()
 if(WIN32 AND BUILD_TESTING)
     add_executable(WindowsThreadPowerTests tests/WindowsThreadPowerTests.cpp)
@@ -80,6 +88,7 @@ option(IILD_ENABLE_COREML "Build the Apple Core ML component runtime" ${APPLE})
 if(IILD_ENABLE_COREML AND NOT APPLE)
     message(FATAL_ERROR "Core ML requires an Apple platform; set IILD_ENABLE_COREML=OFF")
 endif()
+include(cmake/IildDependencyLayout.cmake)
 include(cmake/IildMlx.cmake)
 include(cmake/IildTorch.cmake)
 include(cmake/IildNative.cmake)
@@ -92,6 +101,7 @@ add_library(iiLocalDiffusion SHARED
     src/Flux/FluxModelManifest.cpp
     src/Generation/GenerationIO.cpp
     src/Generation/NativeDiffusion.cpp
+    src/Generation/NativeImageEngineReport.cpp
     src/Generation/NativeImageBridge.cpp
     src/Generation/NativeVideo.cpp
     src/Generation/NativeVideoBridge.cpp
@@ -99,6 +109,8 @@ add_library(iiLocalDiffusion SHARED
     src/Generation/PoseProcessing.cpp
     src/Generation/NativePose.cpp
     src/Generation/GenerationDefaults.cpp
+    src/Generation/NativeModelInspection.cpp
+    src/Generation/NativeImagePackage.cpp
     src/ModelManifest/DiffusionModelManifest.cpp
     src/ModelManifest/ModelManifest.cpp
     src/StableDiffusion/StableDiffusionModelManifest.cpp
@@ -129,7 +141,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     target_include_directories(NativePoseTests PRIVATE src)
     target_link_libraries(NativePoseTests PRIVATE iiLocalDiffusion)
     target_compile_features(NativePoseTests PRIVATE cxx_std_23)
-    add_test(NAME NativePoseTests COMMAND NativePoseTests "${CMAKE_CURRENT_BINARY_DIR}/native-pose-contract")
+    iild_resource_test(NativePoseTests NativePoseTests "@WORK@/native-pose-contract")
     add_executable(ImageParametersTests tests/ImageParametersTests.cpp)
     target_include_directories(ImageParametersTests PRIVATE src)
     target_compile_features(ImageParametersTests PRIVATE cxx_std_23)
@@ -141,14 +153,17 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     target_include_directories(NativeTelemetryTests PRIVATE src)
     target_compile_features(NativeTelemetryTests PRIVATE cxx_std_23)
     target_link_libraries(NativeTelemetryTests PRIVATE Threads::Threads ${IILD_JSON_C_TARGET})
-    add_test(NAME NativeTelemetryTests COMMAND NativeTelemetryTests "${CMAKE_CURRENT_BINARY_DIR}/telemetry-contract")
+    iild_resource_test(NativeTelemetryTests NativeTelemetryTests "@WORK@/telemetry-contract")
     add_executable(NativeDiffusionTests tests/NativeDiffusionTests.cpp)
     target_link_libraries(NativeDiffusionTests PRIVATE iiLocalDiffusion)
-    add_test(NAME NativeDiffusionTests COMMAND NativeDiffusionTests "${CMAKE_CURRENT_BINARY_DIR}/native-contract")
+    iild_resource_test(NativeDiffusionTests NativeDiffusionTests "@WORK@/native-contract")
+    add_executable(NativeAnimaPackageTests tests/NativeAnimaPackageTests.cpp)
+    target_link_libraries(NativeAnimaPackageTests PRIVATE iiLocalDiffusion iiLocalDiffusion::ModelPackaging)
+    iild_resource_test(NativeAnimaPackageTests NativeAnimaPackageTests "@WORK@/native-anima-package")
     add_executable(NativeCachePolicyTests tests/NativeCachePolicyTests.cpp)
     target_include_directories(NativeCachePolicyTests PRIVATE src)
     target_compile_features(NativeCachePolicyTests PRIVATE cxx_std_20)
-    add_test(NAME NativeCachePolicyTests COMMAND NativeCachePolicyTests "${CMAKE_CURRENT_BINARY_DIR}/native-cache-contract")
+    iild_resource_test(NativeCachePolicyTests NativeCachePolicyTests "@WORK@/native-cache-contract")
     add_executable(NativeVaePolicyTests tests/NativeVaePolicyTests.cpp)
     target_include_directories(NativeVaePolicyTests PRIVATE src)
     target_compile_features(NativeVaePolicyTests PRIVATE cxx_std_20)
@@ -156,14 +171,14 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     add_executable(NativeDiskCacheTests tests/NativeDiskCacheTests.cpp)
     target_include_directories(NativeDiskCacheTests PRIVATE src)
     target_compile_features(NativeDiskCacheTests PRIVATE cxx_std_20)
-    add_test(NAME NativeDiskCacheTests COMMAND NativeDiskCacheTests "${CMAKE_CURRENT_BINARY_DIR}/native-disk-cache-contract")
-    add_executable(NativeCacheIntegration tests/NativeCacheIntegration.cpp)
+    iild_resource_test(NativeDiskCacheTests NativeDiskCacheTests "@WORK@/native-disk-cache-contract")
+    add_executable(NativeCacheIntegration EXCLUDE_FROM_ALL tests/NativeCacheIntegration.cpp)
     target_link_libraries(NativeCacheIntegration PRIVATE iiLocalDiffusion)
     if(IILD_ENABLE_NATIVE_DIFFUSION)
         # Exercise the production adapter against controlled C API results.
         # No model download or GPU inference is needed to cover output handling.
         foreach(result_test IN ITEMS NativeResultTests NativeMobileResultTests)
-            add_executable(${result_test} tests/NativeResultTests.cpp src/Generation/NativeDiffusion.cpp src/Generation/NativeImageBridge.cpp src/Generation/GenerationDefaults.cpp)
+            add_executable(${result_test} tests/NativeResultTests.cpp src/Generation/NativeDiffusion.cpp src/Generation/NativeImageEngineReport.cpp src/Generation/NativeImageBridge.cpp src/Generation/GenerationDefaults.cpp src/Generation/NativeModelInspection.cpp)
             target_include_directories(${result_test} PRIVATE src
                 $<TARGET_PROPERTY:stable-diffusion,INTERFACE_INCLUDE_DIRECTORIES>)
             target_compile_features(${result_test} PRIVATE cxx_std_23)
@@ -172,7 +187,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
                 IILD_BUILD_LIBRARY_DIRECTORY="$<TARGET_FILE_DIR:${result_test}>"
                 IILD_BUILD_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources")
             target_link_libraries(${result_test} PRIVATE Threads::Threads ${IILD_JSON_C_TARGET} zip ${CMAKE_DL_LIBS})
-            add_test(NAME ${result_test} COMMAND ${result_test} "${CMAKE_CURRENT_BINARY_DIR}/${result_test}-contract")
+            iild_resource_test(${result_test} ${result_test} "@WORK@/${result_test}-contract")
         endforeach()
         add_executable(NativeVideoResultTests tests/NativeVideoResultTests.cpp
             src/Generation/NativeVideo.cpp src/Generation/NativeVideoBridge.cpp)
@@ -181,13 +196,13 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_compile_features(NativeVideoResultTests PRIVATE cxx_std_23)
         target_compile_definitions(NativeVideoResultTests PRIVATE IILD_HAS_NATIVE_DIFFUSION=1 IILD_NATIVE_CPU_VAE=0 iiLocalDiffusion_EXPORTS)
         target_link_libraries(NativeVideoResultTests PRIVATE iiLocalDiffusion::ModelPackaging iiFileProvider::Native Threads::Threads ${IILD_JSON_C_TARGET})
-        add_test(NAME NativeVideoResultTests COMMAND NativeVideoResultTests "${CMAKE_CURRENT_BINARY_DIR}/native-video-results")
+        iild_resource_test(NativeVideoResultTests NativeVideoResultTests "@WORK@/native-video-results")
         add_executable(NativeVaeConfigTests tests/NativeVaeConfigTests.cpp src/Generation/GenerationDefaults.cpp)
         target_include_directories(NativeVaeConfigTests PRIVATE src)
         target_compile_features(NativeVaeConfigTests PRIVATE cxx_std_20)
         target_link_libraries(NativeVaeConfigTests PRIVATE ${IILD_JSON_C_TARGET} ${CMAKE_DL_LIBS})
-        add_test(NAME NativeVaeConfigTests COMMAND NativeVaeConfigTests
-            "${CMAKE_CURRENT_SOURCE_DIR}/resources" "${CMAKE_CURRENT_BINARY_DIR}/native-vae-config-contract")
+        iild_resource_test(NativeVaeConfigTests NativeVaeConfigTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources" "@WORK@/native-vae-config-contract")
         add_executable(NativeBulkReadTests tests/NativeBulkReadTests.cpp)
         add_executable(NativeControlPreprocessingTests tests/NativeControlPreprocessingTests.cpp)
         target_link_libraries(NativeControlPreprocessingTests PRIVATE stable-diffusion)
@@ -218,7 +233,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
             $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
         target_link_libraries(NativeIPResourceTests PRIVATE stable-diffusion)
         target_compile_features(NativeIPResourceTests PRIVATE cxx_std_23)
-        add_test(NAME NativeIPResourceTests COMMAND NativeIPResourceTests "${CMAKE_CURRENT_BINARY_DIR}/native-ip-resource-contract")
+        iild_resource_test(NativeIPResourceTests NativeIPResourceTests "@WORK@/native-ip-resource-contract")
         add_executable(NativeRefinerTests tests/NativeRefinerTests.cpp)
         target_include_directories(NativeRefinerTests PRIVATE "${iild_backend_source}/src"
             $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
@@ -238,14 +253,14 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
             $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
         target_link_libraries(NativeDetailerTests PRIVATE stable-diffusion)
         target_compile_features(NativeDetailerTests PRIVATE cxx_std_23)
-        add_test(NAME NativeDetailerTests COMMAND NativeDetailerTests "${CMAKE_CURRENT_BINARY_DIR}/native-detailer-contract")
+        iild_resource_test(NativeDetailerTests NativeDetailerTests "@WORK@/native-detailer-contract")
         add_executable(NativeLearnedUpscalerTests tests/NativeLearnedUpscalerTests.cpp)
         target_include_directories(NativeLearnedUpscalerTests PRIVATE "${iild_backend_source}/src"
             $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
         target_link_libraries(NativeLearnedUpscalerTests PRIVATE stable-diffusion)
         target_compile_features(NativeLearnedUpscalerTests PRIVATE cxx_std_23)
-        add_test(NAME NativeLearnedUpscalerTests COMMAND NativeLearnedUpscalerTests
-            "${CMAKE_CURRENT_BINARY_DIR}/native-learned-upscaler-contract")
+        iild_resource_test(NativeLearnedUpscalerTests NativeLearnedUpscalerTests
+            "@WORK@/native-learned-upscaler-contract")
         add_executable(NativeFreeUTests tests/NativeFreeUTests.cpp)
         target_include_directories(NativeFreeUTests PRIVATE "${iild_backend_source}/src"
             $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
@@ -263,23 +278,23 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
             $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
         target_link_libraries(NativeTextConditioningTests PRIVATE stable-diffusion)
         target_compile_features(NativeTextConditioningTests PRIVATE cxx_std_23)
-        add_test(NAME NativeTextConditioningTests COMMAND NativeTextConditioningTests
-            "${CMAKE_CURRENT_BINARY_DIR}/native-text-conditioning-contract")
+        iild_resource_test(NativeTextConditioningTests NativeTextConditioningTests
+            "@WORK@/native-text-conditioning-contract")
         target_link_libraries(NativeBulkReadTests PRIVATE stable-diffusion)
         target_compile_features(NativeBulkReadTests PRIVATE cxx_std_23)
-        add_test(NAME NativeBulkReadTests COMMAND NativeBulkReadTests "${CMAKE_CURRENT_BINARY_DIR}/native-bulk-read.bin")
+        iild_resource_test(NativeBulkReadTests NativeBulkReadTests "@WORK@/native-bulk-read.bin")
         add_executable(NativeKrea2NamesTests tests/NativeKrea2NamesTests.cpp)
         target_link_libraries(NativeKrea2NamesTests PRIVATE stable-diffusion)
         target_compile_features(NativeKrea2NamesTests PRIVATE cxx_std_23)
-        add_test(NAME NativeKrea2NamesTests COMMAND NativeKrea2NamesTests
-            "${CMAKE_CURRENT_BINARY_DIR}/native-krea2-mount-contract")
+        iild_resource_test(NativeKrea2NamesTests NativeKrea2NamesTests
+            "@WORK@/native-krea2-mount-contract")
         add_executable(NativeLlmConfigTests tests/NativeLlmConfigTests.cpp src/Generation/GenerationDefaults.cpp)
         target_include_directories(NativeLlmConfigTests PRIVATE src)
         target_compile_features(NativeLlmConfigTests PRIVATE cxx_std_23)
         target_link_libraries(NativeLlmConfigTests PRIVATE ${IILD_JSON_C_TARGET} ${CMAKE_DL_LIBS})
-        add_test(NAME NativeLlmConfigTests COMMAND NativeLlmConfigTests
-            "${CMAKE_CURRENT_BINARY_DIR}/native-llm-config-contract")
-        add_executable(NativeComponentMountIntegration tests/NativeComponentMountIntegration.cpp)
+        iild_resource_test(NativeLlmConfigTests NativeLlmConfigTests
+            "@WORK@/native-llm-config-contract")
+        add_executable(NativeComponentMountIntegration EXCLUDE_FROM_ALL tests/NativeComponentMountIntegration.cpp)
         target_link_libraries(NativeComponentMountIntegration PRIVATE iiLocalDiffusion)
         target_compile_features(NativeComponentMountIntegration PRIVATE cxx_std_23)
         add_executable(NativeLoggingTests tests/NativeLoggingTests.cpp)
@@ -291,26 +306,26 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         add_test(NAME NativeMixedPrecisionTests COMMAND NativeMixedPrecisionTests)
         add_executable(NativeVaeFallbackTests tests/NativeVaeFallbackTests.cpp)
         target_link_libraries(NativeVaeFallbackTests PRIVATE stable-diffusion)
-        add_executable(NativeVaeDecodeProbe tests/NativeVaeDecodeProbe.cpp)
+        add_executable(NativeVaeDecodeProbe EXCLUDE_FROM_ALL tests/NativeVaeDecodeProbe.cpp)
         target_link_libraries(NativeVaeDecodeProbe PRIVATE stable-diffusion)
-        add_executable(NativeVaeRoundTripProbe tests/NativeVaeRoundTripProbe.cpp)
+        add_executable(NativeVaeRoundTripProbe EXCLUDE_FROM_ALL tests/NativeVaeRoundTripProbe.cpp)
         target_link_libraries(NativeVaeRoundTripProbe PRIVATE stable-diffusion)
         target_compile_features(NativeVaeRoundTripProbe PRIVATE cxx_std_23)
-        add_executable(NativeImg2ImgSmoke tests/NativeImg2ImgSmoke.cpp)
+        add_executable(NativeImg2ImgSmoke EXCLUDE_FROM_ALL tests/NativeImg2ImgSmoke.cpp)
         target_link_libraries(NativeImg2ImgSmoke PRIVATE iiLocalDiffusion)
         target_compile_features(NativeImg2ImgSmoke PRIVATE cxx_std_23)
         add_executable(NativeVaeSafetyTests tests/NativeVaeSafetyTests.cpp)
         target_link_libraries(NativeVaeSafetyTests PRIVATE stable-diffusion)
         add_test(NAME NativeVaeSafetyTests COMMAND NativeVaeSafetyTests)
-        add_test(NAME NativeVaeFallbackTests COMMAND NativeVaeFallbackTests
-            "${CMAKE_CURRENT_BINARY_DIR}/native-vae-contract"
+        iild_resource_test(NativeVaeFallbackTests NativeVaeFallbackTests
+            "@WORK@/native-vae-contract"
             "${CMAKE_CURRENT_SOURCE_DIR}/resources/vae")
         add_executable(NativePreparationTests tests/NativePreparationTests.cpp)
         target_link_libraries(NativePreparationTests PRIVATE iiLocalDiffusion)
-        add_test(NAME NativePreparationTests COMMAND NativePreparationTests "${CMAKE_CURRENT_BINARY_DIR}/native-preparation-contract")
+        iild_resource_test(NativePreparationTests NativePreparationTests "@WORK@/native-preparation-contract")
     endif()
     if(APPLE AND IILD_ENABLE_NATIVE_DIFFUSION)
-        add_executable(NativeWeightReadBenchmark tests/NativeWeightReadBenchmark.cpp)
+        add_executable(NativeWeightReadBenchmark EXCLUDE_FROM_ALL tests/NativeWeightReadBenchmark.cpp)
         target_link_libraries(NativeWeightReadBenchmark PRIVATE stable-diffusion ggml-metal)
         target_compile_features(NativeWeightReadBenchmark PRIVATE cxx_std_23)
         add_executable(NativeMetalUploadTests tests/NativeMetalUploadTests.cpp)
@@ -320,8 +335,8 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         set_tests_properties(NativeMetalPrivateBuffer PROPERTIES ENVIRONMENT "GGML_METAL_SHARED_BUFFERS_DISABLE=1")
         add_executable(NativeMappedStorageTests tests/NativeMappedStorageTests.cpp)
         target_link_libraries(NativeMappedStorageTests PRIVATE stable-diffusion ggml-metal)
-        add_test(NAME NativeMappedMetalStorage COMMAND NativeMappedStorageTests "${CMAKE_CURRENT_BINARY_DIR}/native-mapped-shared-contract")
-        add_test(NAME NativeMappedPrivateStorage COMMAND NativeMappedStorageTests "${CMAKE_CURRENT_BINARY_DIR}/native-mapped-private-contract")
+        iild_resource_test(NativeMappedMetalStorage NativeMappedStorageTests "@WORK@/native-mapped-shared-contract")
+        iild_resource_test(NativeMappedPrivateStorage NativeMappedStorageTests "@WORK@/native-mapped-private-contract")
         set_tests_properties(NativeMappedPrivateStorage PROPERTIES ENVIRONMENT "GGML_METAL_SHARED_BUFFERS_DISABLE=1")
         add_executable(NativeMixedBackendTests tests/NativeMixedBackendTests.cpp)
         target_link_libraries(NativeMixedBackendTests PRIVATE stable-diffusion ggml-metal)
@@ -410,9 +425,22 @@ endif()
 target_compile_options(iiLocalDiffusion PRIVATE ${IILD_WARNING_OPTIONS})
 
 # Packaging is a small, Qt/Torch/Python-independent C++23 module.
-add_library(iiModelPackaging STATIC src/ModelPackaging/ModelPackaging.cpp src/ModelPackaging/ModelInspection.cpp)
+add_library(iiModelPackaging src/ModelPackaging/ModelPackaging.cpp src/ModelPackaging/ModelInspection.cpp)
 add_library(iiLocalDiffusion::ModelPackaging ALIAS iiModelPackaging)
-set_target_properties(iiModelPackaging PROPERTIES EXPORT_NAME ModelPackaging CXX_EXTENSIONS OFF)
+set_target_properties(iiModelPackaging PROPERTIES EXPORT_NAME ModelPackaging CXX_EXTENSIONS OFF WINDOWS_EXPORT_ALL_SYMBOLS ON)
+if(BUILD_SHARED_LIBS)
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set_target_properties(iiModelPackaging PROPERTIES FRAMEWORK TRUE FRAMEWORK_VERSION A MACOSX_FRAMEWORK_IDENTIFIER "com.iisacc.iiModelPackaging")
+    elseif(APPLE)
+        set_property(TARGET iiModelPackaging APPEND PROPERTY INSTALL_RPATH "@loader_path")
+    elseif(UNIX AND NOT EMSCRIPTEN)
+        set_property(TARGET iiModelPackaging APPEND PROPERTY INSTALL_RPATH "$ORIGIN")
+    endif()
+    if(EMSCRIPTEN)
+        target_compile_options(iiModelPackaging PRIVATE -fPIC -sSIDE_MODULE=1)
+        target_link_options(iiModelPackaging PRIVATE -sSIDE_MODULE=1)
+    endif()
+endif()
 target_compile_features(iiModelPackaging PUBLIC cxx_std_23)
 target_include_directories(iiModelPackaging PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -454,7 +482,15 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
     add_executable(ModelInspectionCacheTests tests/ModelInspectionCacheTests.cpp)
     target_compile_features(ModelInspectionCacheTests PRIVATE cxx_std_23)
     target_link_libraries(ModelInspectionCacheTests PRIVATE iiLocalDiffusion::ModelPackaging iiFileProvider::Native)
-    add_test(NAME ModelInspectionCacheTests COMMAND ModelInspectionCacheTests "${CMAKE_CURRENT_BINARY_DIR}/model-inspection-cache-tests")
+    if(BUILD_SHARED_LIBS AND NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME iiLocalDiffusion.ModelPackagingSharedType COMMAND "${CMAKE_COMMAND}"
+            "-DTARGET_TYPE=$<TARGET_PROPERTY:iiModelPackaging,TYPE>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/shared_target_type.cmake")
+        add_test(NAME iiLocalDiffusion.ModelPackagingSharedLink COMMAND "${CMAKE_COMMAND}"
+            "-DIMAGE=$<TARGET_FILE:ModelInspectionCacheTests>" "-DEXPECTED=$<TARGET_FILE:iiModelPackaging>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/shared_link.cmake")
+    endif()
+    iild_resource_test(ModelInspectionCacheTests ModelInspectionCacheTests "@WORK@/model-inspection-cache-tests")
     if(Python3_Interpreter_FOUND AND TARGET iild-model-package)
         add_test(NAME iiLocalDiffusion.ModelPackaging
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/ModelPackagingTests.py"
@@ -465,17 +501,17 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
                 "$<TARGET_FILE:iild-model-package>")
     endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND NOT CMAKE_CROSSCOMPILING AND TARGET iild-model-package)
-        add_test(NAME iiLocalDiffusion.ModelPackagingComponentInstall
-            COMMAND "${CMAKE_COMMAND}"
+        iild_resource_script_test(iiLocalDiffusion.ModelPackagingComponentInstall
+            "${CMAKE_COMMAND}"
                 "-DBUILD_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}"
-                "-DSTAGE_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/packaging-component-test"
+                "-DSTAGE_DIRECTORY=@WORK@/packaging-component-test"
                 "-DBIN_DIRECTORY=${CMAKE_INSTALL_BINDIR}"
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/ModelPackagingInstallTests.cmake")
     endif()
     if(UNIX AND Python3_Interpreter_FOUND)
-        add_test(NAME iiLocalDiffusion.InstallScript
-            COMMAND "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${Python3_EXECUTABLE}"
-                "IILD_INSTALL_SCRIPT_TEST_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/install-script-test"
+        iild_resource_script_test(iiLocalDiffusion.InstallScript
+            "${CMAKE_COMMAND}" -E env "IILD_PYTHON_EXECUTABLE=${Python3_EXECUTABLE}"
+                "IILD_INSTALL_SCRIPT_TEST_DIRECTORY=@WORK@/install-script-test"
                 bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallScriptTest.sh")
     endif()
 
@@ -485,12 +521,12 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
 
     target_compile_features(ModelManifestTests PRIVATE cxx_std_20)
     target_compile_definitions(ModelManifestTests PRIVATE
-        IILD_TEST_WORK_DIRECTORY="${CMAKE_CURRENT_BINARY_DIR}/test-work"
+        IILD_TEST_WORK_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources/test-workspaces/cross/test-work"
     )
     target_compile_options(ModelManifestTests PRIVATE ${IILD_WARNING_OPTIONS})
     target_link_libraries(ModelManifestTests PRIVATE iiLocalDiffusion::iiLocalDiffusion)
 
-    add_test(NAME ModelManifestTests COMMAND ModelManifestTests)
+    iild_resource_test(ModelManifestTests ModelManifestTests)
     add_executable(GenerationIOTests tests/GenerationIOTests.cpp)
     target_compile_features(GenerationIOTests PRIVATE cxx_std_20)
     target_compile_options(GenerationIOTests PRIVATE ${IILD_WARNING_OPTIONS})
@@ -501,25 +537,25 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
     target_compile_options(ComputeTests PRIVATE ${IILD_WARNING_OPTIONS})
     target_compile_definitions(ComputeTests PRIVATE
         IILD_TEST_MLX_ENABLED=$<BOOL:${IILD_ENABLE_MLX}>
-        IILD_COMPUTE_TEST_DIRECTORY="${CMAKE_CURRENT_BINARY_DIR}/compute-test-work")
+        IILD_COMPUTE_TEST_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources/test-workspaces/cross/compute-test-work")
     target_link_libraries(ComputeTests PRIVATE iiLocalDiffusion::iiLocalDiffusion Threads::Threads)
     if(IILD_ENABLE_MLX)
         target_link_libraries(ComputeTests PRIVATE mlx)
     endif()
-    add_test(NAME ComputeTests COMMAND ComputeTests)
+    iild_resource_test(ComputeTests ComputeTests)
     add_executable(RocmTests tests/RocmTests.cpp)
     target_compile_features(RocmTests PRIVATE cxx_std_20)
     target_compile_options(RocmTests PRIVATE ${IILD_WARNING_OPTIONS})
     target_compile_definitions(RocmTests PRIVATE
         IILD_TEST_LIBTORCH_ENABLED=$<BOOL:${IILD_ENABLE_LIBTORCH}>
-        IILD_ROCM_TEST_DIRECTORY="${CMAKE_CURRENT_BINARY_DIR}/rocm-test-work")
+        IILD_ROCM_TEST_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources/test-workspaces/cross/rocm-test-work")
     target_link_libraries(RocmTests PRIVATE iiLocalDiffusion::iiLocalDiffusion Threads::Threads)
     if(IILD_ENABLE_LIBTORCH)
         target_link_libraries(RocmTests PRIVATE ${TORCH_LIBRARIES})
         target_include_directories(RocmTests SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
         target_compile_options(RocmTests PRIVATE ${iild_torch_compile_options})
     endif()
-    add_test(NAME RocmTests COMMAND RocmTests)
+    iild_resource_test(RocmTests RocmTests)
     add_executable(CoreMLTests tests/CoreMLTests.cpp)
     target_compile_features(CoreMLTests PRIVATE cxx_std_20)
     target_compile_options(CoreMLTests PRIVATE ${IILD_WARNING_OPTIONS})
@@ -536,25 +572,22 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             COMMAND "${CMAKE_COMMAND}" "-DCLI=$<TARGET_FILE:iild-run>"
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/ComputeCliTests.cmake"
         )
-        add_test(
-            NAME CliContractTests
-            COMMAND
+        iild_resource_script_test(CliContractTests
                 "${CMAKE_COMMAND}"
                 "-DCLI=$<TARGET_FILE:iild-run>"
                 "-DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/sd-v1-manifest"
                 "-DSDXL_FIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/sdxl-base-manifest"
                 "-DFLUX_FIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flux1-schnell-manifest"
-                "-DWORK_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/cli-test-work"
+                "-DWORK_DIRECTORY=@WORK@/cli-test-work"
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/CliContractTests.cmake"
         )
     endif()
 
-    add_test(
-        NAME InstallConsumerTests
-        COMMAND
+    iild_resource_script_test(InstallConsumerTests
             "${CMAKE_COMMAND}"
             "-DBUILD_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}"
-            "-DWORK_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/install-consumer-test"
+            "-DWORK_DIRECTORY=@WORK@/install-consumer-test"
+            "-DCONSUMER_BUILD_DIRECTORY=@BUILD_WORK@"
             "-DGENERATOR=${CMAKE_GENERATOR}"
             "-DCONFIG=$<CONFIG>"
             "-DEXECUTABLE_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}"
@@ -578,12 +611,16 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
     )
 
     if(Python3_Interpreter_FOUND)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND NOT CMAKE_CROSSCOMPILING AND IILD_BUILD_TOOLS)
+            add_test(NAME BuildFixtureLayoutTests COMMAND "${Python3_EXECUTABLE}" -B
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/BuildFixtureLayoutTests.py" "${CMAKE_CURRENT_BINARY_DIR}")
+        endif()
         add_test(
             NAME ReferenceScriptsTests
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/ReferenceScriptsTests.py"
         )
         set_tests_properties(ReferenceScriptsTests PROPERTIES
-            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
         )
 
         add_test(
@@ -591,7 +628,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/ModelLoadingTests.py"
         )
         set_tests_properties(ModelLoadingTests PROPERTIES
-            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
         )
 
         add_test(
@@ -599,7 +636,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/HardwarePolicyTests.py"
         )
         set_tests_properties(HardwarePolicyTests PROPERTIES
-            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
         )
 
         add_test(
@@ -607,12 +644,12 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/TensorCorePolicyTests.py"
         )
         set_tests_properties(TensorCorePolicyTests PROPERTIES
-            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
         )
         add_test(NAME RocmPolicyTests
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/RocmPolicyTests.py")
         set_tests_properties(RocmPolicyTests PROPERTIES
-            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
         add_test(NAME ReferenceHardwareHelp
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/reference/diffusers/hardware.py" --help)
 
@@ -621,7 +658,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/ResourcePolicyTests.py"
         )
         set_tests_properties(ResourcePolicyTests PROPERTIES
-            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
         )
 
         foreach(generation_test IN ITEMS
@@ -633,11 +670,11 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
                 GenericIOTests GenerationCompositionTests GenerationAdapterTests
                 GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests
                 ControlNetTests HiresOptionsTests HiresRuntimeTests HiresRepeatRuntimeTests HiresFluxControlNetTests
-                TextEmbeddingOptionsTests TextEmbeddingRuntimeTests GenerationDefaultsTests VaeDefaultsTests LongClipConditioningTests UniversalLoraTests)
+                TextEmbeddingOptionsTests TextEmbeddingRuntimeTests GenerationDefaultsTests VaeDefaultsTests VaeDefaultsRuntimeTests LongClipConditioningTests UniversalLoraTests)
             add_test(NAME ${generation_test}
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${generation_test}.py")
             set_tests_properties(${generation_test} PROPERTIES
-                ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
+                ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
         endforeach()
         # This in-memory worker test needs no generated bytecode or test files.
         set_tests_properties(InferenceWorkerFailureTests PROPERTIES
@@ -645,17 +682,22 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         # The ABI test must load the library from this configuration, not an
         # unrelated or stale binary in the checkout's default build directory.
         set_tests_properties(NativeVideoTests PROPERTIES
-            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache;IILD_NATIVE_LIBRARY=$<TARGET_FILE:iiLocalDiffusion>")
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;IILD_NATIVE_LIBRARY=$<TARGET_FILE:iiLocalDiffusion>")
         foreach(model_compatibility_test IN ITEMS
-                CivitaiCatalogTests ModelFamilyTests GenericDiffusersTests BackendRegistryTests Krea2ContractTests Krea2RuntimeTests
+                CivitaiCatalogTests ModelFamilyTests GenericDiffusersTests ModelConfigDefaultsTests GenericControlIntegrationTests ProvisionedControlPreflightTests DepthPreprocessingTests DepthAnythingProvisionTests DepthPreprocessingRuntimeTests BackendRegistryTests Krea2ContractTests Krea2ProvisionTests Krea2PayloadTests Krea2RuntimeTests Krea2SingleFileRuntimeTests Krea2RegionsTests Krea2OstrisTests Krea2OstrisConditioningRuntimeTests Krea2TextEncoderTests Krea2TextEncoderRuntimeTests Krea2TokenizerTests Krea2TokenizerRuntimeTests MossControlTests MossControlRuntimeTests MossLoadingProgressTests MossSingleFileRuntimeTests MossInt8FormatTests MossConvRotRuntimeTests MossEncoderProvisionTests MossTransformerProvisionTests MossEncoderFallbackTests MossUpstreamRuntimeTests MossRapidTests MossRegionsTests MossRegionsRuntimeTests FluxTokenizerTests FluxT5StreamLoraTests FluxEncoderProvisionTests FluxTextEncoderTests FluxTextEncoderRuntimeTests Flux1SingleFileRuntimeTests FluxControlRuntimeTests Flux2ControlTests Flux2ControlRuntimeTests QwenControlRuntimeTests SD3ControlRuntimeTests
                 ComfyUIRuntimeTests GenerationRouterTests RuntimeCompatibilityTests
-                DownloadedModelTests CheckpointConversionTests DiTConversionTests PythonLauncherTests ModelMergeTests ModelMergeLoraTests ModelMergeSyntheticTests ModelMergeCommonLayerTests ModelMergeBaseLayoutTests ModelMergeCompatibilityTests UnifiedModelMergeTests UnifiedImageTests ComfyUIImageWorkflowTests
-                LocalImageTests SetupComfyUITests)
+                DownloadedModelTests CheckpointConversionTests DiTConversionTests PythonLauncherTests DependencyImportProgressTests ModelMergeTests ModelMergeLoraTests ModelMergeSyntheticTests ModelMergeCommonLayerTests ModelMergeBaseLayoutTests ModelMergeCompatibilityTests UnifiedModelMergeTests UnifiedImageTests ComfyUIImageWorkflowTests
+                LocalImageTests SetupComfyUITests ResourcePathsTests InstallResourcesTests SmokeLayoutTests)
             add_test(NAME ${model_compatibility_test}
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${model_compatibility_test}.py")
             set_tests_properties(${model_compatibility_test} PROPERTIES
-                ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
+                ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
         endforeach()
+        # Do not report a green payload audit when the selected Python lacks its runtime.
+        set_tests_properties(Krea2PayloadTests PROPERTIES
+            SKIP_REGULAR_EXPRESSION "Install torch and safetensors for payload auditing")
+        set_tests_properties(ProvisionedControlPreflightTests PROPERTIES
+            SKIP_REGULAR_EXPRESSION "Set IILD_VERIFY_CONTROL_PREFLIGHT=header or real")
         foreach(generation_preset IN ITEMS sd15 sdxl-base flux1-schnell sdxl illustrious
                 noobai noobai-v-pred flux1-dev flux1-krea-dev sd15-compatible flux1-schnell-compatible)
             set(generation_fixture "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/sdxl-base-manifest")
@@ -669,7 +711,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
                     "${CMAKE_CURRENT_SOURCE_DIR}/reference/diffusers/generate.py"
                     --preset ${generation_preset} --model "${generation_fixture}" --print-config)
             set_tests_properties(ReferenceGenerateConfig-${generation_preset} PROPERTIES
-                ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
+                ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
         endforeach()
 
         add_test(
@@ -677,13 +719,13 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/MlxValidationTests.py"
         )
         set_tests_properties(MlxValidationTests PROPERTIES
-            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache"
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
         )
 
         add_test(NAME CoreMLConversionTests
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/CoreMLConversionTests.py")
         set_tests_properties(CoreMLConversionTests PROPERTIES
-            ENVIRONMENT "PYTHONPYCACHEPREFIX=${CMAKE_CURRENT_BINARY_DIR}/pycache")
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
         add_test(
             NAME ReferenceGenerateHelp
@@ -707,9 +749,9 @@ endif()
 install(
     TARGETS iiLocalDiffusion
     EXPORT iiLocalDiffusionTargets
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT Runtime
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime
 )
 
 if(IILD_PACKAGED_CRYPTO)
@@ -741,17 +783,35 @@ if(IILD_BUILD_TOOLS)
 endif()
 
 install(TARGETS iiModelPackaging EXPORT iiLocalDiffusionTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ModelPackaging)
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ModelPackaging
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ModelPackaging
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT ModelPackaging
+    FRAMEWORK DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ModelPackaging)
 install(FILES src/ModelPackaging/ModelPackaging.hpp src/ModelPackaging/ModelInspection.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ModelPackaging COMPONENT ModelPackaging)
+install(FILES src/ModelPackaging/python/iild_model_packaging.py
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/python COMPONENT ModelPackaging)
 
 install(FILES README.md THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime)
 install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime FILES_MATCHING PATTERN "*.md" PATTERN "*.json")
 install(FILES docs/licenses/DWPose.txt DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/licenses COMPONENT Runtime)
 install(FILES resources/generation-defaults.json resources/README.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources COMPONENT Runtime)
-install(DIRECTORY resources/ DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources
-    COMPONENT Runtime FILES_MATCHING PATTERN "*.safetensors" PATTERN "config.json" PATTERN "LICENSE*" PATTERN "README.md" PATTERN "NOTICE.md"
-    PATTERN ".cache" EXCLUDE)
+install(FILES scripts/provision_flux1_text_encoders.py scripts/provision_flux1_schnell.py scripts/provision_flux1_canny.py
+    scripts/provision_krea2.py scripts/provision_depth_anything_v2.py scripts/provision_moss_text_encoder.py
+    scripts/provision_moss_transformer.py scripts/provision_moss_control.py
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/scripts COMPONENT Runtime)
+foreach(iild_model_config IN ITEMS moss-image-sft krea2-raw krea2-turbo flux1-schnell)
+  foreach(iild_config_file IN ITEMS model_index.json scheduler/scheduler_config.json transformer/config.json)
+    get_filename_component(iild_config_dir "${iild_config_file}" DIRECTORY)
+    install(FILES "resources/model-configs/${iild_model_config}/${iild_config_file}"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources/model-configs/${iild_model_config}/${iild_config_dir}"
+        COMPONENT Runtime)
+  endforeach()
+endforeach()
+install(FILES resources/model-configs/flux1-schnell/transformer-source-shapes.json
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources/model-configs/flux1-schnell COMPONENT Runtime)
+include(cmake/IildInstallResources.cmake)
+iild_install_resources("${CMAKE_CURRENT_SOURCE_DIR}/resources" "${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources")
 install(FILES cmake/IildGenerationResources.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/iiLocalDiffusion)
 
@@ -799,6 +859,8 @@ if(IILD_INSTALL_PYTHON_REFERENCE)
     install(DIRECTORY reference/diffusers DESTINATION ${iild_reference_directory} COMPONENT Runtime
         FILES_MATCHING PATTERN "*.py" PATTERN "*.json" PATTERN "requirements*.txt" PATTERN "README.md"
         PATTERN ".venv" EXCLUDE PATTERN "__pycache__" EXCLUDE)
+    install(FILES reference/diffusers/vendor_moss/LICENSE.txt
+        DESTINATION ${iild_reference_directory}/diffusers/vendor_moss COMPONENT Runtime)
     install(DIRECTORY reference/diffusers/configs DESTINATION ${iild_reference_directory}/diffusers COMPONENT Runtime)
 endif()
 
@@ -835,7 +897,7 @@ install(
 )
 
 install(
-    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/NativeExecutionControl.hpp src/Generation/NativeImageBridge.hpp src/Generation/NativeVideo.hpp src/Generation/NativeVideoBridge.hpp src/Generation/ImageParameters.hpp src/Generation/ImageWatermark.hpp src/Generation/NativePose.hpp
+    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/ImageModelRouting.hpp src/Generation/NativeExecutionControl.hpp src/Generation/NativeImageBridge.hpp src/Generation/NativeVideo.hpp src/Generation/NativeVideoBridge.hpp src/Generation/ImageParameters.hpp src/Generation/ImageWatermark.hpp src/Generation/NativePose.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Generation
 )
 

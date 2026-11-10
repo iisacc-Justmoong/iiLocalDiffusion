@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Public request defaults, replacement precedence, and packaged asset identity."""
+import resource_fixture
 import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -35,7 +35,7 @@ class GenerationDefaultsTests(unittest.TestCase):
         self.assertEqual(len(args.default_modifier_metadata["negative_tokens"]), 7)
 
     def test_custom_lora_replaces_fallback_but_keeps_default_negatives(self):
-        with provider.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             path = Path(temporary) / "custom.safetensors"
             path.write_bytes(b"local adapter identity fixture")
             args = self.request(lora=str(path), lora_scale=0.35, negative_prompt="blurred text")
@@ -71,7 +71,7 @@ class GenerationDefaultsTests(unittest.TestCase):
         self.assertEqual(args.negative_prompt, "")
 
     def test_missing_default_package_fails_instead_of_silent_fallback(self):
-        with provider.TemporaryDirectory(dir=ROOT / "build") as directory:
+        with resource_fixture.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(SystemExit, "generation-defaults"):
                 self.request(generation_resources=directory)
 
@@ -92,7 +92,7 @@ class GenerationDefaultsTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("prepare_generation_defaults", ROOT / "scripts/prepare_generation_defaults.py")
         audit = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(audit)
-        with provider.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             root = Path(temporary)
             payload = b"text encoder identity fixture"
             (root / "encoder.safetensors").write_bytes(payload)
@@ -106,6 +106,23 @@ class GenerationDefaultsTests(unittest.TestCase):
                 (root / entry["file"]).write_bytes(b"x" * len(payload))
                 with self.assertRaisesRegex(ValueError, "resource identity changed"):
                     audit.prepare(root, check=True)
+
+    def test_optional_moss_weight_is_checked_when_present_and_never_rewritten(self):
+        spec = importlib.util.spec_from_file_location("prepare_generation_defaults", ROOT / "scripts/prepare_generation_defaults.py")
+        audit = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(audit)
+        with resource_fixture.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = b"moss optional resource"
+            entry = {"file": "moss.safetensors", "size": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
+            catalog = root / "generation-defaults.json"
+            catalog.write_text(json.dumps({"version": 1, "negative_embeddings": [], "fallback_moss_text_weights": entry}))
+            audit.prepare(root, check=True)
+            (root / entry["file"]).write_bytes(payload)
+            audit.prepare(root, check=True)
+            (root / entry["file"]).write_bytes(b"x" * len(payload))
+            with self.assertRaisesRegex(ValueError, "resource identity changed"):
+                audit.prepare(root, check=False)
 
 
 if __name__ == "__main__":

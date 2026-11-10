@@ -1,4 +1,5 @@
 #include "StableDiffusion/StableDiffusionModelManifest.hpp"
+#include "TestWorkspace.h"
 
 #include "Flux/FluxModelManifest.hpp"
 #include "ModelManifest/DiffusionModelManifest.hpp"
@@ -776,7 +777,7 @@ void rejectsOversizedConfiguration(const fs::path &workDirectory)
 
 int main()
 {
-    const fs::path workDirectory{IILD_TEST_WORK_DIRECTORY};
+    const fs::path workDirectory=iild_test::workspace(IILD_TEST_WORK_DIRECTORY,"model-manifest");
     fs::remove_all(workDirectory);
     fs::create_directories(workDirectory);
 

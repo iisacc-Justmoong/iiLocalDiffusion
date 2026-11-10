@@ -97,6 +97,24 @@ class InferenceWorkerFailureTests(unittest.TestCase):
         self.assertTrue(results[1]["ok"])
         self.assertEqual(results[1]["error"], "")
 
+    def test_deferred_foreground_is_not_prepared_or_reported_ready(self):
+        requests = [dict(schema='iild-worker-request-v1', id='prepare', action='foreground',
+                         foreground=True, arguments=['defer']),
+                    dict(schema='iild-worker-request-v1', id='next', arguments=['generate'])]
+        incoming = io.BytesIO(('\n'.join(map(json.dumps, requests)) + '\n').encode())
+        output, errors = io.StringIO(), io.StringIO()
+        generate = Mock(return_value=0)
+        with patch('sys.stdout', output), patch('sys.stderr', errors):
+            self.assertEqual(inference_worker.serve(generate, incoming,
+                defer_foreground=lambda args: args == ['defer']), 0)
+        results = [json.loads(line[12:]) for line in output.getvalue().splitlines()
+                   if line.startswith('IILD_RESULT ')]
+        self.assertTrue(results[0]['ok'])
+        self.assertFalse(results[0]['residency']['ready'])
+        self.assertEqual(results[0]['residency']['state'], 'waiting-model')
+        self.assertTrue(results[1]['ok'])
+        generate.assert_called_once_with(['generate'])
+
     def test_captured_error_is_bounded_and_keeps_the_end(self):
         def generate(_):
             argparse.ArgumentParser().exit(2, "x" * 5000 + " END\n")

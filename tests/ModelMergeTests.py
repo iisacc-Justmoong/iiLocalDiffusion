@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Merge argument contracts and real, small Torch/safetensors checkpoint tests."""
+import resource_fixture
 
 from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
@@ -9,7 +10,6 @@ import math
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -22,8 +22,7 @@ from model_merge_options import build_parser, resolve_merge_request, resolve_mer
 
 class MergeWorkspace(unittest.TestCase):
     def setUp(self):
-        (ROOT / "build").mkdir(exist_ok=True)
-        temporary = provider.TemporaryDirectory(prefix="model-merge-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="model-merge-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.base = self.directory / "base.safetensors"
@@ -57,7 +56,8 @@ class ModelMergeOptionsTests(MergeWorkspace):
         self.assertEqual(request.weights, (0.5,))
         self.assertEqual(request.base_weight, 0.5)
         self.assertEqual(request.models, (self.base, self.extra))
-        self.assertIn("build", request.output.parts)
+        self.assertTrue(request.output.is_relative_to(ROOT / "resources/outputs"))
+        self.assertTrue(request.cache_dir.is_relative_to(ROOT / "resources/.state"))
 
     def test_multiple_model_defaults_are_equal_and_order_independent(self):
         request = self.checkpoint_request(self.base, self.extra, additional_models=[self.third])

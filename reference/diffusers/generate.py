@@ -37,6 +37,7 @@ from generation_output import hires_base_paths, publish_file, resolve_output_pat
 from generation_preview import add_preview_options, attach_preview, validate_preview_location
 from generation_scheduler import configure_scheduler, validate_clip_skip, validate_scheduler_values
 from generation_tensor_inputs import load_tensor_inputs
+from resource_paths import CACHE_DIRECTORY, OUTPUT_DIRECTORY, REPOSITORY_ROOT
 from hardware import (
     accelerator_preflight, configure_tensor_cores, select_device, validate_execution_device,
 )
@@ -76,10 +77,9 @@ DEFAULT_HEIGHT = SD15_PRESET.height
 DEFAULT_STEPS = SD15_PRESET.steps
 DEFAULT_GUIDANCE_SCALE = SD15_PRESET.guidance_scale
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CACHE_DIRECTORY = REPOSITORY_ROOT / "build" / "reference" / "huggingface"
-DEFAULT_XET_CACHE_DIRECTORY = REPOSITORY_ROOT / "build" / "reference" / "huggingface-xet"
-DEFAULT_OUTPUT = REPOSITORY_ROOT / "build" / "reference" / SD15_PRESET.generation_filename
+DEFAULT_CACHE_DIRECTORY = CACHE_DIRECTORY / "huggingface"
+DEFAULT_XET_CACHE_DIRECTORY = CACHE_DIRECTORY / "huggingface-xet"
+DEFAULT_OUTPUT = OUTPUT_DIRECTORY / SD15_PRESET.generation_filename
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -289,7 +289,7 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset | None, 
         generation_filename = f"{filename.stem}{suffix}-deforum.mp4"
     elif resolved.animation_mode == "Interpolator":
         generation_filename = f"{filename.stem}{suffix}-interpolator.mp4"
-    resolved.output = args.output or REPOSITORY_ROOT / "build" / "reference" / generation_filename
+    resolved.output = args.output or OUTPUT_DIRECTORY / generation_filename
     resolved.output_was_default = args.output is None
     for name in ("output", "cache_dir", "xet_cache_dir"):
         setattr(resolved, name, getattr(resolved, name).expanduser())

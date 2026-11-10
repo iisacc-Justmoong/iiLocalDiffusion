@@ -26,7 +26,7 @@ reference/diffusers/.venv/bin/python reference/generate.py \
   --prompt 'a city at sunrise' --end-prompt 'a forest at sunrise' \
   --negative-prompt 'blur, low quality' \
   --seed 42 --end-seed 43 --max-frames 120 --fps 12 --steps 20 \
-  --output build/interpolator.mp4
+  --output resources/outputs/reference/interpolator.mp4
 ```
 
 프롬프트 전용 변경을 위해 양쪽 끝에서 동일한 시드를 사용하거나 `--end-seed` 를 생략하세요. 시드 전용 변경을 위해 양쪽 끝에서 동일한 프롬프트를 사용하거나 `--end-prompt` 를 생략하세요. 양쪽 끝 값을 의도적으로 생략하면 결정론적 스케줄러를 가진 일정한 시퀀스가 생성됩니다. `--max-frames` 는 양쪽 끝점을 포함하며 2 와 1,000,000사이여야 합니다. 지속 시간은 `max_frames / fps` 입니다; 마지막 프레임은 `(max_frames - 1) / fps` 에서 시작합니다.
@@ -67,7 +67,7 @@ Python 에서 `generate.resolve_request({...})` 를 사용하여 설정을 검�
 
 ## 아티팩트 및 검증
 
-`build/interpolator.mp4` 은 `interpolator.json` 과 `interpolator-frames/frame-000000.png` 이후로 함께 제공됩니다. 각 프레임은 디스크로 스트리밍되며, 엔드포인트 텐서와 현재 프레임만 메모리에 유지되고, 압축된 프레임별 기원이 JSON 보고서에 축적됩니다. 보고서는 엔드포인트 구성, 모델/어댑터 식별자, 텐서 형식 및 표준 부동소수점32 해시, 보간 비율, 실제 디노이징 시간 단계, 유한한 잠재 상태, PNG 해시 및 디코딩된 MP4/GIF 속성을 기록합니다.
+`resources/outputs/reference/interpolator.mp4` 은 `interpolator.json` 과 `interpolator-frames/frame-000000.png` 이후로 함께 제공됩니다. 각 프레임은 디스크로 스트리밍되며, 엔드포인트 텐서와 현재 프레임만 메모리에 유지되고, 압축된 프레임별 기원이 JSON 보고서에 축적됩니다. 보고서는 엔드포인트 구성, 모델/어댑터 식별자, 텐서 형식 및 표준 부동소수점32 해시, 보간 비율, 실제 디노이징 시간 단계, 유한한 잠재 상태, PNG 해시 및 디코딩된 MP4/GIF 속성을 기록합니다.
 
 공유된 `animation_video.py` 는 FFprobe 로 디코딩하여 H.264/yuv420p, 차원, 프레임 수, FPS 및 지속 시간을 확인합니다. GIF 디코딩은 Pillow 를 사용하여 프레임, 차원, 루프 및 10 ms 시간 해상도로 지속 시간을 확인합니다. 완료 보고서는 마지막에 게시되며, 일반 샘플링/인코딩/게시 실패 시 이전 출력을 복원합니다. 충돌 시 기본 출력 이름에 번호가 매겨진 접미사가 추가되며, 명시적인 경로는 `--overwrite` 를 사용하여 대체해야 합니다. 관리되지 않는 프레임 디렉터리와 심볼릭 링크는 덮어쓸 수 없습니다. 두 모드 모두 독점 출력 잠금 장치를 공유하며, 기존 프레임 번들은 동일한 애니메이션 모드에 속해야 합니다. 강제 프로세스 종료/전원 손실은 설명된 대로 스테이지/락 파일을 남길 수 있습니다.
 [Deforum 아티팩트 계약](deforum-video.md#artifacts-and-verification).
@@ -82,6 +82,6 @@ reference/diffusers/.venv/bin/python tests/InterpolatorAdapterSmoke.py --device 
 reference/diffusers/.venv/bin/python tests/InterpolatorAdapterSmoke.py --device mps --dtype float16 --offload model
 ```
 
-스모크는 로컬로 생성된 작은 무작위 SD / SDXL 호환 safetensors 를 사용하여 ControlNet 를 포함하고 포함하지 않은 상태로 실행됩니다. 그것은 변경되는 임베딩/노이즈/픽셀, 엔드포인트 해시, 실제 유한 확산 단계 및 비디오 디코딩을 확인합니다. 그것은 훈련된 모델의 시각적 품질, FLUX 추론 또는 CUDA /ROCm 하드웨어 실행을 확립하지 않습니다. 아티팩트와 로그는 `build/interpolator-smoke` 에 있습니다. 어댑터 스모크는 합성 비영수 LoRA, 학습된 2-벡터 토큰, 정적 ControlNet 및 선택 가능한 정밀도/오프로드를 추가합니다. 텍스트 인버전 벡터는 엔드포인트 인코딩 전에 검증되며, 오프로드가 그들을 메타 텐서로 변환한 후 텍스트 인코더 가중치를 읽지 않고 프레임 루프는 캐시된 조건을 사용합니다.
+스모크는 로컬로 생성된 작은 무작위 SD / SDXL 호환 safetensors 를 사용하여 ControlNet 를 포함하고 포함하지 않은 상태로 실행됩니다. 그것은 변경되는 임베딩/노이즈/픽셀, 엔드포인트 해시, 실제 유한 확산 단계 및 비디오 디코딩을 확인합니다. 그것은 훈련된 모델의 시각적 품질, FLUX 추론 또는 CUDA /ROCm 하드웨어 실행을 확립하지 않습니다. 새 아티팩트와 로그는 `resources/outputs/verification/interpolator-smoke/`에 저장됩니다. 이전 실행 기록의 원래 경로는 `build/interpolator-smoke`입니다. 어댑터 스모크는 합성 비영수 LoRA, 학습된 2-벡터 토큰, 정적 ControlNet 및 선택 가능한 정밀도/오프로드를 추가합니다. 텍스트 인버전 벡터는 엔드포인트 인코딩 전에 검증되며, 오프로드가 그들을 메타 텐서로 변환한 후 텍스트 인코더 가중치를 읽지 않고 프레임 루프는 캐시된 조건을 사용합니다.
 
 테스트된 M1 Max 런타임 ( PyTorch   2.13.0,  Diffusers   0.40.0, Accelerate  1.14.0 )에서 결합된 어댑터 픽스처 는 FP16 와 순차적 오프로드를 포함하여 무한이 아닌 소음 제거 값을 생성했으며, 후크를 새로고친 후에도 마찬가지입니다. FP32 순차 오프로드와 FP16 모델 오프로드 또는 레지던트 가중치가 완료된 경우 이는 해당 조합의 측정된 수치 제한이며, 훈련된 모델 호환성 주장이 아닙니다. 이 경우 `--dtype float32` 또는 다른 오프로드 정책을 사용하세요. 유한 값 감사 (audit) 는 실패한 프레임을 거부하고 기존 출력을 그대로 두며, 아무런 알림 없이 정밀도를 대체하거나 NaNs 를 수리하거나 유효하지 않은 비디오를 게시하지 않습니다.

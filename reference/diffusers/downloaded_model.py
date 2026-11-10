@@ -16,7 +16,7 @@ import struct
 from civitai_catalog import lookup_base_model
 from inference_session import cached_configuration
 from weight_files import model_content_sha256, metadata_model_validation
-from backend_registry import detect_transformer, embedded_slots, PROFILES, plan_native
+from backend_registry import detect_moss_transformer, detect_transformer, embedded_slots, PROFILES, plan_native
 
 
 MAX_HEADER_BYTES = 100_000_000
@@ -52,6 +52,7 @@ _ROUTE = {
     "qwen-image": (None, "QwenImagePipeline"),
     "chroma": (None, "ChromaPipeline"),
     "krea2": (None, "Krea2Pipeline"),
+    "moss-image": (None, "MOSSImagePipeline"),
 }
 _GUIDANCE = {
     "lora": "Attach this adapter with --lora to a matching base checkpoint.",
@@ -248,6 +249,8 @@ def _tensor_identity(shapes):
                  or (len(keys) == 1 and len(next(iter(shapes.values()))) == 2
                      and next(iter(shapes.values()))[-1] in (768, 1024, 1280))):
         return None, "embedding", ["Standalone learned embedding tensors are present"], None
+    if detect_moss_transformer(shapes):
+        return "moss-image", "checkpoint", ["moss-image transformer tensor signature"], None
     normalized = {}
     for key, shape in shapes.items():
         for prefix in ("model.diffusion_model.", "diffusion_model.", "unet.", "transformer."):
@@ -262,7 +265,7 @@ def _tensor_identity(shapes):
            and len(shape) == 2 for key, shape in normalized.items()):
         return "anima", "checkpoint", ["Anima LLM cross-attention adapter tensor signature"], None
     transformer = detect_transformer(normalized)
-    if transformer:
+    if transformer and transformer != "moss-image":
         return transformer, "checkpoint", [f"{transformer} transformer tensor signature"], None
     if any(k.startswith(("encoder.", "first_stage_model.encoder.", "vae.encoder.")) for k in keys) and any(
             k.startswith(("decoder.", "first_stage_model.decoder.", "vae.decoder.")) for k in keys) and not any(

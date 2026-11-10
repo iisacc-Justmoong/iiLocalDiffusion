@@ -15,6 +15,7 @@ import sys
 from typing import Any, Mapping
 
 from pipeline_loading import load_pipeline
+from resource_paths import CACHE_DIRECTORY, OUTPUT_DIRECTORY, REPOSITORY_ROOT
 from presets import (
     DEFAULT_PRESET_NAME,
     PRESETS,
@@ -30,10 +31,9 @@ MODEL_REVISION = SD15_PRESET.revision
 CORE_COMPONENTS = tuple(name for name, _ in SD15_PRESET.expected_components)
 EXPECTED_CLASSES = dict(SD15_PRESET.expected_components)
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CACHE_DIRECTORY = REPOSITORY_ROOT / "build" / "reference" / "huggingface"
-DEFAULT_XET_CACHE_DIRECTORY = REPOSITORY_ROOT / "build" / "reference" / "huggingface-xet"
-DEFAULT_OUTPUT = REPOSITORY_ROOT / "build" / "reference" / SD15_PRESET.inspection_filename
+DEFAULT_CACHE_DIRECTORY = CACHE_DIRECTORY / "huggingface"
+DEFAULT_XET_CACHE_DIRECTORY = CACHE_DIRECTORY / "huggingface-xet"
+DEFAULT_OUTPUT = OUTPUT_DIRECTORY / SD15_PRESET.inspection_filename
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,7 +61,7 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset, argpars
     resolved = argparse.Namespace(**vars(args))
     resolved.model_selection = selection
     resolved.output = args.output or (
-        REPOSITORY_ROOT / "build" / "reference" / preset.inspection_filename
+        OUTPUT_DIRECTORY / preset.inspection_filename
     )
     return preset, resolved
 

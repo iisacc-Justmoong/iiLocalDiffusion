@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the pinned, isolated local checkpoint runtime under build/."""
+"""Install the pinned, isolated local checkpoint runtime under resources/."""
 
 import argparse
 import json
@@ -10,6 +10,8 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "reference/diffusers"))
+from _file_provider import provider
 COMFY_COMMIT = "e80c1570b6b44a2557d5d8e341e05782d18c9bbb"
 GGUF_COMMIT = "6ea2651e7df66d7585f6ffee804b20e92fb38b8a"
 COMFY_URL = "https://github.com/Comfy-Org/ComfyUI.git"
@@ -40,12 +42,15 @@ def install(python: str):
     uv = shutil.which("uv")
     if uv is None:
         raise ValueError("Install uv first; the runtime installer does not alter system Python.")
-    source = ROOT / "build/reference/ComfyUI"
-    environment = ROOT / "build/reference/comfyui-venv"
+    source = ROOT / "resources/dependencies/ComfyUI"
+    runtime = ROOT / "resources/.state/reference-runtime"
+    cache = ROOT / "resources/.state/reference-cache/uv"
+    environment = runtime / "comfyui-venv"
+    provider.mkdir(runtime, parents=True, exist_ok=True)
     executable = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     checkout(source, COMFY_URL, COMFY_COMMIT)
     checkout(source / "custom_nodes/ComfyUI-GGUF", GGUF_URL, GGUF_COMMIT)
-    prefix = [uv, "--cache-dir", str(ROOT / "build/reference/uv-cache")]
+    prefix = [uv, "--cache-dir", str(cache)]
     if not executable.exists():
         subprocess.run([*prefix, "venv", "--python", python, str(environment)], check=True)
     subprocess.run([*prefix, "pip", "install", "--python", str(executable),
@@ -54,10 +59,10 @@ def install(python: str):
                     "-c", str(ROOT / "reference/diffusers/requirements-common.txt"),
                     "torch==2.13.0"], check=True)
     frozen = subprocess.check_output([*prefix, "pip", "freeze", "--python", str(executable)], text=True)
-    (ROOT / "build/reference/comfyui-installed.lock").write_text(frozen)
+    provider.write_text(runtime / "comfyui-installed.lock", frozen)
     result = {"comfyui_commit": COMFY_COMMIT, "gguf_commit": GGUF_COMMIT,
               "source": str(source), "python": str(executable)}
-    (ROOT / "build/reference/comfyui-installation.json").write_text(json.dumps(result, indent=2) + "\n")
+    provider.write_text(runtime / "comfyui-installation.json", json.dumps(result, indent=2) + "\n")
     return result
 
 

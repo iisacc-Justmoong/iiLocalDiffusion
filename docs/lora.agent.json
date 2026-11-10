@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/lora.md",
-    "sha256": "f6bab2be6d2164b946a805596d4405bbc4cb02bdcaaf776dfda7216341c9ba91",
-    "bytes": 10612,
+    "sha256": "d684ed5ffddce23f803b864df089c02fde608d2a5a7a53f2dd13fbd72902174c",
+    "bytes": 10636,
     "line_count": 88,
     "encoding": "utf-8",
     "language": "ko"
@@ -187,9 +187,9 @@
       "kind": "fenced_code",
       "start_line": 24,
       "end_line": 31,
-      "raw": "```bash\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/style.safetensors \\\n  --lora-scale 0.75 \\\n  --output build/reference/flux-style.png\n```\n",
+      "raw": "```bash\nreference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/style.safetensors \\\n  --lora-scale 0.75 \\\n  --output resources/outputs/reference/flux-style.png\n```\n",
       "language": "bash",
-      "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/style.safetensors \\\n  --lora-scale 0.75 \\\n  --output build/reference/flux-style.png\n",
+      "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/style.safetensors \\\n  --lora-scale 0.75 \\\n  --output resources/outputs/reference/flux-style.png\n",
       "closed": true
     },
     {
@@ -263,9 +263,9 @@
       "kind": "fenced_code",
       "start_line": 48,
       "end_line": 53,
-      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --model /absolute/path/sd3-diffusers \\\n  --lora /absolute/path/sd3-style.safetensors --lora-scale 0.75 \\\n  --prompt 'a red cube' --output-dir build/reference/sd3-style\n```\n",
+      "raw": "```bash\nreference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --model /absolute/path/sd3-diffusers \\\n  --lora /absolute/path/sd3-style.safetensors --lora-scale 0.75 \\\n  --prompt 'a red cube' --output-dir resources/outputs/reference/sd3-style\n```\n",
       "language": "bash",
-      "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --model /absolute/path/sd3-diffusers \\\n  --lora /absolute/path/sd3-style.safetensors --lora-scale 0.75 \\\n  --prompt 'a red cube' --output-dir build/reference/sd3-style\n",
+      "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --model /absolute/path/sd3-diffusers \\\n  --lora /absolute/path/sd3-style.safetensors --lora-scale 0.75 \\\n  --prompt 'a red cube' --output-dir resources/outputs/reference/sd3-style\n",
       "closed": true
     },
     {
@@ -584,7 +584,7 @@
       {
         "block_id": "b000023",
         "language": "bash",
-        "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/style.safetensors \\\n  --lora-scale 0.75 \\\n  --output build/reference/flux-style.png\n"
+        "code": "reference/diffusers/.venv/bin/python \\\n  reference/diffusers/generate.py --model /absolute/path/image-diffusers \\\n  --preset flux1-schnell \\\n  --lora /absolute/path/to/style.safetensors \\\n  --lora-scale 0.75 \\\n  --output resources/outputs/reference/flux-style.png\n"
       },
       {
         "block_id": "b000027",
@@ -594,7 +594,7 @@
       {
         "block_id": "b000033",
         "language": "bash",
-        "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --model /absolute/path/sd3-diffusers \\\n  --lora /absolute/path/sd3-style.safetensors --lora-scale 0.75 \\\n  --prompt 'a red cube' --output-dir build/reference/sd3-style\n"
+        "code": "reference/diffusers/.venv/bin/python reference/generate.py \\\n  --backend diffusers --model /absolute/path/sd3-diffusers \\\n  --lora /absolute/path/sd3-style.safetensors --lora-scale 0.75 \\\n  --prompt 'a red cube' --output-dir resources/outputs/reference/sd3-style\n"
       }
     ],
     "links": [

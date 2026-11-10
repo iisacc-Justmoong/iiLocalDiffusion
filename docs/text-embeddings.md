@@ -103,7 +103,7 @@ CLI, JSON, `--config`, 및 Python `resolve_request()` 는 동일한 스키마를
 
 인코더 dtype 으로 변환하는 동안 유효하지 않은 텐서 랭크, 차원, dtype, 빈 벡터, 유한하지 않은 값, 및 오버플로가 거부됩니다. Tokenizer 충돌은 요청된 논리적 토큰과 생성된 다중 벡터 토큰 이름을 포함합니다. 충돌은 기존 어휘 항목을 덮어쓰도록 요청하는 것이 아니라 오류입니다. 로컬 파일 식별자는 로딩 중에 확인되고 provenance 에 유지됩니다.
 
-기본 출력 스템은 `-lora` 수정자 뒤, `-controlnet` / `-hires` 앞에 `-embedding`를 추가합니다. 따라서 학습된 토큰 SD 1.5 실행은 기본적으로 `build/reference/sd15-red-cube-embedding.png`로 설정됩니다. 기존 충돌, 배치 번호 지정 및 선택적 고용 수정 기본 출력 규칙이 적용됩니다.
+기본 출력 스템은 `-lora` 수정자 뒤, `-controlnet` / `-hires` 앞에 `-embedding`를 추가합니다. 따라서 학습된 토큰 SD 1.5 실행은 기본적으로 `resources/outputs/reference/sd15-red-cube-embedding.png`로 설정됩니다. 기존 충돌, 배치 번호 지정 및 선택적 고용 수정 기본 출력 규칙이 적용됩니다.
 
 사이드카의 `text_embeddings` 배열은 각 소스 파일과 SHA-256 해시, 요청된 토큰/인코더, 및 해당 `registrations` 를 식별합니다. 각 등록은 해결된 논리적 `token`, 확장된 `tokens`, 인코더 `component`, `token_ids`, `source_key`, `source_dtype`, 및 벡터 `shape`, 그리고 로딩된 `dtype` 와 `vector_count` 를 기록합니다. `embedding_rows_before` / `embedding_rows_after` 값은 어휘 저장 크기를 기록하며, 사용하지 않는 패딩 행은 유지됩니다. 성공적인 CLI 로딩은 각 해결된 토큰, 인코더 및 벡터 개수를 출력하여 생성 전에 추론된 토큰 이름이 가시화됩니다. 원본 요청과 생성 입력은 재생을 위해 사용 가능합니다. 작은 실행 테스트는 로딩, 토큰 확장 및 파이프라인 구성을 확립하며, 임의의 제 3 자 임베딩 가중치의 시각적 품질이나 학습 호환성을 확립하지 않습니다.
 

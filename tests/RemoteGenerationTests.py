@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Real loopback inference transport and local postprocessing, with no billable calls."""
+import resource_fixture
 
 from contextlib import redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,7 +12,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import unittest
 from unittest.mock import patch
@@ -39,7 +39,7 @@ except ImportError:
 @unittest.skipIf(Image is None, "Pillow is required for decoded-media verification")
 class RemoteGenerationTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = provider.TemporaryDirectory(prefix="remote-generation-", dir=ROOT / "build")
+        self.temporary = resource_fixture.TemporaryDirectory(prefix="remote-generation-")
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
         self.requests = []

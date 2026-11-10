@@ -155,9 +155,9 @@ SDXL 에 대한 다음 크기 값은 `HEIGHT WIDTH` 순서를 사용하며 `--or
 | `--vae-slicing`, `--vae-tiling` |사전 설정/장치 정책, 명시적 활성화/비활성화|
 | `--watermark` |SDXL 거짓; 명시적인 참은 선택적 설치된 의존성이 필요함|
 | `--progress` |참; false는 생성 진행 상황을 숨깁니다.|
-| `--cache-dir`, `--xet-cache-dir` |리포지토리 build/reference/huggingface 및 Huggingface-xet|
+| `--cache-dir`, `--xet-cache-dir` |resources/.state/reference-cache/huggingface 및 huggingface-xet|
 | `--local-files-only` |참; 비활성화가 거부되었습니다.|
-| `--output` |build/reference 하의 사전설정 파일명; 사용자 정의/vae/lora/embedding/controlnet/hires 접미사가 구성됨|
+| `--output` |`resources/outputs/reference/` 하의 사전설정 파일명; 사용자 정의/vae/lora/embedding/controlnet/hires 접미사가 구성됨|
 | `--overwrite` |거짓|
 | `--png-compress-level` |6, 범위 0–9; 무손실|
 | `--png-optimize` |거짓; 무손실 스토리지 최적화|

@@ -10,9 +10,9 @@
   },
   "source": {
     "path": "resources/text_encoders/NOTICE.md",
-    "sha256": "bad5be52cd08a41794827074a84ef4bfcd3fdcc4c2b9a882b1e7374b0cf8e633",
-    "bytes": 566,
-    "line_count": 6,
+    "sha256": "9126415a70b6df20d8c89c76e030e7eace4f5e0a1f4f5c5bc470a87d7eb3ab84",
+    "bytes": 3462,
+    "line_count": 15,
     "encoding": "utf-8",
     "language": "en"
   },
@@ -42,8 +42,64 @@
       "id": "b000003",
       "kind": "paragraph",
       "start_line": 3,
-      "end_line": 6,
-      "raw": "The original Qwen/Qwen3-VL-4B-Instruct encoder is used unchanged under Apache-2.0.\nSingle-file weights: `Comfy-Org/Krea-2`, revision `eb1eddd3983a54678545a9b2c178c5853b30f7be`, `text_encoders/qwen3vl_4b_bf16.safetensors`.\nThe upstream model is `Qwen/Qwen3-VL-4B-Instruct`. This package includes only the encoder, not the Krea2 denoiser weights. SHA-256 and size are recorded in `generation-defaults.json`.\nThe SDK mounts the original `model.language_model` namespace in memory. It does not rewrite the file or change tensor precision.\n"
+      "end_line": 7,
+      "raw": "The original Qwen/Qwen3-VL-4B-Instruct encoder is used unchanged under Apache-2.0.\nSingle-file weights: `Comfy-Org/Krea-2`, revision `eb1eddd3983a54678545a9b2c178c5853b30f7be`, `text_encoders/qwen3vl_4b_bf16.safetensors`.\nThe upstream model is `Qwen/Qwen3-VL-4B-Instruct`. This package includes only the encoder, not the Krea2 denoiser weights. SHA-256 and size are recorded in `generation-defaults.json`.\nThe SDK mounts the original `model.language_model` namespace in memory. It does not rewrite the file or change tensor precision.\nThe generic Diffusers fallback uses the official Qwen3-VL configuration from revision `ebb281ec70b05090aa6165b016eac8ec08e71b17`, saved as `qwen3vl-4b/config.json` with SHA-256 `edac7703329133edfc53e46ac0081835144c99d7eebf28b71c732694d435224d`. It loads only the language namespace and converts tensor precision only when explicitly requested by the runner.\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 8,
+      "end_line": 8,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 9,
+      "end_line": 9,
+      "raw": "The Krea 2 tokenizer fallback reuses `vocab.json`, `merges.txt`, and `tokenizer_config.json` from the existing ComfyUI `comfy/text_encoders/qwen25_tokenizer` resource. The vocabulary is byte-identical to the pinned Qwen3-VL-4B-Instruct vocabulary; its merge entries are identical after the optional version header and its 26 added-token definitions match. The tokenizer configuration's chat template and maximum length differ; the Krea 2 Diffusers pipeline uses its own fixed text template and explicit maximum length. File sizes and SHA-256 values are recorded in `fallback_tokenizers` in `generation-defaults.json`. Qwen3-VL is Apache-2.0 licensed.\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 10,
+      "end_line": 10,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "paragraph",
+      "start_line": 11,
+      "end_line": 11,
+      "raw": "The MOSS fallback reuses the existing ComfyUI `comfy/text_encoders/qwen35_tokenizer` vocabulary, merges, and tokenizer configuration. Their vocabulary, merge order, and 33 added tokens match the official MOSS tokenizer at revision `f972bd4b4b9e3852133cc5da954d87bc32cd8fb9`. Its default chat template differs; the pinned MOSS pipeline explicitly uses `enable_thinking=True`, for which the checked multilingual examples match the official template and token IDs. `qwen35-9b/config.json` is the official MOSS text encoder configuration at that revision. File sizes and SHA-256 values are in `generation-defaults.json`; the tokenizer and configuration are Apache-2.0. The 9B encoder weights are not included by these small files.\n"
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 12,
+      "end_line": 12,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 13,
+      "end_line": 13,
+      "raw": "The FLUX.1 tokenizer fallback copies the existing ComfyUI `comfy/sd1_tokenizer` and `comfy/text_encoders/t5_tokenizer` data to `flux1-clip/` and `flux1-t5/`, respectively; file sizes and hashes are recorded in `generation-defaults.json`. The CLIP vocabulary mapping and merge file match `openai/clip-vit-large-patch14`; the T5 vocabulary matches `google-t5/t5-small`, although its tokenizer configuration and processing metadata are not identical. These small resources are tokenizer data, not CLIP or T5 encoder weights. The exact distribution terms of the copied ComfyUI data have not been independently established by the vocabulary comparison.\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 14,
+      "end_line": 14,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "paragraph",
+      "start_line": 15,
+      "end_line": 15,
+      "raw": "FLUX.1 split-encoder configuration resources derive from the pinned `openai/clip-vit-large-patch14` text configuration and `google/t5-v1_1-xxl` configuration listed in `generation-defaults.json`. The latter model is marked Apache-2.0. The separate `comfyanonymous/flux_text_encoders` weight repository is also marked Apache-2.0. The CLIP and scaled-FP8 T5 payloads can be provisioned independently with `scripts/provision_flux1_text_encoders.py`; their pinned identities are in `fallback_flux_text_weights`.\n"
     }
   ],
   "outline": [

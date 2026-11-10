@@ -1,0 +1,177 @@
+{
+  "format": "iisacc.agent-document",
+  "schema_version": 1,
+  "document_id": "urn:iisacc:document:b966c06c73d57808d694858356f4c74a272b4840d4a97e74166001cf999eb4a2",
+  "project": {
+    "id": "urn:iisacc:project:SDK%2FiiLocalDiffusion",
+    "name": "iiLocalDiffusion",
+    "root": "SDK/iiLocalDiffusion",
+    "kind": "sdk"
+  },
+  "source": {
+    "path": "docs/BuildLayout.md",
+    "sha256": "da158fce4ec1795a1ef733ed2266e12efebe637aa2811154168b778254d20609",
+    "bytes": 5258,
+    "line_count": 81,
+    "encoding": "utf-8",
+    "language": "en"
+  },
+  "document": {
+    "title": "Build and resource layout",
+    "role": "guide",
+    "authority": "markdown_source"
+  },
+  "blocks": [
+    {
+      "id": "b000001",
+      "kind": "heading",
+      "start_line": 1,
+      "end_line": 1,
+      "raw": "# Build and resource layout\n",
+      "level": 1,
+      "title": "Build and resource layout"
+    },
+    {
+      "id": "b000002",
+      "kind": "blank",
+      "start_line": 2,
+      "end_line": 2,
+      "raw": "\n"
+    },
+    {
+      "id": "b000003",
+      "kind": "paragraph",
+      "start_line": 3,
+      "end_line": 16,
+      "raw": "The native diffusion module, its command-line interfaces and selected tests\ncompile in `build/`. Fetched MLX, stable-diffusion.cpp and other dependency\nsource trees live under `resources/dependencies/`; compiled dependency files\nand CMake metadata remain in `build/dependencies/`. A caller can still supply a\ndifferent checkout through the corresponding `FETCHCONTENT_SOURCE_DIR_*`\noverride. Existing models, virtual environments and other user data recovered\nfrom earlier builds remain under project resources. Compatibility links can be\nretained temporarily when another active project still points to an older build\npath.\nThe CUDA CCCL license is a pinned, checksum-verified input under\n`resources/dependencies/`; an existing mismatched file or symlink is rejected.\nCached source directories are reused as local checkouts: archive checksums are\nverified on initial acquisition, not again on every configure. Preserve local\nedits and refresh the relevant source when changing a pinned dependency.\n"
+    },
+    {
+      "id": "b000004",
+      "kind": "blank",
+      "start_line": 17,
+      "end_line": 17,
+      "raw": "\n"
+    },
+    {
+      "id": "b000005",
+      "kind": "paragraph",
+      "start_line": 18,
+      "end_line": 21,
+      "raw": "Manual inference probes, cache integration programs and the weight-read\nbenchmark are excluded from the default build and remain explicit targets.\nPython test registrations disable bytecode generation instead of writing a\n`build/pycache` tree.\n"
+    },
+    {
+      "id": "b000006",
+      "kind": "blank",
+      "start_line": 22,
+      "end_line": 22,
+      "raw": "\n"
+    },
+    {
+      "id": "b000007",
+      "kind": "paragraph",
+      "start_line": 23,
+      "end_line": 38,
+      "raw": "Native contract, model-manifest, cache and result tests reserve distinct\n`resources/test-workspaces/` directories through iiFileProvider and remove\ntheir temporary files after each run. Cross-compilation keeps the existing\ndirect test commands and uses resource fallback paths, which require cleanup\nafter a cross-platform run.\nInstaller, CLI and packaging fixtures also use these disposable resource\nworkspaces. A consumer's compiled test files use a separate owned directory\nunder `build/test-workspaces/`; the runner removes both areas on success or\nfailure and refuses to replace an existing directory. Installer fixture copies\nexclude private state, recovery, dependencies and test workspaces, so the\nfixture cannot recursively copy its own work area.\nPython policy and model-contract fixtures use the same resource area, both when\ninvoked directly and when nested inside a test-runner workspace. A requested\nworkspace must remain inside that area; fixture names cannot contain path\nseparators. The provider is found through `IIFILEPROVIDER_PYTHON_DIRECTORY` or\nthe normal installed iiFileProvider Python package.\n"
+    },
+    {
+      "id": "b000008",
+      "kind": "blank",
+      "start_line": 39,
+      "end_line": 39,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 40,
+      "end_line": 48,
+      "raw": "The two manual model-merge smoke commands use the same disposable resource\nworkspace, disable Python bytecode caches, and print their verification report\nas JSON. Image and model paths in that report are temporary and are removed\nwhen the command returns. These inference commands are not run by the workspace\nlayout contract tests.\nThe manual sampled-checkpoint and nonfinite verifiers also use disposable\nresource workspaces and print their full evidence as JSON. Their tests exercise\nonly workspace orchestration; actual checkpoints and the installed merge CLI\nare not run by those tests.\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 49,
+      "end_line": 49,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "paragraph",
+      "start_line": 50,
+      "end_line": 68,
+      "raw": "Diffusers reference generation, inspection and ComfyUI runs default to\n`resources/outputs/reference/`; their download caches default to\n`resources/.state/reference-cache/`. Generated output remains user data, while\nan idle cache may be discarded. Explicit output and cache arguments retain\ntheir original behavior. Reference and checkpoint-conversion test fixtures use\ndisposable iiFileProvider workspaces; optional real-conversion evidence is\nprinted instead of writing a report to the build tree.\nStandalone, unified, native, remote, generic and video generation, model\nmerging and managed image jobs use the same output root. The ComfyUI source is\nkept under `resources/dependencies/ComfyUI` and its isolated environment under\n`resources/.state/reference-runtime/`. MLX parity evidence must be placed in\nproject resources; its compiled native test remains in `build/`.\nThe runtime resource installer excludes private state, recovery, dependency,\ntest and generated-output directories even when they contain model or metadata\nfilenames. A small fixture installation tests the real shared install rule\nwithout packaging user models or executing an application.\nThe `Runtime` install component includes the iiLocalDiffusion shared library\nalongside its Python tools and resources. The generated installer is checked for\nthat component without copying the full, potentially multi-gigabyte resource set.\n"
+    },
+    {
+      "id": "b000012",
+      "kind": "blank",
+      "start_line": 69,
+      "end_line": 69,
+      "raw": "\n"
+    },
+    {
+      "id": "b000013",
+      "kind": "paragraph",
+      "start_line": 70,
+      "end_line": 76,
+      "raw": "The managed local-image process places Python bytecode in the selected resource\ncache, including when no cache override is given. Core ML conversion evidence is\nrestricted to `resources/`; its compiled native test stays under `build/`.\nManual model-inference smoke scripts default to `resources/outputs/verification/`\nand retain their generated evidence there for the caller to inspect or remove.\nThey do not execute during the layout policy test. Local IDE Debug profiles use\nthe project's existing `build/` rather than creating `cmake-build-debug/`.\n"
+    },
+    {
+      "id": "b000014",
+      "kind": "blank",
+      "start_line": 77,
+      "end_line": 77,
+      "raw": "\n"
+    },
+    {
+      "id": "b000015",
+      "kind": "paragraph",
+      "start_line": 78,
+      "end_line": 81,
+      "raw": "Tests that start application-facing tools or require model inference are not\npart of clean-layout verification. Historical documents can name the former\n`build/` locations where earlier evidence was originally recorded. A successful\nbuild or unit test does not imply that model inference or an application was run.\n"
+    }
+  ],
+  "outline": [
+    {
+      "block_id": "b000001",
+      "parent_id": null,
+      "level": 1,
+      "title": "Build and resource layout",
+      "anchor": "build-and-resource-layout",
+      "start_line": 1
+    }
+  ],
+  "indexes": {
+    "directive_candidates": [
+      {
+        "block_id": "b000007",
+        "line": 36,
+        "text": "workspace must remain inside that area; fixture names cannot contain path",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000011",
+        "line": 60,
+        "text": "`resources/.state/reference-runtime/`. MLX parity evidence must be placed in",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000013",
+        "line": 75,
+        "text": "They do not execute during the layout policy test. Local IDE Debug profiles use",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      }
+    ],
+    "commands": [],
+    "links": [],
+    "tables": []
+  },
+  "provenance": {
+    "generator": "workspace-docs",
+    "version": "1.0.0",
+    "profile": "lossless-blocks-v1",
+    "derived": true
+  }
+}

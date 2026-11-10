@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "reference/coreml/README.md",
-    "sha256": "b5c025e1bf2450254ad0fe8d796f154a88acfcfdf7980bd4853301b66d968793",
-    "bytes": 3504,
+    "sha256": "752be5444aa430d5c20626151345f065a04b9bcf7efd66de43a5173fd992d734",
+    "bytes": 3660,
     "line_count": 68,
     "encoding": "utf-8",
     "language": "en"
@@ -71,9 +71,9 @@
       "kind": "fenced_code",
       "start_line": 15,
       "end_line": 33,
-      "raw": "```bash\nUV_PYTHON_INSTALL_DIR=\"$PWD/build/dependencies/python\" \\\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv venv --python 3.13 build/reference/coreml-venv\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv pip install --python build/reference/coreml-venv/bin/python \\\n    -r reference/coreml/requirements.txt\ncmake -S . -B build\ncmake --build build --parallel\n\nbuild/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias --batch-size 128 \\\n  --output-dir build/reference/neural/my-clip-component --native-test build/CoreMLTests\n\n./build/iild-run neural-compute \\\n  --model build/reference/neural/my-clip-component/model.mlmodelc\n```\n",
+      "raw": "```bash\nUV_PYTHON_INSTALL_DIR=\"$PWD/resources/.state/reference-runtime/python\" \\\nUV_CACHE_DIR=\"$PWD/resources/.state/reference-cache/uv\" \\\n  uv venv --python 3.13 resources/.state/reference-runtime/coreml-venv\nUV_CACHE_DIR=\"$PWD/resources/.state/reference-cache/uv\" \\\n  uv pip install --python resources/.state/reference-runtime/coreml-venv/bin/python \\\n    -r reference/coreml/requirements.txt\ncmake -S . -B build\ncmake --build build --parallel\n\nresources/.state/reference-runtime/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias --batch-size 128 \\\n  --output-dir resources/outputs/reference/neural/my-clip-component --native-test build/CoreMLTests\n\n./build/iild-run neural-compute \\\n  --model resources/outputs/reference/neural/my-clip-component/model.mlmodelc\n```\n",
       "language": "bash",
-      "code": "UV_PYTHON_INSTALL_DIR=\"$PWD/build/dependencies/python\" \\\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv venv --python 3.13 build/reference/coreml-venv\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv pip install --python build/reference/coreml-venv/bin/python \\\n    -r reference/coreml/requirements.txt\ncmake -S . -B build\ncmake --build build --parallel\n\nbuild/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias --batch-size 128 \\\n  --output-dir build/reference/neural/my-clip-component --native-test build/CoreMLTests\n\n./build/iild-run neural-compute \\\n  --model build/reference/neural/my-clip-component/model.mlmodelc\n",
+      "code": "UV_PYTHON_INSTALL_DIR=\"$PWD/resources/.state/reference-runtime/python\" \\\nUV_CACHE_DIR=\"$PWD/resources/.state/reference-cache/uv\" \\\n  uv venv --python 3.13 resources/.state/reference-runtime/coreml-venv\nUV_CACHE_DIR=\"$PWD/resources/.state/reference-cache/uv\" \\\n  uv pip install --python resources/.state/reference-runtime/coreml-venv/bin/python \\\n    -r reference/coreml/requirements.txt\ncmake -S . -B build\ncmake --build build --parallel\n\nresources/.state/reference-runtime/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias --batch-size 128 \\\n  --output-dir resources/outputs/reference/neural/my-clip-component --native-test build/CoreMLTests\n\n./build/iild-run neural-compute \\\n  --model resources/outputs/reference/neural/my-clip-component/model.mlmodelc\n",
       "closed": true
     },
     {
@@ -130,9 +130,9 @@
       "kind": "fenced_code",
       "start_line": 56,
       "end_line": 64,
-      "raw": "```bash\nbuild/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --fixture --io-precision fp16 --output-dir build/reference/neural/my-fixture \\\n  --native-test build/CoreMLTests\ncmake -S . -B build \\\n  -DIILD_COREML_TEST_FIXTURE=\"$PWD/build/reference/neural/my-clip-component\"\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n```\n",
+      "raw": "```bash\nresources/.state/reference-runtime/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --fixture --io-precision fp16 --output-dir resources/outputs/reference/neural/my-fixture \\\n  --native-test build/CoreMLTests\ncmake -S . -B build \\\n  -DIILD_COREML_TEST_FIXTURE=\"$PWD/resources/outputs/reference/neural/my-clip-component\"\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n```\n",
       "language": "bash",
-      "code": "build/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --fixture --io-precision fp16 --output-dir build/reference/neural/my-fixture \\\n  --native-test build/CoreMLTests\ncmake -S . -B build \\\n  -DIILD_COREML_TEST_FIXTURE=\"$PWD/build/reference/neural/my-clip-component\"\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n",
+      "code": "resources/.state/reference-runtime/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --fixture --io-precision fp16 --output-dir resources/outputs/reference/neural/my-fixture \\\n  --native-test build/CoreMLTests\ncmake -S . -B build \\\n  -DIILD_COREML_TEST_FIXTURE=\"$PWD/resources/outputs/reference/neural/my-clip-component\"\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n",
       "closed": true
     },
     {
@@ -195,12 +195,12 @@
       {
         "block_id": "b000007",
         "language": "bash",
-        "code": "UV_PYTHON_INSTALL_DIR=\"$PWD/build/dependencies/python\" \\\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv venv --python 3.13 build/reference/coreml-venv\nUV_CACHE_DIR=\"$PWD/build/dependencies/uv-cache\" \\\n  uv pip install --python build/reference/coreml-venv/bin/python \\\n    -r reference/coreml/requirements.txt\ncmake -S . -B build\ncmake --build build --parallel\n\nbuild/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias --batch-size 128 \\\n  --output-dir build/reference/neural/my-clip-component --native-test build/CoreMLTests\n\n./build/iild-run neural-compute \\\n  --model build/reference/neural/my-clip-component/model.mlmodelc\n"
+        "code": "UV_PYTHON_INSTALL_DIR=\"$PWD/resources/.state/reference-runtime/python\" \\\nUV_CACHE_DIR=\"$PWD/resources/.state/reference-cache/uv\" \\\n  uv venv --python 3.13 resources/.state/reference-runtime/coreml-venv\nUV_CACHE_DIR=\"$PWD/resources/.state/reference-cache/uv\" \\\n  uv pip install --python resources/.state/reference-runtime/coreml-venv/bin/python \\\n    -r reference/coreml/requirements.txt\ncmake -S . -B build\ncmake --build build --parallel\n\nresources/.state/reference-runtime/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --model /absolute/path/to/text-encoder.safetensors \\\n  --weight-key text_model.encoder.layers.0.mlp.fc1.weight \\\n  --bias-key text_model.encoder.layers.0.mlp.fc1.bias --batch-size 128 \\\n  --output-dir resources/outputs/reference/neural/my-clip-component --native-test build/CoreMLTests\n\n./build/iild-run neural-compute \\\n  --model resources/outputs/reference/neural/my-clip-component/model.mlmodelc\n"
       },
       {
         "block_id": "b000015",
         "language": "bash",
-        "code": "build/reference/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --fixture --io-precision fp16 --output-dir build/reference/neural/my-fixture \\\n  --native-test build/CoreMLTests\ncmake -S . -B build \\\n  -DIILD_COREML_TEST_FIXTURE=\"$PWD/build/reference/neural/my-clip-component\"\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n"
+        "code": "resources/.state/reference-runtime/coreml-venv/bin/python reference/coreml/convert_linear.py \\\n  --fixture --io-precision fp16 --output-dir resources/outputs/reference/neural/my-fixture \\\n  --native-test build/CoreMLTests\ncmake -S . -B build \\\n  -DIILD_COREML_TEST_FIXTURE=\"$PWD/resources/outputs/reference/neural/my-clip-component\"\ncmake --build build --parallel\nctest --test-dir build --output-on-failure\n"
       }
     ],
     "links": [

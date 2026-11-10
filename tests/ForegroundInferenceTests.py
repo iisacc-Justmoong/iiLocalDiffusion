@@ -1,9 +1,9 @@
 """Foreground preparation belongs to the SDK and must never generate an image."""
+import resource_fixture
 import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -15,7 +15,7 @@ import inference_worker
 
 class ForegroundInferenceTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="foreground-")
+        temporary = resource_fixture.TemporaryDirectory(prefix="foreground-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.model = self.directory / "model.safetensors"

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Archived regressions for the removed cross-family synthetic adaptation path."""
+import resource_fixture
 import json
 import importlib.util
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +22,7 @@ from iild_package import materialize_archive
 @unittest.skip("Base-scoped selection excludes unmatched LoRAs before synthetic adaptation.")
 class SyntheticTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=ROOT / 'build', prefix='synthetic-')
+        self.temp = resource_fixture.TemporaryDirectory(prefix='synthetic-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.base, self.lora = self.root / 'base.safetensors', self.root / 'lora.safetensors'

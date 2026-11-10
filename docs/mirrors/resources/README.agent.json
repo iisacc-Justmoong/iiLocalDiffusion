@@ -10,9 +10,9 @@
   },
   "source": {
     "path": "resources/README.md",
-    "sha256": "9a8f942e4fb08e7a72bee1cdf8ec84eaf1fbc4759c02168bbb0520e4e45adc01",
-    "bytes": 4387,
-    "line_count": 35,
+    "sha256": "2a4a9e4eb6d7b629823a767b04ed1d77b5b372c6bb671a8ae8dd7d27cc3d07b5",
+    "bytes": 45632,
+    "line_count": 191,
     "encoding": "utf-8",
     "language": "ko"
   },
@@ -57,7 +57,7 @@
       "kind": "paragraph",
       "start_line": 5,
       "end_line": 5,
-      "raw": "The `.safetensors` and `.pt` originals in this directory are managed via Git LFS, except for the oversized Qwen3-VL encoder described below. Model files are not placed in Git's regular blobs, and the LFS-managed originals are downloaded with the following command after receiving the repository.\n"
+      "raw": "`model-configs/moss-image-sft/` contains the unmodified model index, transformer configuration and scheduler configuration from `OpenMOSS-Team/MOSS-Image-SFT` revision `f972bd4b4b9e3852133cc5da954d87bc32cd8fb9` (Apache-2.0). It supplies `--model-config` for the original single-file SFT transformer; it contains no model weights. The other components use separately selected or provisioned local resources. Tests pin the original file sizes and SHA-256 hashes.\n"
     },
     {
       "id": "b000006",
@@ -68,128 +68,1220 @@
     },
     {
       "id": "b000007",
-      "kind": "fenced_code",
+      "kind": "paragraph",
       "start_line": 7,
-      "end_line": 11,
-      "raw": "```sh\ngit lfs install --local\ngit lfs pull\ngit lfs fsck\n```\n",
-      "language": "sh",
-      "code": "git lfs install --local\ngit lfs pull\ngit lfs fsck\n",
-      "closed": true
+      "end_line": 7,
+      "raw": "`python3 scripts/provision_krea2.py --role turbo` provisions the [Krea 2 Turbo FP8 checkpoint](https://huggingface.co/Comfy-Org/Krea-2) (13,141,730,784 bytes), and `--role depth` separately provisions the [depth Control-LoRA](https://huggingface.co/Patil/Krea-2-depth-controlnet) (861,995,928 bytes). Both use pinned revisions, resume interrupted transfers, verify the complete size and SHA-256 before publication, never overwrite a mismatching target, and support `--check`. Files are excluded from Git and must be explicitly selected. The adapter was trained on Raw and its author reports Turbo support. Both sources are subject to the Krea 2 Community License. These checks do not establish output quality or reference-workflow equivalence.\n"
     },
     {
       "id": "b000008",
+      "kind": "blank",
+      "start_line": 8,
+      "end_line": 8,
+      "raw": "\n"
+    },
+    {
+      "id": "b000009",
+      "kind": "paragraph",
+      "start_line": 9,
+      "end_line": 9,
+      "raw": "`python3 scripts/provision_krea2.py --role pose` separately provisions the Apache-2.0 [Krea 2 Turbo pose LoRA](https://huggingface.co/thedeoxen/Krea-2-pose-controlnet) (228,587,504 bytes) with the same pinned-source, resume, SHA-256 and `--check` behavior. Select it explicitly as `--controlnet` with `--controlnet-format krea2-ostris-edit` and supply a prepared pose map. The model does not provide pose detection; the Krea base license applies separately. The optional `IILD_VERIFY_KREA2_POSE_PAYLOAD=1` test hashes the adapter and checks all tensor descriptors, metadata and values without generating an image.\n"
+    },
+    {
+      "id": "b000010",
+      "kind": "blank",
+      "start_line": 10,
+      "end_line": 10,
+      "raw": "\n"
+    },
+    {
+      "id": "b000011",
+      "kind": "paragraph",
+      "start_line": 11,
+      "end_line": 11,
+      "raw": "On 2026-10-31 the provisioned pose adapter passed the complete SHA-256 and all 512 tensor descriptor, metadata and finite-value checks in the reference runtime. This local file audit does not establish image quality or pose reproduction by the pretrained model combination.\n"
+    },
+    {
+      "id": "b000012",
       "kind": "blank",
       "start_line": 12,
       "end_line": 12,
       "raw": "\n"
     },
     {
-      "id": "b000009",
+      "id": "b000013",
       "kind": "paragraph",
       "start_line": 13,
       "end_line": 13,
-      "raw": "`.gitattributes` defines tracking rules by resource extension. Each original in the LFS pointer contains the SHA-256 and byte size. The `generation-defaults.json` specified LoRA and negative embeddings are now global image generation defaults and are included in CMake installation. SDXL uses 7 embeddings and does not apply automatic LoRA. The default for `fallback_loras` is an empty array. Detailed priority and consumer deployment are in the [global defaults documentation](../docs/generation-defaults.md).\n"
+      "raw": "With the reference Python dependencies installed, `IILD_VERIFY_KREA2_DEPTH_PAYLOAD=1 python tests/Krea2PayloadTests.py` additionally hashes the depth adapter, compares every tensor descriptor and metadata with the pinned header, and checks every tensor for finite values. `IILD_VERIFY_KREA2_TURBO_PAYLOAD=metadata python tests/Krea2PayloadTests.py` compares the Turbo descriptors and metadata, checks all FP8 scales, and checks selected tensor rows for finite values; use `1` instead of `metadata` to hash the full checkpoint as well. Omitted audit flags skip the corresponding large-file audit. CTest marks the entire test skipped if its selected Python lacks torch or safetensors; use a Python with the reference dependencies to execute the synthetic audit. Neither audit runs inference.\n"
     },
     {
-      "id": "b000010",
+      "id": "b000014",
       "kind": "blank",
       "start_line": 14,
       "end_line": 14,
       "raw": "\n"
     },
     {
-      "id": "b000011",
+      "id": "b000015",
       "kind": "paragraph",
       "start_line": 15,
       "end_line": 15,
-      "raw": "The default LoRA of other model families registers compatible files, strength, family, hash, and size in the `fallback_loras` array. While existing single `fallback_lora` formats are also supported, the bundle does not register the default LoRA. Image and Deforum, and the native runtime use the same family selection rules. Changing only the family name of SDXL weights is not a conversion; actual LoRA files matching each base model are required.\n"
+      "raw": "`IILD_VERIFY_KREA2_STREAM_LOAD=1` separately enables the full pretrained Turbo transformer loading test in `Krea2SingleFileRuntimeTests.py`. It loads the actual scaled FP8 checkpoint through the CPU-stream path in BF16 compute precision, checks all 256 declared FP8 layers and their finite converted weights, and compares every streamed FP8 weight byte and its scale with the source in bounded row chunks. It also compares all remaining unquantized parameters after the required reshape and conversion to the selected precision. It requires sufficient CPU memory and disk bandwidth; it does not load the text encoder, VAE or control adapter, or run inference.\n"
     },
     {
-      "id": "b000012",
+      "id": "b000016",
       "kind": "blank",
       "start_line": 16,
       "end_line": 16,
       "raw": "\n"
     },
     {
-      "id": "b000013",
+      "id": "b000017",
       "kind": "paragraph",
       "start_line": 17,
       "end_line": 17,
-      "raw": "`embeddings/` contains copies of 3 original `.pt` files preserved as tensor-only safetensors. When the originals change, recreate them with `scripts/prepare_generation_defaults.py` and verify vector equality and hashes with `--check`. The original `.pt` files are also retained.\n"
+      "raw": "On 2026-10-31, while transfers were incomplete, the actual downloaded safetensors headers matched the pinned fixtures for Krea 2 Turbo (686 tensors) and depth (450 tensors), FLUX.1 Schnell FP8 (1,438 tensors), and MOSS SFT (379 tensors), including tensor offsets and metadata. All 256 Krea Turbo FP8 scale values had already arrived and were finite and nonnegative. This observation does not verify the remaining payload, the final SHA-256, image generation, or later availability.\n"
     },
     {
-      "id": "b000014",
+      "id": "b000018",
       "kind": "blank",
       "start_line": 18,
       "end_line": 18,
       "raw": "\n"
     },
     {
-      "id": "b000015",
+      "id": "b000019",
       "kind": "paragraph",
       "start_line": 19,
       "end_line": 19,
-      "raw": "`vae/` contains the original VAEs and configurations for Qwen Image RGB, SDXL, FLUX.1, FLUX.2, and Wan2.1. `fallback_vae` (the existing Qwen entry) and the `fallback_vaes` array record pinned revisions, SHA-256, sizes, and compatible families. Native/Diffusers attaches the corresponding family's VAE to models without one; this remains active even when the default LoRA is disabled. An embedded VAE takes precedence, and different latent spaces are not mixed. Redownload and verification commands are in the [defaults document](../docs/generation-defaults.md#vae-자동-폴백). `.cache` is excluded from Git and installation. Qwen/FLUX retain the original Apache-2.0 text, while SDXL preserves the official model card declaring MIT. Evidence that the FLUX.1 original and public copy are identical is in `vae/flux1/NOTICE.md`.\n"
+      "raw": "Later during the same day's incomplete transfers, at most the first 32 stored values were sampled from each tensor whose sampled bytes had arrived. The samples were finite for 312 of 379 MOSS SFT tensors, 484 of 686 Krea Turbo tensors, 739 of 1,438 FLUX.1 Schnell tensors, and 90 of 188 InstantX Canny tensors. This is an early sample only; unsampled values and complete-file hashes still require their separate audits after download.\n"
     },
     {
-      "id": "b000016",
+      "id": "b000020",
       "kind": "blank",
       "start_line": 20,
       "end_line": 20,
       "raw": "\n"
     },
     {
-      "id": "b000017",
+      "id": "b000021",
       "kind": "paragraph",
       "start_line": 21,
       "end_line": 21,
-      "raw": "`text_encoders/` contains the pinned original Qwen3-VL-4B BF16 encoder for split Krea2 denoisers. `fallback_llms` records its family, class, revision, size, and SHA-256. The native loader normalizes the original Hugging Face `model.language_model` namespace in memory, validates all required tensor shapes, and mounts the encoder together with the Wan2.1 VAE. Complete embedded components and explicit selections retain precedence. These required components remain active when optional generation modifiers are disabled. `scripts/prepare_generation_defaults.py --check` verifies their hashes using streaming reads. Consumer applications provision these resources outside the app bundle, in the Society drive.\n"
+      "raw": "Later on 2026-10-31, the Krea depth adapter finished downloading. Its complete SHA-256 and all 450 tensor descriptors and values passed `Krea2PayloadTests.test_provisioned_depth_adapter` in the local reference runtime. This dated resource audit does not establish inference behavior, visual quality or continued availability.\n"
     },
     {
-      "id": "b000018",
+      "id": "b000022",
       "kind": "blank",
       "start_line": 22,
       "end_line": 22,
       "raw": "\n"
     },
     {
-      "id": "b000019",
+      "id": "b000023",
       "kind": "paragraph",
       "start_line": 23,
       "end_line": 23,
-      "raw": "The encoder is 8,875,719,384 bytes, exceeding [GitHub's maximum Git LFS object size](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-git-large-file-storage). Its payload is therefore ignored by Git; its pinned source identity, license, expected size, and SHA-256 remain versioned. Existing local copies are preserved. After cloning, provision this original from its immutable upstream revision before installing the resources or using split Krea2 models:\n"
+      "raw": "`python3 scripts/provision_depth_anything_v2.py --variant small` or `--variant large` prepares three pinned Transformers-format files: model configuration, image-processor configuration and safetensors weights. Supply the resulting `resources/depth-estimators/depth-anything-v2-{small,large}` directory explicitly to `--control-depth-model`. Each file is resumed and verified by size and SHA-256 before publication; `--check` requires all three. The source [Small](https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf) uses Apache-2.0; [Large](https://huggingface.co/depth-anything/Depth-Anything-V2-Large-hf), used in the Krea depth adapter author's workflow, uses CC-BY-NC-4.0. Small is a distinct model and does not reproduce Large's numerical outputs. The directories are excluded from Git and are never automatically selected or downloaded during generation.\n"
     },
     {
-      "id": "b000020",
+      "id": "b000024",
       "kind": "blank",
       "start_line": 24,
       "end_line": 24,
       "raw": "\n"
     },
     {
-      "id": "b000021",
-      "kind": "fenced_code",
+      "id": "b000025",
+      "kind": "paragraph",
       "start_line": 25,
-      "end_line": 33,
-      "raw": "```sh\nmkdir -p resources/text_encoders\ncurl --fail --location \\\n  'https://huggingface.co/Comfy-Org/Krea-2/resolve/eb1eddd3983a54678545a9b2c178c5853b30f7be/text_encoders/qwen3vl_4b_bf16.safetensors' \\\n  --output resources/text_encoders/qwen3vl_4b_bf16.safetensors\nprintf '%s  %s\\n' \\\n  '36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34' \\\n  'resources/text_encoders/qwen3vl_4b_bf16.safetensors' | shasum -a 256 --check\n```\n",
-      "language": "sh",
-      "code": "mkdir -p resources/text_encoders\ncurl --fail --location \\\n  'https://huggingface.co/Comfy-Org/Krea-2/resolve/eb1eddd3983a54678545a9b2c178c5853b30f7be/text_encoders/qwen3vl_4b_bf16.safetensors' \\\n  --output resources/text_encoders/qwen3vl_4b_bf16.safetensors\nprintf '%s  %s\\n' \\\n  '36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34' \\\n  'resources/text_encoders/qwen3vl_4b_bf16.safetensors' | shasum -a 256 --check\n",
-      "closed": true
+      "end_line": 25,
+      "raw": "`IILD_VERIFY_DEPTH_V2_PAYLOAD=small` or `large` enables `DepthPreprocessingRuntimeTests.test_provisioned_depth_model_loads_with_no_weight_mismatches` with the reference Python runtime. It verifies all three files, resolves the directory through the existing preprocessor, loads the local image processor and pretrained depth model without missing or unexpected weights, and checks model parameters for finite values. It does not run depth prediction or image generation.\n"
     },
     {
-      "id": "b000022",
+      "id": "b000026",
+      "kind": "blank",
+      "start_line": 26,
+      "end_line": 26,
+      "raw": "\n"
+    },
+    {
+      "id": "b000027",
+      "kind": "paragraph",
+      "start_line": 27,
+      "end_line": 27,
+      "raw": "On 2026-10-31 the Small model's three files passed the complete hashes and the reference-runtime loading and finite-parameter audit. The installed Transformers used its documented PIL image-processor fallback because torchvision was unavailable. This dated result does not establish depth-prediction behavior or image quality.\n"
+    },
+    {
+      "id": "b000028",
+      "kind": "blank",
+      "start_line": 28,
+      "end_line": 28,
+      "raw": "\n"
+    },
+    {
+      "id": "b000029",
+      "kind": "paragraph",
+      "start_line": 29,
+      "end_line": 29,
+      "raw": "On the same date, a read of the in-progress Large download compared its 503 tensor names and shapes against a meta-device `DepthAnythingForDepthEstimation` built from its pinned configuration; there were no missing, extra or mismatched tensors. This header-only observation does not validate the incomplete payload or run the Large model.\n"
+    },
+    {
+      "id": "b000030",
+      "kind": "blank",
+      "start_line": 30,
+      "end_line": 30,
+      "raw": "\n"
+    },
+    {
+      "id": "b000031",
+      "kind": "paragraph",
+      "start_line": 31,
+      "end_line": 31,
+      "raw": "Later on 2026-10-31 the Large model's three files completed downloading and passed their full SHA-256 checks, the reference-runtime model and image-processor load, and the finite-parameter audit. Transformers used the PIL image-processor fallback in this environment. This verifies loading, not depth prediction, equivalence to the author's original preprocessing, or image-generation quality; the Large model's CC-BY-NC-4.0 terms remain applicable.\n"
+    },
+    {
+      "id": "b000032",
+      "kind": "blank",
+      "start_line": 32,
+      "end_line": 32,
+      "raw": "\n"
+    },
+    {
+      "id": "b000033",
+      "kind": "paragraph",
+      "start_line": 33,
+      "end_line": 33,
+      "raw": "`python3 scripts/provision_flux1_schnell.py` resumes and verifies the Apache-2.0 [Comfy-Org FLUX.1 Schnell FP8 full checkpoint](https://huggingface.co/Comfy-Org/Flux-1-Schnell) at the fixed revision recorded in `flux1_schnell_checkpoint_resource`. The file requires 17,236,328,572 bytes and is published to `resources/models/flux1-schnell-fp8.safetensors` only after its complete SHA-256 and size match. It is excluded from Git; `--check` verifies an existing file without downloading. Explicitly select it using `--model` and `--model-config-preset flux1-schnell`. ControlNet weights are separate; provisioning and header validation do not establish compatibility or output quality for any particular adapter.\n"
+    },
+    {
+      "id": "b000034",
       "kind": "blank",
       "start_line": 34,
       "end_line": 34,
       "raw": "\n"
     },
     {
-      "id": "b000023",
+      "id": "b000035",
       "kind": "paragraph",
       "start_line": 35,
       "end_line": 35,
-      "raw": "The installed layout and resource manifest are unchanged. `git lfs pull` alone does not provision this one encoder. Run `scripts/prepare_generation_defaults.py --check` with the documented Python environment to verify the complete resource set after provisioning.\n"
+      "raw": "`IILD_VERIFY_FLUX1_STREAM_LOAD=1` enables a separate full pretrained-transformer loading test in `Flux1SingleFileRuntimeTests.py` after the checkpoint is provisioned. It uses the actual FP8 CPU-stream loader, checks converted transformer tensors for finite values, and compares every loaded transformer parameter with the corresponding source tensor: streamed matrices retain their original FP8 representation, while nonstreamed parameters are compared after conversion to BF16. The test checks fused Q/K/V and MLP splits and the final modulation swap. It requires sufficient CPU memory and disk bandwidth and does not load the embedded text encoders or VAE or run inference.\n"
+    },
+    {
+      "id": "b000036",
+      "kind": "blank",
+      "start_line": 36,
+      "end_line": 36,
+      "raw": "\n"
+    },
+    {
+      "id": "b000037",
+      "kind": "paragraph",
+      "start_line": 37,
+      "end_line": 37,
+      "raw": "`python3 scripts/provision_flux1_canny.py` separately provisions the pinned [InstantX FLUX.1 Dev Canny ControlNet](https://huggingface.co/InstantX/FLUX.1-dev-Controlnet-Canny), with its configuration, to `resources/models/flux1-instantx-canny`. The weight file is 3,583,232,168 bytes; both files are individually resumed and checked by size and SHA-256, and `--check` verifies both. Its license is the FLUX.1 Dev non-commercial license, not the Schnell base's Apache-2.0 license. The author says Schnell can load it but does not guarantee performance. Selection is explicit and provisioning alone does not verify pretrained output quality.\n"
+    },
+    {
+      "id": "b000038",
+      "kind": "blank",
+      "start_line": 38,
+      "end_line": 38,
+      "raw": "\n"
+    },
+    {
+      "id": "b000039",
+      "kind": "paragraph",
+      "start_line": 39,
+      "end_line": 39,
+      "raw": "`test-fixtures/flux1-instantx-canny-header.json` records the pinned config and metadata-only header for those 188 ControlNet tensors. A meta-device test compares the header with the actual Diffusers component and Schnell transformer configuration. A separate synthetic numerical test exercises the independently guided ControlNet and unguided Schnell-style base with the native Canny preprocessor. Neither fixture nor synthetic test contains or runs pretrained adapter weights.\n"
+    },
+    {
+      "id": "b000040",
+      "kind": "blank",
+      "start_line": 40,
+      "end_line": 40,
+      "raw": "\n"
+    },
+    {
+      "id": "b000041",
+      "kind": "paragraph",
+      "start_line": 41,
+      "end_line": 41,
+      "raw": "`IILD_VERIFY_FLUX1_CANNY_PAYLOAD=metadata` enables the optional actual-adapter audit in `FluxControlRuntimeTests.test_provisioned_instantx_canny_header_and_sample_values`: all tensor descriptors and metadata must match the pinned fixture and selected rows must be finite. Set it to `1` to additionally hash the complete file. This audit does not execute the pretrained adapter.\n"
+    },
+    {
+      "id": "b000042",
+      "kind": "blank",
+      "start_line": 42,
+      "end_line": 42,
+      "raw": "\n"
+    },
+    {
+      "id": "b000043",
+      "kind": "paragraph",
+      "start_line": 43,
+      "end_line": 43,
+      "raw": "`IILD_VERIFY_FLUX1_CANNY_LOAD=1` separately loads the complete pretrained component in `FluxControlRuntimeTests.test_provisioned_instantx_canny_loads_actual_controlnet_weights`, checks loading diagnostics and finite parameters, and validates its configuration against a meta-device Schnell transformer. This requires sufficient CPU memory and disk bandwidth; it does not perform an adapter forward pass or image generation.\n"
+    },
+    {
+      "id": "b000044",
+      "kind": "blank",
+      "start_line": 44,
+      "end_line": 44,
+      "raw": "\n"
+    },
+    {
+      "id": "b000045",
+      "kind": "paragraph",
+      "start_line": 45,
+      "end_line": 45,
+      "raw": "On 2026-10-31 the provisioner verified the complete InstantX Canny weight and configuration SHA-256 values. The actual adapter then passed the 188 descriptor and metadata comparisons and the selected-row finite-value audit in the reference runtime. This local file audit does not establish pretrained generation quality or guaranteed Schnell performance.\n"
+    },
+    {
+      "id": "b000046",
+      "kind": "blank",
+      "start_line": 46,
+      "end_line": 46,
+      "raw": "\n"
+    },
+    {
+      "id": "b000047",
+      "kind": "paragraph",
+      "start_line": 47,
+      "end_line": 47,
+      "raw": "Later on 2026-10-31 the actual InstantX Canny component loaded into Diffusers without missing, unexpected or mismatched weights; all parameters were finite and its configuration passed the generic runner's Schnell base compatibility check. This test used a meta-device base, did not run the pretrained adapter, and does not establish generation quality or guaranteed Schnell performance.\n"
+    },
+    {
+      "id": "b000048",
+      "kind": "blank",
+      "start_line": 48,
+      "end_line": 48,
+      "raw": "\n"
+    },
+    {
+      "id": "b000049",
+      "kind": "paragraph",
+      "start_line": 49,
+      "end_line": 49,
+      "raw": "`python3 scripts/provision_moss_transformer.py` resumes and verifies the Apache-2.0 Comfy-Org MOSS SFT BF16 transformer at the fixed revision recorded in `moss_sft_transformer_resource`. It needs 10,164,655,808 bytes; the finished file is `resources/models/moss_image_sft_bf16.safetensors` and is excluded from Git. The provisioner checks the entire size and SHA-256 before atomically publishing it; it never overwrites a mismatching existing file. `--check` verifies an existing file without downloading. `IILD_VERIFY_MOSS_TRANSFORMER_PAYLOAD=metadata` runs the optional test in `tests/MossSingleFileRuntimeTests.py`, comparing every stored tensor name, shape and dtype with the pinned header and checking a few actual tensor rows for finite values; setting it to `1` also hashes the complete file. This resource is a user-selected base checkpoint, not an automatic model download or a replacement for a caller's model. These audits do not establish image-generation quality, hardware fit or control-adapter compatibility.\n"
+    },
+    {
+      "id": "b000050",
+      "kind": "blank",
+      "start_line": 50,
+      "end_line": 50,
+      "raw": "\n"
+    },
+    {
+      "id": "b000051",
+      "kind": "paragraph",
+      "start_line": 51,
+      "end_line": 51,
+      "raw": "`IILD_VERIFY_MOSS_PREFLIGHT=1` enables an optional no-generation test that resolves the provisioned SFT base, color/depth adapter, INT8 text encoder, existing tokenizer and FLUX.2 VAE, and Depth Anything Small through the same argument-selection path used by the generic runner, and checks their reported configuration. It uses metadata-only file identity for the large weights; use the separate full-hash provision checks to verify content. It does not load the complete model or execute preprocessing or inference.\n"
+    },
+    {
+      "id": "b000052",
+      "kind": "blank",
+      "start_line": 52,
+      "end_line": 52,
+      "raw": "\n"
+    },
+    {
+      "id": "b000053",
+      "kind": "paragraph",
+      "start_line": 53,
+      "end_line": 53,
+      "raw": "`IILD_VERIFY_CONTROL_PREFLIGHT=header` enables separate Krea depth/pose and FLUX Canny resource-selection tests using temporary header-only base files reconstructed from the pinned public fixtures. `IILD_VERIFY_CONTROL_PREFLIGHT=real` uses the fully provisioned base files instead. Both modes resolve the actual local adapters and existing tokenizer, text, VAE, depth and native Canny resources as applicable, without decoding an image or generating one. Large-file identity in this test is metadata-only; the header mode does not validate base tensor payloads.\n"
+    },
+    {
+      "id": "b000054",
+      "kind": "blank",
+      "start_line": 54,
+      "end_line": 54,
+      "raw": "\n"
+    },
+    {
+      "id": "b000055",
+      "kind": "paragraph",
+      "start_line": 55,
+      "end_line": 55,
+      "raw": "On 2026-10-31 both header-mode tests passed in this workspace: the generic runner resolved the actual Krea depth and pose adapters with Qwen resources, the Large depth model, and the actual FLUX Canny adapter with native Canny and the embedded-component declarations from the pinned Schnell header. The Krea and Schnell base payloads were still downloading; this result does not establish their full-file loading or image output.\n"
+    },
+    {
+      "id": "b000056",
+      "kind": "blank",
+      "start_line": 56,
+      "end_line": 56,
+      "raw": "\n"
+    },
+    {
+      "id": "b000057",
+      "kind": "paragraph",
+      "start_line": 57,
+      "end_line": 57,
+      "raw": "Later on 2026-10-31 the Krea Turbo checkpoint completed its full size and SHA-256 verification. Its 686 tensor descriptors, all 256 FP8 scales and selected tensor values passed the metadata-mode payload audit, and the real-file Krea depth and prepared-pose resource-selection test passed. These checks do not run inference or establish image quality.\n"
+    },
+    {
+      "id": "b000058",
+      "kind": "blank",
+      "start_line": 58,
+      "end_line": 58,
+      "raw": "\n"
+    },
+    {
+      "id": "b000059",
+      "kind": "paragraph",
+      "start_line": 59,
+      "end_line": 59,
+      "raw": "The actual Turbo transformer passed the expanded `test_provisioned_turbo_stream_loads_actual_transformer_weights` in CPU-stream mode with BF16 compute precision. Every FP8 weight byte and the scale for all 256 streamed layers matched the original checkpoint, and all 174 remaining parameters matched after the required reshape and conversion. The loader also reported 96 layers requiring full-precision matrix multiplication and 160 not requiring it. The offline test completed in 827.039 seconds on this workspace; it did not load the rest of the pipeline or execute inference.\n"
+    },
+    {
+      "id": "b000060",
+      "kind": "blank",
+      "start_line": 60,
+      "end_line": 60,
+      "raw": "\n"
+    },
+    {
+      "id": "b000061",
+      "kind": "paragraph",
+      "start_line": 61,
+      "end_line": 61,
+      "raw": "`IILD_VERIFY_KREA2_PIPELINE_LOAD=1` enables a more resource-intensive test that loads the actual Turbo transformer with the existing text encoder, tokenizer, VAE and scheduler through the generic runner, then validates the actual depth and prepared-pose adapter target shapes against the loaded transformer. It uses metadata-only identity for model files; verify their complete hashes separately. It does not attach or execute the control adapters, load the pose-specific vision encoder, run depth prediction, or perform inference. Sufficient memory and disk bandwidth are required.\n"
+    },
+    {
+      "id": "b000062",
+      "kind": "blank",
+      "start_line": 62,
+      "end_line": 62,
+      "raw": "\n"
+    },
+    {
+      "id": "b000063",
+      "kind": "paragraph",
+      "start_line": 63,
+      "end_line": 63,
+      "raw": "On 2026-10-31 this combined Krea loading test passed in the workspace, including 224 depth and 256 pose adapter target mappings. Diffusers warned that the text-only `Qwen3VLTextModel` differs from its expected `Qwen3VLModel` type. The test did not load the pose-specific vision encoder or execute either adapter or model inference.\n"
+    },
+    {
+      "id": "b000064",
+      "kind": "blank",
+      "start_line": 64,
+      "end_line": 64,
+      "raw": "\n"
+    },
+    {
+      "id": "b000065",
+      "kind": "paragraph",
+      "start_line": 65,
+      "end_line": 65,
+      "raw": "`IILD_VERIFY_KREA2_VISION_LOAD=1` separately enables the resource-intensive real Qwen3-VL multimodal encoder loading test in `Krea2TextEncoderRuntimeTests.py`. The pose request selects the existing encoder, and the test loads its complete language and vision branches, checks all parameters and buffers are materialized and compares selected vision values with the source. It uses metadata-only file identity, so verify the complete hash separately. It does not process an image, attach the pose adapter or run model inference.\n"
+    },
+    {
+      "id": "b000066",
+      "kind": "blank",
+      "start_line": 66,
+      "end_line": 66,
+      "raw": "\n"
+    },
+    {
+      "id": "b000067",
+      "kind": "paragraph",
+      "start_line": 67,
+      "end_line": 67,
+      "raw": "On 2026-10-31 the actual local Qwen3-VL language and vision branches passed this loading test, including source comparison for selected visual weights. The multimodal encoder was tested separately from the Turbo transformer and pose adapter; no image inference was performed.\n"
+    },
+    {
+      "id": "b000068",
+      "kind": "blank",
+      "start_line": 68,
+      "end_line": 68,
+      "raw": "\n"
+    },
+    {
+      "id": "b000069",
+      "kind": "paragraph",
+      "start_line": 69,
+      "end_line": 69,
+      "raw": "`IILD_VERIFY_KREA2_POSE_PIPELINE_LOAD=1` enables a separate combined test that loads the actual Turbo transformer and full Qwen3-VL multimodal encoder together through the generic runner for the prepared-pose request, then validates the pose LoRA target mapping. It uses metadata-only file identity and does not attach the adapter or execute image conditioning or inference. Sufficient memory and disk bandwidth are required.\n"
+    },
+    {
+      "id": "b000070",
+      "kind": "blank",
+      "start_line": 70,
+      "end_line": 70,
+      "raw": "\n"
+    },
+    {
+      "id": "b000071",
+      "kind": "paragraph",
+      "start_line": 71,
+      "end_line": 71,
+      "raw": "On 2026-10-31 this combined pose-pipeline loading test passed with the actual Turbo transformer and Qwen3-VL multimodal encoder, and the pose adapter's 256 target shapes matched. The adapter was not attached or executed, and no image conditioning or inference was performed.\n"
+    },
+    {
+      "id": "b000072",
+      "kind": "blank",
+      "start_line": 72,
+      "end_line": 72,
+      "raw": "\n"
+    },
+    {
+      "id": "b000073",
+      "kind": "paragraph",
+      "start_line": 73,
+      "end_line": 73,
+      "raw": "`IILD_VERIFY_KREA2_CONTROL_HOOKS=1` enables an additional resource-intensive test that loads the real Turbo transformer and actual depth and pose adapter tensors, attaches their hooks, injects an exception, and checks that every hook is restored. The control VAE is replaced by a synthetic latent; this is not a depth prediction, VAE, transformer-forward or image-generation test. It uses metadata-only identity for the adapters; check their full hashes separately.\n"
+    },
+    {
+      "id": "b000074",
+      "kind": "blank",
+      "start_line": 74,
+      "end_line": 74,
+      "raw": "\n"
+    },
+    {
+      "id": "b000075",
+      "kind": "paragraph",
+      "start_line": 75,
+      "end_line": 75,
+      "raw": "On 2026-10-31 this test passed with the actual local Turbo transformer and both adapters: the depth path attached 225 hooks and the pose path attached 256, with all hooks restored after an injected exception. No model forward pass was executed.\n"
+    },
+    {
+      "id": "b000076",
+      "kind": "blank",
+      "start_line": 76,
+      "end_line": 76,
+      "raw": "\n"
+    },
+    {
+      "id": "b000077",
+      "kind": "paragraph",
+      "start_line": 77,
+      "end_line": 77,
+      "raw": "Later that day the FLUX.1 Schnell checkpoint also completed full size and SHA-256 verification, and the real-file Schnell, InstantX Canny and native preprocessor resource-selection test passed. This selection check does not load the entire base or run inference.\n"
+    },
+    {
+      "id": "b000078",
+      "kind": "blank",
+      "start_line": 78,
+      "end_line": 78,
+      "raw": "\n"
+    },
+    {
+      "id": "b000079",
+      "kind": "paragraph",
+      "start_line": 79,
+      "end_line": 79,
+      "raw": "The actual Schnell transformer passed the expanded `test_provisioned_schnell_stream_loads_actual_transformer_weights` in CPU-stream mode with BF16 compute precision. Loaded values were checked for finiteness and every transformer parameter matched its source after the required split or final-modulation swap: streamed matrices matched original FP8 bytes, and the other parameters matched after BF16 conversion. The offline check completed in 530.736 seconds on this workspace. It did not load the rest of the pipeline or run inference.\n"
+    },
+    {
+      "id": "b000080",
+      "kind": "blank",
+      "start_line": 80,
+      "end_line": 80,
+      "raw": "\n"
+    },
+    {
+      "id": "b000081",
+      "kind": "paragraph",
+      "start_line": 81,
+      "end_line": 81,
+      "raw": "`test_public_schnell_mapping_matches_upstream_source_and_row_order` compares the streaming conversion plan with Diffusers' single-file converter for every target in the published Schnell transformer structure. It uses production-shaped, broadcast synthetic row markers and checks the source and representative rows of every target, including fused splits and final shift/scale reordering. It does not read model payloads, compare every matrix element, or execute inference.\n"
+    },
+    {
+      "id": "b000082",
+      "kind": "blank",
+      "start_line": 82,
+      "end_line": 82,
+      "raw": "\n"
+    },
+    {
+      "id": "b000083",
+      "kind": "paragraph",
+      "start_line": 83,
+      "end_line": 83,
+      "raw": "On 2026-10-31 this mapping comparison passed against the installed Diffusers converter for the 776 original transformer tensor descriptors in the pinned Schnell FP8 header. The markers are synthetic; this result does not prove the values or quality of generated images.\n"
+    },
+    {
+      "id": "b000084",
+      "kind": "blank",
+      "start_line": 84,
+      "end_line": 84,
+      "raw": "\n"
+    },
+    {
+      "id": "b000085",
+      "kind": "paragraph",
+      "start_line": 85,
+      "end_line": 85,
+      "raw": "`IILD_VERIFY_FLUX1_PIPELINE_LOAD=1` enables a separate resource-intensive test of the actual Schnell single-file pipeline and InstantX Canny component through the generic runner's loader. It checks that the embedded T5 and the transformer use their selected streaming paths, that the control wrapper is constructed, and that the differing base and control guidance settings are preserved. File identity in this test is metadata-only; verify the full hashes separately. It does not run preprocessing or inference and requires sufficient memory and disk bandwidth.\n"
+    },
+    {
+      "id": "b000086",
+      "kind": "blank",
+      "start_line": 86,
+      "end_line": 86,
+      "raw": "\n"
+    },
+    {
+      "id": "b000087",
+      "kind": "paragraph",
+      "start_line": 87,
+      "end_line": 87,
+      "raw": "On 2026-10-31 the combined real-resource FLUX test passed in this workspace. The actual Schnell transformer, embedded T5, other pipeline components and InstantX Canny ControlNet were assembled into a `FluxControlNetPipeline`, with the T5 shared embedding alias and separate guidance configurations checked. The test did not execute preprocessing or inference and does not establish image quality.\n"
+    },
+    {
+      "id": "b000088",
+      "kind": "blank",
+      "start_line": 88,
+      "end_line": 88,
+      "raw": "\n"
+    },
+    {
+      "id": "b000089",
+      "kind": "paragraph",
+      "start_line": 89,
+      "end_line": 89,
+      "raw": "`IILD_VERIFY_MOSS_STREAM_LOAD=1` enables a separate full pretrained-transformer loading test in `MossSingleFileRuntimeTests.py`. It uses the actual CPU-stream loader and selected BF16 precision, verifies all loaded tensor values are finite, and compares every loaded transformer parameter and the persistent RoPE buffer with the original checkpoint, including all 42 fused Q/K/V splits. Streamed weights retain their source representation; other parameters are compared in the selected precision, and the derived RoPE buffer is compared in FP32. It needs sufficient CPU memory and disk bandwidth, and does not load the text encoder or VAE or run a forward pass.\n"
+    },
+    {
+      "id": "b000090",
+      "kind": "blank",
+      "start_line": 90,
+      "end_line": 90,
+      "raw": "\n"
+    },
+    {
+      "id": "b000091",
+      "kind": "paragraph",
+      "start_line": 91,
+      "end_line": 91,
+      "raw": "The expanded comparison passed for every loaded transformer parameter and the FP32 RoPE buffer from the actual local checkpoint, including all three complete Q/K/V matrices in each of 42 blocks. Streamed weights matched the source representation and other parameters matched after BF16 conversion. The offline check completed in 483.940 seconds on this workspace. This compares loaded transformer state with its source, not model inference or image quality.\n"
+    },
+    {
+      "id": "b000092",
+      "kind": "blank",
+      "start_line": 92,
+      "end_line": 92,
+      "raw": "\n"
+    },
+    {
+      "id": "b000093",
+      "kind": "paragraph",
+      "start_line": 93,
+      "end_line": 93,
+      "raw": "`IILD_VERIFY_MOSS_ENCODER_LOAD=1` separately enables the actual Qwen3.5 INT8 ConvRot language-encoder loading test in `MossConvRotRuntimeTests.py`. It verifies the full local model structure, 200 streamed INT8 linear layers and one embedding, and checks a stored weight row and scale. This test uses metadata-only identity for the encoder file; use the full-hash provision check separately. It does not load the MOSS transformer or run text or image inference.\n"
+    },
+    {
+      "id": "b000094",
+      "kind": "blank",
+      "start_line": 94,
+      "end_line": 94,
+      "raw": "\n"
+    },
+    {
+      "id": "b000095",
+      "kind": "paragraph",
+      "start_line": 95,
+      "end_line": 95,
+      "raw": "`IILD_VERIFY_MOSS_PIPELINE_LOAD=1` enables the more resource-intensive combined local loading test in `MossSingleFileRuntimeTests.py`. It constructs one actual SFT CPU-stream transformer, INT8 language encoder, tokenizer, FLUX.2 VAE and scheduler pipeline, then checks the real control adapter's target mapping against that loaded transformer. It uses metadata-only identity for model files and neither computes a depth map nor executes a model forward pass or image generation. The complete SFT, encoder and adapter hashes must be checked separately; sufficient memory and disk bandwidth are required.\n"
+    },
+    {
+      "id": "b000096",
+      "kind": "blank",
+      "start_line": 96,
+      "end_line": 96,
+      "raw": "\n"
+    },
+    {
+      "id": "b000097",
+      "kind": "paragraph",
+      "start_line": 97,
+      "end_line": 97,
+      "raw": "On 2026-10-31 that combined loading test passed with the provisioned workspace resources and resolved all 262 control-adapter targets. The test did not attach the adapter's execution hooks or run pretrained inference; it does not establish image quality or equivalence to a reference workflow.\n"
+    },
+    {
+      "id": "b000098",
+      "kind": "blank",
+      "start_line": 98,
+      "end_line": 98,
+      "raw": "\n"
+    },
+    {
+      "id": "b000099",
+      "kind": "paragraph",
+      "start_line": 99,
+      "end_line": 99,
+      "raw": "`IILD_VERIFY_MOSS_CONTROL_HOOKS=1` separately loads the real MOSS transformer and color/depth adapter tensors, attaches the control and scheduler hooks, injects an exception, and verifies restoration. Synthetic latents replace both control VAE outputs, so this does not test preprocessing, a model forward pass, or image generation. The test uses metadata-only adapter identity; verify its complete hash separately.\n"
+    },
+    {
+      "id": "b000100",
+      "kind": "blank",
+      "start_line": 100,
+      "end_line": 100,
+      "raw": "\n"
+    },
+    {
+      "id": "b000101",
+      "kind": "paragraph",
+      "start_line": 101,
+      "end_line": 101,
+      "raw": "On 2026-10-31 the actual local SFT transformer and adapter passed this test: 263 projection and LoRA hooks were attached, and every hook and the scheduler method were restored after the injected exception. No model forward pass was executed.\n"
+    },
+    {
+      "id": "b000102",
+      "kind": "blank",
+      "start_line": 102,
+      "end_line": 102,
+      "raw": "\n"
+    },
+    {
+      "id": "b000103",
+      "kind": "paragraph",
+      "start_line": 103,
+      "end_line": 103,
+      "raw": "On 2026-10-31 the actual local INT8 language encoder passed this loading test with all 200 linear layers and its embedding materialized and a real projection row and scale matching the checkpoint. The encoder's full SHA-256 had been checked separately. This does not test text encoding or the combined pretrained image pipeline.\n"
+    },
+    {
+      "id": "b000104",
+      "kind": "blank",
+      "start_line": 104,
+      "end_line": 104,
+      "raw": "\n"
+    },
+    {
+      "id": "b000105",
+      "kind": "paragraph",
+      "start_line": 105,
+      "end_line": 105,
+      "raw": "On 2026-10-31 the MOSS SFT file completed the provisioner's full SHA-256 check. Its 379 tensor descriptors and selected tensor rows passed `test_provisioned_sft_transformer_header_and_sample_values`, and the real local resource combination passed `test_provisioned_sft_control_and_existing_resources_resolve_together` with metadata-only weight validation. The actual 10 GB transformer also passed `test_provisioned_sft_stream_loads_actual_transformer_weights`: all tensor values loaded as finite, 262 layers used CPU streaming, and the first fused Q/K/V slices matched the original checkpoint. This is evidence for transformer loading and preflight resource selection, not loading the full text encoder–VAE–adapter pipeline, preprocessing output, generation or image quality.\n"
+    },
+    {
+      "id": "b000106",
+      "kind": "blank",
+      "start_line": 106,
+      "end_line": 106,
+      "raw": "\n"
+    },
+    {
+      "id": "b000107",
+      "kind": "paragraph",
+      "start_line": 107,
+      "end_line": 107,
+      "raw": "The Runtime installation includes the FLUX, Krea 2, Depth Anything and MOSS provisioners together with their shared download helper under `share/iiLocalDiffusion/scripts`; their default resource root is the adjacent `share/iiLocalDiffusion/resources` directory. `InstallResourcesTests` executes the generated scripts-only CMake installation rule in a temporary workspace and imports each installed provisioner to check the shared helper and resource-root resolution. This tests the rule, not whether an existing installed SDK has been updated. The downloading commands require write access to the chosen resource directory; `--resources` selects another directory containing the resource catalog.\n"
+    },
+    {
+      "id": "b000108",
+      "kind": "blank",
+      "start_line": 108,
+      "end_line": 108,
+      "raw": "\n"
+    },
+    {
+      "id": "b000109",
+      "kind": "paragraph",
+      "start_line": 109,
+      "end_line": 109,
+      "raw": "`python3 scripts/provision_moss_control.py` uses the same resumable and SHA-256-verified publication policy for the separate Apache-2.0 color/depth adapter, `resources/models/moss_image_color_depth_control.safetensors` (313,063,368 bytes, excluded from Git). `--check` verifies it without downloading. `IILD_VERIFY_MOSS_CONTROL_PAYLOAD=1` enables the optional test in `tests/MossControlRuntimeTests.py`: it hashes the file, compares all tensor descriptors and metadata to the pinned header, and checks every tensor for finite values. Its [model card](https://huggingface.co/darask0/MOSS-Image-color-depth-control) says it was trained on MOSS Base and also used with SFT; the file's metadata records the trained base. Selection remains explicit via `--controlnet`; provisioning and payload checks do not validate image quality or prove equivalence to a reference workflow.\n"
+    },
+    {
+      "id": "b000110",
+      "kind": "blank",
+      "start_line": 110,
+      "end_line": 110,
+      "raw": "\n"
+    },
+    {
+      "id": "b000111",
+      "kind": "paragraph",
+      "start_line": 111,
+      "end_line": 111,
+      "raw": "On 2026-10-31 the color/depth file was provisioned in this workspace and passed the full SHA-256, all 526 descriptor, metadata and finite-value checks. This is a dated local file audit; future file availability or image generation is not established by that result.\n"
+    },
+    {
+      "id": "b000112",
+      "kind": "blank",
+      "start_line": 112,
+      "end_line": 112,
+      "raw": "\n"
+    },
+    {
+      "id": "b000113",
+      "kind": "paragraph",
+      "start_line": 113,
+      "end_line": 113,
+      "raw": "`model-configs/krea2-raw/` and `model-configs/krea2-turbo/` are iiLocalDiffusion-authored, weight-free configurations derived from Diffusers 0.40.0 Krea2 architecture defaults and the [documented scheduler contract](https://huggingface.co/docs/diffusers/api/pipelines/krea2). The variant is explicit; choose the directory that matches the selected model. Automated tests compare the generated transformer shape contract to the published Turbo FP8 header, not actual pretrained image generation. Krea model weights and their license remain separate.\n"
+    },
+    {
+      "id": "b000114",
+      "kind": "blank",
+      "start_line": 114,
+      "end_line": 114,
+      "raw": "\n"
+    },
+    {
+      "id": "b000115",
+      "kind": "paragraph",
+      "start_line": 115,
+      "end_line": 115,
+      "raw": "`model-configs/flux1-schnell/` is an iiLocalDiffusion-authored, weight-free FLUX.1 Schnell configuration using Diffusers 0.40.0 transformer defaults, the Schnell scheduler contract, and the existing FLUX.1 CLIP, T5 and VAE configurations. It is not the original model repository's file. Its `transformer-source-shapes.json` records the 776 original transformer tensor names and shapes and is verified before use by the preset. `test-fixtures/flux1-schnell-bf16-transformer-header.json` and `flux1-schnell-fp8-full-header.json` record only the public safetensors headers from `Comfy-Org/Flux-1-Schnell` revision `d31e04067066d92c55ece2b01748dcc337725d7a`, including publisher file SHA-256 values. The BF16 file contains only the transformer; the FP8 file also contains CLIP, T5 and VAE tensors. These files contain no weights and do not prove pretrained generation.\n"
+    },
+    {
+      "id": "b000116",
+      "kind": "blank",
+      "start_line": 116,
+      "end_line": 116,
+      "raw": "\n"
+    },
+    {
+      "id": "b000117",
+      "kind": "paragraph",
+      "start_line": 117,
+      "end_line": 117,
+      "raw": "`test-fixtures/moss-qwen35-int8-convrot-header.json` contains the safetensors header and all 317 small quantization metadata records obtained using HTTP byte ranges from `Comfy-Org/MOSS-Image` revision `f7a9772e063542422b66dd492c4e17aa64f7797b`, file `text_encoders/qwen3.5_9b_int8_convrot.safetensors` (9,748,121,532 bytes; published LFS SHA-256 `32e3787472f708fa5f83624acbf5ef23f7fc89c439e05065ea57cfe5a97f025a`). The fixture contains no model weights. The 22,716-byte metadata range has SHA-256 `48bd565588841839fad6d482c70c87376d707f375d3c4d5a1f81cb2517980cf4`. Structural tests validate the language branch; these do not establish INT8 inference support.\n"
+    },
+    {
+      "id": "b000118",
+      "kind": "blank",
+      "start_line": 118,
+      "end_line": 118,
+      "raw": "\n"
+    },
+    {
+      "id": "b000119",
+      "kind": "paragraph",
+      "start_line": 119,
+      "end_line": 119,
+      "raw": "The offline oracle `test-fixtures/moss-image-pipeline-upstream-85975793.py` is the unmodified Apache-2.0 MOSS-Image pipeline from revision `85975793d8b3d432f1b6e27f352abaa4c2a4c0d3`, SHA-256 `1dac1aca9feb1bfdfc727a401e4b67d61a505d3190706d1b7d2d784f88678b31`. Numerical tests verify its hash before importing it and compare unmasked control sampling with the SDK implementation. The license and source attribution are in `THIRD_PARTY_NOTICES.md` and `reference/diffusers/vendor_moss/LICENSE.txt`.\n"
+    },
+    {
+      "id": "b000120",
+      "kind": "blank",
+      "start_line": 120,
+      "end_line": 120,
+      "raw": "\n"
+    },
+    {
+      "id": "b000121",
+      "kind": "paragraph",
+      "start_line": 121,
+      "end_line": 121,
+      "raw": "The source-tree fixture `test-fixtures/moss-color-depth-header.json` is a metadata-only snapshot of the MOSS color/depth adapter's safetensors header. It records all tensor shapes, dtypes, offsets and metadata without including model tensor values. The source is the Apache-2.0 [Comfy-Org distribution](https://huggingface.co/Comfy-Org/MOSS-Image/blob/f7a9772e063542422b66dd492c4e17aa64f7797b/loras/moss_image_color_depth_control.safetensors), revision `f7a9772e063542422b66dd492c4e17aa64f7797b`, full-file SHA-256 `e5c0c3efd05e4269207a39de6005798f14c90c6687c89c54eaffe4b76c43a763`. Offline tests use this snapshot to check the real checkpoint layout against the MOSS adapter contract; it is not a replacement for the adapter weights.\n"
+    },
+    {
+      "id": "b000122",
+      "kind": "blank",
+      "start_line": 122,
+      "end_line": 122,
+      "raw": "\n"
+    },
+    {
+      "id": "b000123",
+      "kind": "paragraph",
+      "start_line": 123,
+      "end_line": 123,
+      "raw": "`test-fixtures/krea2-turbo-base-header.json` records only the tensor descriptors from the [Comfy-Org Krea 2 Turbo BF16 transformer](https://huggingface.co/Comfy-Org/Krea-2/blob/eb1eddd3983a54678545a9b2c178c5853b30f7be/diffusion_models/krea2_turbo_bf16.safetensors), revision `eb1eddd3983a54678545a9b2c178c5853b30f7be`. Its size and full-file SHA-256 are the publisher's metadata, not a locally verified full download. Offline tests compare all 430 declared tensor names and shapes to the real Diffusers architecture on the meta device. This fixture contains no model weights; Krea community license terms apply to the original weights.\n"
+    },
+    {
+      "id": "b000124",
+      "kind": "blank",
+      "start_line": 124,
+      "end_line": 124,
+      "raw": "\n"
+    },
+    {
+      "id": "b000125",
+      "kind": "paragraph",
+      "start_line": 125,
+      "end_line": 125,
+      "raw": "`test-fixtures/krea2-turbo-fp8-header.json` records metadata and tensor descriptors only from the [Comfy-Org Krea 2 Turbo scaled FP8 checkpoint](https://huggingface.co/Comfy-Org/Krea-2/blob/eb1eddd3983a54678545a9b2c178c5853b30f7be/diffusion_models/krea2_turbo_fp8_scaled.safetensors), revision `eb1eddd3983a54678545a9b2c178c5853b30f7be`. The declared full-file size and SHA-256 come from the publisher and were not verified by downloading the complete checkpoint. This snapshot includes no weight values; Krea community license terms apply to the original weights.\n"
+    },
+    {
+      "id": "b000126",
+      "kind": "blank",
+      "start_line": 126,
+      "end_line": 126,
+      "raw": "\n"
+    },
+    {
+      "id": "b000127",
+      "kind": "paragraph",
+      "start_line": 127,
+      "end_line": 127,
+      "raw": "`test-fixtures/moss-sft-base-header.json` and `test-fixtures/moss-qwen35-encoder-header.json` contain metadata and tensor descriptors only for the pinned [Comfy-Org MOSS SFT transformer](https://huggingface.co/Comfy-Org/MOSS-Image/blob/f7a9772e063542422b66dd492c4e17aa64f7797b/diffusion_models/moss_image_sft_bf16.safetensors) and [Qwen3.5 encoder](https://huggingface.co/Comfy-Org/MOSS-Image/blob/f7a9772e063542422b66dd492c4e17aa64f7797b/text_encoders/qwen3.5_9b_bf16.safetensors). Full-file SHA-256 and size are publisher metadata, not locally verified full downloads. Offline tests compare tensor names and shapes against the pinned MOSS and Transformers model classes. The fixtures contain no tensor values.\n"
+    },
+    {
+      "id": "b000128",
+      "kind": "blank",
+      "start_line": 128,
+      "end_line": 128,
+      "raw": "\n"
+    },
+    {
+      "id": "b000129",
+      "kind": "paragraph",
+      "start_line": 129,
+      "end_line": 129,
+      "raw": "`test-fixtures/moss-qwen35-tokenizer-cases.json` records formatted prompts and token IDs from the official MOSS tokenizer at revision `f972bd4b4b9e3852133cc5da954d87bc32cd8fb9`, with the exact thinking and generation-prompt settings used by MOSS. Offline tests compare the local Qwen3.5 fallback against these cases. The original Qwen3.5 configuration and existing ComfyUI tokenizer data are under `text_encoders/qwen35-9b/`; the separate encoder weights must still be provided.\n"
+    },
+    {
+      "id": "b000130",
+      "kind": "blank",
+      "start_line": 130,
+      "end_line": 130,
+      "raw": "\n"
+    },
+    {
+      "id": "b000131",
+      "kind": "paragraph",
+      "start_line": 131,
+      "end_line": 131,
+      "raw": "The other metadata-only fixtures cover [Patil's Krea 2 depth adapter](https://huggingface.co/Patil/Krea-2-depth-controlnet/tree/21889413aa7282a6e78bd510247cceccad034b24), revision `21889413aa7282a6e78bd510247cceccad034b24`, and the [FLUX.2 Fun Union 2602 adapter](https://huggingface.co/alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union/tree/b3dcd7836a0e926248dac3ccba8fc0853495764b), revision `b3dcd7836a0e926248dac3ccba8fc0853495764b`. Their full checkpoint identities and raw-header hashes are recorded in the fixtures. The Krea 2 adapter has its own Krea community license; the FLUX.2 adapter is marked non-commercial. These fixtures contain no tensor payloads and do not provide model weights.\n"
+    },
+    {
+      "id": "b000132",
+      "kind": "blank",
+      "start_line": 132,
+      "end_line": 132,
+      "raw": "\n"
+    },
+    {
+      "id": "b000133",
+      "kind": "paragraph",
+      "start_line": 133,
+      "end_line": 133,
+      "raw": "`test-fixtures/flux2-klein-reference-depth-header.json` records only the 160 tensor descriptors from the Apache-2.0 [FLUX.2 Klein 4B RefControl depth LoRA](https://huggingface.co/thedeoxen/refcontrol-FLUX.2-klein-4B-reference-depth-lora/tree/0ae1ef7f9acc4e55ec2237360943c3c3032d3583), revision `0ae1ef7f9acc4e55ec2237360943c3c3032d3583`. The fixture records the published checkpoint SHA-256 and the raw-header hash. Tests convert these shapes with the installed Diffusers AI Toolkit conversion and compare them with a meta-device Klein 4B transformer; the fixture is not the checkpoint and does not verify model output quality.\n"
+    },
+    {
+      "id": "b000134",
+      "kind": "blank",
+      "start_line": 134,
+      "end_line": 134,
+      "raw": "\n"
+    },
+    {
+      "id": "b000135",
+      "kind": "paragraph",
+      "start_line": 135,
+      "end_line": 135,
+      "raw": "`test-fixtures/moss-rapid-header.json` records only the safetensors headers of the Apache-2.0 [rapid-moss four-step adapter](https://huggingface.co/darask0/MOSS-Image_4-step_adapter_lora/tree/c88f33bcb3251eb39943d0635e74b650732977c8), revision `c88f33bcb3251eb39943d0635e74b650732977c8`. Its three published files supply the LoRA, replacement time path, and data-space iteration separately. This fixture includes no weight values.\n"
+    },
+    {
+      "id": "b000136",
+      "kind": "blank",
+      "start_line": 136,
+      "end_line": 136,
+      "raw": "\n"
+    },
+    {
+      "id": "b000137",
+      "kind": "paragraph",
+      "start_line": 137,
+      "end_line": 137,
+      "raw": "`test-fixtures/krea2-ostris-pose-header.json` contains the header of the Apache-2.0 [Krea 2 Turbo OpenPose edit LoRA](https://huggingface.co/thedeoxen/Krea-2-pose-controlnet/tree/1da9762ca46e6c9e4014b309bf0147889f10982a), revision `1da9762ca46e6c9e4014b309bf0147889f10982a`, without the tensor payload. The complete file size is 228,587,504 bytes and its SHA-256 is `0ddc3aafce4abdf7af3309b2f00c1bacdf15df1f2b4fb7adc9ff71795da90ecf`; its 512 tensors were also checked for finite values. Its AI Toolkit LoRA targets do not by themselves provide the vision and reference-latent conditioning required for pose generation.\n"
+    },
+    {
+      "id": "b000138",
+      "kind": "blank",
+      "start_line": 138,
+      "end_line": 138,
+      "raw": "\n"
+    },
+    {
+      "id": "b000139",
+      "kind": "paragraph",
+      "start_line": 139,
+      "end_line": 139,
+      "raw": "The `.safetensors` and `.pt` originals in this directory are managed via Git LFS, except for the oversized Qwen3-VL encoder described below. Model files are not placed in Git's regular blobs, and the LFS-managed originals are downloaded with the following command after receiving the repository.\n"
+    },
+    {
+      "id": "b000140",
+      "kind": "blank",
+      "start_line": 140,
+      "end_line": 140,
+      "raw": "\n"
+    },
+    {
+      "id": "b000141",
+      "kind": "fenced_code",
+      "start_line": 141,
+      "end_line": 145,
+      "raw": "```sh\ngit lfs install --local\ngit lfs pull\ngit lfs fsck\n```\n",
+      "language": "sh",
+      "code": "git lfs install --local\ngit lfs pull\ngit lfs fsck\n",
+      "closed": true
+    },
+    {
+      "id": "b000142",
+      "kind": "blank",
+      "start_line": 146,
+      "end_line": 146,
+      "raw": "\n"
+    },
+    {
+      "id": "b000143",
+      "kind": "paragraph",
+      "start_line": 147,
+      "end_line": 147,
+      "raw": "`.gitattributes` defines tracking rules by resource extension. Each original in the LFS pointer contains the SHA-256 and byte size. The `generation-defaults.json` specified LoRA and negative embeddings are now global image generation defaults and are included in CMake installation. SDXL uses 7 embeddings and does not apply automatic LoRA. The default for `fallback_loras` is an empty array. Detailed priority and consumer deployment are in the [global defaults documentation](../docs/generation-defaults.md).\n"
+    },
+    {
+      "id": "b000144",
+      "kind": "blank",
+      "start_line": 148,
+      "end_line": 148,
+      "raw": "\n"
+    },
+    {
+      "id": "b000145",
+      "kind": "paragraph",
+      "start_line": 149,
+      "end_line": 149,
+      "raw": "The default LoRA of other model families registers compatible files, strength, family, hash, and size in the `fallback_loras` array. While existing single `fallback_lora` formats are also supported, the bundle does not register the default LoRA. Image and Deforum, and the native runtime use the same family selection rules. Changing only the family name of SDXL weights is not a conversion; actual LoRA files matching each base model are required.\n"
+    },
+    {
+      "id": "b000146",
+      "kind": "blank",
+      "start_line": 150,
+      "end_line": 150,
+      "raw": "\n"
+    },
+    {
+      "id": "b000147",
+      "kind": "paragraph",
+      "start_line": 151,
+      "end_line": 151,
+      "raw": "`embeddings/` contains copies of 3 original `.pt` files preserved as tensor-only safetensors. When the originals change, recreate them with `scripts/prepare_generation_defaults.py` and verify vector equality and hashes with `--check`. The original `.pt` files are also retained.\n"
+    },
+    {
+      "id": "b000148",
+      "kind": "blank",
+      "start_line": 152,
+      "end_line": 152,
+      "raw": "\n"
+    },
+    {
+      "id": "b000149",
+      "kind": "paragraph",
+      "start_line": 153,
+      "end_line": 153,
+      "raw": "`vae/` contains the original VAEs and configurations for Qwen Image RGB, SDXL, FLUX.1, FLUX.2, and Wan2.1. `fallback_vae` (the existing Qwen entry) and the `fallback_vaes` array record pinned revisions, SHA-256, sizes, and compatible families. Native/Diffusers attaches the corresponding family's VAE to models without one; this remains active even when the default LoRA is disabled. An embedded VAE takes precedence, and different latent spaces are not mixed. Redownload and verification commands are in the [defaults document](../docs/generation-defaults.md#vae-자동-폴백). `.cache` is excluded from Git and installation. Qwen/FLUX retain the original Apache-2.0 text, while SDXL preserves the official model card declaring MIT. Evidence that the FLUX.1 original and public copy are identical is in `vae/flux1/NOTICE.md`.\n"
+    },
+    {
+      "id": "b000150",
+      "kind": "blank",
+      "start_line": 154,
+      "end_line": 154,
+      "raw": "\n"
+    },
+    {
+      "id": "b000151",
+      "kind": "paragraph",
+      "start_line": 155,
+      "end_line": 155,
+      "raw": "`text_encoders/` contains the pinned original Qwen3-VL-4B BF16 encoder for split Krea2 denoisers. `fallback_llms` records its family, class, revision, size, SHA-256, and the official pinned `qwen3vl-4b/config.json`. The native loader normalizes the original Hugging Face `model.language_model` namespace in memory and mounts the encoder together with the Wan2.1 VAE. The generic Diffusers runner loads the same language tensors into `Qwen3VLTextModel` and validates their names and shapes against the configuration. If its model lacks a tokenizer, it loads the existing ComfyUI Qwen tokenizer data under `qwen3vl-4b/`; `fallback_tokenizers` records each file's identity. Model-provided components take precedence and incomplete components are not silently replaced. These required components remain active when optional generation modifiers are disabled. `scripts/prepare_generation_defaults.py --check` verifies their hashes using streaming reads. Consumer applications provision these resources outside the app bundle, in the Society drive.\n"
+    },
+    {
+      "id": "b000152",
+      "kind": "blank",
+      "start_line": 156,
+      "end_line": 156,
+      "raw": "\n"
+    },
+    {
+      "id": "b000153",
+      "kind": "paragraph",
+      "start_line": 157,
+      "end_line": 157,
+      "raw": "For FLUX.1, `text_encoders/flux1-clip/` and `text_encoders/flux1-t5/` preserve the existing ComfyUI tokenizer data and are installed with the runtime. Missing declared tokenizers can be supplied from these resources, after checking every file's manifest identity. Model-supplied tokenizers take precedence. These directories do not contain text encoder weights; see `text_encoders/NOTICE.md` for provenance and its licensing verification limit.\n"
+    },
+    {
+      "id": "b000154",
+      "kind": "blank",
+      "start_line": 158,
+      "end_line": 158,
+      "raw": "\n"
+    },
+    {
+      "id": "b000155",
+      "kind": "paragraph",
+      "start_line": 159,
+      "end_line": 159,
+      "raw": "The separately provisioned FLUX.1 CLIP and scaled-FP8 T5 files live at `text_encoders/flux1_clip_l.safetensors` and `text_encoders/flux1_t5xxl_fp8_scaled.safetensors`. Their immutable source, expected sizes and SHA-256 are in `fallback_flux_text_weights`; both payloads are ignored by Git. Run `python3 scripts/provision_flux1_text_encoders.py` from the project root to download or resume them, or add `--check` to verify them without downloading. `--role clip` and `--role t5` address one file. A verified existing target is preserved; a mismatched target is an error, and an interrupted download remains in `.state/`. The generic runner can select each provisioned weight automatically when the model's declared component is missing. Copying the repository alone does not provision either file.\n"
+    },
+    {
+      "id": "b000156",
+      "kind": "blank",
+      "start_line": 160,
+      "end_line": 160,
+      "raw": "\n"
+    },
+    {
+      "id": "b000157",
+      "kind": "paragraph",
+      "start_line": 161,
+      "end_line": 161,
+      "raw": "The runtime also installs this script under `share/iiLocalDiffusion/scripts/`. Its `--resources /absolute/path` option selects another resource directory containing the manifest, matching the generic runner's `--generation-resources` option.\n"
+    },
+    {
+      "id": "b000158",
+      "kind": "blank",
+      "start_line": 162,
+      "end_line": 162,
+      "raw": "\n"
+    },
+    {
+      "id": "b000159",
+      "kind": "paragraph",
+      "start_line": 163,
+      "end_line": 163,
+      "raw": "The optional MOSS INT8 Qwen3.5 encoder is provisioned with `python3 scripts/provision_moss_text_encoder.py`, or verified without downloading with `--check`. It uses `fallback_moss_text_weights` for its pinned source, size and SHA-256, resumes incomplete transfers in `.state/`, and never replaces a mismatching existing target. The runtime installs the provisioner together with its shared download helper. `--resources /absolute/path` selects a different resource root. The 9,748,121,532-byte payload is ignored by Git; after verification the generic MOSS runner selects it only when the model does not supply text encoder weights and no explicit encoder was chosen. The general resource audit verifies this optional file when present; use the provisioner's `--check` when its presence itself is required. Selection and quantization are reported; INT8 inference does not imply bit-identical BF16 images.\n"
+    },
+    {
+      "id": "b000160",
+      "kind": "blank",
+      "start_line": 164,
+      "end_line": 164,
+      "raw": "\n"
+    },
+    {
+      "id": "b000161",
+      "kind": "paragraph",
+      "start_line": 165,
+      "end_line": 165,
+      "raw": "The optional `IILD_VERIFY_MOSS_ENCODER_PAYLOAD=1 python3 tests/MossConvRotRuntimeTests.py MossConvRotRuntimeTests.test_provisioned_public_encoder_metadata_scales_and_embedding` reads the entire encoder to check SHA-256, validates all language-branch INT8 metadata and scales, and compares selected real embedding rows to an independent ConvRot calculation. The `metadata` mode checks only size, metadata, scales and selected rows; it does not verify the full-file hash. `IILD_MOSS_ENCODER_AUDIT_PATH` can point the test at another file inside this project. These are resource and numerical audits, not full pretrained image-generation tests.\n"
+    },
+    {
+      "id": "b000162",
+      "kind": "blank",
+      "start_line": 166,
+      "end_line": 166,
+      "raw": "\n"
+    },
+    {
+      "id": "b000163",
+      "kind": "paragraph",
+      "start_line": 167,
+      "end_line": 167,
+      "raw": "On 2026-10-31 the workspace copy completed provisioning with the manifest size and SHA-256. Before publication, the metadata audit also verified its 201 language quantization records and scales and compared selected actual embedding rows with an independent calculation. This does not establish an installed-package copy or a pretrained MOSS image-generation result.\n"
+    },
+    {
+      "id": "b000164",
+      "kind": "blank",
+      "start_line": 168,
+      "end_line": 168,
+      "raw": "\n"
+    },
+    {
+      "id": "b000165",
+      "kind": "paragraph",
+      "start_line": 169,
+      "end_line": 169,
+      "raw": "On 2026-10-31 the workspace copy of both weights was checked against the pinned full-file sizes and SHA-256 values. The T5 file's 168 scalar scales were finite and nonnegative, and its two 263,192,576-byte embedding tensors were byte-identical. This is local file and format evidence; it does not establish an installed-package copy, successful full-model inference, or image quality.\n"
+    },
+    {
+      "id": "b000166",
+      "kind": "blank",
+      "start_line": 170,
+      "end_line": 170,
+      "raw": "\n"
+    },
+    {
+      "id": "b000167",
+      "kind": "paragraph",
+      "start_line": 171,
+      "end_line": 171,
+      "raw": "`text_encoders/flux1-clip-config/config.json` contains the text configuration extracted from `openai/clip-vit-large-patch14` revision `32bd64288804d66eefd0ccbe215aa642df71cc41`; `flux1-t5-config/config.json` contains the configuration from `google/t5-v1_1-xxl` revision `3db67ab1af984cf10548a73467f0e5bca2aaaeb2`. Their SHA-256 and source transforms are recorded in `fallback_flux_text_configs`. They supply configurations only, not encoder weights. The metadata-only `test-fixtures/flux1-clip_l-header.json`, `flux1-t5xxl_fp16-header.json`, and `flux1-t5xxl_fp8_e4m3fn-header.json` record the public `comfyanonymous/flux_text_encoders` file headers at revision `911b3165a54bac0d6667e51c78f163e426da4c78`; they contain no tensor values and do not verify full-file payloads or image quality.\n"
+    },
+    {
+      "id": "b000168",
+      "kind": "blank",
+      "start_line": 172,
+      "end_line": 172,
+      "raw": "\n"
+    },
+    {
+      "id": "b000169",
+      "kind": "paragraph",
+      "start_line": 173,
+      "end_line": 173,
+      "raw": "`test-fixtures/comfy-kitchen-cdab-*.py` are unmodified Apache-2.0 Comfy Kitchen source snapshots at revision `cdab4787a89de5ea9d2bd0bf6ddc6b9e94249d27`. The MOSS INT8 tests verify their individual SHA-256 values and execute only selected CPU eager reference functions. With `IILD_VERIFY_MOSS_ENCODER_PAYLOAD=metadata`, the test also compares 11 actual rows of the provisioned Qwen3.5 MLP projection against the upstream reference at FP32, FP16 and BF16. This checks those arithmetic paths and rows, not full-file integrity, full text encoding, image generation or other accelerators.\n"
+    },
+    {
+      "id": "b000170",
+      "kind": "blank",
+      "start_line": 174,
+      "end_line": 174,
+      "raw": "\n"
+    },
+    {
+      "id": "b000171",
+      "kind": "paragraph",
+      "start_line": 175,
+      "end_line": 175,
+      "raw": "`test-fixtures/flux1-t5xxl_fp8_e4m3fn_scaled-header.json` records only the header of the [public scalar-scaled T5 file](https://huggingface.co/comfyanonymous/flux_text_encoders/blob/3bcfe977a9a2617a0b9025076030e217795fe028/t5xxl_fp8_e4m3fn_scaled.safetensors), revision `3bcfe977a9a2617a0b9025076030e217795fe028`. Its recorded full-file SHA-256 is the publisher's value, not a local full download. The fixture includes 168 scalar weight scale descriptors, the format marker and model tensor descriptors, with no tensor payloads.\n"
+    },
+    {
+      "id": "b000172",
+      "kind": "blank",
+      "start_line": 176,
+      "end_line": 176,
+      "raw": "\n"
+    },
+    {
+      "id": "b000173",
+      "kind": "paragraph",
+      "start_line": 177,
+      "end_line": 177,
+      "raw": "The encoder is 8,875,719,384 bytes, exceeding [GitHub's maximum Git LFS object size](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-git-large-file-storage). Its payload is therefore ignored by Git; its pinned source identity, license, expected size, and SHA-256 remain versioned. Existing local copies are preserved. After cloning, provision this original from its immutable upstream revision before installing the resources or using split Krea2 models:\n"
+    },
+    {
+      "id": "b000174",
+      "kind": "blank",
+      "start_line": 178,
+      "end_line": 178,
+      "raw": "\n"
+    },
+    {
+      "id": "b000175",
+      "kind": "fenced_code",
+      "start_line": 179,
+      "end_line": 187,
+      "raw": "```sh\nmkdir -p resources/text_encoders\ncurl --fail --location \\\n  'https://huggingface.co/Comfy-Org/Krea-2/resolve/eb1eddd3983a54678545a9b2c178c5853b30f7be/text_encoders/qwen3vl_4b_bf16.safetensors' \\\n  --output resources/text_encoders/qwen3vl_4b_bf16.safetensors\nprintf '%s  %s\\n' \\\n  '36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34' \\\n  'resources/text_encoders/qwen3vl_4b_bf16.safetensors' | shasum -a 256 --check\n```\n",
+      "language": "sh",
+      "code": "mkdir -p resources/text_encoders\ncurl --fail --location \\\n  'https://huggingface.co/Comfy-Org/Krea-2/resolve/eb1eddd3983a54678545a9b2c178c5853b30f7be/text_encoders/qwen3vl_4b_bf16.safetensors' \\\n  --output resources/text_encoders/qwen3vl_4b_bf16.safetensors\nprintf '%s  %s\\n' \\\n  '36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34' \\\n  'resources/text_encoders/qwen3vl_4b_bf16.safetensors' | shasum -a 256 --check\n",
+      "closed": true
+    },
+    {
+      "id": "b000176",
+      "kind": "blank",
+      "start_line": 188,
+      "end_line": 188,
+      "raw": "\n"
+    },
+    {
+      "id": "b000177",
+      "kind": "paragraph",
+      "start_line": 189,
+      "end_line": 189,
+      "raw": "The optional test `IILD_VERIFY_KREA2_ENCODER_PAYLOAD=1 python3 tests/Krea2TextEncoderTests.py Krea2TextEncoderTests.test_provisioned_encoder_payload_matches_resource_manifest` checks the full local encoder size and SHA-256 against the current resource manifest, including a before/after file identity check. It reads the entire 8.3 GiB file and skips when the payload is not provisioned. The runtime tests separately compare the language and vision tensor headers and tokenizer IDs; these checks do not generate an image.\n"
+    },
+    {
+      "id": "b000178",
+      "kind": "blank",
+      "start_line": 190,
+      "end_line": 190,
+      "raw": "\n"
+    },
+    {
+      "id": "b000179",
+      "kind": "paragraph",
+      "start_line": 191,
+      "end_line": 191,
+      "raw": "The original encoder payload remains in the same installed location; the pinned configuration is installed under `text_encoders/qwen3vl-4b/`. `git lfs pull` alone does not provision the encoder. Run `scripts/prepare_generation_defaults.py --check` with the documented Python environment to verify the complete resource set after provisioning.\n"
     }
   ],
   "outline": [
@@ -205,53 +1297,347 @@
   "indexes": {
     "directive_candidates": [
       {
-        "block_id": "b000011",
+        "block_id": "b000007",
+        "line": 7,
+        "text": "`python3 scripts/provision_krea2.py --role turbo` provisions the [Krea 2 Turbo FP8 checkpoint](https://huggingface.co/Comfy-Org/Krea-2) (13,141,730,784 bytes), and `--role depth` separately provisions the [depth Control-LoRA](https://huggingface.co/Patil/Krea-2-depth-controlnet) (861,995,928 bytes). Both use pinned revisions, resume interrupted transfers, verify the complete size and SHA-256 before publication, never overwrite a mismatching target, and support `--check`. Files are excluded from Git and must be explicitly selected. The adapter was trained on Raw and its author reports Turbo support. Both sources are subject to the Krea 2 Community License. These checks do not establish output quality or reference-workflow equivalence.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000015",
         "line": 15,
+        "text": "`IILD_VERIFY_KREA2_STREAM_LOAD=1` separately enables the full pretrained Turbo transformer loading test in `Krea2SingleFileRuntimeTests.py`. It loads the actual scaled FP8 checkpoint through the CPU-stream path in BF16 compute precision, checks all 256 declared FP8 layers and their finite converted weights, and compares every streamed FP8 weight byte and its scale with the source in bounded row chunks. It also compares all remaining unquantized parameters after the required reshape and conversion to the selected precision. It requires sufficient CPU memory and disk bandwidth; it does not load the text encoder, VAE or control adapter, or run inference.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000023",
+        "line": 23,
+        "text": "`python3 scripts/provision_depth_anything_v2.py --variant small` or `--variant large` prepares three pinned Transformers-format files: model configuration, image-processor configuration and safetensors weights. Supply the resulting `resources/depth-estimators/depth-anything-v2-{small,large}` directory explicitly to `--control-depth-model`. Each file is resumed and verified by size and SHA-256 before publication; `--check` requires all three. The source [Small](https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf) uses Apache-2.0; [Large](https://huggingface.co/depth-anything/Depth-Anything-V2-Large-hf), used in the Krea depth adapter author's workflow, uses CC-BY-NC-4.0. Small is a distinct model and does not reproduce Large's numerical outputs. The directories are excluded from Git and are never automatically selected or downloaded during generation.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000033",
+        "line": 33,
+        "text": "`python3 scripts/provision_flux1_schnell.py` resumes and verifies the Apache-2.0 [Comfy-Org FLUX.1 Schnell FP8 full checkpoint](https://huggingface.co/Comfy-Org/Flux-1-Schnell) at the fixed revision recorded in `flux1_schnell_checkpoint_resource`. The file requires 17,236,328,572 bytes and is published to `resources/models/flux1-schnell-fp8.safetensors` only after its complete SHA-256 and size match. It is excluded from Git; `--check` verifies an existing file without downloading. Explicitly select it using `--model` and `--model-config-preset flux1-schnell`. ControlNet weights are separate; provisioning and header validation do not establish compatibility or output quality for any particular adapter.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000041",
+        "line": 41,
+        "text": "`IILD_VERIFY_FLUX1_CANNY_PAYLOAD=metadata` enables the optional actual-adapter audit in `FluxControlRuntimeTests.test_provisioned_instantx_canny_header_and_sample_values`: all tensor descriptors and metadata must match the pinned fixture and selected rows must be finite. Set it to `1` to additionally hash the complete file. This audit does not execute the pretrained adapter.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000049",
+        "line": 49,
+        "text": "`python3 scripts/provision_moss_transformer.py` resumes and verifies the Apache-2.0 Comfy-Org MOSS SFT BF16 transformer at the fixed revision recorded in `moss_sft_transformer_resource`. It needs 10,164,655,808 bytes; the finished file is `resources/models/moss_image_sft_bf16.safetensors` and is excluded from Git. The provisioner checks the entire size and SHA-256 before atomically publishing it; it never overwrites a mismatching existing file. `--check` verifies an existing file without downloading. `IILD_VERIFY_MOSS_TRANSFORMER_PAYLOAD=metadata` runs the optional test in `tests/MossSingleFileRuntimeTests.py`, comparing every stored tensor name, shape and dtype with the pinned header and checking a few actual tensor rows for finite values; setting it to `1` also hashes the complete file. This resource is a user-selected base checkpoint, not an automatic model download or a replacement for a caller's model. These audits do not establish image-generation quality, hardware fit or control-adapter compatibility.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000057",
+        "line": 57,
+        "text": "Later on 2026-10-31 the Krea Turbo checkpoint completed its full size and SHA-256 verification. Its 686 tensor descriptors, all 256 FP8 scales and selected tensor values passed the metadata-mode payload audit, and the real-file Krea depth and prepared-pose resource-selection test passed. These checks do not run inference or establish image quality.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000059",
+        "line": 59,
+        "text": "The actual Turbo transformer passed the expanded `test_provisioned_turbo_stream_loads_actual_transformer_weights` in CPU-stream mode with BF16 compute precision. Every FP8 weight byte and the scale for all 256 streamed layers matched the original checkpoint, and all 174 remaining parameters matched after the required reshape and conversion. The loader also reported 96 layers requiring full-precision matrix multiplication and 160 not requiring it. The offline test completed in 827.039 seconds on this workspace; it did not load the rest of the pipeline or execute inference.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000061",
+        "line": 61,
+        "text": "`IILD_VERIFY_KREA2_PIPELINE_LOAD=1` enables a more resource-intensive test that loads the actual Turbo transformer with the existing text encoder, tokenizer, VAE and scheduler through the generic runner, then validates the actual depth and prepared-pose adapter target shapes against the loaded transformer. It uses metadata-only identity for model files; verify their complete hashes separately. It does not attach or execute the control adapters, load the pose-specific vision encoder, run depth prediction, or perform inference. Sufficient memory and disk bandwidth are required.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000069",
+        "line": 69,
+        "text": "`IILD_VERIFY_KREA2_POSE_PIPELINE_LOAD=1` enables a separate combined test that loads the actual Turbo transformer and full Qwen3-VL multimodal encoder together through the generic runner for the prepared-pose request, then validates the pose LoRA target mapping. It uses metadata-only file identity and does not attach the adapter or execute image conditioning or inference. Sufficient memory and disk bandwidth are required.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000079",
+        "line": 79,
+        "text": "The actual Schnell transformer passed the expanded `test_provisioned_schnell_stream_loads_actual_transformer_weights` in CPU-stream mode with BF16 compute precision. Loaded values were checked for finiteness and every transformer parameter matched its source after the required split or final-modulation swap: streamed matrices matched original FP8 bytes, and the other parameters matched after BF16 conversion. The offline check completed in 530.736 seconds on this workspace. It did not load the rest of the pipeline or run inference.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000095",
+        "line": 95,
+        "text": "`IILD_VERIFY_MOSS_PIPELINE_LOAD=1` enables the more resource-intensive combined local loading test in `MossSingleFileRuntimeTests.py`. It constructs one actual SFT CPU-stream transformer, INT8 language encoder, tokenizer, FLUX.2 VAE and scheduler pipeline, then checks the real control adapter's target mapping against that loaded transformer. It uses metadata-only identity for model files and neither computes a depth map nor executes a model forward pass or image generation. The complete SFT, encoder and adapter hashes must be checked separately; sufficient memory and disk bandwidth are required.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000109",
+        "line": 109,
+        "text": "`python3 scripts/provision_moss_control.py` uses the same resumable and SHA-256-verified publication policy for the separate Apache-2.0 color/depth adapter, `resources/models/moss_image_color_depth_control.safetensors` (313,063,368 bytes, excluded from Git). `--check` verifies it without downloading. `IILD_VERIFY_MOSS_CONTROL_PAYLOAD=1` enables the optional test in `tests/MossControlRuntimeTests.py`: it hashes the file, compares all tensor descriptors and metadata to the pinned header, and checks every tensor for finite values. Its [model card](https://huggingface.co/darask0/MOSS-Image-color-depth-control) says it was trained on MOSS Base and also used with SFT; the file's metadata records the trained base. Selection remains explicit via `--controlnet`; provisioning and payload checks do not validate image quality or prove equivalence to a reference workflow.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000115",
+        "line": 115,
+        "text": "`model-configs/flux1-schnell/` is an iiLocalDiffusion-authored, weight-free FLUX.1 Schnell configuration using Diffusers 0.40.0 transformer defaults, the Schnell scheduler contract, and the existing FLUX.1 CLIP, T5 and VAE configurations. It is not the original model repository's file. Its `transformer-source-shapes.json` records the 776 original transformer tensor names and shapes and is verified before use by the preset. `test-fixtures/flux1-schnell-bf16-transformer-header.json` and `flux1-schnell-fp8-full-header.json` record only the public safetensors headers from `Comfy-Org/Flux-1-Schnell` revision `d31e04067066d92c55ece2b01748dcc337725d7a`, including publisher file SHA-256 values. The BF16 file contains only the transformer; the FP8 file also contains CLIP, T5 and VAE tensors. These files contain no weights and do not prove pretrained generation.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000117",
+        "line": 117,
+        "text": "`test-fixtures/moss-qwen35-int8-convrot-header.json` contains the safetensors header and all 317 small quantization metadata records obtained using HTTP byte ranges from `Comfy-Org/MOSS-Image` revision `f7a9772e063542422b66dd492c4e17aa64f7797b`, file `text_encoders/qwen3.5_9b_int8_convrot.safetensors` (9,748,121,532 bytes; published LFS SHA-256 `32e3787472f708fa5f83624acbf5ef23f7fc89c439e05065ea57cfe5a97f025a`). The fixture contains no model weights. The 22,716-byte metadata range has SHA-256 `48bd565588841839fad6d482c70c87376d707f375d3c4d5a1f81cb2517980cf4`. Structural tests validate the language branch; these do not establish INT8 inference support.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000129",
+        "line": 129,
+        "text": "`test-fixtures/moss-qwen35-tokenizer-cases.json` records formatted prompts and token IDs from the official MOSS tokenizer at revision `f972bd4b4b9e3852133cc5da954d87bc32cd8fb9`, with the exact thinking and generation-prompt settings used by MOSS. Offline tests compare the local Qwen3.5 fallback against these cases. The original Qwen3.5 configuration and existing ComfyUI tokenizer data are under `text_encoders/qwen35-9b/`; the separate encoder weights must still be provided.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000131",
+        "line": 131,
+        "text": "The other metadata-only fixtures cover [Patil's Krea 2 depth adapter](https://huggingface.co/Patil/Krea-2-depth-controlnet/tree/21889413aa7282a6e78bd510247cceccad034b24), revision `21889413aa7282a6e78bd510247cceccad034b24`, and the [FLUX.2 Fun Union 2602 adapter](https://huggingface.co/alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union/tree/b3dcd7836a0e926248dac3ccba8fc0853495764b), revision `b3dcd7836a0e926248dac3ccba8fc0853495764b`. Their full checkpoint identities and raw-header hashes are recorded in the fixtures. The Krea 2 adapter has its own Krea community license; the FLUX.2 adapter is marked non-commercial. These fixtures contain no tensor payloads and do not provide model weights.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000137",
+        "line": 137,
+        "text": "`test-fixtures/krea2-ostris-pose-header.json` contains the header of the Apache-2.0 [Krea 2 Turbo OpenPose edit LoRA](https://huggingface.co/thedeoxen/Krea-2-pose-controlnet/tree/1da9762ca46e6c9e4014b309bf0147889f10982a), revision `1da9762ca46e6c9e4014b309bf0147889f10982a`, without the tensor payload. The complete file size is 228,587,504 bytes and its SHA-256 is `0ddc3aafce4abdf7af3309b2f00c1bacdf15df1f2b4fb7adc9ff71795da90ecf`; its 512 tensors were also checked for finite values. Its AI Toolkit LoRA targets do not by themselves provide the vision and reference-latent conditioning required for pose generation.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000145",
+        "line": 149,
         "text": "The default LoRA of other model families registers compatible files, strength, family, hash, and size in the `fallback_loras` array. While existing single `fallback_lora` formats are also supported, the bundle does not register the default LoRA. Image and Deforum, and the native runtime use the same family selection rules. Changing only the family name of SDXL weights is not a conversion; actual LoRA files matching each base model are required.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000017",
-        "line": 21,
-        "text": "`text_encoders/` contains the pinned original Qwen3-VL-4B BF16 encoder for split Krea2 denoisers. `fallback_llms` records its family, class, revision, size, and SHA-256. The native loader normalizes the original Hugging Face `model.language_model` namespace in memory, validates all required tensor shapes, and mounts the encoder together with the Wan2.1 VAE. Complete embedded components and explicit selections retain precedence. These required components remain active when optional generation modifiers are disabled. `scripts/prepare_generation_defaults.py --check` verifies their hashes using streaming reads. Consumer applications provision these resources outside the app bundle, in the Society drive.",
+        "block_id": "b000151",
+        "line": 155,
+        "text": "`text_encoders/` contains the pinned original Qwen3-VL-4B BF16 encoder for split Krea2 denoisers. `fallback_llms` records its family, class, revision, size, SHA-256, and the official pinned `qwen3vl-4b/config.json`. The native loader normalizes the original Hugging Face `model.language_model` namespace in memory and mounts the encoder together with the Wan2.1 VAE. The generic Diffusers runner loads the same language tensors into `Qwen3VLTextModel` and validates their names and shapes against the configuration. If its model lacks a tokenizer, it loads the existing ComfyUI Qwen tokenizer data under `qwen3vl-4b/`; `fallback_tokenizers` records each file's identity. Model-provided components take precedence and incomplete components are not silently replaced. These required components remain active when optional generation modifiers are disabled. `scripts/prepare_generation_defaults.py --check` verifies their hashes using streaming reads. Consumer applications provision these resources outside the app bundle, in the Society drive.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000153",
+        "line": 157,
+        "text": "For FLUX.1, `text_encoders/flux1-clip/` and `text_encoders/flux1-t5/` preserve the existing ComfyUI tokenizer data and are installed with the runtime. Missing declared tokenizers can be supplied from these resources, after checking every file's manifest identity. Model-supplied tokenizers take precedence. These directories do not contain text encoder weights; see `text_encoders/NOTICE.md` for provenance and its licensing verification limit.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000159",
+        "line": 163,
+        "text": "The optional MOSS INT8 Qwen3.5 encoder is provisioned with `python3 scripts/provision_moss_text_encoder.py`, or verified without downloading with `--check`. It uses `fallback_moss_text_weights` for its pinned source, size and SHA-256, resumes incomplete transfers in `.state/`, and never replaces a mismatching existing target. The runtime installs the provisioner together with its shared download helper. `--resources /absolute/path` selects a different resource root. The 9,748,121,532-byte payload is ignored by Git; after verification the generic MOSS runner selects it only when the model does not supply text encoder weights and no explicit encoder was chosen. The general resource audit verifies this optional file when present; use the provisioner's `--check` when its presence itself is required. Selection and quantization are reported; INT8 inference does not imply bit-identical BF16 images.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000167",
+        "line": 171,
+        "text": "`text_encoders/flux1-clip-config/config.json` contains the text configuration extracted from `openai/clip-vit-large-patch14` revision `32bd64288804d66eefd0ccbe215aa642df71cc41`; `flux1-t5-config/config.json` contains the configuration from `google/t5-v1_1-xxl` revision `3db67ab1af984cf10548a73467f0e5bca2aaaeb2`. Their SHA-256 and source transforms are recorded in `fallback_flux_text_configs`. They supply configurations only, not encoder weights. The metadata-only `test-fixtures/flux1-clip_l-header.json`, `flux1-t5xxl_fp16-header.json`, and `flux1-t5xxl_fp8_e4m3fn-header.json` record the public `comfyanonymous/flux_text_encoders` file headers at revision `911b3165a54bac0d6667e51c78f163e426da4c78`; they contain no tensor values and do not verify full-file payloads or image quality.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000177",
+        "line": 189,
+        "text": "The optional test `IILD_VERIFY_KREA2_ENCODER_PAYLOAD=1 python3 tests/Krea2TextEncoderTests.py Krea2TextEncoderTests.test_provisioned_encoder_payload_matches_resource_manifest` checks the full local encoder size and SHA-256 against the current resource manifest, including a before/after file identity check. It reads the entire 8.3 GiB file and skips when the payload is not provisioned. The runtime tests separately compare the language and vision tensor headers and tokenizer IDs; these checks do not generate an image.",
         "basis": "lexical_match",
         "context": "paragraph"
       }
     ],
     "commands": [
       {
-        "block_id": "b000007",
+        "block_id": "b000141",
         "language": "sh",
         "code": "git lfs install --local\ngit lfs pull\ngit lfs fsck\n"
       },
       {
-        "block_id": "b000021",
+        "block_id": "b000175",
         "language": "sh",
         "code": "mkdir -p resources/text_encoders\ncurl --fail --location \\\n  'https://huggingface.co/Comfy-Org/Krea-2/resolve/eb1eddd3983a54678545a9b2c178c5853b30f7be/text_encoders/qwen3vl_4b_bf16.safetensors' \\\n  --output resources/text_encoders/qwen3vl_4b_bf16.safetensors\nprintf '%s  %s\\n' \\\n  '36f3ff447ef59201722e8f9ce6020c9819fdcfba6aa2608c4e09b1c0ce114e34' \\\n  'resources/text_encoders/qwen3vl_4b_bf16.safetensors' | shasum -a 256 --check\n"
       }
     ],
     "links": [
       {
+        "block_id": "b000007",
+        "label": "Krea 2 Turbo FP8 checkpoint",
+        "target": "https://huggingface.co/Comfy-Org/Krea-2",
+        "kind": "external",
+        "line": 7
+      },
+      {
+        "block_id": "b000007",
+        "label": "depth Control-LoRA",
+        "target": "https://huggingface.co/Patil/Krea-2-depth-controlnet",
+        "kind": "external",
+        "line": 7
+      },
+      {
         "block_id": "b000009",
+        "label": "Krea 2 Turbo pose LoRA",
+        "target": "https://huggingface.co/thedeoxen/Krea-2-pose-controlnet",
+        "kind": "external",
+        "line": 9
+      },
+      {
+        "block_id": "b000023",
+        "label": "Small",
+        "target": "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf",
+        "kind": "external",
+        "line": 23
+      },
+      {
+        "block_id": "b000023",
+        "label": "Large",
+        "target": "https://huggingface.co/depth-anything/Depth-Anything-V2-Large-hf",
+        "kind": "external",
+        "line": 23
+      },
+      {
+        "block_id": "b000033",
+        "label": "Comfy-Org FLUX.1 Schnell FP8 full checkpoint",
+        "target": "https://huggingface.co/Comfy-Org/Flux-1-Schnell",
+        "kind": "external",
+        "line": 33
+      },
+      {
+        "block_id": "b000037",
+        "label": "InstantX FLUX.1 Dev Canny ControlNet",
+        "target": "https://huggingface.co/InstantX/FLUX.1-dev-Controlnet-Canny",
+        "kind": "external",
+        "line": 37
+      },
+      {
+        "block_id": "b000109",
+        "label": "model card",
+        "target": "https://huggingface.co/darask0/MOSS-Image-color-depth-control",
+        "kind": "external",
+        "line": 109
+      },
+      {
+        "block_id": "b000113",
+        "label": "documented scheduler contract",
+        "target": "https://huggingface.co/docs/diffusers/api/pipelines/krea2",
+        "kind": "external",
+        "line": 113
+      },
+      {
+        "block_id": "b000121",
+        "label": "Comfy-Org distribution",
+        "target": "https://huggingface.co/Comfy-Org/MOSS-Image/blob/f7a9772e063542422b66dd492c4e17aa64f7797b/loras/moss_image_color_depth_control.safetensors",
+        "kind": "external",
+        "line": 121
+      },
+      {
+        "block_id": "b000123",
+        "label": "Comfy-Org Krea 2 Turbo BF16 transformer",
+        "target": "https://huggingface.co/Comfy-Org/Krea-2/blob/eb1eddd3983a54678545a9b2c178c5853b30f7be/diffusion_models/krea2_turbo_bf16.safetensors",
+        "kind": "external",
+        "line": 123
+      },
+      {
+        "block_id": "b000125",
+        "label": "Comfy-Org Krea 2 Turbo scaled FP8 checkpoint",
+        "target": "https://huggingface.co/Comfy-Org/Krea-2/blob/eb1eddd3983a54678545a9b2c178c5853b30f7be/diffusion_models/krea2_turbo_fp8_scaled.safetensors",
+        "kind": "external",
+        "line": 125
+      },
+      {
+        "block_id": "b000127",
+        "label": "Comfy-Org MOSS SFT transformer",
+        "target": "https://huggingface.co/Comfy-Org/MOSS-Image/blob/f7a9772e063542422b66dd492c4e17aa64f7797b/diffusion_models/moss_image_sft_bf16.safetensors",
+        "kind": "external",
+        "line": 127
+      },
+      {
+        "block_id": "b000127",
+        "label": "Qwen3.5 encoder",
+        "target": "https://huggingface.co/Comfy-Org/MOSS-Image/blob/f7a9772e063542422b66dd492c4e17aa64f7797b/text_encoders/qwen3.5_9b_bf16.safetensors",
+        "kind": "external",
+        "line": 127
+      },
+      {
+        "block_id": "b000131",
+        "label": "Patil's Krea 2 depth adapter",
+        "target": "https://huggingface.co/Patil/Krea-2-depth-controlnet/tree/21889413aa7282a6e78bd510247cceccad034b24",
+        "kind": "external",
+        "line": 131
+      },
+      {
+        "block_id": "b000131",
+        "label": "FLUX.2 Fun Union 2602 adapter",
+        "target": "https://huggingface.co/alibaba-pai/FLUX.2-dev-Fun-Controlnet-Union/tree/b3dcd7836a0e926248dac3ccba8fc0853495764b",
+        "kind": "external",
+        "line": 131
+      },
+      {
+        "block_id": "b000133",
+        "label": "FLUX.2 Klein 4B RefControl depth LoRA",
+        "target": "https://huggingface.co/thedeoxen/refcontrol-FLUX.2-klein-4B-reference-depth-lora/tree/0ae1ef7f9acc4e55ec2237360943c3c3032d3583",
+        "kind": "external",
+        "line": 133
+      },
+      {
+        "block_id": "b000135",
+        "label": "rapid-moss four-step adapter",
+        "target": "https://huggingface.co/darask0/MOSS-Image_4-step_adapter_lora/tree/c88f33bcb3251eb39943d0635e74b650732977c8",
+        "kind": "external",
+        "line": 135
+      },
+      {
+        "block_id": "b000137",
+        "label": "Krea 2 Turbo OpenPose edit LoRA",
+        "target": "https://huggingface.co/thedeoxen/Krea-2-pose-controlnet/tree/1da9762ca46e6c9e4014b309bf0147889f10982a",
+        "kind": "external",
+        "line": 137
+      },
+      {
+        "block_id": "b000143",
         "label": "global defaults documentation",
         "target": "../docs/generation-defaults.md",
         "kind": "relative",
-        "line": 13
+        "line": 147
       },
       {
-        "block_id": "b000015",
+        "block_id": "b000149",
         "label": "defaults document",
         "target": "../docs/generation-defaults.md#vae-자동-폴백",
         "kind": "relative",
-        "line": 19
+        "line": 153
       },
       {
-        "block_id": "b000019",
+        "block_id": "b000171",
+        "label": "public scalar-scaled T5 file",
+        "target": "https://huggingface.co/comfyanonymous/flux_text_encoders/blob/3bcfe977a9a2617a0b9025076030e217795fe028/t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "kind": "external",
+        "line": 175
+      },
+      {
+        "block_id": "b000173",
         "label": "GitHub's maximum Git LFS object size",
         "target": "https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-git-large-file-storage",
         "kind": "external",
-        "line": 23
+        "line": 177
       }
     ],
     "tables": []

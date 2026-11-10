@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Non-clobbering output defaults, complete batches, and explicit generator values."""
+import resource_fixture
 
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from local_model_fixture import local_parser
@@ -22,7 +22,7 @@ class GenerationOutputTests(unittest.TestCase):
         return generate.resolve_arguments(local_parser(generate.build_parser).parse_args(list(tokens)))[1]
 
     def test_default_collision_allocates_an_unused_name_without_deleting_old_files(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             path = Path(temporary) / "fixture.png"
             path.write_bytes(b"original")
             path.with_suffix(".json").write_text("{}")
@@ -33,7 +33,7 @@ class GenerationOutputTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), b"original")
 
     def test_batch_names_and_json_collisions_are_checked_before_generation(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             path = Path(temporary) / "batch.png"
             args = self.args("--output", str(path), "--num-images", "2")
             outputs = generation_output.resolve_output_paths(args)
@@ -43,7 +43,7 @@ class GenerationOutputTests(unittest.TestCase):
                 generation_output.resolve_output_paths(args)
 
     def test_explicit_overwrite_preserves_the_requested_paths(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             path = Path(temporary) / "chosen.png"
             path.write_bytes(b"original")
             args = self.args("--output", str(path), "--overwrite")
@@ -64,7 +64,7 @@ class GenerationOutputTests(unittest.TestCase):
                 self.assertEqual(exported[name], str(path))
 
     def test_atomic_publication_refuses_a_racing_output_without_overwrite(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             root = Path(temporary)
             candidate, target = root / "new.tmp", root / "image.png"
             candidate.write_bytes(b"new")
@@ -78,7 +78,7 @@ class GenerationOutputTests(unittest.TestCase):
             self.assertFalse(candidate.exists())
 
     def test_failed_png_encoding_cleans_up_its_temporary_file(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             root = Path(temporary)
             image = Mock(save=Mock(side_effect=RuntimeError("encoding failed")))
             with self.assertRaisesRegex(RuntimeError, "encoding failed"):

@@ -1,5 +1,22 @@
 # 네이티브 이미지 생성
 
+`generateNativeImageWithReport`는 요청의 너비·높이·스텝 중 0으로 지정된
+항목만 `nativeImageParameterDefaults`의 선택 모델 기본값으로 채운다. 0이 아닌
+값과 시드·프롬프트는 변경하지 않는다. `resolveNativeImageDefaults`로 실행 전
+같은 해석을 수행할 수 있다. 기존 요청·결과 구조체와 기존 생성 진입점의 ABI는
+유지하며 0의 특수한 의미는 새 보고서 진입점에만 적용한다.
+
+보고서는 원래 요청을 해석한 값과 실행한 모델별 단계를 분리한다. 각 단계는
+고정 네이티브 엔진이 정렬과 시드·샘플러 해석을 마친 직후의 1차·Hires 캔버스,
+단계 수, 실제 시드, 샘플러·스케줄러와 각 패스의 실제 시그마 배열, CFG, Hires 설정,
+이미지 기반 단계의 강도, 사용한 네거티브 문장·LoRA와 Q8 캐시 사용 여부를 보존한다. 이미지 기반
+단계 수와 시그마는 강도에 따른 스케줄 절단 이후에 기록한다. Hires도 별도로
+스케줄을 구성하므로 제출된 보정 단계 수가 아닌 실제 시그마 배열의 단계 수를
+기록한다. 난수 요청 시
+요청 시드와 엔진이 뽑은 실제 시드는 다를 수 있다.
+다중 모델 패키지는 실행한 단계별로 기록한다. 생성 실패 또는 취소를 성공한 이미지로
+취급하지 않으며 이 보고서는 이미지 품질이나 모델 호환성을 보증하지 않는다.
+
 메모리 매핑은 실행 백엔드가 실제 CPU 버퍼 형식을 지원할 때만 직접 사용한다.
 Metal의 호스트 포인터 가져오기 기능은 일반 CPU 버퍼의 직접 실행을 뜻하지 않는다.
 Metal에 배치한 가중치는 Metal 버퍼로 읽고, CPU에 둔 가중치는 매핑과 GPU 스테이징을 유지한다.
@@ -32,6 +49,39 @@ CPU 폴백에서도 메모리 절약형 연산을 유지해야 한다. 해상도
 기본 LoRA 선택은 SDXL에 고정하지 않는다. 엔진이 확인한 SD1/SD2/SD3/FLUX.1/FLUX.2/Qwen Image/Z Image 계열을 `fallback_lora` 또는 `fallback_loras` 명세와 대조한다. 명시적 `options.loras`가 있으면 기본값을 대체하며 각 LoRA의 강도를 그대로 엔진에 전달한다. 번들 명세는 빈 기본 LoRA 목록을 사용하며, 사용자 명세에 등록할 때는 계열별 호환 파일이 필요하다. `NativeResultTests`는 7개 계열의 기본값 전달·명시적 대체·중복 계열 거부를 실제 네이티브 어댑터와 C API 대역으로 검증한다.
 
 ## 출력 크기와 오류 처리
+
+Anima 패키지의 주 모델과 텍스트 인코더, Qwen Image VAE는 원본 텐서 이름과
+패키지 매핑을 기준으로 식별한다. 주 모델이 별도 네임스페이스에 있으면 함께 준비한다.
+명시적 구성 요소가 내장 구성 요소보다 우선하며, 준비된 파일은 사용자 지정 작업
+디렉터리에만 무결성을 검사해 생성한다. 취소와 모호한 구성은 추론 전에 처리하고
+원본은 수정하지 않는다. 헤더 식별과 준비는 실제 생성 성공을 보장하지 않는다.
+`prepareNativeImagePackage`는 구성 요소별 SHA-256을 검사하고 200ms 간격으로 준비
+진행률을 전달하며, 구성 요소별 명시적 경로와 취소·일시 정지를 존중한다.
+`generateNativeImageWithResidentPackage`는 빠른 생성의 기존 해상도·Hires·CFG 기본값을
+변경하지 않고 준비된 구성 요소를 네이티브 컨텍스트에 전달한다. 작업 디렉터리의
+여유 공간은 추출이 필요한 구성 요소의 크기만큼 필요하다. 가중치 캐시를 포함한
+작업 디렉터리의 수명과 정리는 호출자가 관리한다.
+
+네이티브 이미지 경로는 파일명 대신 제한된 크기의 safetensors 헤더와 텐서 형상으로
+명백한 비호환 입력을 검사한다. MOSS Image 변환기는 현재 네이티브 엔진에서 지원하지
+않으므로 SD 버전 판별 오류 대신 실제 모델 계열과 필요한 구성 요소를 보고한다.
+INT8 Comfy 양자화가 확인되면 이 네이티브 엔진이 아닌 호환 양자화 경로가 필요함을
+알린다. 자동 라우터의 별도 MOSS Diffusers 경로는 검증된 INT8 ConvRot을 처리한다.
+독립 LoRA·VAE·ControlNet과 잘린 헤더 또는 파일 범위를 벗어나는
+텐서도 해당 입력의 문제로 반환한다. 판별할 수 없는 다른 계열은 기존 엔진에 전달하여
+새 아키텍처의 지원을 임의로 차단하지 않는다. 헤더가 64 MiB 검사 예산을 초과하지만
+선언된 길이가 파일 범위 안에 있으면 손상으로 판정하지 않고 엔진에 판별을 위임한다.
+
+빠른 생성의 파라미터 기본값 조회도 같은 입력 검사를 먼저 수행한다. 명백히 비호환이거나
+읽을 수 없는 모델은 VAE 엔진에 넘기지 않고 공통 기본값을 유지하며, 실제 생성 요청에서는
+구체적인 입력·호환성 오류를 반환한다. `NativeResultTests`와 모바일 대역은 이 기본값
+조회가 비호환 모델에 대해 VAE 판독을 호출하지 않는지 검사한다.
+
+병합 메타데이터가 합성 어댑터 매핑을 기록한 경우 그 개수는 출처가 주장하는 사실로만
+보고한다. 이는 파일 손상이나 생성 실패의 직접 원인으로 단정하지 않으며, 모델 품질 또는
+호환성의 증명이 아니다. 원본 가중치는 수정하지 않는다. 헤더 검사 결과도 텐서 전체의
+무결성이나 실제 생성 성공을 보증하지 않는다. `NativeDiffusionTests`는 접두어별 MOSS,
+양자화, 병합 기록, 잘린 데이터, 구성 요소와 유사하지만 다른 텐서 구조를 검사한다.
 
 `NativeGenerationRequest.width/height`는 최종 출력 크기이다. 기존 생성 진입점과 V1 C 브리지는 각 변을 절반으로 나눈 값을 1차 생성에 전달한다. 예를 들어 1024×1024 요청은 512×512 생성 → Lanczos 확대 → VAE 재인코딩 → 강도 0.35의 재확산 → 1024×1024 디코딩으로 실행한다. 고정 stable-diffusion.cpp의 내장 Hires 기능을 사용하므로 별도 모델·패키지·네트워크가 필요하지 않다. 기본 보정 요청 스텝은 `max(1, floor(steps * 0.35))`이며 실제 샘플러 콜백이 실행 스텝을 보고한다. 로딩만 하는 `prepareNativeImageModel`은 두 생성 단계를 실행하지 않는다.
 
@@ -73,9 +123,10 @@ SDXL의 Conv2D는 외부 VAE 파일이 float32여도 내부에서 fp16 활성값
 cmake --build build --target NativeVaeDecodeProbe
 reference/diffusers/.venv/bin/python tests/NativeVaeParitySmoke.py \
   --model /absolute/path/redLilyIllu_v10.safetensors \
-  --probe build/NativeVaeDecodeProbe --output-dir build/vae-parity \
+  --probe build/NativeVaeDecodeProbe --output-dir resources/vae-parity \
   --tiles 0 32 40 48 64
 ```
+검증을 마치면 필요한 결과를 보관한 뒤 이 실행이 만든 임시 리소스를 정리한다.
 
 ## 실행 계약
 
@@ -83,7 +134,7 @@ reference/diffusers/.venv/bin/python tests/NativeVaeParitySmoke.py \
 
 Krea2 분리형 denoiser는 접두사가 없는 원본/ComfyUI 텐서 이름과 `diffusion_model.`, `model.diffusion_model.`, `transformer.` 이름을 지원한다. 로더가 메모리 내 이름만 정규화하며 원본 체크포인트를 다시 쓰지 않는다. 텍스트 인코더와 VAE의 내장 이름 공간은 보존한다. 공식 Qwen3-VL 원본의 `model.language_model.` 텍스트 타워도 `model.`로 메모리 내 정규화한다. 부족한 Qwen3-VL-4B와 Wan2.1 VAE는 `generation-defaults.json`의 `fallback_llms`/`fallback_vaes`에서 연결한다. 선택된 외부 구성요소는 전체 필요 텐서의 크기와 Qwen4B의 2560차원·36층 규격을 확인한 뒤 마운트한다. 명시한 경로는 기본 리소스보다 우선하며, 내장 인코더가 부분적으로 존재하면 기본 인코더로 덮어쓰지 않는다. 필수 구성요소 연결은 `defaultModifiers=false`에서도 유지한다. Python native worker와 프로세스 내 C++ 경로가 같은 리소스 카탈로그를 사용한다.
 
-`NativeKrea2NamesTests`는 분리형/완전형 이름과 잘못된 백업 이름 공간을, `NativeLlmConfigTests`는 누락·중복·잘못된 아키텍처·경로 이탈을 검사한다. `NativeVaeFallbackTests`와 `NativeVaeConfigTests`는 Wan의 실제 텐서·정규화 규격을 검사한다. 실제 모델 검증은 `NativeComponentMountIntegration <checkpoint> <resource-directory> <build-output-directory>`로 원본 모델의 resident 준비와 캐시를 재사용한 128×128·1스텝 RGB 생성을 확인한다. 기본 CTest에 포함하지 않으며, 모델의 품질이나 기본 해상도에서의 생성 속도를 보증하지 않는다.
+`NativeKrea2NamesTests`는 분리형/완전형 이름과 잘못된 백업 이름 공간을, `NativeLlmConfigTests`는 누락·중복·잘못된 아키텍처·경로 이탈을 검사한다. `NativeVaeFallbackTests`와 `NativeVaeConfigTests`는 Wan의 실제 텐서·정규화 규격을 검사한다. 실제 모델 검증은 `NativeComponentMountIntegration <checkpoint> <resource-directory> <resource-output-directory>`로 원본 모델의 resident 준비와 캐시를 재사용한 128×128·1스텝 RGB 생성을 확인한다. 기본 CTest에 포함하지 않으며, 모델의 품질이나 기본 해상도에서의 생성 속도를 보증하지 않는다.
 
 `IILD_ENABLE_NATIVE_DIFFUSION=ON`은 stable-diffusion.cpp의 `d04e8950c1ec8d30248cbe996682b3182fb1adf6` 및 해당 ggml 커밋을 빌드한다. iOS의 새 구성에서는 기본 ON이다. 체크포인트/토크나이저/텐서 실행을 직접 구현하는 대신 이 라이브러리의 C API를 사용한다. upstream은 활발히 변경되므로 커밋을 고정했다. 두 프로젝트는 MIT이고 고지문을 SDK에 설치한다. 서버·Web UI·WebP/WebM 및 RPC는 제외한다. Apple은 내장 Metal 코드를 사용하고 나머지 환경은 CPU를 사용한다.
 

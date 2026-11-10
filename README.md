@@ -1,5 +1,8 @@
 # iiLocalDiffusion
 
+See [Build and resource layout](docs/BuildLayout.md) for dependency sources,
+build outputs, and the scope of clean-layout checks.
+
 [Model inspection and user modality overrides](docs/ModelInspection.md) separate
 storage roles from image/video/audio/language outputs. LTX 2 single-file packages
 are recognized from bounded metadata and run through the [native video adapter](docs/NativeVideo.md),
@@ -47,6 +50,8 @@ split checkpoint components, native APIs and unified output publication.
 The [iisacc Krea 2 ecosystem contract](docs/krea2.md) separates Raw/Turbo defaults,
 FP32/BF16 reference execution, compatible VAE/text conditioning, reproducible
 flow schedules, and the additive native V3 sampling API.
+The generic runner can also mount the SDK's existing Qwen3-VL text-encoder
+weights when a Krea 2 package has no encoder; it still needs the model's local tokenizer.
 
 App consumers can use [resident inference sessions](docs/inference-worker.md)
 through `iild-generate --worker` to reuse Python initialization, unchanged model
@@ -344,7 +349,7 @@ keeping image denoising/decoding on the selected GPU:
 ```bash
 reference/diffusers/.venv/bin/python reference/diffusers/generate.py --model /absolute/path/image-diffusers \
   --preset sdxl-base --cpu-text-encoding --cpu-threads 4 --offload model \
-  --output build/reference/sdxl-cpu-ram.png
+  --output resources/outputs/reference/sdxl-cpu-ram.png
 ```
 
 `--offload auto|none|model|sequential` controls weight residency separately from
@@ -381,7 +386,7 @@ reference/diffusers/.venv/bin/python \
   --preset flux1-schnell \
   --lora /absolute/path/to/adapter.safetensors \
   --lora-scale 0.75 \
-  --output build/reference/flux-lora.png
+  --output resources/outputs/reference/flux-lora.png
 ```
 
 No adapter is bundled or selected automatically. Supply a local adapter file
@@ -426,6 +431,20 @@ condition; no detector runs automatically. The default filename adds
 control settings. Model, VAE, LoRA, CPU prompt encoding, and RAM offload
 remain composable. See [ControlNet inputs and limits](docs/controlnet.md).
 
+The separate [generic Diffusers runner](docs/generic-diffusers.md) also composes
+FLUX.1, SD1, SDXL and Qwen Image ControlNet components from local directories or single
+safetensors files, reuses native Canny preprocessing, offers offline relative depth
+estimation with a separately supplied local Depth Anything model,
+and supports FLUX.2 Fun ControlNet, Krea 2 expanded-input Control-LoRA and the
+MOSS-Image color/depth adapter with local weights and prepared hints. Those
+three adapters require a seed and resident weights, and cannot be combined with
+a second LoRA. Krea 2 control inputs use FP32 normalization before the chosen
+model precision. MOSS depth hints are converted to grayscale and replicated across
+RGB channels; the explicit depth preprocessor can estimate a map from a photograph.
+The upstream Krea 2 depth model is not bundled and its weights are noncommercial.
+Published adapter headers and tiny numerical models are checked;
+full pretrained model generation remains separate validation work.
+
 Add Hires Fix for repeated refinement with every preset, including runs
 with ControlNet, LoRA, or a replacement VAE:
 
@@ -456,7 +475,7 @@ with its documented resize/strength/steps options. See the
 and quality-validation limits.
 
 Local generation requires an explicit `--model-path`/`--model`; model downloads are outside
-the generation request. Generated outputs default to `build/reference/`, keeping the
+the generation request. Generated outputs default to `resources/outputs/reference/`, keeping the
 source tree and the system disk free of multi-gigabyte model caches. See
 [`reference/diffusers/README.md`](reference/diffusers/README.md) for the exact
 commands and limitations.
@@ -471,7 +490,7 @@ Generate video from text or image keyframes with a temporal diffusion model:
 ```sh
 reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \
   --backend video --prompt 'A glass bottle glints in warm sunlight.' \
-  --camera dolly-in --duration 5 --output build/reference/bottle.mp4
+  --camera dolly-in --duration 5 --output resources/outputs/reference/bottle.mp4
 ```
 
 The LTX video backend supports first/last image conditions, camera-preset mixes

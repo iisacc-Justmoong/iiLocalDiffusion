@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/temporal-video.md",
-    "sha256": "14f307cf13b03607dbae2648477874fd89cb866dfb083897aa704e3c3b976937",
-    "bytes": 17687,
+    "sha256": "c68c1c3985404016a5931fe438aabb2ce87cdc5702f44f890f67892db93cd971",
+    "bytes": 17723,
     "line_count": 137,
     "encoding": "utf-8",
     "language": "ko"
@@ -377,9 +377,9 @@
       "kind": "fenced_code",
       "start_line": 54,
       "end_line": 60,
-      "raw": "```sh\nreference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video \\\n  --prompt 'A glass bottle on a stone table, warm sunlight glinting through amber liquid.' \\\n  --camera dolly-in --duration 5 --fps 24 --interpolation-factor 2 \\\n  --output build/reference/bottle.mp4\n```\n",
+      "raw": "```sh\nreference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video \\\n  --prompt 'A glass bottle on a stone table, warm sunlight glinting through amber liquid.' \\\n  --camera dolly-in --duration 5 --fps 24 --interpolation-factor 2 \\\n  --output resources/outputs/reference/bottle.mp4\n```\n",
       "language": "sh",
-      "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video \\\n  --prompt 'A glass bottle on a stone table, warm sunlight glinting through amber liquid.' \\\n  --camera dolly-in --duration 5 --fps 24 --interpolation-factor 2 \\\n  --output build/reference/bottle.mp4\n",
+      "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video \\\n  --prompt 'A glass bottle on a stone table, warm sunlight glinting through amber liquid.' \\\n  --camera dolly-in --duration 5 --fps 24 --interpolation-factor 2 \\\n  --output resources/outputs/reference/bottle.mp4\n",
       "closed": true
     },
     {
@@ -408,9 +408,9 @@
       "kind": "fenced_code",
       "start_line": 64,
       "end_line": 70,
-      "raw": "```sh\nreference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --first-frame /absolute/path/keyframe.png \\\n  --prompt 'The subject turns slowly toward the window in warm afternoon light.' \\\n  --camera pan-left zoom-in --duration 3 --seed 7 \\\n  --output build/reference/keyframe-video.mp4\n```\n",
+      "raw": "```sh\nreference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --first-frame /absolute/path/keyframe.png \\\n  --prompt 'The subject turns slowly toward the window in warm afternoon light.' \\\n  --camera pan-left zoom-in --duration 3 --seed 7 \\\n  --output resources/outputs/reference/keyframe-video.mp4\n```\n",
       "language": "sh",
-      "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --first-frame /absolute/path/keyframe.png \\\n  --prompt 'The subject turns slowly toward the window in warm afternoon light.' \\\n  --camera pan-left zoom-in --duration 3 --seed 7 \\\n  --output build/reference/keyframe-video.mp4\n",
+      "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --first-frame /absolute/path/keyframe.png \\\n  --prompt 'The subject turns slowly toward the window in warm afternoon light.' \\\n  --camera pan-left zoom-in --duration 3 --seed 7 \\\n  --output resources/outputs/reference/keyframe-video.mp4\n",
       "closed": true
     },
     {
@@ -469,9 +469,9 @@
       "kind": "fenced_code",
       "start_line": 78,
       "end_line": 82,
-      "raw": "```sh\nreference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --storyboard reference/diffusers/video-storyboard.example.json \\\n  --output build/reference/story.mp4\n```\n",
+      "raw": "```sh\nreference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --storyboard reference/diffusers/video-storyboard.example.json \\\n  --output resources/outputs/reference/story.mp4\n```\n",
       "language": "sh",
-      "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --storyboard reference/diffusers/video-storyboard.example.json \\\n  --output build/reference/story.mp4\n",
+      "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --storyboard reference/diffusers/video-storyboard.example.json \\\n  --output resources/outputs/reference/story.mp4\n",
       "closed": true
     },
     {
@@ -926,17 +926,17 @@
       {
         "block_id": "b000047",
         "language": "sh",
-        "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video \\\n  --prompt 'A glass bottle on a stone table, warm sunlight glinting through amber liquid.' \\\n  --camera dolly-in --duration 5 --fps 24 --interpolation-factor 2 \\\n  --output build/reference/bottle.mp4\n"
+        "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video \\\n  --prompt 'A glass bottle on a stone table, warm sunlight glinting through amber liquid.' \\\n  --camera dolly-in --duration 5 --fps 24 --interpolation-factor 2 \\\n  --output resources/outputs/reference/bottle.mp4\n"
       },
       {
         "block_id": "b000051",
         "language": "sh",
-        "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --first-frame /absolute/path/keyframe.png \\\n  --prompt 'The subject turns slowly toward the window in warm afternoon light.' \\\n  --camera pan-left zoom-in --duration 3 --seed 7 \\\n  --output build/reference/keyframe-video.mp4\n"
+        "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --first-frame /absolute/path/keyframe.png \\\n  --prompt 'The subject turns slowly toward the window in warm afternoon light.' \\\n  --camera pan-left zoom-in --duration 3 --seed 7 \\\n  --output resources/outputs/reference/keyframe-video.mp4\n"
       },
       {
         "block_id": "b000059",
         "language": "sh",
-        "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --storyboard reference/diffusers/video-storyboard.example.json \\\n  --output build/reference/story.mp4\n"
+        "code": "reference/diffusers/.venv/bin/python reference/generate.py --model /absolute/path/ltx-diffusers \\\n  --backend video --storyboard reference/diffusers/video-storyboard.example.json \\\n  --output resources/outputs/reference/story.mp4\n"
       }
     ],
     "links": [

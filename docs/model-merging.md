@@ -2,6 +2,12 @@
 
 # 로컬 모델 병합
 
+### ConvRot 체크포인트 좌표 계약
+
+공통 계층 병합에서 INT8 ConvRot 가중치는 일반 실수 좌표와 구분한다. 서로 다른 회전 그룹 또는 부동소수점 가중치를 결합할 때 원래 좌표로 역회전한 뒤 대상의 회전 좌표로 변환한다. 양자화된 출력을 만들 때는 실제 병합 결과의 행별 또는 텐서별 스케일을 다시 계산하고 가중치와 함께 저장한다. 같은 회전 그룹의 양자화 가중치는 회전된 좌표에서 직접 합산할 수 있다. Comfy 메타데이터의 명시적 `per_row: true`는 출력 행마다 하나의 스케일이 있을 때만 허용한다. 이 수치 계약은 서로 다른 모델의 의미적 호환성이나 생성 이미지의 품질을 보증하지 않는다.
+
+MOSS Image는 동일한 네임스페이스에서 영상 입력, 영상 출력 및 QKV 가중치의 형상 관계를 확인해 식별한다. 체크포인트가 다른 접두사와 데이터 형식을 사용하더라도 같은 MOSS 구조라는 근거가 있으면 공통 계층 병합의 검토 대상으로 포함한다. 일치하는 근거가 없는 레이어는 강제로 대체하지 않는다.
+
 <a id="preflight-and-saved-output-verification"></a>
 
 ## 사전 검사 및 저장된 출력 검증
@@ -26,6 +32,10 @@
 체크포인트 매핑은 정확한 이름, 정규화된 이름, 역할/깊이 일치도를 시도한 다음 결정론적으로 구성 역할 간에도 가장 가까운 사용 가능한 소스를 선택합니다. 좌표는 전치, 리쉐이프 또는 가장 가까운 리샘플링되어 기본에 맞춥니다. 배운 소스 좌표가 없을 때, 배운 기본 텐서는 0 재료 텐서를 받습니다. 합계는 요청된 계수를 곱한 0 를 포함하며, 차이는 0를 뺍니다. 기본 일정, 빈 텐서, 정수 상태 및 양자화 보조 요소는 기본 정의에 유지됩니다. 수치 복구 및 저장된 출력 검증이 적용됩니다.
 
 정책은 합성 LoRA 목표 선택 및 자르기/0패딩 맞춤을 가능하게 합니다. 혼합 체크포인트/어댑터 또는 지원되지 않는 어댑터가 표준 LoRA 로 해석될 수 없으면, 읽을 수 있는 텐서들은 체크포인트 좌표로 투영되며, `resource_compatibility[].raw_tensor_projection` 가 이를 명시적으로 기록합니다. 이러한 재료들은 체크포인트 계수를 소모하며, LoRA 델타 계수가 아닌 것입니다. 일반적인 LoRAs 는 델타 의미를 유지합니다. 포함된 모든 체크포인트 가중치는 기존 합계 정규화에 참여하며, 이는 기본 계수 0를 만들 수 있습니다.
+
+MOSS 단일 파일의 `layers.0.proj.qkv.weight`, `video_embedder.weight`, `final_norm_video.weight`가 함께 존재하면, 해당 체크포인트의 접두사 없는 레이어와 어댑터의 `diffusion_model.` 또는 `model.diffusion_model.` 접두사를 동일한 실제 대상으로 해석한다. 분리된 Q·K·V 어댑터는 합쳐진 QKV 행렬의 해당 행 범위에 적용한다.
+
+Comfy tensorwise INT8 ConvRot 병합은 기준 가중치와 스케일을 회전 좌표에서 복원하고 실제로 일치한 LoRA의 저랭크 델타를 같은 회전 좌표로 변환하여 적용한다. 결과는 기존 스케일의 형태에 따라 전체 또는 출력 행별 스케일과 INT8 값으로 다시 양자화한다. 행별 스케일을 사용하는 Q·K·V 부분 병합에서 변경하지 않은 행은 원래 값과 스케일을 그대로 보존한다. 입력은 수정하지 않으며 저장 검증은 가중치와 스케일 모두를 대상으로 한다. 지원하지 않는 양자화 형식과 모호하거나 강제 재배치된 대상은 제외하고, 다른 체크포인트와 LoRA를 같은 양자화 행렬에 동시에 가중 병합하는 요청은 거절한다. 이 연산과 저장 검증은 생성 품질을 보증하지 않으며 기존 파일을 자동으로 복구하지 않는다.
 
 보고서는 수락한 강제 재료를 `conditional`로 표시하고 생태계 증거를 유지하며 `base-layout-force-fit-zero-fill-v1`, `forced_source_tensors`, `normalized_name_tensors`, `shape_changed_tensors`, `zero_filled_tensors`, `zero_fill_targets`를 기록한다. 이 결정적 좌표 맞춤은 학습되지 않았으며 의미적 호환성이나 이미지 품질을 입증하지 않는다. 손상되거나 누락된 파일은 계속 명시적으로 제외한다. 읽을 수 없는 기준 모델과 저장 출력 검증 실패는 여전히 실패한다. `ModelMergeBaseLayoutTests`는 계열 간 포함·독립 연산·LoRA 크롭/패딩·혼합 어댑터·누락 좌표·결정성·원본 보존·변경되지 않은 공통 레이어 경계를 검사한다.
 
@@ -103,9 +113,9 @@ Scheduler 좌표 (예: `denoiser.sigmas`), 예측 마커, 실행 통계, 일반 
 |체크포인트 합계 계수가 1보다 큽니다.|해당 비율을 유지하고 총 1로 정규화합니다. LoRA 계수를 변경하지 않고 그대로 둡니다.|
 |읽을 수 없는 기본, 소스 변형, 동시 출력, 저장/할당 실패|무결성 검사 및 no-clobber 게시를 유지합니다. 정직하게 실패하세요|
 
-회귀 coverage 는 64-쌍 스칼라/1-D/2-D/3-D/4-D 형상 행렬, 청크 경계, 양자화된 베이스/재료, 유효하지 않은 스케일, FP64 정밀도, 누락된 키 차이, 그리고 정확한 예상 수치 출력을 포함합니다. `tests/verify_model_merge_samples.py BASE MATERIAL` 는 전체 헤더 계획과 한계가 설정된 실시간 텐서 증거를 `build/real-merge-*` 에 씁니다. 그것은 최대 64 학습된 텐서를 독립적인 가중 합산 산술과 비교하고 원래 파일을 재작성하지 않고 보고된 누락된 스케줄러를 확인합니다.
+회귀 coverage 는 64-쌍 스칼라/1-D/2-D/3-D/4-D 형상 행렬, 청크 경계, 양자화된 베이스/재료, 유효하지 않은 스케일, FP64 정밀도, 누락된 키 차이, 그리고 정확한 예상 수치 출력을 포함합니다. `tests/verify_model_merge_samples.py BASE MATERIAL` 는 전체 헤더 계획과 한계가 설정된 실시간 텐서 증거를 JSON 표준 출력으로 제공합니다. 임시 샘플은 `resources/test-workspaces/`에 두고 성공·실패 시 삭제합니다. 최대 64 학습된 텐서를 독립적인 가중 합산 산술과 비교하고 원래 파일을 재작성하지 않고 보고된 누락된 스케줄러를 확인합니다.
 
-`tests/verify_model_merge_nonfinite.py --base BASE --material MATERIAL` 는 보고된 CLIP 레이어-11 `mlp.fc1.weight` 실패를 설치된 CLI 에 대해 재연합니다. `--material` 를 반복하여 여러 실제 내보내기를 포함합니다. 그것은 원래 무한대 텐서와 유한한 레이어-10 탐구로 두 산술 모드를 모두 테스트하고, 수정된 출력이 유한하며 탐구가 여전히 변경됨을 확인하고 보고/샘플 아티팩트를 `build/nonfinite-real-*` 에 씁니다. 유닛 커버리지 또한 부분적 NaN /+Inf/-Inf 마스크, 완전히 유효하지 않은 텐서, 여러 재료, 형상 투영, FP8 저장, 및 한계가 설정된 좌표 진단을 포함합니다. `--repair-base` 를 사용하여 실제 무한대 베이스와 유한한 재료로 베이스 0채우기를 동일한 설치된 CLI 와 독립적인 출력 오라클을 통해 재연합니다.
+`tests/verify_model_merge_nonfinite.py --base BASE --material MATERIAL` 는 보고된 CLIP 레이어-11 `mlp.fc1.weight` 실패를 설치된 CLI 에 대해 재연합니다. `--material` 를 반복하여 여러 실제 내보내기를 포함합니다. 원래 무한대 텐서와 유한한 레이어-10 탐구로 두 산술 모드를 모두 테스트하고, 수정된 출력이 유한하며 탐구가 여전히 변경됨을 확인합니다. 보고서는 JSON 표준 출력으로 내보내고 임시 샘플은 리소스 작업 공간에서 정리합니다. 기본 CLI는 `~/.local/SDK/iiLocalDiffusion/bin/iild-merge`이며 `--executable`로 변경할 수 있습니다. 유닛 커버리지 또한 부분적 NaN /+Inf/-Inf 마스크, 완전히 유효하지 않은 텐서, 여러 재료, 형상 투영, FP8 저장, 및 한계가 설정된 좌표 진단을 포함합니다. `--repair-base` 를 사용하여 실제 무한대 베이스와 유한한 재료로 베이스 0채우기를 동일한 설치된 CLI 와 독립적인 출력 오라클을 통해 재연합니다.
 
 한계: 리쉐이핑은 학습된 뉴런 정렬이 아닙니다. Fused QKV 패킹과 불투명 또는 패킹된 INT4 /아키텍처별 양자화기는 전용 디코더가 필요합니다; 일반적으로 재구성되지 않습니다. 알 수 없는 구성 요소는 유지될 수 있습니다. 명시적인 계수 정규화는 좌표 투영과 별도로 보고됩니다. 전체 출력 샤드가 직렬화 동안에도 여전히 메모리를 차지하므로, 차단된 투영은 완전한 아웃 오브 코어 직렬화기 가 아닙니다. 기본 재고 유지가 추론 백엔드가 출력을 로드할 수 있음을 증명하거나 생성된 이미지가 유용함을 증명하지는 않습니다.
 
@@ -225,7 +235,7 @@ iild-merge --base-model /models/base-diffusers \
 
 결제 시 `iild-merge` 대신 `reference/diffusers/.venv/bin/python reference/merge.py`를 사용하세요. 설치된 명령은 `IILD_PYTHON_EXECUTABLE` 및 연결된 Diffusers 환경을 생성 실행 프로그램과 공유합니다.
 
-추가 모델마다 `--additional-model` 를 반복합니다. `--weights` 와 `--weight` 는 별칭입니다. `--print-config` 는 Torch , 텐서 읽기, 해싱, 출력 생성 또는 다운로드 없이 경로와 요청된 가중치를 확인합니다. 그것은 누락된 가중치와 `base_weight` 를 `null` 로 보고하며, `coefficient_resolution: after-input-inspection` 에서 유효한 기본값은 각 재료가 체크포인트 또는 LoRA 키를 포함하는지에 따라 달라집니다. 완료된 병합 보고서는 해결된 계수와 종류를 포함합니다. 구성 미리보기는 모델 호환성을 설정하지 않습니다. 누락된 출력은 `build/reference/merged/<base-name>-<mode>.safetensors` 로 기본값이 되거나, Diffusers 패키지의 확장 없는 디렉토리 이름을 사용합니다. 기존 목적지는 거부되며, 다른 결과에 대해 다른 `--output` 를 선택해야 합니다.
+추가 모델마다 `--additional-model` 를 반복합니다. `--weights` 와 `--weight` 는 별칭입니다. `--print-config` 는 Torch , 텐서 읽기, 해싱, 출력 생성 또는 다운로드 없이 경로와 요청된 가중치를 확인합니다. 그것은 누락된 가중치와 `base_weight` 를 `null` 로 보고하며, `coefficient_resolution: after-input-inspection` 에서 유효한 기본값은 각 재료가 체크포인트 또는 LoRA 키를 포함하는지에 따라 달라집니다. 완료된 병합 보고서는 해결된 계수와 종류를 포함합니다. 구성 미리보기는 모델 호환성을 설정하지 않습니다. 누락된 출력은 `resources/outputs/reference/merged/<base-name>-<mode>.safetensors` 로 기본값이 되거나, Diffusers 패키지의 확장 없는 디렉토리 이름을 사용합니다. 기존 목적지는 거부되며, 다른 결과에 대해 다른 `--output` 를 선택해야 합니다.
 
 ## Python API
 
@@ -267,7 +277,7 @@ report = merge_models(
 2 가중산 모드의 경우, 전체 체크포인트는 모두 기본 저장 형식인 단일 파일 또는 Diffusers 디렉터리를 사용해야 합니다. LoRA 파일/디렉터리는 두 형식 중 하나로 혼합할 수 있습니다:
 
 - `.safetensors` 및 `.safetensor` 파일은 기존 안전 로더로 읽습니다. 텐서 이름과 도형은 입력 간에 정확히 일치해야 합니다.
-- `.ckpt`, `.pt`, `.pth` 및 `.bin` 단일 체크포인트는 기존 [가중량 전용 변환](checkpoint-formats.md)를 재사용합니다. 그것의 Torch 버전 게이트와 위험한 피클 로딩 재시도 거부가 여전히 효력을 유지하고 있습니다. 변환된 파일은 `build/reference/model-merge-cache/`를 사용하며, `--cache-dir` 로 재정의할 수 있습니다.
+- `.ckpt`, `.pt`, `.pth` 및 `.bin` 단일 체크포인트는 기존 [가중량 전용 변환](checkpoint-formats.md)를 재사용합니다. 그것의 Torch 버전 게이트와 위험한 피클 로딩 재시도 거부가 여전히 효력을 유지하고 있습니다. 변환된 파일은 `resources/.state/reference-cache/model-merge-cache/`를 사용하며, `--cache-dir` 로 재정의할 수 있습니다.
 - Diffusers 디렉토리는 `model_index.json` 와 safetensors 가중치가 필요합니다. 텐서 이름은 구성 디렉토리 내에서 매칭되므로 입력은 다른 샤드 레이아웃을 사용할 수 있습니다. 샤드 인덱스는 실제 키와 파일 이름에 대해 검증됩니다. 출력은 기본 파일 이름, 샤드, 구성, 토크나이저 자산 및 기타 가시적인 보조 파일을 유지합니다. 파일은 심볼릭 링크일 수 있으며, 중첩된 디렉토리 심볼릭 링크와 숨겨진 캐시/버전 관리 디렉토리는 지원되는 패키지 레이아웃에서 제외됩니다.
 - 디렉토리 런타임 구성/토크나이저 자산은 일치해야 합니다. JSON 비교는 `_name_or_path`, `_diffusers_version`, `transformers_version`, `_commit_hash`, `_use_default_values` 및 `torch_dtype` 만 무시합니다. 샤드 인덱스 레이아웃과 이전 `merge.json` 는 일치할 필요가 없습니다. 다른 아키텍처, 예측 설정 또는 토크나이저는 병합 전에 호환 가능한 입력을 필요로 합니다. 피클, GGUF, ONNX 또는 기타 가중치 형식을 가진 패키지는 먼저 단일 safetensors 변형으로 준비되어야 합니다. 중복 텐서 키/변형은 거부됩니다.
 - 유전 디렉토리 형태의 `.iildmodel` 는 가중치 산술 중 패키지로 남아 있으므로 `.iildmodel` 출력 경로를 필요로 합니다. 각 구성원은 요청된 산술로 다시 작성되며, SHA-256 단계와 바이트 크기는 `model_index.json` 에서 새로고침되고 패키지는 디렉토리로 원자적으로 게시됩니다. 기본 텐서 이름, 형상 및 데이터 타입이 보존되므로 동일한 또는 거의 동일한 디스크 크기가 예상됩니다; `changed_tensor_count` 와 출력 해시, 즉 파일 크기가 아닌 것이 수치 값이 변경되었는지 증명합니다.
@@ -315,9 +325,9 @@ cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure
 ```
 
-`ModelMergeTests` 는 항상 인수를 확인하며 의존성 없는 도움말/구성을 확인합니다. 선택된 인터프리터가 Torch / safetensors 를 갖추지 못하면 실제 텐서 케이스는 건너뛰며 명시적인 첫 번째 명령은 기존 생성 환경에서 실행합니다. `ModelMergeLoraTests` 는 실제 작은 텐서를 사용하여 어댑터 산술, 혼합 재료 기본값, 매핑, 랭크/알파, 컨볼루션, 정밀도, 실패 및 소스 보존을 확인합니다. 의존성이 이용 불가능하면 런타임 케이스도 건너뜁니다. `InstallConsumerTests` 는 이동된 `iild-merge` 명령과 구성을 확인합니다. `ModelMergeDiffusersSmoke.py` 는 로컬에서 2 tiny DDPM 모델을 초기화하고 모든 재로딩 파라미터에 대해 두 산술 모드를 검증한 후 각 병합 모델을 SDK 생성기를 통해 실행합니다. 그림과 `verification.json` 를 `build/reference/model-merge-smoke/` 아래에 씁니다. `--merge-entry` 와 `--generate-entry` 를 전달하여 이동된 설치된 명령도 확인합니다. 네트워크 요청을 하지 않으며 전체 크기 모델 품질을 설정하지 않습니다.
+`ModelMergeTests` 는 항상 인수를 확인하며 의존성 없는 도움말/구성을 확인합니다. 선택된 인터프리터가 Torch / safetensors 를 갖추지 못하면 실제 텐서 케이스는 건너뛰며 명시적인 첫 번째 명령은 기존 생성 환경에서 실행합니다. `ModelMergeLoraTests` 는 실제 작은 텐서를 사용하여 어댑터 산술, 혼합 재료 기본값, 매핑, 랭크/알파, 컨볼루션, 정밀도, 실패 및 소스 보존을 확인합니다. 의존성이 이용 불가능하면 런타임 케이스도 건너뜁니다. `InstallConsumerTests` 는 이동된 `iild-merge` 명령과 구성을 확인합니다. `ModelMergeDiffusersSmoke.py` 는 로컬에서 2 tiny DDPM 모델을 초기화하고 모든 재로딩 파라미터에 대해 두 산술 모드를 검증한 후 각 병합 모델을 SDK 생성기를 통해 실행합니다. 임시 모델과 이미지는 `resources/test-workspaces/`의 전용 공간에 만들고, 성공 또는 실패 후 정리합니다. 검증 보고서는 JSON으로 표준 출력에 제공하므로 보고서에 표시된 임시 경로는 명령 종료 후 더 이상 존재하지 않습니다. `--merge-entry` 와 `--generate-entry` 를 전달하여 이동된 설치된 명령도 확인합니다. 네트워크 요청을 하지 않으며 전체 크기 모델 품질을 설정하지 않습니다.
 
-`ModelMergeLoraSmoke.py` 는 2 nonzero PEFT 어댑터를 생성하며 서로 다른 랭크의 어댑터는 주의와 컨볼루션 타겟을 모두 가지며 2 tiny DDPM 체크포인트와 결합합니다. 합과 뺄셈은 모든 모델 파라미터에 대해 PEFT 의 융합되지 않은 전방 통과와 공식 `merge_and_unload()` 결과와 비교된 후 SDK 이미지 생성을 통해 실행됩니다. 보고서 및 이미지는 `build/reference/model-merge-lora-smoke/` 보다 아래에 유지됩니다. 동일하게 설치된 진입점 오버라이드를 허용하며 완전히 오프라인으로 실행됩니다.
+`ModelMergeLoraSmoke.py` 는 2 nonzero PEFT 어댑터를 생성하며 서로 다른 랭크의 어댑터는 주의와 컨볼루션 타겟을 모두 가지며 2 tiny DDPM 체크포인트와 결합합니다. 합과 뺄셈은 모든 모델 파라미터에 대해 PEFT 의 융합되지 않은 전방 통과와 공식 `merge_and_unload()` 결과와 비교된 후 SDK 이미지 생성을 통해 실행됩니다. 이 명령도 격리된 리소스 작업 공간을 정리하고 JSON 보고서를 표준 출력에 내보냅니다. 두 명령의 자식 Python 프로세스에서는 바이트코드 캐시 생성을 끕니다. 동일하게 설치된 진입점 오버라이드를 허용하며 완전히 오프라인으로 실행됩니다.
 
 <a id="foreground-preparation-of-a-packaged-checkpoint"></a>
 

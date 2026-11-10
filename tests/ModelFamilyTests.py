@@ -2,11 +2,11 @@
 """Model-family contracts preserve training configuration and reject cross-family weights."""
 
 from __future__ import annotations
+import resource_fixture
 
 import json
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 
@@ -176,7 +176,7 @@ class ModelFamilyTests(unittest.TestCase):
 
     def test_single_file_configuration_accepts_known_variant_scheduler_only(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="model-family-", dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory(prefix="model-family-") as temporary:
             root = Path(temporary)
             preset = presets.ILLUSTRIOUS_PRESET
             index = {"_class_name": preset.pipeline_class}

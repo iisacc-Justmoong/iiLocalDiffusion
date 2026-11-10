@@ -14,8 +14,11 @@ from inference_session import cached_pipeline, is_preparing, record_execution, v
 from model_merge_unified import SCHEMA
 from native_image import NativeEngine, NativePreviewWriter
 from standalone_image import build_parser, empty_directory
+from resource_paths import OUTPUT_DIRECTORY
 from weight_files import model_content_sha256, file_sha256, metadata_model_validation
 from iild_package import inspect_archive, materialize_archive
+
+DEFAULT_OUTPUT_DIRECTORY = OUTPUT_DIRECTORY / "unified-image"
 
 
 def inspect_package(path, *, hashes=False):
@@ -154,7 +157,7 @@ def main(argv=None):
     if args.output and args.output.suffix.lower() != ".png":
         raise ValueError("Unified image output must end in .png.")
     output = args.output.expanduser().absolute() if args.output else empty_directory(args.output_dir or
-        Path(__file__).resolve().parents[2] / "build/reference/unified-image" / uuid.uuid4().hex, defer_creation=True)
+        DEFAULT_OUTPUT_DIRECTORY / uuid.uuid4().hex, defer_creation=True)
     provider.mkdir(output.parent, parents=True, exist_ok=True)
     if args.work_dir:
         work = empty_directory(args.work_dir)

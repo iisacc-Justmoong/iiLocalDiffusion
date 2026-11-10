@@ -18,6 +18,18 @@ from civitai_catalog import CATALOG_SOURCE, list_base_models, lookup_base_model
 from animation_options import DEFAULTS as ANIMATION_DEFAULTS, allows_image_animation, validate_animation_output
 
 
+# These options exist only in the generic Diffusers runner. Shared flags such as
+# --controlnet intentionally retain the existing preset/native routing policy.
+GENERIC_CONTROL_OPTIONS = frozenset({
+    '--controlnet-format', '--control-preprocess', '--control-preprocessor-library', '--control-reference-resize',
+    '--control-depth-model', '--control-depth-dtype', '--control-color-image', '--control-map-preprocess',
+    '--control-color-end', '--control-depth-end', '--control-inpaint-image', '--control-mask-image',
+    '--krea2-control-auto-bucket', '--krea2-edit-reference-attention', '--krea2-fp8-storage', '--moss-transformer-storage',
+    '--moss-rapid-adapter', '--moss-regions', '--moss-text-encoder', '--krea2-regions',
+    '--flux-clip-encoder', '--flux-t5-encoder', '--flux-t5-fp8-storage', '--flux-transformer-storage',
+})
+
+
 def option_value(tokens: list[str], name: str) -> str | None:
     """Read a forwarded option without consuming it from the selected backend."""
     found = None
@@ -45,6 +57,31 @@ def legacy_inspection_python(model: str, remaining: list[str]) -> Path | None:
     if interpreter.is_file() and interpreter != Path(sys.executable).absolute():
         return interpreter
     return None
+
+
+def _is_moss_checkpoint(model: str | None) -> bool:
+    """Recognize only bounded, structurally valid MOSS tensor headers."""
+    if not model:
+        return False
+    path = Path(model).expanduser()
+    if path.suffix.casefold() not in ('.safetensors', '.safetensor') or not path.is_file():
+        return False
+    try:
+        from downloaded_model import _safetensors, _tensor_identity
+        shapes, _, _ = _safetensors(path)
+        architecture, role, _, _ = _tensor_identity(shapes)
+        return architecture == 'moss-image' and role == 'checkpoint'
+    except (OSError, ValueError):
+        # Unknown/invalid files keep their existing engine validation path.
+        return False
+
+
+def defer_unsupported_foreground(arguments: list[str]) -> bool:
+    """Defer MOSS preparation when the caller selected the native-only path."""
+    if option_value(arguments, '--backend') != 'local':
+        return False
+    model = option_value(arguments, '--model-path') or option_value(arguments, '--model')
+    return _is_moss_checkpoint(model)
 
 
 def select_backend(args, remaining: list[str]) -> str:
@@ -139,8 +176,22 @@ def select_backend(args, remaining: list[str]) -> str:
         if base is not None and base["preset"] is None:
             raise ValueError("--preset cannot represent this base model; choose a pipeline or workflow.")
         return "preset"
-    if flags & {"--model-config", "--audio-sample-rate", "--video-layout",
-                "--tensor-outputs", "--generation-architecture"}:
+    if flags & ({"--model-config", "--model-config-preset", "--audio-sample-rate", "--video-layout",
+                 "--tensor-outputs", "--generation-architecture"} | GENERIC_CONTROL_OPTIONS):
+        return "diffusers"
+    model = option_value(remaining, "--model-path") or option_value(remaining, "--model") or config.get("model")
+    if isinstance(model, str) and _is_moss_checkpoint(model):
+        if configuration is not None:
+            raise ValueError("Automatic MOSS Image routing does not support --config; pass the request options directly so none are lost.")
+        native_flags = {"--engine", "--model-info", "--components", "--model-type", "--decoder",
+                        "--model-negative", "--embedded-guidance", "--sampling-shift", "--zsnr",
+                        "--sampler", "--startup-timeout"}
+        unsupported = sorted(flag for flag in flags if flag in native_flags
+                             or flag.startswith(("--runtime-", "--text-encoder")))
+        if unsupported:
+            raise ValueError("The MOSS Image backend does not accept native-only options: " + ", ".join(unsupported))
+        if base is not None and base.get("family") != "moss-image":
+            raise ValueError("--base-model conflicts with the detected MOSS Image tensor architecture.")
         return "diffusers"
     if (value("engine") is not None or value("components") is not None
             or flags & {"--engine", "--model-info", "--components", "--model-type", "--decoder", "--model-negative",
@@ -148,7 +199,6 @@ def select_backend(args, remaining: list[str]) -> str:
                  "--sampler", "--startup-timeout"}
             or any(flag.startswith(("--runtime-", "--text-encoder")) for flag in flags)):
         return "local"
-    model = option_value(remaining, "--model-path") or option_value(remaining, "--model") or config.get("model")
     if model:
         local_path = Path(model).expanduser()
         if local_path.is_file():
@@ -174,7 +224,7 @@ def main(argv=None) -> int:
     tokens = list(sys.argv[1:] if argv is None else argv)
     if tokens == ["--worker"]:
         from inference_worker import serve
-        return serve(main)
+        return serve(main, defer_foreground=defer_unsupported_foreground)
     args, remaining = parser.parse_known_args(tokens)
     if args.list_backends:
         from backend_registry import PROFILES
@@ -247,7 +297,7 @@ def main(argv=None) -> int:
               "LTX output above 12 FPS uses a second frame-Interpolator stage (default 2x).\n"
               "--fps is the final rate; --interpolation-factor controls source-frame spacing.\n\n"
               "Auto routes existing local weight files through the local image runtime, and\n"
-              "complete model_index.json directories or --model-config through Diffusers.\n"
+              "complete model_index.json directories, --model-config, or --model-config-preset through Diffusers.\n"
               "Unified .iildmodel objects use the native ordered image-refinement cascade.\n"
               "Explicit backends, pipelines and workflows retain their contracts.\n"
               "Image presets remain subject to the animation FPS/GIF policy.\n\n"
@@ -265,6 +315,11 @@ def main(argv=None) -> int:
         backend = select_backend(args, remaining)
     except ValueError as error:
         parser.exit(2, str(error) + "\n")
+    if args.backend == 'auto' and backend == 'diffusers' and not any(
+            token.split('=', 1)[0] in ('--model-config', '--model-config-preset') for token in remaining):
+        model = option_value(remaining, '--model-path') or option_value(remaining, '--model')
+        if _is_moss_checkpoint(model):
+            remaining = [*remaining, '--model-config-preset', 'moss-image-sft']
     if args.base_model:
         remaining = ["--base-model", args.base_model, *remaining]
     if backend in ("deforum", "interpolator"):

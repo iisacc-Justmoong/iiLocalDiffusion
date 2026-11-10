@@ -105,6 +105,14 @@ model/pipeline implementations and Pillow image handling. It introduces no
 new third-party package or condition detector. User-selected ControlNet
 weights retain their own license terms and are not bundled.
 
+The FLUX.2 Fun control integration adapts the control-branch architecture
+and conditioning contract of Alibaba VideoX-Fun revision
+`e8c314fbfa494d0429bbef605c9f6112b79a7ead`, copyright Alibaba, Inc. and
+affiliates (Apache-2.0). It uses Diffusers blocks with temporary hooks instead
+of the upstream custom pipeline. The Apache-2.0 license text is included as
+`reference/diffusers/vendor_moss/LICENSE.txt`. User-selected model weights,
+including the separately licensed FLUX.2 Fun checkpoints, are not bundled.
+
 Optional Deforum 2D animation uses OpenCV through
 `opencv-python-headless==4.13.0.92` (OpenCV Apache-2.0, plus the wheel's packaging
 and third-party notices). It also invokes separately installed FFmpeg/FFprobe;
@@ -158,3 +166,27 @@ The bundled Qwen-Image VAE and original configuration are from [Qwen/Qwen-Image]
 - FLUX.2: unmodified VAE from `black-forest-labs/FLUX.2-klein-4B` at `e7b7dc27f91deacad38e78976d1f2b499d76a294`, Apache-2.0. Original license and model card are included in `resources/vae/flux2/`.
 
 Only these VAE components are bundled, with pinned SHA-256 and configuration identities in `generation-defaults.json`. Other denoiser checkpoints retain their own licenses. Existing Diffusers and stable-diffusion.cpp load the files; no additional runtime dependency is introduced.
+
+### Krea 2 checkpoint name mapping
+
+The original Krea 2 transformer name mapping in `reference/diffusers/krea2_single_file.py` follows the Apache-2.0 [Diffusers conversion contract](https://github.com/huggingface/diffusers/blob/86ef420b17363c28e36ebad6b58555e9aa8feda2/src/diffusers/loaders/single_file_utils.py). The scalar FP8 layout and dequantization behavior also follow the Apache-2.0 [ComfyUI quantization format](https://github.com/Comfy-Org/ComfyUI/blob/master/QUANTIZATION.md) and [Comfy Kitchen eager backend](https://github.com/Comfy-Org/comfy-kitchen/blob/main/comfy_kitchen/backends/eager/quantization.py). Krea 2 model weights have their own community license.
+
+The original FLUX.1 transformer mapping in `reference/diffusers/flux1_transformer_stream.py` follows the Apache-2.0 [Diffusers single-file conversion contract](https://github.com/huggingface/diffusers/blob/86ef420b17363c28e36ebad6b58555e9aa8feda2/src/diffusers/loaders/single_file_utils.py), including its fused projections and modulation ordering. FLUX model weights have their own licenses.
+
+The MOSS Qwen3.5 ConvRot INT8 format and portable arithmetic in `reference/diffusers/moss_convrot.py` follow the Apache-2.0 [Comfy Kitchen eager backend](https://github.com/Comfy-Org/comfy-kitchen/blob/cdab4787a89de5ea9d2bd0bf6ddc6b9e94249d27/comfy_kitchen/backends/eager/quantization.py) and [rotation helpers](https://github.com/Comfy-Org/comfy-kitchen/blob/cdab4787a89de5ea9d2bd0bf6ddc6b9e94249d27/comfy_kitchen/tensor/int8_utils.py). Unmodified copies of those files and the corresponding activations module are held under `resources/test-fixtures/comfy-kitchen-cdab-*.py` solely as offline test references, alongside their upstream `LICENSE` and `NOTICE` files. The Apache 2.0 license text is also included in `reference/diffusers/vendor_moss/LICENSE.txt`. Model files have separate licenses.
+
+### MOSS-Image reference pipeline
+
+The MOSS-Image reference pipeline in `reference/diffusers/vendor_moss/pipeline.py`
+is distributed by OpenMOSS under the Apache License 2.0, included alongside it
+as `LICENSE.txt`. It is based on model repository revision
+`85975793d8b3d432f1b6e27f352abaa4c2a4c0d3`; the upstream source SHA-256 is
+`1dac1aca9feb1bfdfc727a401e4b67d61a505d3190706d1b7d2d784f88678b31`.
+The local source changes the MPS timestep sinusoid to run in float64 on the CPU,
+as in the upstream MPS runtime, because MPS does not support float64. It also
+accepts optional masks for iiLocalDiffusion's color-map regional attention; the
+original unmasked path remains the default. Its SHA-256 is
+`15696ad1d31d9dd4fcc44cb1cee966766ff7b7b5f293f7213721a65cdf9569db`.
+An unmodified copy of that source is retained as the offline comparison fixture
+`resources/test-fixtures/moss-image-pipeline-upstream-85975793.py`.
+Source: https://huggingface.co/OpenMOSS-Team/MOSS-Image-Base/tree/85975793d8b3d432f1b6e27f352abaa4c2a4c0d3

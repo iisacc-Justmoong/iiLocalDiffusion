@@ -135,7 +135,7 @@ python3 reference/generate.py \
   --width 1024 --height 1024 --steps 25 \
   --hires-fix --hires-passes 2 --hires-scale 1.5 \
   --hires-upscaler lanczos --hires-strength 0.35 --hires-steps 30 \
-  --output-dir build/reference/illustrious-hires
+  --output-dir resources/outputs/reference/illustrious-hires
 ```
 
 이 백엔드는 `--hires-fix` / `--no-hires-fix`, `--hires-passes`, `--hires-scale`, `--hires-upscaler`, `--hires-steps`, `--hires-denoising-strength` / `--hires-strength`를 받는다. 활성화 기본값은 보정 1회·배율 2·Lanczos 크기 변경·강도 0.35이며, 보정 스텝은 기본 스텝 수를 상속한다. 각 패스는 직전 디코딩 이미지의 크기를 변경하고 선택한 VAE로 인코딩한 후 다른 보정 샘플러를 실행한다. 크기는 매 패스에서 이미지 계열이 요구하는 배수로 반올림한다. 네이티브 `SplitSigmasDenoise` 노드는 `round(steps * strength)`개의 보정 스텝을 유지하며, 최소 하나는 남아야 한다. 이는 관리되는 스케줄러 규칙으로 위의 SD/SDXL 및 FLUX 프리셋 규칙과 별개이다. 관리 경로는 `[1, 4096]`의 스텝을 검증하고 서버 시작 전에 계획한 이미지의 어느 축이든 네이티브 `ImageScale` 한계인 16384를 넘으면 거부한다.
@@ -148,7 +148,7 @@ python3 reference/generate.py \
 
 ## 사전 설정된 출력 ID 및 실행 증거
 
-명시적인 출력 경로가 없는 경우, `-hires` 는 `-custom`, `-vae`, `-lora`, `-embedding`, 및 `-controlnet` 수정자를 따릅니다. 따라서 SD 1.5 베이스 모델 Hires Fix 실행은 `build/reference/sd15-red-cube-hires.png` 을 작성합니다. `--output` 는 최종 결과를 이름 짓습니다. `--hires-save-base` 가 활성화되면 첫 번째 단계 파일은 `-base` 를 최종 스템에 추가합니다: `result.png` 는 `result-base.png` 를 가지며, 배치된 `result-0001.png` 는 `result-0001-base.png` 를 가집니다. 기본적으로 오직 최종 리파인먼트만 저장됩니다. `--hires-save-base` 는 또한 원래 베이스 이미지를 저장하며, 중간 리파인먼트 이미지는 메모리에서 소비되고 별도의 파일로 게시되지 않습니다.
+명시적인 출력 경로가 없는 경우, `-hires` 는 `-custom`, `-vae`, `-lora`, `-embedding`, 및 `-controlnet` 수정자를 따릅니다. 따라서 SD 1.5 베이스 모델 Hires Fix 실행은 `resources/outputs/reference/sd15-red-cube-hires.png` 을 작성합니다. `--output` 는 최종 결과를 이름 짓습니다. `--hires-save-base` 가 활성화되면 첫 번째 단계 파일은 `-base` 를 최종 스템에 추가합니다: `result.png` 는 `result-base.png` 를 가지며, 배치된 `result-0001.png` 는 `result-0001-base.png` 를 가집니다. 기본적으로 오직 최종 리파인먼트만 저장됩니다. `--hires-save-base` 는 또한 원래 베이스 이미지를 저장하며, 중간 리파인먼트 이미지는 메모리에서 소비되고 별도의 파일로 게시되지 않습니다.
 
 모든 최종/베이스 PNG 와 그 JSON 사이카는 생성 전에 출력 충돌 검사에 참여합니다. 기본 경로 충돌은 사용하지 않는 런 접미사를 선택하며, 명시적 경로 충돌은 `--overwrite` 가 활성화되지 않는 한 실패합니다. 여러 출력 파일을 게시하는 것은 기존 파일별 원자적 쓰기 정책을 유지하며 파일 시스템 트랜잭션이 아닙니다.
 

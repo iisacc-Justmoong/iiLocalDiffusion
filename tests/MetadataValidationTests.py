@@ -1,9 +1,9 @@
 """Generation must reach the loader without a full model checksum pass."""
+import resource_fixture
 import json
 import os
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,7 +13,7 @@ import unified_image
 
 class MetadataValidationTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=ROOT / 'build', prefix='metadata-validation-')
+        self.temp = resource_fixture.TemporaryDirectory(prefix='metadata-validation-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.model = self.root / 'model.safetensors'

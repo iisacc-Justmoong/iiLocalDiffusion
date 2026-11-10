@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Dependency-free HiRes Fix option and second-pass request contracts."""
+import resource_fixture
 
 import argparse
 from contextlib import redirect_stderr
@@ -7,7 +8,6 @@ import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from local_model_fixture import local_parser, local_request
 
@@ -224,7 +224,7 @@ class HiresOptionsTests(unittest.TestCase):
 
     def test_cli_pass_count_overrides_json_configuration(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="hires-repeat-config-", dir=ROOT / "build") as directory:
+        with resource_fixture.TemporaryDirectory(prefix="hires-repeat-config-") as directory:
             config = Path(directory) / "generation.json"
             config.write_text(json.dumps({"preset": "sd15", "hires_fix": True,
                                           "hires_passes": 3, "hires_scale": 1.3}))

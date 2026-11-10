@@ -1,0 +1,60 @@
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -22,6 +22,7 @@
+ #include "model_loader.h"
+ #include "model_manager.h"
+ #include "stable-diffusion.h"
++#include "NativeImageEngineReport.hpp"
+ #include "ggml-cpu.h"
+ 
+ #include "conditioning/conditioner.hpp"
+@@ -6110,6 +6111,15 @@
+            typeid(*refiner_denoiser) == typeid(CompVisDenoiser);
+ }
+ 
++namespace {
++thread_local IildImageReportCallback iild_image_report_callback = nullptr;
++thread_local void* iild_image_report_data = nullptr;
++}
++extern "C" void iild_set_image_report_callback(IildImageReportCallback callback, void* data) {
++    iild_image_report_callback = callback;
++    iild_image_report_data = data;
++}
++
+ static bool generate_image_impl(sd_ctx_t* sd_ctx,
+                                 const sd_img_gen_params_t* sd_img_gen_params,
+                                 sd_image_t** images_out, int* num_images_out,
+@@ -6171,6 +6181,18 @@
+         return false;
+     }
+     ImageGenerationLatents latents = std::move(*latents_opt);
++    if (iild_image_report_callback) {
++        const auto scheduler = sd_img_gen_params->sample_params.custom_sigmas_count > 0
++            ? -1 : static_cast<int>(resolve_scheduler(sd_ctx, sd_img_gen_params->sample_params.scheduler, plan.sample_method));
++        const IildResolvedImageParameters report{
++            0, 0, request.width, request.height, request.hires.target_width, request.hires.target_height,
++            plan.sample_steps, request.hires.steps, static_cast<int>(plan.sample_method), scheduler,
++            static_cast<int>(request.hires.upscaler), request.hires.enabled ? 1 : 0,
++            sd_img_gen_params->init_image.data ? 1 : 0, request.seed,
++            request.guidance.txt_cfg, request.guidance.img_cfg, request.guidance.distilled_guidance,
++            request.hires.denoising_strength, request.strength, plan.sigmas.data(), static_cast<int>(plan.sigmas.size())};
++        iild_image_report_callback(&report, iild_image_report_data);
++    }
+ 
+     auto embeds_opt = prepare_image_generation_embeds(sd_ctx,
+                                                       sd_img_gen_params,
+@@ -6323,6 +6345,14 @@
+                                       plan.sample_steps,
+                                       sd_ctx->sd->get_image_seq_len(request.hires.target_height, request.hires.target_width),
+                                       &hires_scheduler_steps);
++        if (iild_image_report_callback) {
++            IildResolvedImageParameters report{};
++            report.phase = 1;
++            report.hiresSchedulerSteps = hires_scheduler_steps;
++            report.sigmas = hires_sigma_sched.data();
++            report.sigmasCount = static_cast<int>(hires_sigma_sched.size());
++            iild_image_report_callback(&report, iild_image_report_data);
++        }
+         LOG_INFO("hires fix: scheduler_steps=%d, denoising_strength=%.2f, sigma_sched_size=%zu%s",
+                  hires_scheduler_steps,
+                  request.hires.denoising_strength,

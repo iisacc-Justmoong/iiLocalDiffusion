@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
 from __future__ import annotations
+import resource_fixture
 
 import importlib.util
 import hashlib
 from dataclasses import replace
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from local_model_fixture import local_parser, MODEL
@@ -21,6 +21,7 @@ if str(REFERENCE) not in sys.path:
 
 import presets
 import pipeline_loading
+import comfyui_runtime
 
 
 def load_module(name: str, path: Path):
@@ -40,8 +41,7 @@ class ReferenceScriptsTests(unittest.TestCase):
         cls.inspect = load_module("iild_reference_inspect", REFERENCE / "inspect_pipeline.py")
 
     def setUp(self):
-        (ROOT / "build").mkdir(exist_ok=True)
-        temporary = tempfile.TemporaryDirectory(prefix="reference-local-model-", dir=ROOT / "build")
+        temporary = resource_fixture.TemporaryDirectory(prefix="reference-local-model-")
         self.addCleanup(temporary.cleanup)
         self.model_directory = Path(temporary.name)
         (self.model_directory / "style.safetensors").write_bytes(b"local adapter fixture")
@@ -99,14 +99,13 @@ class ReferenceScriptsTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "LoRA generation requires PEFT"):
                 self.generate.package_versions(require_lora=True)
 
-    def test_generated_files_and_cache_stay_under_build(self) -> None:
-        build_directory = ROOT / "build"
-        self.assertTrue(self.generate.DEFAULT_OUTPUT.is_relative_to(build_directory))
-        self.assertTrue(self.generate.DEFAULT_CACHE_DIRECTORY.is_relative_to(build_directory))
-        self.assertTrue(self.generate.DEFAULT_XET_CACHE_DIRECTORY.is_relative_to(build_directory))
-        self.assertTrue(self.inspect.DEFAULT_OUTPUT.is_relative_to(build_directory))
-        self.assertTrue(self.inspect.DEFAULT_CACHE_DIRECTORY.is_relative_to(build_directory))
-        self.assertTrue(self.inspect.DEFAULT_XET_CACHE_DIRECTORY.is_relative_to(build_directory))
+    def test_generated_files_and_cache_stay_under_resources(self) -> None:
+        resources = ROOT / "resources"
+        for module in (self.generate, self.inspect):
+            self.assertTrue(module.DEFAULT_OUTPUT.is_relative_to(resources / "outputs"))
+            self.assertTrue(module.DEFAULT_CACHE_DIRECTORY.is_relative_to(resources / ".state"))
+            self.assertTrue(module.DEFAULT_XET_CACHE_DIRECTORY.is_relative_to(resources / ".state"))
+        self.assertEqual(comfyui_runtime.DEFAULT_OUTPUT_DIRECTORY, resources / "outputs" / "reference")
 
         for preset in presets.PRESETS.values():
             arguments = ["--preset", preset.name]
@@ -118,8 +117,8 @@ class ReferenceScriptsTests(unittest.TestCase):
             _, inspected = self.inspect.resolve_arguments(
                 self.inspect.build_parser().parse_args(arguments)
             )
-            self.assertTrue(generated.output.is_relative_to(build_directory))
-            self.assertTrue(inspected.output.is_relative_to(build_directory))
+            self.assertTrue(generated.output.is_relative_to(resources / "outputs"))
+            self.assertTrue(inspected.output.is_relative_to(resources / "outputs"))
 
     def test_default_preset_preserves_sd15_contract(self) -> None:
         preset, arguments = self.generate.resolve_arguments(
@@ -305,11 +304,9 @@ class ReferenceScriptsTests(unittest.TestCase):
         self.assertFalse(self.generate.resolve_attention_slicing(presets.SDXL_BASE_PRESET, "mps", False))
 
     def test_explicit_output_and_local_model_override(self) -> None:
-        build_directory = ROOT / "build"
-        build_directory.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=build_directory) as temporary:
+        with resource_fixture.TemporaryDirectory(prefix="reference-") as temporary:
             local_model = Path(temporary)
-            output = build_directory / "reference" / "custom.png"
+            output = Path(temporary) / "custom.png"
             _, arguments = self.generate.resolve_arguments(
                 local_parser(self.generate.build_parser).parse_args(
                     ["--model", str(local_model), "--output", str(output)]
@@ -321,9 +318,7 @@ class ReferenceScriptsTests(unittest.TestCase):
         self.assertEqual(arguments.output, output)
 
     def test_local_lora_file_is_resolved_and_hashed(self) -> None:
-        build_directory = ROOT / "build"
-        build_directory.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=build_directory) as temporary:
+        with resource_fixture.TemporaryDirectory(prefix="reference-") as temporary:
             lora_file = Path(temporary) / "style.safetensors"
             lora_file.write_bytes(b"adapter")
             _, arguments = self.generate.resolve_arguments(
@@ -355,9 +350,7 @@ class ReferenceScriptsTests(unittest.TestCase):
             self.assertEqual(metadata["size_bytes"], 7)
 
     def test_local_lora_directory_requires_exact_safetensors_name(self) -> None:
-        build_directory = ROOT / "build"
-        build_directory.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=build_directory) as temporary:
+        with resource_fixture.TemporaryDirectory(prefix="reference-") as temporary:
             directory = Path(temporary)
             weight = directory / "adapter.safetensors"
             weight.write_bytes(b"adapter")
@@ -381,9 +374,7 @@ class ReferenceScriptsTests(unittest.TestCase):
             self.assertEqual(arguments.lora_selection.weight_name, weight.name)
 
     def test_local_lora_changed_during_load_is_rejected(self) -> None:
-        build_directory = ROOT / "build"
-        build_directory.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=build_directory) as temporary:
+        with resource_fixture.TemporaryDirectory(prefix="reference-") as temporary:
             lora_file = Path(temporary) / "style.safetensors"
             lora_file.write_bytes(b"adapter")
             _, arguments = self.generate.resolve_arguments(
@@ -465,9 +456,7 @@ class ReferenceScriptsTests(unittest.TestCase):
                 )
             )
 
-        build_directory = ROOT / "build"
-        build_directory.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=build_directory) as temporary:
+        with resource_fixture.TemporaryDirectory(prefix="reference-") as temporary:
             directory = Path(temporary)
             unsafe_file = directory / "adapter.bin"
             unsafe_file.write_bytes(b"pickle")

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from backend_registry import detect_moss_transformer
+
 
 _HINTS = ("modelspec.architecture", "modelspec.implementation", "iild.model_family",
           "ss_base_model_version", "base_model", "base_model_version", "architecture")
@@ -53,6 +55,8 @@ def identify_ecosystem(readers, layout):
             if family:
                 families.add(family)
                 evidence.append(f"metadata:{name}")
+    if detect_moss_transformer(shapes):
+        families.add("moss-image"); evidence.append("tensor:moss-image-transformer")
     normalized = {}
     for key, shape in shapes.items():
         value = key

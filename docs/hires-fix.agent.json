@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/hires-fix.md",
-    "sha256": "94076457b19f556d4072e9702936850a2b06a5cb2f09fd575a038e6825abba34",
-    "bytes": 24331,
+    "sha256": "b47863edea4f62daf23848ed9baa4ec3aefa31181c21558e1ecd2ae5cf3ad840",
+    "bytes": 24355,
     "line_count": 193,
     "encoding": "utf-8",
     "language": "ko"
@@ -611,9 +611,9 @@
       "kind": "fenced_code",
       "start_line": 132,
       "end_line": 139,
-      "raw": "```bash\npython3 reference/generate.py \\\n  --model /absolute/path/to/illustrious.safetensors --base-model Illustrious \\\n  --width 1024 --height 1024 --steps 25 \\\n  --hires-fix --hires-passes 2 --hires-scale 1.5 \\\n  --hires-upscaler lanczos --hires-strength 0.35 --hires-steps 30 \\\n  --output-dir build/reference/illustrious-hires\n```\n",
+      "raw": "```bash\npython3 reference/generate.py \\\n  --model /absolute/path/to/illustrious.safetensors --base-model Illustrious \\\n  --width 1024 --height 1024 --steps 25 \\\n  --hires-fix --hires-passes 2 --hires-scale 1.5 \\\n  --hires-upscaler lanczos --hires-strength 0.35 --hires-steps 30 \\\n  --output-dir resources/outputs/reference/illustrious-hires\n```\n",
       "language": "bash",
-      "code": "python3 reference/generate.py \\\n  --model /absolute/path/to/illustrious.safetensors --base-model Illustrious \\\n  --width 1024 --height 1024 --steps 25 \\\n  --hires-fix --hires-passes 2 --hires-scale 1.5 \\\n  --hires-upscaler lanczos --hires-strength 0.35 --hires-steps 30 \\\n  --output-dir build/reference/illustrious-hires\n",
+      "code": "python3 reference/generate.py \\\n  --model /absolute/path/to/illustrious.safetensors --base-model Illustrious \\\n  --width 1024 --height 1024 --steps 25 \\\n  --hires-fix --hires-passes 2 --hires-scale 1.5 \\\n  --hires-upscaler lanczos --hires-strength 0.35 --hires-steps 30 \\\n  --output-dir resources/outputs/reference/illustrious-hires\n",
       "closed": true
     },
     {
@@ -700,7 +700,7 @@
       "kind": "paragraph",
       "start_line": 151,
       "end_line": 151,
-      "raw": "명시적인 출력 경로가 없는 경우, `-hires` 는 `-custom`, `-vae`, `-lora`, `-embedding`, 및 `-controlnet` 수정자를 따릅니다. 따라서 SD 1.5 베이스 모델 Hires Fix 실행은 `build/reference/sd15-red-cube-hires.png` 을 작성합니다. `--output` 는 최종 결과를 이름 짓습니다. `--hires-save-base` 가 활성화되면 첫 번째 단계 파일은 `-base` 를 최종 스템에 추가합니다: `result.png` 는 `result-base.png` 를 가지며, 배치된 `result-0001.png` 는 `result-0001-base.png` 를 가집니다. 기본적으로 오직 최종 리파인먼트만 저장됩니다. `--hires-save-base` 는 또한 원래 베이스 이미지를 저장하며, 중간 리파인먼트 이미지는 메모리에서 소비되고 별도의 파일로 게시되지 않습니다.\n"
+      "raw": "명시적인 출력 경로가 없는 경우, `-hires` 는 `-custom`, `-vae`, `-lora`, `-embedding`, 및 `-controlnet` 수정자를 따릅니다. 따라서 SD 1.5 베이스 모델 Hires Fix 실행은 `resources/outputs/reference/sd15-red-cube-hires.png` 을 작성합니다. `--output` 는 최종 결과를 이름 짓습니다. `--hires-save-base` 가 활성화되면 첫 번째 단계 파일은 `-base` 를 최종 스템에 추가합니다: `result.png` 는 `result-base.png` 를 가지며, 배치된 `result-0001.png` 는 `result-0001-base.png` 를 가집니다. 기본적으로 오직 최종 리파인먼트만 저장됩니다. `--hires-save-base` 는 또한 원래 베이스 이미지를 저장하며, 중간 리파인먼트 이미지는 메모리에서 소비되고 별도의 파일로 게시되지 않습니다.\n"
     },
     {
       "id": "b000086",
@@ -1042,7 +1042,7 @@
       {
         "block_id": "b000073",
         "language": "bash",
-        "code": "python3 reference/generate.py \\\n  --model /absolute/path/to/illustrious.safetensors --base-model Illustrious \\\n  --width 1024 --height 1024 --steps 25 \\\n  --hires-fix --hires-passes 2 --hires-scale 1.5 \\\n  --hires-upscaler lanczos --hires-strength 0.35 --hires-steps 30 \\\n  --output-dir build/reference/illustrious-hires\n"
+        "code": "python3 reference/generate.py \\\n  --model /absolute/path/to/illustrious.safetensors --base-model Illustrious \\\n  --width 1024 --height 1024 --steps 25 \\\n  --hires-fix --hires-passes 2 --hires-scale 1.5 \\\n  --hires-upscaler lanczos --hires-strength 0.35 --hires-steps 30 \\\n  --output-dir resources/outputs/reference/illustrious-hires\n"
       },
       {
         "block_id": "b000107",

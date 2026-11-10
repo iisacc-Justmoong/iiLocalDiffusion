@@ -1,8 +1,8 @@
 """Base-defined, cross-family coordinate fitting with independent value oracles."""
+import resource_fixture
 import importlib.util
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +18,7 @@ from model_merge_options import resolve_merge_request
 @unittest.skipUnless(HAS_RUNTIME, 'Requires Torch and safetensors')
 class BaseLayoutTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=ROOT / 'build', prefix='base-layout-')
+        self.temp = resource_fixture.TemporaryDirectory(prefix='base-layout-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.base, self.material, self.output = [self.root / (name + '.safetensors') for name in ('base', 'material', 'output')]

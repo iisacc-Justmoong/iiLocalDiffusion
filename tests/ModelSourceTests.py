@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Explicit location types, configuration aliases and credential-free metadata."""
+import resource_fixture
 
 import argparse
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +47,7 @@ class ModelSourceTests(unittest.TestCase):
             self.source()
 
     def test_json_local_alias_is_relative_to_configuration(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "model").mkdir()
             path = root / "request.json"
@@ -94,7 +94,7 @@ class ModelSourceTests(unittest.TestCase):
                 self.assertEqual(str(module.build_parser().parse_args(["--model-path", path]).model), path)
 
     def test_mixed_config_and_cli_sources_fail_before_execution(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as temporary:
+        with resource_fixture.TemporaryDirectory() as temporary:
             path = Path(temporary) / "request.json"
             path.write_text(json.dumps({"model_path": str(ROOT)}))
             with self.assertRaises(SystemExit):

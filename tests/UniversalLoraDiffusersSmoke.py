@@ -2,7 +2,7 @@
 """Real offline SD1/SD2/SDXL/SD3/FLUX LoRA and Deforum execution on random tiny models.
 
 This proves adapter effects and retention, not pretrained-model visual quality.
-All files stay in build/universal-lora-smoke. No downloads or paid services.
+All files stay in resources/outputs/verification/universal-lora-smoke. No downloads or paid services.
 """
 import argparse
 import hashlib
@@ -10,7 +10,7 @@ import json
 import os
 from pathlib import Path
 import sys
-import tempfile
+import resource_runner
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
@@ -122,9 +122,10 @@ def main():
     import generate
     from inference_session import InferenceSession
     torch.set_num_threads(2)
-    base = ROOT / "build/universal-lora-smoke"
-    base.mkdir(parents=True, exist_ok=True)
-    directory = Path(tempfile.mkdtemp(prefix="run-", dir=base))
+    base = ROOT / "resources/outputs/verification/universal-lora-smoke"
+    provider = resource_runner._provider()
+    provider.mkdir(base, parents=True, exist_ok=True)
+    directory = Path(provider.mkdtemp(prefix="run-", dir=base))
     print(f"LoRA smoke artifacts: {directory}", flush=True)
     entries = [fixture(directory / family, family) for family in options.families]
     (directory / "generation-defaults.json").write_text(json.dumps({

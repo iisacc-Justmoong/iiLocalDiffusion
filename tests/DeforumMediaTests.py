@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Real OpenCV pixels and FFmpeg encoding; run with the optional media runtime."""
+import resource_fixture
 
 import importlib.util
 from pathlib import Path
 import shutil
 import sys
-import tempfile
 import unittest
 from local_model_fixture import local_request
 
@@ -31,7 +31,7 @@ class DeforumMediaTests(unittest.TestCase):
         grid = np.zeros((32, 32, 3), dtype=np.uint8)
         grid[6:14, 6:14] = [255, 128, 64]
         self.image = Image.fromarray(grid)
-        temporary = tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="deforum-media-")
+        temporary = resource_fixture.TemporaryDirectory(prefix="deforum-media-")
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
 

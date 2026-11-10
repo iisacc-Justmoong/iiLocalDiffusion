@@ -35,12 +35,23 @@ def prepare(root, check=False):
             save_file({"clip_l": vectors}, target, metadata={"token": item["token"],
                       "source_sha256": item["source_sha256"]})
     vaes = ([manifest["fallback_vae"]] if "fallback_vae" in manifest else []) + manifest.get("fallback_vaes", [])
-    for item in [*fallback_loras(manifest), *manifest["negative_embeddings"], *manifest.get("fallback_llms", []),
+    llms = manifest.get("fallback_llms", [])
+    tokenizers = manifest.get("fallback_tokenizers", [])
+    moss_config = [manifest["fallback_moss_text_config"]] if "fallback_moss_text_config" in manifest else []
+    moss_weight = manifest.get("fallback_moss_text_weights")
+    optional_moss_weights = ([moss_weight] if isinstance(moss_weight, dict)
+                             and (root / moss_weight["file"]).exists() else [])
+    flux_weights = manifest.get("fallback_flux_text_weights", [])
+    for item in [*fallback_loras(manifest), *manifest["negative_embeddings"], *llms, *moss_config,
+                 *manifest.get("fallback_flux_text_configs", []),
+                 *flux_weights, *optional_moss_weights,
+                 *(llm["config"] for llm in llms if "config" in llm),
+                 *(resource for tokenizer in tokenizers for resource in tokenizer["files"]),
                  *(resource for vae in vaes for resource in (vae, vae["config"]))]:
         path = root / item["file"]
         with path.open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        if check:
+        if check or item in flux_weights or item in optional_moss_weights:
             if digest != item["sha256"] or path.stat().st_size != item["size"]:
                 raise ValueError(f"Bundled resource identity changed: {path}")
         else:

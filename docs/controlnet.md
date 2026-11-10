@@ -99,13 +99,13 @@ Python 호출자는 `resolve_request(values)` 에 동일한 키를 전달할 수
 
 선택된 [Hires Fix](hires-fix.md) 는 모든 3   ControlNet 경로에 적용됩니다. 선택된 ControlNet 와 준비된 조건부 이미지는 기본 패스와 두 번째 img2img 확산 패스 동안 계속 활성화됩니다. Diffusers 는 선택된 스케일, 가이드 간격, 및 가족별 모드로 각 단계의 해상도에서 해당 조건을 준비합니다. 확대된 기본 이미지는 img2img 입력이며, 별도의  ControlNet 조건을 대체하지 않습니다. LoRA , 대체  VAE ,  CPU 프롬프트 인코딩 및 배치화는 여전히 조합 가능합니다.
 
-FLUX   ControlNets 는 입력 힌트 블록 샘플  VAE 잠재 표현을 조건부 이미지에서 샘플링하기 전에 초기 분화 노이즈를 샘플링합니다. 이는 구성된 이미지별 생성기들을 모두 소모하며, ControlNet 가 없는 생성과 동일한 노이즈 시퀀스를 의미하지 않습니다.  CPU 사전 계산된 프롬프트 임베딩은 기존 배치 확장 정책을 유지합니다.
+입력 힌트 블록이 없는 FLUX ControlNet은 초기 노이즈를 샘플링한 뒤 조건 이미지의 VAE 잠재값도 샘플링하므로, ControlNet이 없는 생성과 동일한 난수 시퀀스를 보장하지 않습니다. XLabs 형식의 Diffusers 구성은 RGB 힌트 블록을 사용하고 자체 2×2 패킹이 베이스 Transformer의 패치 크기와 다를 수 있습니다. 이 경로는 소형 합성 가중치로 검증했으며 원본 XLabs 체크포인트의 자동 변환은 제공하지 않습니다. CPU 사전 계산된 프롬프트 임베딩은 기존 배치 확장 정책을 유지합니다.
 
 <a id="output-identity-and-verification"></a>
 
 ## 출력 신원 및 검증
 
-기본 출력 줄임말은  `-controlnet`  다음에  `-custom` ,  `-vae` , 및  `-lora`  수정자를 추가합니다.  SD   1.5   ControlNet -만 실행하는 경우 따라서  `build/reference/sd15-red-cube-controlnet.png` 에서 시작합니다. 충돌 처리 및 배치 번호 매기는 기존 출력 규칙을 따르며 이전 증거를 보존합니다. Hires Fix 는  `-hires` 를  `-controlnet` 다음에 추가하며; 선택적 저장 기본 이미지는 최종 이미지 줄임말에  `-base` 를 추가합니다. 두 단계의 출력 경로 및 사이더카는 충돌 검사에 참여합니다.
+기본 출력 줄임말은  `-controlnet`  다음에  `-custom` ,  `-vae` , 및  `-lora`  수정자를 추가합니다.  SD   1.5   ControlNet -만 실행하는 경우 따라서  `resources/outputs/reference/sd15-red-cube-controlnet.png` 에서 시작합니다. 충돌 처리 및 배치 번호 매기는 기존 출력 규칙을 따르며 이전 증거를 보존합니다. Hires Fix 는  `-hires` 를  `-controlnet` 다음에 추가하며; 선택적 저장 기본 이미지는 최종 이미지 줄임말에  `-base` 를 추가합니다. 두 단계의 출력 경로 및 사이더카는 충돌 검사에 참여합니다.
 
 사이더카는  ControlNet 로컬 소스 및 파일 식별자, 모델 클래스, 구성 소스, 가중치/구성 파일 경로,  SHA-256 해시 및 바이트 크기, 패키지 변형, 스케일, 가이드 간격, 추측/연합 모드, 및 조건부 이미지의 식별자, 방향성 차원,  RGB 변환, 및 요청된 출력 크기를 기록합니다.  LoRA 활성화는 별도로 기록됩니다. 완전한 해결된 요청은  `parameters` 에서 재실행을 위해 유지됩니다.
 

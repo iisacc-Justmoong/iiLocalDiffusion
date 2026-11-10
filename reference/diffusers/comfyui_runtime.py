@@ -21,6 +21,7 @@ import uuid
 
 from generation_config import json_object
 from generation_output import publish_file
+from resource_paths import OUTPUT_DIRECTORY as DEFAULT_OUTPUT_DIRECTORY
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -288,7 +289,7 @@ def run(args: argparse.Namespace) -> dict:
                          for name in sorted({node["class_type"] for node in graph.values()})}
     if args.validate_only:
         return {**metadata, "status": "preflight_passed", "generation_verified": False}
-    destination = (args.output_dir or ROOT / "build" / "reference" / ("comfyui-" + uuid.uuid4().hex)).expanduser().resolve()
+    destination = (args.output_dir or DEFAULT_OUTPUT_DIRECTORY / ("comfyui-" + uuid.uuid4().hex)).expanduser().resolve()
     provider.mkdir(destination, parents=True, exist_ok=True)
     if any(provider.iterdir(destination)):
         raise FileExistsError(f"Output directory must be empty: {destination}")

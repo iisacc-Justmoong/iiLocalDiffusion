@@ -99,8 +99,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.seed < 0:
         parser.error("--seed must be non-negative")
     directory = args.output_dir.resolve()
-    if not directory.is_relative_to((ROOT / "build").resolve()):
-        parser.error("Conversion artifacts must stay under the repository build/ directory")
+    if not directory.is_relative_to((ROOT / "resources").resolve()):
+        parser.error("Conversion artifacts must stay under the repository resources/ directory")
     if directory.exists() and (not directory.is_dir() or any(directory.iterdir())):
         parser.error("--output-dir must be new or empty; existing evidence is not overwritten")
     if args.native_test and not args.native_test.is_file():

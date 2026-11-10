@@ -1,10 +1,10 @@
 """Live preview protocol, real tensor decoding and sampler isolation."""
+import resource_fixture
 import contextlib
 import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 
@@ -24,7 +24,7 @@ except ImportError:
 @unittest.skipIf(torch is None, "The installed Torch/Diffusers/Pillow runtime is required")
 class GenerationPreviewTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / "build")
+        self.temporary = resource_fixture.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
 

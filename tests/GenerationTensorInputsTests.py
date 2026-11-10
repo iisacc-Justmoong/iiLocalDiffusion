@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """External latent/conditioning values without depending on model packages."""
+import resource_fixture
 
 from pathlib import Path
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 from local_model_fixture import local_parser, local_request
@@ -52,7 +52,7 @@ def pipeline():
 
 class GenerationTensorInputsTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / "build")
+        self.temporary = resource_fixture.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.file = Path(self.temporary.name) / "inputs.safetensor"
         self.file.write_bytes(b"simulated tensor data")
