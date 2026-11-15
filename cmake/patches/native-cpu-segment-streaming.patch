@@ -1,0 +1,134 @@
+diff --git a/src/device_residency_manager.h b/src/device_residency_manager.h
+--- a/src/device_residency_manager.h
++++ b/src/device_residency_manager.h
+@@ -67,6 +67,8 @@
+     virtual bool activate_prefetched_params(uintptr_t owner_id,
+                                             const std::vector<ggml_tensor*>& tensors) = 0;
+     virtual void clear_prefetched_params(uintptr_t owner_id)                          = 0;
++    // Identify disk-backed parameters so runners can choose bounded streaming.
++    virtual bool requires_disk_streaming(const std::vector<ggml_tensor*>&) const { return false; }
+ };
+ 
+ // Transitional alias for model constructors that have not yet adopted the
+diff --git a/src/model_manager.h b/src/model_manager.h
+--- a/src/model_manager.h
++++ b/src/model_manager.h
+@@ -238,6 +238,7 @@
+     bool fits_compute_backend_capacity(const DeviceMemoryRequest& request,
+                                        const std::vector<ggml_tensor*>& required_params) const override;
+     bool segmented_compute_enabled() const override { return !segmented_compute_disabled_; }
++    bool requires_disk_streaming(const std::vector<ggml_tensor*>& tensors) const override;
+     bool prefetch_enabled() const override { return !prefetch_disabled_; }
+     void release_compute_backend_params(const std::vector<ggml_tensor*>& tensors) override;
+     void evict_compute_backend_params(const std::vector<ggml_tensor*>& tensors) override;
+diff --git a/src/model_manager.cpp b/src/model_manager.cpp
+--- a/src/model_manager.cpp
++++ b/src/model_manager.cpp
+@@ -1423,6 +1423,14 @@
+     }
+ }
+ 
++bool ModelManager::requires_disk_streaming(const std::vector<ggml_tensor*>& tensors) const {
++    std::vector<TensorState*> states;
++    if (!resolve_required_tensor_states(tensors, states)) return false;
++    return std::any_of(states.begin(), states.end(), [](const TensorState* state) {
++        return state != nullptr && state->residency_mode == ResidencyMode::Disk;
++    });
++}
++
+ void ModelManager::release_compute_backend_params(const std::vector<ggml_tensor*>& tensors) {
+     if (tensors.empty()) {
+         return;
+diff --git a/src/core/segment_weight_pipeline.h b/src/core/segment_weight_pipeline.h
+--- a/src/core/segment_weight_pipeline.h
++++ b/src/core/segment_weight_pipeline.h
+@@ -30,6 +30,7 @@
+         std::vector<ggml_tensor*> pinned_params_;
+         size_t queued_segment_ = SIZE_MAX;
+         bool enabled_          = true;
++        bool evict_after_segment_ = false;
+ 
+         size_t next_parameter_segment(size_t segment_index) const;
+         std::vector<std::vector<ggml_tensor*>> preferred_eviction_order() const;
+@@ -45,7 +46,8 @@
+             ggml_cgraph* graph,
+             const ggml_graph_cut::Plan& plan,
+             const std::unordered_set<const ggml_tensor*>& params,
+-            bool enabled = true);
++            bool enabled = true,
++            bool evict_after_segment = false);
+         ~SegmentWeightPipeline();
+ 
+         const std::vector<ggml_tensor*>& params(size_t index) const { return segment_params_[index]; }
+diff --git a/src/core/segment_weight_pipeline.cpp b/src/core/segment_weight_pipeline.cpp
+--- a/src/core/segment_weight_pipeline.cpp
++++ b/src/core/segment_weight_pipeline.cpp
+@@ -24,11 +24,13 @@
+         ggml_cgraph* graph,
+         const ggml_graph_cut::Plan& plan,
+         const std::unordered_set<const ggml_tensor*>& params,
+-        bool enabled)
++        bool enabled,
++        bool evict_after_segment)
+         : residency_manager_(residency_manager),
+           compute_backend_(compute_backend),
+           owner_id_(owner_id),
+-          enabled_(enabled && residency_manager != nullptr) {
++          enabled_(enabled && residency_manager != nullptr),
++          evict_after_segment_(evict_after_segment) {
+         segment_params_.resize(plan.segments.size());
+         for (size_t segment_index = 0; segment_index < plan.segments.size(); ++segment_index) {
+             std::unordered_set<ggml_tensor*> seen;
+@@ -121,6 +123,9 @@
+     void SegmentWeightPipeline::segment_end() {
+         if (auto manager = residency_manager_.lock()) {
+             manager->release_compute_backend_params(pinned_params_);
++            if (evict_after_segment_ && !pinned_params_.empty()) {
++                manager->evict_compute_backend_params(pinned_params_);
++            }
+         }
+         pinned_params_.clear();
+     }
+diff --git a/src/core/ggml_runner.cpp b/src/core/ggml_runner.cpp
+--- a/src/core/ggml_runner.cpp
++++ b/src/core/ggml_runner.cpp
+@@ -802,10 +802,15 @@
+         return std::nullopt;
+     }
+     auto manager         = residency_manager.lock();
+-    const bool segmented = !is_multi_device() && !sd_backend_is_cpu(runtime_backend) &&
+-                           manager != nullptr && manager->segmented_compute_enabled() &&
++    const bool disk_params = manager != nullptr && manager->requires_disk_streaming(params);
++    const bool cpu_disk_streaming = !is_multi_device() && sd_backend_is_cpu(runtime_backend) && disk_params;
++    // Disk backing plus disabled prefetch requests bounded one-segment residency.
++    const bool low_vram_streaming = !is_multi_device() && disk_params && manager != nullptr && !manager->prefetch_enabled();
++    const bool segmented = !is_multi_device() && manager != nullptr && manager->segmented_compute_enabled() &&
+                            plan.valid && plan.has_cuts && plan.segments.size() > 1 &&
+-                           !fits(memory_requests(full_measurement.buffers, cache_.pending_bytes(graph)), params);
++                           (cpu_disk_streaming || low_vram_streaming ||
++                            (!sd_backend_is_cpu(runtime_backend) &&
++                             !fits(memory_requests(full_measurement.buffers, cache_.pending_bytes(graph)), params)));
+     if (!segmented) {
+         ggml_graph_cut::Segment segment;
+         segment.group_name          = "graph";
+@@ -832,7 +837,8 @@
+     SegmentGraphBindings bindings(cut_cache_, plan, graph);
+     SegmentWeightPipeline weights(manager, runtime_backend, reinterpret_cast<uintptr_t>(this),
+                                   graph, plan, params_tensor_set_,
+-                                  segmented && manager != nullptr && manager->prefetch_enabled());
++                                  segmented && manager != nullptr && manager->prefetch_enabled() && !cpu_disk_streaming,
++                                  segmented && (cpu_disk_streaming || low_vram_streaming));
+ 
+     std::map<ggml_backend_t, size_t> peak_compute_bytes;
+     auto track_compute_buffer = [&](ggml_backend_t backend) {
+@@ -843,6 +849,10 @@
+     };
+     std::optional<Tensor<float>> output = Tensor<float>();
+     for (size_t index = 0; index < plan.segments.size(); ++index) {
++        if (segmented && (cpu_disk_streaming || low_vram_streaming) && sd_should_abort()) {
++            LOG_INFO("%s Disk-backed segment execution cancelled", get_desc().c_str());
++            return std::nullopt;
++        }
+         const auto& segment = plan.segments[index];
+         const bool last     = index + 1 == plan.segments.size();
+         auto fail_segment   = [&](const char* phase) {

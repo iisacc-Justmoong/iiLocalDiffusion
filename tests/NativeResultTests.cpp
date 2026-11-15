@@ -1,8 +1,11 @@
 #include "Generation/NativeDiffusion.hpp"
+#include "NativeModelUpscalerFixtures.hpp"
 #include "Generation/NativeImageEngineReport.hpp"
 #include "Generation/NativePose.hpp"
 #include "Generation/NativeImageBridge.hpp"
+#include "Generation/NativeUpscalerBridge.hpp"
 #include "Generation/NativeCachePolicy.hpp"
+#include "Generation/NativeEngineAccess.hpp"
 #include <stable-diffusion.h>
 #include <zip.h>
 #include <array>
@@ -10,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <string_view>
 #include <future>
 #include <thread>
 #include <map>
@@ -32,7 +36,21 @@ NativePoseResult processNativePose(const std::filesystem::path &detector, const 
 // fixture: mimic SDXL alignment, identifiable RGB pixels, and failure cases.
 struct sd_ctx_t { bool refiner = false; std::vector<std::string> multiPaths; unsigned ipCount = 0; };
 struct adetailer_ctx_t {};
+struct upscaler_ctx_t {};
 namespace {
+#if IILD_TEST_GPU_HIRES
+int selectedGpuForTest() {
+    const auto *value=std::getenv("IILD_TEST_GPU_DEVICE");
+    if(!value) return IILD_TEST_GPU_DEVICE;
+    if(std::string_view(value)=="metal") return 2;
+    if(std::string_view(value)=="directx") return 3;
+    if(std::string_view(value)=="vulkan") return 4;
+    throw std::runtime_error("Unknown GPU test device");
+}
+#endif
+iild_hires_upscale_callback_t hiresCallback = nullptr;
+void *hiresData = nullptr;
+int hiresMarker = -1;
 sd_log_cb_t logCallback = nullptr;
 IildImageReportCallback imageReportCallback = nullptr;
 void *imageReportData = nullptr;
@@ -102,6 +120,7 @@ int vaeValidationCalls = 0, vaeInspectionCalls = 0;
 bool embeddedLlm = true, validExternalLlm = true;
 int llmValidationCalls = 0;
 bool expectCpu = false;
+bool expectCpuDisk = false;
 bool expectResidentModel = false;
 std::string selectedVae;
 std::string selectedClipL, selectedClipG, selectedT5, selectedLlm;
@@ -162,8 +181,9 @@ sd_ctx_t *new_sd_ctx(const sd_ctx_params_t *parameters) {
     if (expectCpu) {
         require(parameters->backend && std::string(parameters->backend) == "cpu",
                 "CPU continuation must route every compute module away from the GPU");
-        require(parameters->params_backend && std::string(parameters->params_backend) == "cpu",
-                "CPU continuation must not reuse GPU parameter storage");
+        require(parameters->params_backend && std::string(parameters->params_backend) ==
+                    (expectCpuDisk ? "te=disk,diffusion=disk" : "cpu"),
+                "CPU requests must use the expected resident or disk-backed parameter storage");
     } else {
 #if IILD_NATIVE_CPU_VAE
     require(parameters->backend && std::string(parameters->backend) == "vae=cpu",
@@ -299,6 +319,17 @@ bool sd_set_freeu(sd_ctx_t *ctx, bool enabled) {
     (ctx->refiner ? refinerFreeU : actualFreeU) = enabled;
     return !enabled || freeUAvailable;
 }
+void iild_set_hires_upscale_callback(iild_hires_upscale_callback_t callback, void *data) { hiresCallback=callback; hiresData=data; }
+upscaler_ctx_t *new_upscaler_ctx(const char *, bool, int, int, const char *, const char *) { return new upscaler_ctx_t; }
+void free_upscaler_ctx(upscaler_ctx_t *ctx) { delete ctx; }
+int get_upscale_factor(upscaler_ctx_t *) { return 2; }
+bool upscale(upscaler_ctx_t *, sd_image_t input, uint32_t, sd_image_t **result, int *count) {
+    *count=1; *result=static_cast<sd_image_t *>(std::calloc(1,sizeof(sd_image_t)));
+    ++allocatedImages; auto &out=(*result)[0];
+    out.width=input.width*2; out.height=input.height*2; out.channel=3;
+    out.data=static_cast<uint8_t *>(std::malloc(std::size_t(out.width)*out.height*3));
+    std::fill(out.data,out.data+std::size_t(out.width)*out.height*3,91); return true;
+}
 bool sd_prepare_hires_upscaler(sd_ctx_t *, const char *path) {
     ++upscalerPrepareCalls;
     preparedUpscaler = path;
@@ -363,6 +394,14 @@ bool generate_image(sd_ctx_t *, const sd_img_gen_params_t *parameters, sd_image_
         }
     }
     require(!detailerExpected || liveDetailers == 1, "Detailer weights must be prepared before base generation");
+    if (parameters->hires.enabled && hiresCallback) {
+        const auto w=uint32_t(parameters->width), h=uint32_t(parameters->height);
+        std::vector<uint8_t> input(std::size_t(w)*h*3,17);
+        std::vector<uint8_t> output(std::size_t(parameters->hires.target_width)*parameters->hires.target_height*3);
+        sd_image_t image{w,h,3,input.data()};
+        if (!hiresCallback(image,uint32_t(parameters->hires.target_width),uint32_t(parameters->hires.target_height),output.data(),hiresData)) return false;
+        hiresMarker=output.front();
+    }
     if (parameters->hires.enabled && parameters->hires.upscaler == SD_HIRES_UPSCALER_MODEL)
         require(upscalerPrepareCalls > 0 && parameters->hires.model_path
             && preparedUpscaler == parameters->hires.model_path,
@@ -639,6 +678,77 @@ int main(int argc, char **argv) {
                 require(std::string(iild_native_metadata_v1(image)).find("\"model_cache_hit\":true") != std::string::npos,
                     "Per-request scheduling should not reload model weights");
                 iild_native_free_v1(image);
+                {
+                    const int defaultClipSkip = actualClipSkip;
+                    const float defaultEta = actualEta;
+                    iild_native_hires_request_v1 hires{};
+                    hires.size = sizeof(hires); hires.image = controlled; hires.image.image.hires = 1;
+                    hires.denoise_strength = .35f;
+                    hires.upscaler.size = sizeof(hires.upscaler);
+                    hires.upscaler.upscaler.size = sizeof(hires.upscaler.upscaler);
+                    auto &selection = hires.upscaler.upscaler.image;
+                    selection.size = sizeof(selection); selection.kind = 0;
+                    selection.tile_size = 128; selection.threads = 1; selection.passes = 1;
+                    selection.max_output_bytes = 1024 * 1024;
+                    hires.upscaler.upscaler.max_weight_bytes = 1024ULL * 1024 * 1024;
+                    hires.upscaler.upscaler.max_working_bytes = 512ULL * 1024 * 1024;
+                    hires.upscaler.swinir_image_range = 1;
+                    expectHires = true; expectedDenoise = .35f;
+                    image = iild_native_generate_hires_v1(&hires, nullptr, nullptr, nullptr);
+                    require(image && std::string(iild_native_metadata_v1(image)).find("\"error\":\"\"") != std::string::npos,
+                        std::string("Hires C bridge failed: ") + (image ? iild_native_metadata_v1(image) : "null"));
+                    const std::string hiresMetadata = iild_native_metadata_v1(image);
+                    require(hiresMetadata.find("\"hires_upscaler\"") != std::string::npos
+                        && hiresMetadata.find("\"upscaler\":\"nearest\"") != std::string::npos
+                        && actualSampler == HEUN_SAMPLE_METHOD && actualFlowShift == .85f && actualSigmas == sigmas
+                        && actualClipSkip == defaultClipSkip && actualEta == defaultEta,
+                        "Hires C bridge lost the resolved provider or sampling controls");
+                    iild_native_free_v1(image);
+                    for (const bool swin : {false, true}) {
+                        const auto weights = directory / (swin ? "bridge-swinir.safetensors" : "bridge-srvgg.safetensors");
+                        model_fixtures::writeModel(weights, swin ? model_fixtures::swinFixture() : model_fixtures::srvggFixture());
+                        const auto modelPath = weights.string();
+                        selection.kind = swin ? 6 : 5; selection.model = modelPath.c_str();
+                        selection.tile_size = 0; selection.threads = 2; selection.cpu = 1;
+                        image = iild_native_generate_hires_v1(&hires, nullptr, nullptr, nullptr);
+                        const std::string metadata = image ? iild_native_metadata_v1(image) : "null";
+                        require(image && metadata.find("\"error\":\"\"") != std::string::npos
+                            && metadata.find(swin ? "\"architecture\":\"swinir\"" : "\"architecture\":\"srvgg\"") != std::string::npos
+                            && hiresMarker != 17 && !hiresCallback,
+                            "The Hires C bridge did not run and report the selected native model: " + metadata);
+                        iild_native_free_v1(image);
+#if IILD_TEST_GPU_HIRES
+                        selection.cpu = selectedGpuForTest(); selection.tile_size = 16;
+                        image = iild_native_generate_hires_v1(&hires, nullptr, nullptr, nullptr);
+                        const std::string gpuMetadata = image ? iild_native_metadata_v1(image) : "null";
+                        const std::string backend = selection.cpu==2 ? "metal" : selection.cpu==3 ? "directx" : "vulkan";
+                        require(image && gpuMetadata.find("\"error\":\"\"") != std::string::npos
+                            && gpuMetadata.find("\"actual_device\":\""+backend+"\"") != std::string::npos
+                            && gpuMetadata.find("\"tile_size\":\"16\"") != std::string::npos && !hiresCallback,
+                            "The Hires C bridge did not preserve the tiled GPU selection: " + gpuMetadata);
+                        iild_native_free_v1(image);
+#endif
+                    }
+                    const int priorCalls = generationCalls;
+                    hires.image.image.hires = 0;
+                    image = iild_native_generate_hires_v1(&hires, nullptr, nullptr, nullptr);
+                    require(image && std::string(iild_native_metadata_v1(image)).find("\"error\":\"\"") == std::string::npos
+                        && generationCalls == priorCalls, "Disabled Hires accepted a provider");
+                    iild_native_free_v1(image);
+                    hires.image.image.hires = 1;
+                    hires.image.image.image.prepare_only = 1;
+                    image = iild_native_generate_hires_v1(&hires, nullptr, nullptr, nullptr);
+                    require(image && std::string(iild_native_metadata_v1(image)).find("\"error\":\"\"") == std::string::npos
+                        && generationCalls == priorCalls, "Preparation accepted a Hires provider");
+                    iild_native_free_v1(image);
+                    hires.image.image.image.prepare_only = 0;
+                    hires.upscaler.size = 0;
+                    image = iild_native_generate_hires_v1(&hires, nullptr, nullptr, nullptr);
+                    require(image && std::string(iild_native_metadata_v1(image)).find("\"error\":\"\"") == std::string::npos
+                        && generationCalls == priorCalls, "Invalid upscaler ABI reached generation");
+                    iild_native_free_v1(image);
+                    expectHires = false;
+                }
                 // Krea V3 uses the same output contract as QuickGenerate:
                 // align the inference canvas, then preserve requested RGB size.
                 for (const auto &size : std::array<std::array<int, 2>, 5>{{
@@ -750,6 +860,96 @@ int main(int argc, char **argv) {
                 const auto refined = generateNativeAdvancedImage(request, modifiers, components, advanced,
                     NativeComputeBackend::Automatic, cancelled);
                 require(refined.error.empty() && !refined.rgb.empty(), refined.error);
+            }
+            {
+                struct Provider : Upscaler {
+                    int opened=0,closed=0,calls=0; bool fail=false; std::atomic_bool *cancel=nullptr;
+                    struct Session : UpscalerSession {
+                        Provider &owner; explicit Session(Provider &p):owner(p) {} ~Session() override { ++owner.closed; }
+                        double defaultScale() const override { return 3; }
+                        UpscaleImage process(const UpscaleImage &image,std::uint32_t w,std::uint32_t h,std::stop_token) override {
+                            ++owner.calls;
+                            if(owner.fail) throw std::runtime_error("fixture provider failed");
+                            if(owner.cancel) *owner.cancel=true;
+                            return {w,h,image.channels,std::vector<std::uint8_t>(std::size_t(w)*h*image.channels,42)};
+                        }
+                    };
+                    std::string name() const override { return "fixture-provider"; }
+                    std::unique_ptr<UpscalerSession> open(const UpscaleOptions &o) override {
+                        require(o.settings.at("custom")=="retained", "Hires options were changed");
+                        ++opened; return std::make_unique<Session>(*this);
+                    }
+                } provider;
+                const auto savedWidth=request.width, savedHeight=request.height;
+                request.width=request.height=64;
+                expectedUpscaler=SD_HIRES_UPSCALER_LANCZOS;
+                advanced.upscaler="provider-defined-name";
+                UpscaleOptions selected; selected.settings["custom"]="retained";
+                NativeHiresUpscalerReport hiresReport;
+                auto injected=generateNativeAdvancedImageWithUpscaler(request,modifiers,components,advanced,
+                    provider,selected,NativeComputeBackend::Automatic,cancelled,&hiresReport);
+                require(injected.error.empty() && !injected.rgb.empty() && hiresMarker==42 && !hiresCallback
+                    && provider.opened==1 && provider.closed==1 && provider.calls==1,
+                    "Hires provider was not called or retained a callback/session");
+                require(hiresReport.upscaler=="fixture-provider" && hiresReport.appliedScale==3
+                    && hiresReport.resampled && hiresReport.targetWidth==64 && hiresReport.targetHeight==64
+                    && hiresReport.passes.size()==1 && hiresReport.passes[0].width==96,
+                    "Hires provider report lost resolved size, scale or resampling");
+                provider.fail=true;
+                injected=generateNativeAdvancedImageWithUpscaler(request,modifiers,components,advanced,
+                    provider,selected,NativeComputeBackend::Automatic,cancelled,&hiresReport);
+                require(injected.error.find("fixture provider failed")!=std::string::npos && injected.rgb.empty()
+                    && !hiresCallback && provider.closed==2, "Hires provider failure was not propagated");
+                provider.fail=false; provider.cancel=&cancelled;
+                injected=generateNativeAdvancedImageWithUpscaler(request,modifiers,components,advanced,
+                    provider,selected,NativeComputeBackend::Automatic,cancelled,&hiresReport);
+                require(injected.cancelled && injected.rgb.empty() && !hiresCallback && provider.closed==3,
+                    "Hires provider cancellation was not preserved");
+                provider.cancel=nullptr; cancelled=false;
+                std::stop_source stopped; stopped.request_stop(); const auto beforeOpened=provider.opened;
+                injected=generateNativeAdvancedImageWithUpscaler(request,modifiers,components,advanced,
+                    provider,selected,NativeComputeBackend::Automatic,cancelled,&hiresReport,{}, {}, {},stopped.get_token());
+                require(injected.cancelled && provider.opened==beforeOpened && !hiresCallback,
+                    "Pre-cancelled Hires opened a provider or registered a callback");
+                native_detail::nativeEngineOnThread(true);
+                const auto recursive=generateNativeAdvancedImageWithUpscaler(request,modifiers,components,advanced,
+                    provider,selected,NativeComputeBackend::Automatic,cancelled);
+                native_detail::nativeEngineOnThread(false);
+                require(recursive.error.find("re-entered")!=std::string::npos,
+                    "Nested generation did not fail safely");
+                auto native=makeEsrganUpscaler({request.modelPath,UpscaleDevice::Cpu,0,1});
+                injected=generateNativeAdvancedImageWithUpscaler(request,modifiers,components,advanced,
+                    *native,UpscaleOptions{},NativeComputeBackend::Automatic,cancelled,&hiresReport);
+                require(injected.error.empty() && hiresMarker==91 && hiresReport.appliedScale==2
+                    && !hiresReport.resampled && !hiresCallback && allocatedImages==0,
+                    "Native Hires model re-entered the engine lock or lost its output");
+                for(const bool isSwin : {false,true}) {
+                    const auto path=directory/(isSwin ? "hires-swinir.safetensors" : "hires-srvgg.safetensors");
+                    model_fixtures::writeModel(path,isSwin ? model_fixtures::swinFixture() : model_fixtures::srvggFixture());
+                    NativeModelUpscalerOptions modelOptions; modelOptions.model=path; modelOptions.device=UpscaleDevice::Cpu;
+                    auto model=makeNativeModelUpscaler(modelOptions);
+                    injected=generateNativeAdvancedImageWithUpscaler(request,modifiers,components,advanced,
+                        *model,UpscaleOptions{},NativeComputeBackend::Automatic,cancelled,&hiresReport);
+                    require(injected.error.empty() && !injected.rgb.empty() && !hiresCallback
+                        && hiresReport.details.at("architecture")== (isSwin ? "swinir" : "srvgg")
+                        && hiresReport.appliedScale==2 && !hiresReport.resampled && hiresMarker != 17,
+                        "Native model did not execute inside the Hires pass");
+#if IILD_TEST_GPU_HIRES
+                    const auto gpuDevice=selectedGpuForTest();
+                    modelOptions.device=static_cast<UpscaleDevice>(gpuDevice); modelOptions.tileSize=16;
+                    model=makeNativeModelUpscaler(modelOptions);
+                    injected=generateNativeAdvancedImageWithUpscaler(request,modifiers,components,advanced,
+                        *model,UpscaleOptions{},NativeComputeBackend::Automatic,cancelled,&hiresReport);
+                    require(injected.error.empty() && !injected.rgb.empty() && !hiresCallback
+                        && hiresReport.details.at("actual_device")==
+                            (gpuDevice==2 ? "metal" : gpuDevice==3 ? "directx" : "vulkan")
+                        && hiresReport.details.at("tile_size")=="16"
+                        && std::stoull(hiresReport.details.at("gpu_convolutions"))>0
+                        && (!isSwin || std::stoull(hiresReport.details.at("gpu_projections"))>0),
+                        "The tiled GPU model did not run within Hires: "+injected.error);
+#endif
+                }
+                request.width=savedWidth; request.height=savedHeight;
             }
             advanced.upscaler = "4x-ultra";
             expectedUpscaler = SD_HIRES_UPSCALER_MODEL;
@@ -1303,6 +1503,21 @@ int main(int argc, char **argv) {
             require(!graphCallback, "Dangling graph progress callback");
             require(result.modelCacheHit == (run == 2), "Backend change reused incompatible residency");
         }
+#if !defined(_WIN32)
+        {
+            releaseNativeDiffusionCache();
+            const auto original = request.modelPath;
+            const auto large = directory / "large-sparse-cpu-fixture.safetensors";
+            writeModelFixture(large, "C API fixture");
+            std::filesystem::resize_file(large, (4ull << 30) + 1);
+            request.modelPath = large; expectCpu = true; expectCpuDisk = true;
+            const auto streamed = generateNativeImageWithBackend(request, NativeComputeBackend::Cpu, cancelled);
+            expectCpuDisk = false; expectCpu = false; request.modelPath = original;
+            releaseNativeDiffusionCache();
+            std::filesystem::remove(large);
+            require(streamed.error.empty(), "Large CPU image checkpoints must use disk-backed segments: " + streamed.error);
+        }
+#endif
         // width, height, horizontal crop origin, vertical crop origin.
         const std::array<std::array<int, 4>, 6> sizes{{
             {1024, 1368, 0, 20}, {1368, 1024, 20, 0}, {1024, 1824, 0, 16},

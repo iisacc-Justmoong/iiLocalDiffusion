@@ -5,6 +5,8 @@
 #include <gguf.h>
 #include <model_manager.h>
 #include <stable-diffusion.h>
+#include <core/ggml_runner.h>
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -17,6 +19,109 @@ using Buffer = std::unique_ptr<ggml_backend_buffer, decltype(&ggml_backend_buffe
 constexpr auto tensorName = "model.diffusion_model.net.test.weight";
 constexpr auto secondName = "model.diffusion_model.net.test2.weight";
 constexpr int elements = 17 * 1024 * 1024 / sizeof(float) + 128;
+
+struct TrackingManager : ModelManager {
+    ggml_tensor *first = nullptr, *second = nullptr;
+    int batches = 0, peakResident = 0, attempts = 0, failAtAttempt = 0;
+    bool cancelAfterBatch = false, cancelRequested = false;
+    bool prepare_params(const std::vector<ggml_tensor*>& tensors) override {
+        if (!tensors.empty() && ++attempts == failAtAttempt) return false;
+        const bool prepared = ModelManager::prepare_params(tensors);
+        if (prepared && !tensors.empty()) {
+            ++batches;
+            peakResident = std::max(peakResident, int(first->buffer != nullptr) + int(second->buffer != nullptr));
+        }
+        return prepared;
+    }
+    void release_compute_backend_params(const std::vector<ggml_tensor*>& tensors) override {
+        ModelManager::release_compute_backend_params(tensors);
+        if (cancelAfterBatch && !tensors.empty()) cancelRequested = true;
+    }
+};
+
+struct SegmentedCpuProbe : GGMLRunner {
+    ggml_tensor *first, *second;
+    SegmentedCpuProbe(ggml_backend_t cpu, const std::shared_ptr<TrackingManager>& manager)
+        : GGMLRunner(cpu, manager) {
+        first = ggml_new_tensor_1d(params_ctx, GGML_TYPE_F32, elements);
+        second = ggml_new_tensor_1d(params_ctx, GGML_TYPE_F32, elements);
+        ggml_set_name(first, tensorName); ggml_set_name(second, secondName);
+        manager->first = first; manager->second = second;
+    }
+    std::string get_desc() override { return "segmented cpu fixture"; }
+    std::optional<sd::Tensor<float>> run() {
+        return compute([&] {
+            auto* intermediate = ggml_scale(compute_ctx, first, 2.0f);
+            sd::ggml_graph_cut::mark_graph_cut(intermediate, "fixture.first", "output");
+            auto* output = ggml_add(compute_ctx, intermediate, second);
+            sd::ggml_graph_cut::mark_graph_cut(output, "fixture.second", "output");
+            auto* graph = new_graph_custom(32);
+            ggml_build_forward_expand(graph, output);
+            return graph;
+        }, 1);
+    }
+};
+
+bool checkCpuSegmentStreaming(const std::filesystem::path& path, ggml_backend_t cpu, bool diskBacked = true, bool force = false) {
+    auto manager = std::make_shared<TrackingManager>();
+    manager->set_n_threads(1); manager->set_enable_mmap(true); manager->set_writable_mmap(false);
+    manager->set_prefetch_disabled(force);
+    SegmentedCpuProbe probe(cpu, manager);
+    // Destroy the manager while the runner's parameter tensors are still alive.
+    struct ManagerCleanup {
+        std::shared_ptr<TrackingManager>& manager;
+        ~ManagerCleanup() { manager.reset(); }
+    } cleanup{manager};
+    if (!manager->loader().init_from_file(path.string()) ||
+        !manager->register_param_tensors("cpu segmented fixture", {{tensorName, probe.first}, {secondName, probe.second}},
+                                        diskBacked ? ModelManager::ResidencyMode::Disk : ModelManager::ResidencyMode::ParamBackend,
+                                        cpu, cpu)) return false;
+    for (int pass = 0; pass < 2; ++pass) {
+        const auto output = probe.run();
+        if (!output || output->numel() != elements) {
+            std::cerr << "CPU fixture did not return the expected output, disk=" << diskBacked << " pass=" << pass << '\n';
+            return false;
+        }
+        for (int i = 0; i < elements; ++i)
+            if (output->data()[i] != 3.0f * (i + 1)) {
+                std::cerr << "CPU fixture returned an incorrect output at " << i << ", disk=" << diskBacked << " pass=" << pass << '\n';
+                return false;
+            }
+    }
+    if (!diskBacked) {
+        if (manager->batches != 2 || manager->peakResident != 2) {
+            std::cerr << "Resident CPU weights must retain their non-streaming behavior\n";
+            return false;
+        }
+        return true;
+    }
+    if (manager->batches < 4 || manager->peakResident > 1) {
+        std::cerr << "CPU disk-backed graph did not stream one weight segment at a time: batches="
+                  << manager->batches << " peak=" << manager->peakResident << '\n';
+        return false;
+    }
+    manager->failAtAttempt = manager->attempts + 2;
+    if (probe.run() || probe.first->buffer || probe.second->buffer) {
+        std::cerr << "Failed segment left CPU weights resident\n";
+        return false;
+    }
+    manager->failAtAttempt = 0;
+    const auto retry = probe.run();
+    if (!retry || retry->numel() != elements || retry->data()[0] != 3.0f || manager->peakResident > 1) {
+        std::cerr << "CPU weight streaming did not recover after a failed segment\n";
+        return false;
+    }
+    manager->cancelAfterBatch = true; manager->cancelRequested = false;
+    sd_set_abort_callback([](void* data) { return *static_cast<bool*>(data); }, &manager->cancelRequested);
+    const auto cancelled = probe.run();
+    sd_set_abort_callback(nullptr, nullptr);
+    manager->cancelAfterBatch = false;
+    if (cancelled || !manager->cancelRequested || probe.first->buffer || probe.second->buffer || !probe.run()) {
+        std::cerr << "CPU segment cancellation did not release weights or recover\n";
+        return false;
+    }
+    return true;
+}
 
 bool check(const std::filesystem::path &path, ggml_backend_t compute, ggml_backend_t storage,
            ModelManager::ResidencyMode mode = ModelManager::ResidencyMode::ParamBackend, bool resident = false) {
@@ -117,6 +222,9 @@ int main(int argc, char **argv) {
     Backend cpu(ggml_backend_cpu_init(), ggml_backend_free);
     Backend metal(ggml_backend_metal_init(), ggml_backend_free);
     if (!cpu || !metal) return 3;
+    if (!checkCpuSegmentStreaming(path, cpu.get())) return 10;
+    if (!checkCpuSegmentStreaming(path, cpu.get(), false)) return 11;
+    if (!checkCpuSegmentStreaming(path, metal.get(), true, true)) return 12;
     if (!check(path, cpu.get(), cpu.get())) return 4;
     if (!check(path, metal.get(), metal.get())) return 5;
     if (!check(path, metal.get(), cpu.get())) return 6;

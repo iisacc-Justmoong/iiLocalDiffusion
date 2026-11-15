@@ -293,6 +293,43 @@ class HiresRuntimeTests(unittest.TestCase):
         self.assertEqual(result.metadata["upscale"]["source_size"], [32, 32])
         self.assertEqual(result.metadata["upscale"]["target_size"], [64, 64])
 
+    def test_hires_accepts_provider_and_records_actual_scale_and_resampling(self):
+        from native_upscaler import Image as NativeImage, Options
+        fixture = RuntimeFixture(num_images=2)
+        for source in fixture.images:
+            source.tobytes = lambda: bytes([17]) * 32 * 32 * 3
+        options = Options()
+        class Provider:
+            def __init__(self): self.calls = []
+            def upscale(self, image, selected, *, progress=None):
+                self.calls.append((image, selected))
+                return NativeImage(96, 96, 3, bytes([37]) * 96 * 96 * 3), {
+                    "upscaler": "fixture-3x", "applied_scale": 3.0, "details": {"model": "fixture"}}
+        provider = Provider()
+        with patch.object(PIL.Image, "frombytes", create=True,
+                          side_effect=lambda mode, size, _: Image(size, label="native")):
+            result = fixture.run(upscaler=provider, upscale_options=options)
+        self.assertEqual(len(provider.calls), 2)
+        self.assertTrue(all(value is options for _, value in provider.calls))
+        self.assertEqual([image.label for image in fixture.refined.calls[0]["image"]],
+                         ["native:upscaled", "native:upscaled"])
+        metadata = result.metadata["upscale"]
+        self.assertEqual(metadata["method"], "provider")
+        self.assertEqual([x["upscaler"] for x in metadata["provider_reports"]], ["fixture-3x"] * 2)
+        self.assertTrue(all(x["hires_resampled"] and x["hires_target_size"] == [64, 64]
+                            for x in metadata["provider_reports"]))
+
+    def test_hires_provider_failure_does_not_start_refinement_or_fall_back(self):
+        from native_upscaler import Options
+        fixture = RuntimeFixture()
+        fixture.images[0].tobytes = lambda: bytes([17]) * 32 * 32 * 3
+        class Failed:
+            def upscale(self, image, options, *, progress=None):
+                raise RuntimeError("provider failure")
+        with self.assertRaisesRegex(RuntimeError, "provider failure"):
+            fixture.run(upscaler=Failed(), upscale_options=Options())
+        self.assertEqual(fixture.refined.calls, [])
+
     def test_offload_hooks_cpu_dtype_scheduler_and_adapters_survive_conversion(self):
         fixture = RuntimeFixture(presets.SDXL_BASE_PRESET, watermark=True)
         fixture.activation = SimpleNamespace(registered_components=("unet",), active_adapters=("custom",))

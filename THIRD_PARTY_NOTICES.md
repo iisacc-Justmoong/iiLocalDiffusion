@@ -32,6 +32,12 @@ as generation defaults; their original weight licenses remain separate from the
 SDK code license. Three legacy PT embeddings have tensor-identical safetensors
 copies, with source and derivative hashes recorded in that manifest.
 
+The optional Windows DirectX 12 model backend uses the native Dawn WebGPU
+implementation (BSD-3-Clause) supplied by the build's Dawn package. The Dawn
+license is included in `docs/licenses/Dawn-BSD-3-Clause.txt`. Dawn distributions
+may also include separately licensed components; their matching notices remain
+part of the distribution used for the build.
+
 The standalone checkpoint runner reuses Diffusers 0.40.0 (Apache-2.0),
 PyTorch 2.13.0 and the already pinned Transformers/Accelerate environment.
 It adds no inference package or service. Approximately 4.8 MB of SD1/SDXL
@@ -190,3 +196,9 @@ original unmasked path remains the default. Its SHA-256 is
 An unmodified copy of that source is retained as the offline comparison fixture
 `resources/test-fixtures/moss-image-pipeline-upstream-85975793.py`.
 Source: https://huggingface.co/OpenMOSS-Team/MOSS-Image-Base/tree/85975793d8b3d432f1b6e27f352abaa4c2a4c0d3
+
+Native CPU super-resolution implements model tensor layouts and operations described by
+[SwinIR](https://github.com/JingyunLiang/SwinIR/tree/6545850fbf8df298df73d81f3e8cba638787c8bd)
+(Apache-2.0) and [Real-ESRGAN SRVGG](https://github.com/xinntao/Real-ESRGAN/tree/a4abfb2979a7bbff3f69f58f58ae324608821e27)
+(BSD-3-Clause). Their license texts are distributed in `docs/licenses/`. Model
+weights are supplied separately and can have different licenses.

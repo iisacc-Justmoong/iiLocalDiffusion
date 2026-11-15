@@ -21,14 +21,14 @@
       "document_id": "urn:iisacc:document:f20c8ea15d96eebf88a185abd134d6b0bf305ed07e9248841e6ff3bbd6939552",
       "source": "README.md",
       "agent_json": "docs/entrypoints/README.agent.json",
-      "source_sha256": "c526a2be5627c38a88378963f992feb2a7f1b190ec354bcc982fbf6f15ee5598",
+      "source_sha256": "2ab25797e350923f5d1d79275ea241a65f2bf9d32228024b431ca8143be77d8a",
       "role": "overview"
     },
     {
       "document_id": "urn:iisacc:document:7a5b021f578aacd17bbc88699e6cc34d4e38ffbfe3bd7c219cac9a027ca2d51d",
       "source": "THIRD_PARTY_NOTICES.md",
       "agent_json": "docs/entrypoints/THIRD_PARTY_NOTICES.agent.json",
-      "source_sha256": "9a7a4d533a81b1203ae6c20aabce7d59304795adddbcbe4be285ffc0136d8dc9",
+      "source_sha256": "cb8eb4b47d4073649586e59333d8ac381eadd415755659b563ed930466e78d2b",
       "role": "guide"
     },
     {
@@ -63,7 +63,7 @@
       "document_id": "urn:iisacc:document:bebb1e2220f0cd7e3906a2a1c88dc420d0be9dcc4caca65a433283f95ed4ab15",
       "source": "docs/NativeVideo.md",
       "agent_json": "docs/NativeVideo.agent.json",
-      "source_sha256": "eb5633984b2dc2560e50e639f70b7b17910205fba3799ee16a706109e1e0979f",
+      "source_sha256": "56c1790333099968f0d4e85d969f77af4219b533294555f7c23af63c2211c86a",
       "role": "guide"
     },
     {
@@ -252,7 +252,7 @@
       "document_id": "urn:iisacc:document:3b28a8aa9db325a5c68b025a0429ccda8228ea0f7634974a4a581f0ababaeb17",
       "source": "docs/hires-fix.md",
       "agent_json": "docs/hires-fix.agent.json",
-      "source_sha256": "b47863edea4f62daf23848ed9baa4ec3aefa31181c21558e1ecd2ae5cf3ad840",
+      "source_sha256": "9e1aae45e1118008e1ecdffce3f1f468ba0c4bbd704734408b0031d48a878631",
       "role": "guide"
     },
     {
@@ -385,7 +385,7 @@
       "document_id": "urn:iisacc:document:0cae12fdeaee1e1dea1fef2768f50b71a9e040248875b0a88b0303798d466a3d",
       "source": "docs/native-image-generation.md",
       "agent_json": "docs/native-image-generation.agent.json",
-      "source_sha256": "26a8701f946e9118dd39fb5f7cc09e067f481fd00c5510df42ab0d69ec5a1501",
+      "source_sha256": "b52924bdd7aebbc8a244347e7065b8d235c61fbb8086bcf0da098fb9d48b2105",
       "role": "guide"
     },
     {

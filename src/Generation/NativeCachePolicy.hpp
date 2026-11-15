@@ -25,6 +25,11 @@ struct ResourceLimits {
     std::uint64_t available = 0;
     bool availableKnown = false;
 };
+// File-backed segmented execution is preferable once the checkpoint alone is
+// larger than the live managed budget. A zero budget means no valid estimate.
+inline bool needsDiskBackedStreaming(std::uint64_t modelBytes, std::uint64_t budgetBytes) {
+    return budgetBytes != 0 && modelBytes > budgetBytes;
+}
 inline std::uint64_t memoryBudget(ResourceLimits limits, bool mobileCpuVae = false) {
     constexpr std::uint64_t MiB = 1024 * 1024;
     if (!limits.recommended) limits.recommended = limits.physical ? limits.physical / 2 : 2 * 1024 * MiB;

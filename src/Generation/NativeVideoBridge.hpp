@@ -28,6 +28,9 @@ typedef int (*iild_native_video_frame_v1)(size_t shot, int32_t index, int32_t wi
 typedef struct iild_native_video_result_v1 iild_native_video_result_v1;
 IILD_EXPORT iild_native_video_result_v1 *iild_native_video_generate_v1(const iild_native_video_request_v1 *,
     iild_native_progress_v1, iild_native_video_frame_v1, void *user);
+// Same v1 request layout, with opt-in Low VRAM execution.
+IILD_EXPORT iild_native_video_result_v1 *iild_native_video_generate_low_vram_v1(const iild_native_video_request_v1 *,
+    iild_native_progress_v1, iild_native_video_frame_v1, void *user);
 IILD_EXPORT const char *iild_native_video_metadata_v1(const iild_native_video_result_v1 *);
 IILD_EXPORT void iild_native_video_free_v1(iild_native_video_result_v1 *);
 #ifdef __cplusplus

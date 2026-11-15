@@ -53,6 +53,18 @@ class VideoOptionsTests(unittest.TestCase):
         self.assertTrue(args.local_files_only)
         self.assertEqual(args.shots[0]["camera"], ["none"])
 
+    def test_low_vram_configuration_round_trips(self):
+        args = self.request("--low-vram", "--no-cpu-text-encoding", "--no-vae-tiling")
+        self.assertTrue(args.low_vram)
+        self.assertEqual(args.offload, "sequential")
+        self.assertTrue(args.cpu_text_encoding)
+        self.assertTrue(args.vae_tiling)
+        replay = self.document("low-vram-replay.json", configuration(args))
+        restored = self.request("--config", str(replay))
+        self.assertTrue(restored.low_vram)
+        self.assertEqual(restored.offload, "sequential")
+        self.assertTrue(restored.cpu_text_encoding and restored.vae_tiling)
+
     def test_duration_and_camera_mix_are_compiled_into_explicit_shots(self):
         args = self.request("--duration", "3", "--fps", "25", "--camera", "dolly-in", "pan-left")
         shot = args.shots[0]

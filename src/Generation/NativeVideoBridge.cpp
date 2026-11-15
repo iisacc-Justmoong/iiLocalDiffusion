@@ -7,21 +7,22 @@
 struct iild_native_video_result_v1 { std::string metadata; };
 namespace {
 std::string text(const char *value) { return value ? value : ""; }
-std::string metadata(const iiLocalDiffusion::NativeVideoResult &result) {
+std::string metadata(const iiLocalDiffusion::NativeVideoResult &result, bool lowVram) {
     std::unique_ptr<json_object, decltype(&json_object_put)> root(json_object_new_object(), json_object_put);
     json_object_object_add(root.get(), "schema", json_object_new_string("iild-native-video-v1"));
     json_object_object_add(root.get(), "error", json_object_new_string(result.error.c_str()));
     json_object_object_add(root.get(), "cancelled", json_object_new_boolean(result.cancelled));
     json_object_object_add(root.get(), "threads", json_object_new_int(result.threads));
     json_object_object_add(root.get(), "memory_budget_bytes", json_object_new_uint64(result.memoryBudgetBytes));
+    json_object_object_add(root.get(), "memory_mode", json_object_new_string(lowVram ? "low-vram" : "standard"));
     auto *counts = json_object_new_array();
     for (int value : result.frameCounts) json_object_array_add(counts, json_object_new_int(value));
     json_object_object_add(root.get(), "frame_counts", counts);
     return json_object_to_json_string_ext(root.get(), JSON_C_TO_STRING_PLAIN);
 }
 }
-extern "C" iild_native_video_result_v1 *iild_native_video_generate_v1(const iild_native_video_request_v1 *input,
-    iild_native_progress_v1 progress, iild_native_video_frame_v1 frame, void *user)
+static iild_native_video_result_v1 *generateVideo(const iild_native_video_request_v1 *input,
+    iild_native_progress_v1 progress, iild_native_video_frame_v1 frame, void *user, bool lowVram)
 {
     auto result = std::make_unique<iild_native_video_result_v1>();
     iiLocalDiffusion::NativeVideoResult output;
@@ -58,15 +59,25 @@ extern "C" iild_native_video_result_v1 *iild_native_video_generate_v1(const iild
             request.shots.push_back(std::move(shot));
         }
         std::atomic_bool cancelled{false};
-        output = iiLocalDiffusion::generateNativeVideo(request, cancelled,
-            [&](const auto &event) {
+        const auto onProgress = [&](const auto &event) {
                 if (progress && progress(static_cast<int>(event.stage), event.step, event.total, user)) cancelled = true;
-            }, [&](std::size_t shot, int index, int width, int height, std::span<const std::uint8_t> rgb) {
+            };
+        const auto onFrame = [&](std::size_t shot, int index, int width, int height, std::span<const std::uint8_t> rgb) {
                 if (frame(shot, index, width, height, rgb.data(), rgb.size(), user)) cancelled = true;
-            });
+            };
+        output = lowVram ? iiLocalDiffusion::generateNativeVideoLowVram(request, cancelled, onProgress, onFrame)
+                         : iiLocalDiffusion::generateNativeVideo(request, cancelled, onProgress, onFrame);
     } catch (const std::exception &error) { output.error = error.what(); }
-    result->metadata = metadata(output);
+    result->metadata = metadata(output, lowVram);
     return result.release();
+}
+extern "C" iild_native_video_result_v1 *iild_native_video_generate_v1(const iild_native_video_request_v1 *input,
+    iild_native_progress_v1 progress, iild_native_video_frame_v1 frame, void *user) {
+    return generateVideo(input, progress, frame, user, false);
+}
+extern "C" iild_native_video_result_v1 *iild_native_video_generate_low_vram_v1(const iild_native_video_request_v1 *input,
+    iild_native_progress_v1 progress, iild_native_video_frame_v1 frame, void *user) {
+    return generateVideo(input, progress, frame, user, true);
 }
 extern "C" const char *iild_native_video_metadata_v1(const iild_native_video_result_v1 *result) {
     return result ? result->metadata.c_str() : "{\"error\":\"Missing native video result\"}";

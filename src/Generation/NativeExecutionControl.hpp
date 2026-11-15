@@ -3,6 +3,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <stop_token>
 
 namespace iiLocalDiffusion {
 // Cooperatively park work at the engine's existing tensor/compute boundaries.
@@ -25,13 +26,17 @@ public:
     bool isPaused() const { return m_paused.load(); }
     bool isWaiting() const { return m_waiters.load() > 0; }
     bool waitUntilRunnable(const std::atomic_bool &cancelled) {
-        if (!m_paused || cancelled) return !cancelled;
+        return waitUntilRunnable(cancelled, {});
+    }
+    bool waitUntilRunnable(const std::atomic_bool &cancelled, std::stop_token stop) {
+        if (!m_paused || cancelled || stop.stop_requested()) return !cancelled && !stop.stop_requested();
+        std::stop_callback wake(stop, [this] { m_resumed.notify_all(); });
         std::unique_lock lock(m_mutex);
         ++m_waiters;
-        while (m_paused && !cancelled)
+        while (m_paused && !cancelled && !stop.stop_requested())
             m_resumed.wait_for(lock, std::chrono::milliseconds(20));
         --m_waiters;
-        return !cancelled;
+        return !cancelled && !stop.stop_requested();
     }
     Clock::duration pausedDuration() const {
         const std::lock_guard lock(m_mutex);

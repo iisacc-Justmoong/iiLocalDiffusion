@@ -77,6 +77,9 @@ class NativeVideoEngine:
         try:
             self.generate = self.library.iild_native_video_generate_v1
             self.generate.argtypes, self.generate.restype = [C.POINTER(Request), Progress, Frame, C.c_void_p], C.c_void_p
+            self.generate_low_vram = getattr(self.library, "iild_native_video_generate_low_vram_v1", None)
+            if self.generate_low_vram is not None:
+                self.generate_low_vram.argtypes, self.generate_low_vram.restype = self.generate.argtypes, C.c_void_p
             self.metadata = self.library.iild_native_video_metadata_v1
             self.metadata.argtypes, self.metadata.restype = [C.c_void_p], C.c_char_p
             self.free = self.library.iild_native_video_free_v1
@@ -85,6 +88,10 @@ class NativeVideoEngine:
             raise RuntimeError("This video checkpoint needs the current native iiLocalDiffusion SDK. Rebuild the SDK runtime.") from error
 
     def render(self, args, output, image_module, keyframes):
+        low_vram = args.offload == "sequential"
+        generate = getattr(self, "generate_low_vram", None) if low_vram else self.generate
+        if generate is None:
+            raise RuntimeError("Low VRAM requires an updated iiLocalDiffusion runtime; rebuild and reinstall the SDK.")
         plans = [native_shot_plan(shot, args.fps) for shot in args.shots]
         buffers, values = [], []
         for shot, plan in zip(args.shots, plans):
@@ -151,7 +158,7 @@ class NativeVideoEngine:
                           ("metal" if args.device == "mps" else args.device).encode(), args.dtype.encode(),
                           args.width, args.height, args.steps, 0, args.guidance_scale,
                           args.device == "cpu", args.vae_tiling, args.cpu_text_encoding, requests, len(values))
-        handle = self.generate(C.byref(request), callback, observer, None)
+        handle = generate(C.byref(request), callback, observer, None)
         if not handle:
             raise RuntimeError("Native video did not return a result.")
         try:

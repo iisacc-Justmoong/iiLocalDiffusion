@@ -24,6 +24,7 @@ from lora import resolve_lora_selection
 from weight_files import file_sha256, verify_weight_file
 from backend_registry import plan_native, family
 from resource_paths import OUTPUT_DIRECTORY
+from native_upscaler import NativeUpscaler, Options as UpscaleOptions, _RequestV3 as UpscaleRequestV3
 
 DEFAULT_OUTPUT = OUTPUT_DIRECTORY / "native/image.png"
 
@@ -51,6 +52,11 @@ class RequestV2(C.Structure):
 class RequestV3(C.Structure):
     _fields_ = [("size", C.c_size_t), ("image", RequestV2), ("sampler", C.c_int32),
                 ("flow_shift", C.c_float), ("sigmas", C.POINTER(C.c_float)), ("sigma_count", C.c_size_t)]
+
+
+class RequestHires(C.Structure):
+    _fields_ = [("size", C.c_size_t), ("image", RequestV3), ("upscaler", UpscaleRequestV3),
+                ("denoise_strength", C.c_float)]
 
 
 Progress = C.CFUNCTYPE(C.c_int, C.c_int, C.c_int, C.c_int, C.c_void_p)
@@ -142,7 +148,17 @@ class NativeEngine:
 
     # The native runtime, not this lightweight ctypes adapter, owns residency.
     # Replacing a request/session adapter must not evict model source memory.
-    def image(self, args, seed, *, prepare=False):
+    def image(self, args, seed, *, prepare=False, hires_upscaler=None, hires_options=None,
+              hires_denoise_strength=0.35):
+        if hires_upscaler is None and hires_options is not None:
+            raise ValueError("Hires options require an upscaler.")
+        if hires_upscaler is not None:
+            if not isinstance(hires_upscaler, NativeUpscaler):
+                raise TypeError("Hires requires a native upscaler provider.")
+            if prepare or not args.native_v2:
+                raise ValueError("Hires provider requires component-aware generation, not preparation.")
+            if not math.isfinite(hires_denoise_strength) or not 0 < hires_denoise_strength <= 1:
+                raise ValueError("Hires denoise strength must be in (0, 1].")
         last = [-1, 0.0]
         def progress(stage, step, total, _):
             now = time.monotonic()
@@ -180,19 +196,29 @@ class NativeEngine:
             function.restype = C.c_void_p
             paths = [args.components.get(slot, "").encode() or None for slot in ("clip_l", "clip_g", "t5xxl", "llm", "vae")]
             extended = RequestV2(C.sizeof(RequestV2), request, *paths, args.guidance_scale,
-                                 args.embedded_guidance, 0, args.device == "cpu",
+                                 args.embedded_guidance, hires_upscaler is not None, args.device == "cpu",
                                  {"auto": 0, "epsilon": 1, "v_prediction": 2}[args.prediction_type])
-            if getattr(args, "native_v3", False):
+            if getattr(args, "native_v3", False) or hires_upscaler is not None:
                 try:
-                    function = self.library.iild_native_generate_v3
+                    function = (self.library.iild_native_generate_hires_v1 if hires_upscaler is not None
+                                else self.library.iild_native_generate_v3)
                 except AttributeError as error:
-                    raise RuntimeError("These sampling controls require native SDK V3. Reinstall iiLocalDiffusion.") from error
-                function.argtypes = [C.POINTER(RequestV3), Progress, Preview, C.c_void_p]
+                    raise RuntimeError("These generation controls require an updated native SDK. Reinstall iiLocalDiffusion.") from error
+                function.argtypes = [C.POINTER(RequestHires if hires_upscaler is not None else RequestV3),
+                                     Progress, Preview, C.c_void_p]
                 function.restype = C.c_void_p
-                sigmas = (C.c_float * len(args.native_sigmas))(*args.native_sigmas)
+                explicit_sampling = getattr(args, "native_v3", False)
+                values = args.native_sigmas if explicit_sampling else []
+                sigmas = (C.c_float * len(values))(*values)
                 controlled = RequestV3(C.sizeof(RequestV3), extended,
-                    {"auto": 0, "euler": 1, "heun": 2}[args.native_sampler], args.native_flow_shift, sigmas, len(sigmas))
-                handle = function(C.byref(controlled), callback, preview_callback, None)
+                    {"auto": 0, "euler": 1, "heun": 2}[args.native_sampler] if explicit_sampling else 0,
+                    args.native_flow_shift if explicit_sampling else math.inf, sigmas, len(sigmas))
+                if hires_upscaler is not None:
+                    chosen = hires_upscaler._bridge_request(hires_options if hires_options is not None else UpscaleOptions())
+                    hires = RequestHires(C.sizeof(RequestHires), controlled, chosen, hires_denoise_strength)
+                    handle = function(C.byref(hires), callback, preview_callback, None)
+                else:
+                    handle = function(C.byref(controlled), callback, preview_callback, None)
             else:
                 handle = function(C.byref(extended), callback, preview_callback, None)
         else:

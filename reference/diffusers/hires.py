@@ -85,6 +85,29 @@ def upscale_images(images: list[Any], width: int, height: int, method: str) -> l
     return [image.resize((width, height), resample=filters[method]) for image in images]
 
 
+def upscale_images_with_provider(images: list[Any], width: int, height: int,
+                                 upscaler: Any, options: Any) -> tuple[list[Any], list[dict[str, Any]]]:
+    """Adapt explicit upscaler sessions to the existing pixel-based Hires stage."""
+    from PIL import Image
+    from native_upscaler import Image as UpscaleImage, upscale_image
+
+    if width <= 0 or height <= 0 or width * height * 3 > options.max_output_bytes:
+        raise ValueError("HiRes target exceeds the upscaler output byte limit.")
+    output, reports = [], []
+    for source in images:
+        if source.mode != "RGB":
+            source = source.convert("RGB")
+        actual, report = upscale_image(UpscaleImage(source.width, source.height, 3, source.tobytes()),
+                                       upscaler, options)
+        result = Image.frombytes("RGB", (actual.width, actual.height), actual.pixels)
+        resampled = result.size != (width, height)
+        if resampled:
+            result = result.resize((width, height), resample=Image.Resampling.LANCZOS)
+        output.append(result)
+        reports.append({**report, "hires_resampled": resampled, "hires_target_size": [width, height]})
+    return output, reports
+
+
 def refinement_call_arguments(preset: Any, request: Any, arguments: dict[str, Any],
                               images: list[Any]) -> dict[str, Any]:
     """Separate the generated source images from optional ControlNet guidance."""
@@ -125,10 +148,16 @@ def _run_hires_pass(
     device: str, dtype: Any, attention_slicing: bool, activation: Any,
     *, build_call: Callable, prepare_execution: Callable,
     pipeline_classes: dict[str, Any] | None = None, pass_index: int = 0,
+    upscaler: Any = None, upscale_options: Any = None,
 ) -> HiresResult:
     request = hires_request(preset, args, pass_index=pass_index)
     source_width, source_height = images[0].size
-    upscaled = upscale_images(images, request.width, request.height, args.hires_upscaler)
+    provider_reports = None
+    if upscaler is None:
+        upscaled = upscale_images(images, request.width, request.height, args.hires_upscaler)
+    else:
+        upscaled, provider_reports = upscale_images_with_provider(
+            images, request.width, request.height, upscaler, upscale_options)
     class_name = PIPELINES[(preset.family, args.controlnet_selection is not None)]
     if pipeline_classes is None:
         import diffusers
@@ -195,7 +224,7 @@ def _run_hires_pass(
     result.images = validate_stage_images(result, request.num_images, request.width, request.height)
     metadata = {
         "enabled": True,
-        "upscale": {"method": args.hires_upscaler, "requested_scale": args.hires_scale,
+        "upscale": {"method": args.hires_upscaler if upscaler is None else "provider", "requested_scale": args.hires_scale,
                     "source_size": [source_width, source_height],
                     "target_size": [request.width, request.height],
                     "actual_scale": [request.width / source_width, request.height / source_height],
@@ -213,6 +242,8 @@ def _run_hires_pass(
             "compatibility": compatibility,
         },
     }
+    if provider_reports is not None:
+        metadata["upscale"]["provider_reports"] = provider_reports
     return HiresResult(refined, result, request, metadata, optimization,
                        scheduler_metadata, conditioning, seeds)
 
@@ -222,6 +253,7 @@ def run_hires_fix(
     device: str, dtype: Any, attention_slicing: bool, activation: Any,
     *, build_call: Callable, prepare_execution: Callable,
     pipeline_classes: dict[str, Any] | None = None,
+    upscaler: Any = None, upscale_options: Any = None,
 ) -> HiresResult:
     """Apply the same refinement settings to the previous result for every pass.
 
@@ -230,6 +262,11 @@ def run_hires_fix(
     generators, then validates actual denoising and decoded output. A failure
     propagates before the caller can publish a partial chain as a final image.
     """
+    if upscaler is None and upscale_options is not None:
+        raise ValueError("HiRes upscale options require a provider.")
+    if upscaler is not None and upscale_options is None:
+        from native_upscaler import Options
+        upscale_options = Options()
     passes = getattr(args, "hires_passes", 1)
     if isinstance(passes, bool) or not isinstance(passes, int) or passes <= 0:
         raise ValueError("Resolve a positive --hires-passes count before refinement.")
@@ -239,10 +276,11 @@ def run_hires_fix(
     for index in range(passes):
         input_metadata = [image_metadata(image) for image in images]
         print(f"HiRes pass {index + 1}/{passes}", flush=True)
+        selected = {"upscaler": upscaler, "upscale_options": upscale_options} if upscaler is not None else {}
         refined = _run_hires_pass(
             pipeline, preset, args, images, torch, device, dtype, attention_slicing, activation,
             build_call=build_call, prepare_execution=prepare_execution,
-            pipeline_classes=pipeline_classes, pass_index=index)
+            pipeline_classes=pipeline_classes, pass_index=index, **selected)
         stages.append({"pass_index": index + 1, "input": input_metadata,
                        "upscale": refined.metadata["upscale"], "refinement": refined.metadata["refinement"],
                        "output": [image_metadata(image) for image in refined.result.images]})

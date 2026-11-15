@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Anima worker routing, retained model preparation and transactional queue output."""
 import io
+import ctypes as C
 import importlib.util
 import json
 import os
@@ -8,6 +9,7 @@ from pathlib import Path
 import sys
 import unittest
 from unittest.mock import patch, Mock
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).parent))
 import DownloadedModelTests as fixtures
@@ -19,6 +21,46 @@ from inference_worker import serve
 class NativeImageTests(unittest.TestCase):
     setUp = fixtures.DownloadedModelTests.setUp
     safetensors = fixtures.DownloadedModelTests.safetensors
+
+    def test_hires_provider_passes_sampling_and_model_options_to_native_bridge(self):
+        from native_upscaler import NativeUpscaler, Options
+        upscaler = NativeUpscaler.__new__(NativeUpscaler)
+        upscaler.kind, upscaler.model, upscaler.device = 6, '/models/swin.safetensors', 'metal'
+        upscaler.tile_size, upscaler.threads = 8, 3
+        upscaler.max_weight_bytes, upscaler.max_working_bytes = 1234567, 7654321
+        upscaler.srvgg_activation, upscaler.swinir_image_range, upscaler.swinir_qk_scale = 0, 255.0, .25
+        args = SimpleNamespace(progress=False, native_loras=[], model='/models/base.safetensors', prompt='hello',
+            negative_prompt='', generation_resources=None, width=64, height=64, steps=2, default_modifiers=False,
+            native_v2=True, native_v3=True, components={}, guidance_scale=1.5, embedded_guidance=3.5,
+            device='cpu', prediction_type='auto', native_sampler='heun', native_flow_shift=.8,
+            native_sigmas=[1.0, .5, 0.0])
+        engine = native_image.NativeEngine.__new__(native_image.NativeEngine)
+        engine.library = Mock()
+        seen = {}
+        def capture(pointer, *_):
+            value = C.cast(pointer, C.POINTER(native_image.RequestHires)).contents
+            selected = value.upscaler.upscaler.image
+            seen.update(hires=value.image.image.hires, sampler=value.image.sampler,
+                sigmas=[value.image.sigmas[i] for i in range(value.image.sigma_count)],
+                kind=selected.kind, model=selected.model, passes=selected.passes,
+                threads=selected.threads, device=selected.cpu, tile=selected.tile_size,
+                limit=value.upscaler.upscaler.max_working_bytes,
+                image_range=value.upscaler.swinir_image_range, qk=value.upscaler.swinir_qk_scale,
+                denoise=value.denoise_strength)
+            return 1
+        engine.library.iild_native_generate_hires_v1.side_effect = capture
+        engine.metadata = lambda _: b'{"error":"captured","cancelled":false}'
+        engine.free = Mock()
+        with self.assertRaisesRegex(RuntimeError, 'captured'):
+            engine.image(args, 17, hires_upscaler=upscaler, hires_options=Options(passes=2),
+                         hires_denoise_strength=.4)
+        self.assertEqual((seen['hires'], seen['sampler'], seen['sigmas']), (1, 2, [1.0, .5, 0.0]))
+        self.assertEqual((seen['kind'], seen['model'], seen['passes'], seen['threads'], seen['limit']),
+                         (6, b'/models/swin.safetensors', 2, 3, 7654321))
+        self.assertEqual((seen['device'], seen['tile']), (2, 8))
+        self.assertEqual((seen['image_range'], seen['qk']), (255.0, .25))
+        self.assertAlmostEqual(seen['denoise'], .4)
+        engine.free.assert_called_once_with(1)
 
     def test_adapter_collection_does_not_release_runtime_sources(self):
         import gc

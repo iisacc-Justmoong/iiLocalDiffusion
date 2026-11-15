@@ -35,4 +35,8 @@ using NativeVideoFrameObserver = std::function<void(std::size_t shot, int index,
 [[nodiscard]] IILD_EXPORT NativeVideoResult generateNativeVideo(const NativeVideoRequest &request,
     const std::atomic_bool &cancelled, const NativeProgressCallback &progress,
     const NativeVideoFrameObserver &frame);
+// Opt-in bounded-residency execution; the standard request ABI remains unchanged.
+[[nodiscard]] IILD_EXPORT NativeVideoResult generateNativeVideoLowVram(const NativeVideoRequest &request,
+    const std::atomic_bool &cancelled, const NativeProgressCallback &progress,
+    const NativeVideoFrameObserver &frame);
 }

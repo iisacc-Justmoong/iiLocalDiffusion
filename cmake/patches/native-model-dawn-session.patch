@@ -1,0 +1,55 @@
+--- a/ggml/src/ggml-webgpu/ggml-webgpu.cpp
++++ b/ggml/src/ggml-webgpu/ggml-webgpu.cpp
+@@ -4681,12 +4681,18 @@
+ 
+     ggml_backend_webgpu_reg_context * reg_ctx = static_cast<ggml_backend_webgpu_reg_context *>(reg->context);
+ 
+-    create_webgpu_device(reg_ctx);
++    static std::mutex device_mutex;
++    const std::lock_guard<std::mutex> lock(device_mutex);
++    if (reg_ctx->webgpu_global_ctx->device == nullptr) {
++        create_webgpu_device(reg_ctx);
++    }
+ 
+     static ggml_backend_webgpu_device_context device_ctx;
+-    device_ctx.device_name            = GGML_WEBGPU_NAME;
+-    device_ctx.device_desc            = GGML_WEBGPU_NAME;
+-    device_ctx.webgpu_global_ctx      = reg_ctx->webgpu_global_ctx;
++    if (device_ctx.webgpu_global_ctx == nullptr) {
++        device_ctx.device_name       = GGML_WEBGPU_NAME;
++        device_ctx.device_desc       = GGML_WEBGPU_NAME;
++        device_ctx.webgpu_global_ctx = reg_ctx->webgpu_global_ctx;
++    }
+     // See GGML Backend Device Interface section
+     static ggml_backend_device device = {
+         /* .iface   = */ ggml_backend_webgpu_device_i,
+@@ -4710,6 +4716,9 @@
+ ggml_backend_reg_t ggml_backend_webgpu_reg() {
+     WEBGPU_LOG_DEBUG("ggml_backend_webgpu_reg()");
+ 
++    static std::mutex registry_mutex;
++    const std::lock_guard<std::mutex> lock(registry_mutex);
++
+     // Intentionally leak the global registry context to avoid crashing inside
+     // Dawn/Vulkan static teardown during process exit.
+     static ggml_backend_webgpu_reg_context * ctx = new ggml_backend_webgpu_reg_context();
+@@ -4719,9 +4728,6 @@
+         /* .iface       = */ ggml_backend_webgpu_reg_i,
+         /* .context     = */ ctx,
+     };
+-
+-    ctx->name         = GGML_WEBGPU_NAME;
+-    ctx->device_count = 0;
+ 
+     // Keep one Dawn/WebGPU instance alive for the lifetime of the static backend
+     // registry. Recreating it on repeated registry lookups can invalidate
+@@ -4729,6 +4735,9 @@
+     if (ctx->webgpu_global_ctx != nullptr && ctx->webgpu_global_ctx->instance != nullptr) {
+         return &reg;
+     }
++
++    ctx->name         = GGML_WEBGPU_NAME;
++    ctx->device_count = 0;
+ 
+     wgpu::InstanceDescriptor               instance_descriptor{};
+     std::vector<wgpu::InstanceFeatureName> instance_features = { wgpu::InstanceFeatureName::TimedWaitAny };

@@ -41,7 +41,7 @@ Family-specific defaults, activation checks, and examples are described in
 [the LoRA contract](docs/lora.md). The supplied SDXL adapter still requires an
 SDXL base; other architectures use their own compatible adapters.
 
-App consumers can also use [in-process native image inference](docs/native-image-generation.md), including iOS builds with `IILD_ENABLE_NATIVE_DIFFUSION=ON`.
+App consumers can also use [in-process native image inference](docs/native-image-generation.md), including iOS builds with `IILD_ENABLE_NATIVE_DIFFUSION=ON`, and [pluggable image upscalers](docs/native-image-generation.md#업스케일러-호환성-계약) with Hires integration, tiled SRVGG/SwinIR CPU and optional Metal, DirectX 12, and Vulkan acceleration, resource limits and cancellation.
 
 See [architecture-aware backend routing](docs/backend-routing.md) for SD1/2/XL/3,
 FLUX.1/Krea, FLUX.2/Klein, Z-Image, Qwen Image, Chroma, Krea 2 and Anima,

@@ -1,0 +1,58 @@
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -598,6 +598,12 @@
+                            int* num_frames_out,
+                            sd_audio_t** audio_out);
+ 
++// Thread-local, borrowed callback for an explicit iiLocalDiffusion Hires pass.
++// The engine owns output storage of width*height*3 bytes for the callback.
++typedef bool (*iild_hires_upscale_callback_t)(sd_image_t input, uint32_t width, uint32_t height,
++                                              uint8_t* output, void* user);
++SD_API void iild_set_hires_upscale_callback(iild_hires_upscale_callback_t callback, void* user);
++
+ typedef struct upscaler_ctx_t upscaler_ctx_t;
+ 
+ SD_API upscaler_ctx_t* new_upscaler_ctx(const char* esrgan_path,
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -4051,6 +4051,13 @@
+     StableDiffusionGGML* sd = nullptr;
+ };
+ 
++static thread_local iild_hires_upscale_callback_t iild_hires_callback = nullptr;
++static thread_local void* iild_hires_callback_user = nullptr;
++SD_API void iild_set_hires_upscale_callback(iild_hires_upscale_callback_t callback, void* user) {
++    iild_hires_callback = callback;
++    iild_hires_callback_user = user;
++}
++
+ SD_API void sd_set_prompt_weighting(sd_ctx_t* sd_ctx, bool enabled) {
+     if (sd_ctx && sd_ctx->sd && sd_ctx->sd->cond_stage_model)
+         sd_ctx->sd->cond_stage_model->prompt_weighting = enabled;
+@@ -5992,7 +5999,25 @@
+         }
+ 
+         sd::Tensor<float> upscaled_tensor;
+-        if (request.hires.upscaler == SD_HIRES_UPSCALER_MODEL) {
++        if (iild_hires_callback) {
++            if (decoded.shape().size() != 4 || decoded.shape()[2] != 3 || decoded.shape()[3] != 1 ||
++                request.hires.target_width <= 0 || request.hires.target_height <= 0) {
++                LOG_ERROR("external hires upscaler requires one RGB image");
++                return {};
++            }
++            sd_image_t input = tensor_to_sd_image(decoded);
++            const size_t output_size = size_t(request.hires.target_width) * size_t(request.hires.target_height) * 3;
++            std::vector<uint8_t> output(output_size);
++            const bool ok = iild_hires_callback(input, uint32_t(request.hires.target_width),
++                                                uint32_t(request.hires.target_height), output.data(), iild_hires_callback_user);
++            free(input.data);
++            if (!ok) {
++                LOG_ERROR("external hires upscaler failed");
++                return {};
++            }
++            sd_image_t image{uint32_t(request.hires.target_width), uint32_t(request.hires.target_height), 3, output.data()};
++            upscaled_tensor = sd_image_to_tensor(image);
++        } else if (request.hires.upscaler == SD_HIRES_UPSCALER_MODEL) {
+             upscaled_tensor = upscaler->upscale_tensor(decoded);
+             if (upscaled_tensor.empty()) {
+                 LOG_ERROR("hires model upscale failed");

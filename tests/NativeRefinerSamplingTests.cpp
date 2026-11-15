@@ -528,6 +528,18 @@ void generation(ggml_backend_t backend) {
         params.hires.enabled = hires; params.hires.upscaler = SD_HIRES_UPSCALER_LANCZOS;
         params.hires.target_width = params.hires.target_height = 128;
         params.hires.custom_sigmas = sigmas; params.hires.custom_sigmas_count = 5;
+        struct HiresProbe { int calls = 0; bool fail = false; bool valid = true; } probe;
+        struct ResetHires { ~ResetHires() { iild_set_hires_upscale_callback(nullptr, nullptr); } } resetHires;
+        if (hires) iild_set_hires_upscale_callback([](sd_image_t image, uint32_t width, uint32_t height,
+                                                       uint8_t* output, void* opaque) {
+            auto &state = *static_cast<HiresProbe*>(opaque);
+            ++state.calls;
+            state.valid = state.valid && image.data && image.width == 64 && image.height == 64 && image.channel == 3
+                && output && width == 128 && height == 128;
+            if (state.fail || !state.valid) return false;
+            std::fill(output, output + size_t(width)*height*3, 73);
+            return true;
+        }, &probe);
         sd_image_t* images = nullptr; int count = 0;
         require(generate_image_with_refiner(&base_ctx, &refiner_ctx, switch_at, &params, &images, &count, "user negative"),
             "Full native Refiner generation failed");
@@ -536,6 +548,7 @@ void generation(ggml_backend_t backend) {
             require(images[i].data && images[i].channel == 3 && images[i].width == (hires ? 128u : 64u)
                 && images[i].height == images[i].width, "Final Refiner output shape changed");
         free_sd_images(images, count);
+        require(!hires || (probe.calls == 2 && probe.valid), "Injected Hires provider did not receive each decoded image");
         const int base_steps = switch_at == 0 ? 0 : switch_at == 1 ? 4 : 2;
         require(base_runner->calls == ((hires ? 4 : 0) + base_steps) * 4
             && refiner_runner->calls == (4 - base_steps) * 4,
@@ -561,6 +574,12 @@ void generation(ggml_backend_t backend) {
         for (auto size : refiner_conditioner->sizes)
             require(size == std::pair<int, int>{hires ? 128 : 64, hires ? 128 : 64}, "Wrong Refiner ADM image size");
 
+        if (hires) {
+            probe.fail = true; images = nullptr; count = 0;
+            require(!generate_image_with_refiner(&base_ctx, &refiner_ctx, switch_at, &params, &images, &count, "user negative")
+                    && !images && count == 0, "Hires provider failure published a result");
+            iild_set_hires_upscale_callback(nullptr, nullptr);
+        }
         params.hires.enabled = false; params.batch_count = 1;
         refiner_runner->fail = true; const auto decodes_before = base_vae->decodes;
         images = nullptr; count = 0;

@@ -38,6 +38,12 @@ class NativeVideoTests(unittest.TestCase):
         self.assertIsNone(args.text_encoder)
         self.assertEqual(model_metadata(self.model)["model_version"], "2.3.0")
 
+    def test_low_vram_flag_sets_execution_controls(self):
+        args = self.options("--low-vram", "--no-cpu-text-encoding", "--no-vae-tiling")
+        self.assertEqual(args.offload, "sequential")
+        self.assertTrue(args.cpu_text_encoding)
+        self.assertTrue(args.vae_tiling)
+
     def test_python_request_layout_reaches_the_real_cpp_adapter(self):
         library = Path(os.environ["IILD_NATIVE_LIBRARY"]) if os.environ.get("IILD_NATIVE_LIBRARY") else (
             ROOT / "build" / ("iiLocalDiffusion.dll" if sys.platform == "win32" else
@@ -118,6 +124,40 @@ class NativeVideoTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "complete"):
             engine.render(args, output, Image, {})
         self.assertEqual(freed, [1])
+
+    def test_sequential_offload_selects_low_vram_entrypoint(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow is required")
+        args = self.options("--offload", "sequential")
+        output = SimpleNamespace(frames=self.root / "frames")
+        provider.mkdir(output.frames)
+        engine = NativeVideoEngine.__new__(NativeVideoEngine)
+        engine.generate = lambda *unused: self.fail("Standard entry point was used for Low VRAM")
+        calls = []
+        def generate_low(request, progress, frame, user):
+            calls.append(True)
+            data = C.create_string_buffer(bytes([42]) * (32 * 32 * 3))
+            for index in range(9):
+                frame(0, index, 32, 32, data, 32 * 32 * 3, None)
+            return 1
+        engine.generate_low_vram = generate_low
+        engine.metadata = lambda _: b'{"error":"","cancelled":false,"frame_counts":[9],"memory_mode":"low-vram"}'
+        engine.free = lambda _: None
+        _, result = engine.render(args, output, Image, {})
+        self.assertEqual(calls, [True])
+        self.assertEqual(result["memory_mode"], "low-vram")
+
+    def test_old_runtime_rejects_low_vram_without_silent_fallback(self):
+        args = self.options("--offload", "sequential")
+        output = SimpleNamespace(frames=self.root / "frames")
+        provider.mkdir(output.frames)
+        engine = NativeVideoEngine.__new__(NativeVideoEngine)
+        engine.generate = lambda *unused: self.fail("Low VRAM must not silently use the standard entry point")
+        engine.generate_low_vram = None
+        with self.assertRaisesRegex(RuntimeError, "Low VRAM.*runtime"):
+            engine.render(args, output, None, {})
 
     def test_preparing_counts_and_completed_graph_batches_reach_worker_protocol(self):
         from PIL import Image

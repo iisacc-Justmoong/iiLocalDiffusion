@@ -1,6 +1,7 @@
 #pragma once
 #include "Export.hpp"
 #include "NativeExecutionControl.hpp"
+#include "NativeUpscaler.hpp"
 #include "ImageParameters.hpp"
 #include <atomic>
 #include <cstdint>
@@ -187,6 +188,29 @@ IILD_EXPORT NativeGenerationResult generateNativeAdvancedImage(const NativeGener
     const NativeAdvancedControls &advanced, NativeComputeBackend backend,
     const std::atomic_bool &cancelled, const NativeProgressCallback &progress = {},
     const NativePreviewCallback &preview = {}, const std::shared_ptr<NativeExecutionControl> &control = {});
+struct NativeHiresUpscalerReport {
+    std::string upscaler;
+    std::vector<UpscalePass> passes;
+    std::map<std::string, std::string> details;
+    double appliedScale = 0;
+    std::uint32_t targetWidth = 0, targetHeight = 0;
+    bool resampled = false;
+};
+// Runs the supplied provider between VAE decode and Hires re-encoding.
+IILD_EXPORT NativeGenerationResult generateNativeAdvancedImageWithUpscaler(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const NativeModelComponents &components,
+    const NativeAdvancedControls &advanced, Upscaler &upscaler, const UpscaleOptions &upscaleOptions,
+    NativeComputeBackend backend, const std::atomic_bool &cancelled, NativeHiresUpscalerReport *report = nullptr,
+    const NativeProgressCallback &progress = {}, const NativePreviewCallback &preview = {},
+    const std::shared_ptr<NativeExecutionControl> &control = {}, std::stop_token stop = {});
+// Resident-weight variant preserves the caller's explicit sampling controls.
+IILD_EXPORT NativeGenerationResult generateNativeResidentImageWithUpscaler(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const NativeModelComponents &components,
+    const NativeSamplingControls &sampling, float denoiseStrength, Upscaler &upscaler,
+    const UpscaleOptions &upscaleOptions, NativeComputeBackend backend, const std::atomic_bool &cancelled,
+    NativeHiresUpscalerReport *report = nullptr, const NativeProgressCallback &progress = {},
+    const NativePreviewCallback &preview = {}, const std::shared_ptr<NativeExecutionControl> &control = {},
+    std::stop_token stop = {});
 IILD_EXPORT NativeGenerationResult generateNativeImageWithComponents(const NativeGenerationRequest &request,
     const NativeGenerationOptions &options, const NativeModelComponents &components,
     NativeComputeBackend backend, const std::atomic_bool &cancelled, bool prepareOnly = false,

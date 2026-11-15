@@ -23,6 +23,7 @@ void *evalUser = nullptr;
 sd_log_cb_t logCallback = nullptr;
 void *logUser = nullptr;
 std::string backend, paramsBackend, encoder;
+bool prefetchDisabled = false, tiledDecode = false;
 std::timed_mutex engineMutex;
 void require(bool condition, const char *message) { if (!condition) throw std::runtime_error(message); }
 std::string safetensors(const char *name, const std::string &payload) {
@@ -63,6 +64,7 @@ void sd_vid_gen_params_init(sd_vid_gen_params_t *value) { *value = {}; }
 sd_ctx_t *new_sd_ctx(const sd_ctx_params_t *value) {
     ++loaded; backend = value->backend ? value->backend : "";
     paramsBackend = value->params_backend ? value->params_backend : "";
+    prefetchDisabled = value->disable_prefetch;
     encoder = value->llm_path ? value->llm_path : "";
     return new sd_ctx_t;
 }
@@ -78,6 +80,7 @@ sd_type_t str_to_sd_type(const char *type) {
 }
 bool generate_video(sd_ctx_t *, const sd_vid_gen_params_t *parameters, sd_image_t **output, int *count, sd_audio_t **) {
     ++generated;
+    tiledDecode = parameters->vae_tiling_params.enabled;
     if (generated > 1 && parameters->init_image.data) continued = parameters->init_image.data[0] == 42;
     require(parameters->sample_params.sample_steps == 2, "Sampling steps must reach native engine");
     require(parameters->sample_params.guidance.txt_cfg == 3, "Guidance must reach native engine");
@@ -87,7 +90,9 @@ bool generate_video(sd_ctx_t *, const sd_vid_gen_params_t *parameters, sd_image_
         const std::string oversized(3000, 'w');
         logCallback(SD_LOG_WARN, oversized.c_str(), logUser);
     }
-    if (logCallback) logCallback(SD_LOG_WARN, "model manager cannot make enough memory available on Metal", logUser);
+    if (logCallback && failure != 4) logCallback(SD_LOG_WARN, "model manager cannot make enough memory available on Metal", logUser);
+    if (failure == 3 && backend != "cpu") return false;
+    if (failure == 4 || failure == 5) return false;
     if (failure == 1) {
         if (logCallback) {
             const std::string oversized(3000, 'e');
@@ -233,8 +238,92 @@ int main(int argc, char **argv) {
         result = iiLocalDiffusion::generateNativeVideo(placement, cancelled, {}, observer);
         require(result.error.empty() && backend.empty() && paramsBackend.empty(),
             "Automatic placement without overrides must keep the engine auto-fit contract");
+        auto lowVram = placement; lowVram.vaeTiling = false; lowVram.shots.resize(1);
+        result = iiLocalDiffusion::generateNativeVideoLowVram(lowVram, cancelled, {}, observer);
+        require(result.error.empty() && backend == "te=cpu,vae=cpu" &&
+                    paramsBackend == "te=disk,diffusion=disk,vae=disk" && prefetchDisabled && tiledDecode,
+            "Low VRAM must offload text, VAE and weights, disable prefetch and enable tiled decode");
+        lowVram.backend = "metal";
+        result = iiLocalDiffusion::generateNativeVideoLowVram(lowVram, cancelled, {}, observer);
+        require(result.error.empty() && backend == "te=cpu,diffusion=metal,vae=cpu" && prefetchDisabled,
+            "Low VRAM must preserve an explicitly selected compute device");
+        lowVram.cpu = true;
+        result = iiLocalDiffusion::generateNativeVideoLowVram(lowVram, cancelled, {}, observer);
+        require(result.error.empty() && backend == "cpu" && paramsBackend == "te=disk,diffusion=disk,vae=disk",
+            "Low VRAM must preserve an explicit CPU request");
+#if !defined(_WIN32)
+        // POSIX test files are sparse; do not allocate a multi-GiB fixture on
+        // platforms where resize_file may reserve the entire extent.
+        const auto largeModel = root / "large-sparse-fixture.safetensors";
+        File::write(largeModel, "fixture model");
+        fs::resize_file(largeModel, (4ull << 30) + 1);
+        auto large = placement; large.modelPath = largeModel; large.shots.resize(1);
+        result = iiLocalDiffusion::generateNativeVideo(large, cancelled, {}, observer);
+        require(result.error.empty() && backend.empty() && paramsBackend.empty(),
+            "Large fully automatic requests must preserve engine auto-fit");
+        large.cpuTextEncoding = true;
+        result = iiLocalDiffusion::generateNativeVideo(large, cancelled, {}, observer);
+        require(result.error.empty() && backend == "te=cpu" && paramsBackend == "te=disk,diffusion=disk",
+            "A large explicitly placed video checkpoint must use disk-backed weights");
+        large.cpu = true;
+        result = iiLocalDiffusion::generateNativeVideo(large, cancelled, {}, observer);
+        require(result.error.empty() && backend == "cpu" && paramsBackend == "te=disk,diffusion=disk",
+            "A large CPU video checkpoint must stream its text and diffusion weights");
+        fs::remove(largeModel);
+#endif
+        failure = 3;
+        const auto attemptsBefore = generated;
+        placement.shots.resize(1);
+        int fallbackBatches = 0;
+        result = iiLocalDiffusion::generateNativeVideo(placement, cancelled, [&](const auto &event) {
+            if (event.stage == iiLocalDiffusion::NativeGenerationStage::Computing) ++fallbackBatches;
+        }, observer);
+        require(result.error.empty() && generated == attemptsBefore + 2 && backend == "cpu" &&
+                    paramsBackend == "te=disk,diffusion=disk" && loaded == destroyed && fallbackBatches == 1 && !evalCallback,
+            "Automatic GPU budget failure must retry with CPU compute and disk-backed diffusion weights");
+        const auto otherFailure = generated;
+        failure = 4;
+        result = iiLocalDiffusion::generateNativeVideo(placement, cancelled, {}, observer);
+        require(!result.error.empty() && generated == otherFailure + 1,
+            "Unrelated failures must not trigger a disk-backed retry");
+        const auto explicitFailure = generated;
+        failure = 3; placement.backend = "metal";
+        result = iiLocalDiffusion::generateNativeVideo(placement, cancelled, {}, observer);
+        require(!result.error.empty() && generated == explicitFailure + 1 && backend == "metal",
+            "Explicit GPU selection must not silently change to CPU");
+        placement.backend = "auto"; failure = 5;
+        result = iiLocalDiffusion::generateNativeVideo(placement, cancelled, {}, observer);
+        require(result.error.find("Initial GPU failure") != std::string::npos &&
+                    result.error.find("Fallback failure") != std::string::npos && loaded == destroyed,
+            "Both attempts must be reported when the disk-backed fallback also fails");
+        failure = 0;
+        const auto modelPath = model.string(), encoderPath = textEncoder.string();
+        iild_native_video_shot_v1 abiShot{};
+        abiShot.prompt = "ABI shot"; abiShot.negative_prompt = "noise";
+        abiShot.frames = 9; abiShot.fps = 24; abiShot.conditioning_strength = 1;
+        iild_native_video_request_v1 abiRequest{};
+        abiRequest.size = sizeof(abiRequest); abiRequest.model = modelPath.c_str();
+        abiRequest.text_encoder = encoderPath.c_str(); abiRequest.backend = "auto";
+        abiRequest.precision = "auto"; abiRequest.width = abiRequest.height = 32;
+        abiRequest.steps = 2; abiRequest.guidance_scale = 3;
+        abiRequest.shots = &abiShot; abiRequest.shot_count = 1;
+        const auto abiFrame = [](size_t, int32_t, int32_t, int32_t, const uint8_t*, size_t, void*) { return 0; };
+        auto *abi = iild_native_video_generate_low_vram_v1(&abiRequest, nullptr, abiFrame, nullptr);
+        require(abi && std::string(iild_native_video_metadata_v1(abi)).find("low-vram") != std::string::npos &&
+                    backend == "te=cpu,vae=cpu" && paramsBackend == "te=disk,diffusion=disk,vae=disk" && prefetchDisabled,
+            "Low VRAM C ABI must reach the real video adapter without changing the request layout");
+        iild_native_video_free_v1(abi);
+        abi = iild_native_video_generate_v1(&abiRequest, nullptr, abiFrame, nullptr);
+        require(abi && std::string(iild_native_video_metadata_v1(abi)).find("standard") != std::string::npos &&
+                    backend.empty() && paramsBackend.empty() && !prefetchDisabled,
+            "Existing C ABI must preserve standard placement");
+        iild_native_video_free_v1(abi);
         auto *invalid = iild_native_video_generate_v1(nullptr, nullptr, nullptr, nullptr);
         require(invalid && std::string(iild_native_video_metadata_v1(invalid)).find("Invalid native video ABI") != std::string::npos, "C ABI rejects invalid request");
+        iild_native_video_free_v1(invalid);
+        invalid = iild_native_video_generate_low_vram_v1(nullptr, nullptr, nullptr, nullptr);
+        require(invalid && std::string(iild_native_video_metadata_v1(invalid)).find("low-vram") != std::string::npos,
+            "Low VRAM C ABI must report its execution mode even for invalid requests");
         iild_native_video_free_v1(invalid);
         std::cout << "Native video frames, batch, continuity, cleanup, cancellation and ABI checks passed\n";
         return 0;

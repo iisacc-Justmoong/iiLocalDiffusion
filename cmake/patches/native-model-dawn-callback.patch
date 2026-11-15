@@ -1,0 +1,15 @@
+--- a/ggml/src/ggml-webgpu/ggml-webgpu.cpp
++++ b/ggml/src/ggml-webgpu/ggml-webgpu.cpp
+@@ -3995,9 +3995,10 @@
+ 
+     instance.WaitAny(instance.RequestAdapter(
+                          &options, wgpu::CallbackMode::AllowSpontaneous,
+-                         [&adapter](wgpu::RequestAdapterStatus status, wgpu::Adapter _adapter, const char * message) {
++                         [&adapter](wgpu::RequestAdapterStatus status, wgpu::Adapter _adapter, wgpu::StringView message) {
+                              if (status != wgpu::RequestAdapterStatus::Success) {
+-                                 GGML_LOG_ERROR("ggml_webgpu: Failed to get an adapter: %s\n", message);
++                                 const std::string error(message);
++                                 GGML_LOG_ERROR("ggml_webgpu: Failed to get an adapter: %s\n", error.c_str());
+                                  return;
+                              }
+                              adapter = std::move(_adapter);

@@ -1,5 +1,6 @@
 #pragma once
 #include "Export.hpp"
+#include "NativeUpscalerBridge.hpp"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -55,6 +56,17 @@ typedef struct iild_native_request_v3 {
     size_t sigma_count;
 } iild_native_request_v3;
 IILD_EXPORT iild_native_result_v1 *iild_native_generate_v3(const iild_native_request_v3 *,
+    iild_native_progress_v1, iild_native_preview_v1, void *user);
+// Input pixels and dimensions in upscaler.upscaler.image are ignored: the
+// intermediate image comes from the Hires VAE decode. The rest is identical
+// to the standalone V3 upscaler contract. Preparation is a separate request.
+typedef struct iild_native_hires_request_v1 {
+    size_t size;
+    iild_native_request_v3 image;
+    iild_upscale_request_v3 upscaler;
+    float denoise_strength;
+} iild_native_hires_request_v1;
+IILD_EXPORT iild_native_result_v1 *iild_native_generate_hires_v1(const iild_native_hires_request_v1 *,
     iild_native_progress_v1, iild_native_preview_v1, void *user);
 
 IILD_EXPORT int iild_native_available_v1(void);

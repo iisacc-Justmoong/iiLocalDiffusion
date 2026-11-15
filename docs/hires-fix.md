@@ -22,6 +22,24 @@ Python의 `--no-hires-fix`는 명시적인 단일 단계 실행이다. `--hires-
 
 ## 명시적 크기 조정 재정의
 
+<a id="hires-provider-injection"></a>
+
+### 호출자가 지정하는 업스케일러
+
+네이티브 C++ Hires와 컴포넌트 인식 Python 네이티브 생성기는
+[업스케일러 호환성 계약](native-image-generation.md#hires-provider)에 설명한
+제공자·모델 설정을 받는다. 기존 Diffusers Python API의 `run_hires_fix`에도
+`upscaler=`와 `upscale_options=`를 전달할 수 있다. 이 경로는 각 입력 이미지와
+패스에 대해 `native_upscaler.upscale_image`를 호출하며, 모델의 실제 출력 크기가
+Hires 목표와 다르면 Lanczos로 맞춘다. `hires_fix.stages[*].upscale.provider_reports`에는
+선택된 제공자의 보고서와 목표 크기·추가 재샘플링 여부가 남는다. 제공자 오류는
+보정 전에 전파되며 다른 모델이나 보간 방식으로 대체하지 않는다.
+
+이 선택은 함수 API이며 기존 `--hires-upscaler` CLI 선택지는 그대로다. 관리형
+ComfyUI의 별도 워크플로는 이 제공자 주입 기능을 사용하지 않는다. SRVGG와
+SwinIR의 타일 크기와 CPU·GPU 장치 선택은 동일한 제공자 설정으로 Hires에
+전달되며, 실제 장치와 재샘플링 결과는 제공자 보고서에 포함된다.
+
 Hires Fix 는 먼저 `--width` / `--height` 에서 생성한 후, 결과 RGB 이미지를 리사이즈하고, 리사이즈된 크기로 이미지-이미지 확산을 수행합니다. `--hires-passes N` 는 베이스 이미지 이후 추가 리파인먼트 패스의 수를 선택합니다. 활성화되면 기본값은 1 로, 원래 베이스 플러스 하나 리파인먼트 동작을 유지합니다. 각 패스는 이전 패스의 디코딩된 이미지를 가져와 리사이즈하고, 선택된 VAE 로 인코딩한 후 리파인먼트 전에 노이즈를 추가합니다. 각 패스는 동일한 구성된 리사이즈 및 img2img 설정을 사용하며, 새로운 스케줄러와 생성기 상태를 사용합니다. 강도 0 는 거부됩니다.
 
 ```bash

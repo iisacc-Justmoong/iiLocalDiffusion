@@ -101,6 +101,10 @@ add_library(iiLocalDiffusion SHARED
     src/Flux/FluxModelManifest.cpp
     src/Generation/GenerationIO.cpp
     src/Generation/NativeDiffusion.cpp
+    src/Generation/NativeUpscaler.cpp
+    src/Generation/NativeModelUpscaler.cpp
+    src/Generation/NativeSwinIR.cpp
+    src/Generation/NativeUpscalerBridge.cpp
     src/Generation/NativeImageEngineReport.cpp
     src/Generation/NativeImageBridge.cpp
     src/Generation/NativeVideo.cpp
@@ -118,12 +122,17 @@ add_library(iiLocalDiffusion SHARED
 add_library(iiLocalDiffusion::iiLocalDiffusion ALIAS iiLocalDiffusion)
 target_compile_definitions(iiLocalDiffusion PRIVATE
     IILD_HAS_NATIVE_DIFFUSION=$<BOOL:${IILD_ENABLE_NATIVE_DIFFUSION}>
+    IILD_HAS_MODEL_GPU=$<BOOL:${IILD_ENABLE_NATIVE_DIFFUSION}>
+    IILD_MODEL_METAL_ENABLED=$<BOOL:${APPLE}>
+    IILD_MODEL_VULKAN_ENABLED=$<BOOL:${SD_VULKAN}>
+    IILD_MODEL_DIRECTX_ENABLED=$<BOOL:${IILD_MODEL_GPU_DIRECTX}>
     IILD_NATIVE_CPU_VAE=$<STREQUAL:${CMAKE_SYSTEM_NAME},iOS>)
 target_compile_definitions(iiLocalDiffusion PRIVATE
     IILD_BUILD_LIBRARY_DIRECTORY="$<TARGET_FILE_DIR:iiLocalDiffusion>"
     IILD_BUILD_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources")
 target_link_libraries(iiLocalDiffusion PRIVATE ${CMAKE_DL_LIBS})
 if(IILD_ENABLE_NATIVE_DIFFUSION)
+    target_sources(iiLocalDiffusion PRIVATE src/Generation/NativeModelGpu.cpp)
     target_link_libraries(iiLocalDiffusion PRIVATE stable-diffusion zip)
     if(APPLE)
         target_sources(iiLocalDiffusion PRIVATE src/Generation/NativeResources.mm)
@@ -133,6 +142,60 @@ if(IILD_ENABLE_NATIVE_DIFFUSION)
     endif()
 endif()
 if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(NativeModelCancellationTests tests/NativeModelCancellationTests.cpp
+        src/Generation/NativeUpscaler.cpp src/Generation/NativeModelUpscaler.cpp src/Generation/NativeSwinIR.cpp)
+    target_include_directories(NativeModelCancellationTests PRIVATE src)
+    target_compile_features(NativeModelCancellationTests PRIVATE cxx_std_23)
+    target_compile_definitions(NativeModelCancellationTests PRIVATE IILD_HAS_NATIVE_DIFFUSION=0 iiLocalDiffusion_EXPORTS)
+    target_link_libraries(NativeModelCancellationTests PRIVATE Threads::Threads ${IILD_JSON_C_TARGET})
+    iild_resource_test(NativeModelCancellationTests NativeModelCancellationTests "@WORK@")
+    add_executable(NativeModelUpscalerTests tests/NativeModelUpscalerTests.cpp)
+    target_compile_features(NativeModelUpscalerTests PRIVATE cxx_std_23)
+    target_link_libraries(NativeModelUpscalerTests PRIVATE iiLocalDiffusion)
+    iild_resource_test(NativeModelUpscalerTests NativeModelUpscalerTests "@WORK@")
+    if(IILD_ENABLE_NATIVE_DIFFUSION AND (APPLE OR IILD_MODEL_GPU_DIRECTX OR IILD_MODEL_GPU_VULKAN) AND NOT CMAKE_CROSSCOMPILING)
+        add_executable(NativeModelGpuTests tests/NativeModelGpuTests.cpp)
+        target_compile_features(NativeModelGpuTests PRIVATE cxx_std_23)
+        target_link_libraries(NativeModelGpuTests PRIVATE iiLocalDiffusion)
+        if(APPLE)
+            iild_resource_test(NativeModelGpuTests NativeModelGpuTests "@WORK@" metal)
+            iild_resource_script_test(NativeModelMetalPythonTests "${CMAKE_COMMAND}" -E env
+                "IILD_NATIVE_LIBRARY=$<TARGET_FILE:iiLocalDiffusion>" "IILD_TEST_WORKSPACE=@WORK@" "IILD_TEST_GPU=metal"
+                "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/NativeModelGpuPythonTests.py")
+        endif()
+        if(IILD_MODEL_GPU_DIRECTX)
+            iild_resource_test(NativeModelDirectXTests NativeModelGpuTests "@WORK@" directx)
+            iild_resource_script_test(NativeModelDirectXPythonTests "${CMAKE_COMMAND}" -E env
+                "IILD_NATIVE_LIBRARY=$<TARGET_FILE:iiLocalDiffusion>" "IILD_TEST_WORKSPACE=@WORK@" "IILD_TEST_GPU=directx"
+                "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/NativeModelGpuPythonTests.py")
+        endif()
+        if(IILD_MODEL_GPU_VULKAN)
+            iild_resource_test(NativeModelVulkanTests NativeModelGpuTests "@WORK@" vulkan)
+            iild_resource_script_test(NativeModelVulkanPythonTests "${CMAKE_COMMAND}" -E env
+                "IILD_NATIVE_LIBRARY=$<TARGET_FILE:iiLocalDiffusion>" "IILD_TEST_WORKSPACE=@WORK@" "IILD_TEST_GPU=vulkan"
+                "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/NativeModelGpuPythonTests.py")
+        endif()
+    endif()
+    if(TARGET ggml-webgpu AND NOT CMAKE_CROSSCOMPILING)
+        add_executable(NativeDawnRegistryTests tests/NativeDawnRegistryTests.cpp)
+        target_compile_features(NativeDawnRegistryTests PRIVATE cxx_std_23)
+        target_compile_definitions(NativeDawnRegistryTests PRIVATE GGML_MAX_NAME=160)
+        target_link_libraries(NativeDawnRegistryTests PRIVATE ggml)
+        add_test(NAME NativeDawnRegistryTests COMMAND NativeDawnRegistryTests)
+    endif()
+    add_executable(NativeUpscalerTests tests/NativeUpscalerTests.cpp)
+    target_compile_features(NativeUpscalerTests PRIVATE cxx_std_23)
+    target_link_libraries(NativeUpscalerTests PRIVATE iiLocalDiffusion)
+    add_test(NAME NativeUpscalerTests COMMAND NativeUpscalerTests)
+    add_executable(NativeUpscalerNoNativeTests tests/NativeUpscalerTests.cpp src/Generation/NativeUpscaler.cpp)
+    target_include_directories(NativeUpscalerNoNativeTests PRIVATE src)
+    target_compile_features(NativeUpscalerNoNativeTests PRIVATE cxx_std_23)
+    target_compile_definitions(NativeUpscalerNoNativeTests PRIVATE IILD_HAS_NATIVE_DIFFUSION=0 iiLocalDiffusion_EXPORTS)
+    target_link_libraries(NativeUpscalerNoNativeTests PRIVATE Threads::Threads)
+    add_test(NAME NativeUpscalerNoNativeTests COMMAND NativeUpscalerNoNativeTests)
+    iild_resource_script_test(NativeUpscalerPythonTests "${CMAKE_COMMAND}" -E env
+        "IILD_NATIVE_LIBRARY=$<TARGET_FILE:iiLocalDiffusion>" "IILD_TEST_WORKSPACE=@WORK@" "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/NativeUpscalerPythonTests.py")
     add_executable(PoseProcessingTests tests/PoseProcessingTests.cpp src/Generation/PoseProcessing.cpp)
     target_include_directories(PoseProcessingTests PRIVATE src)
     target_compile_features(PoseProcessingTests PRIVATE cxx_std_23)
@@ -178,7 +241,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         # Exercise the production adapter against controlled C API results.
         # No model download or GPU inference is needed to cover output handling.
         foreach(result_test IN ITEMS NativeResultTests NativeMobileResultTests)
-            add_executable(${result_test} tests/NativeResultTests.cpp src/Generation/NativeDiffusion.cpp src/Generation/NativeImageEngineReport.cpp src/Generation/NativeImageBridge.cpp src/Generation/GenerationDefaults.cpp src/Generation/NativeModelInspection.cpp)
+            add_executable(${result_test} tests/NativeResultTests.cpp src/Generation/NativeDiffusion.cpp src/Generation/NativeUpscaler.cpp src/Generation/NativeModelUpscaler.cpp src/Generation/NativeSwinIR.cpp src/Generation/NativeUpscalerBridge.cpp src/Generation/NativeImageEngineReport.cpp src/Generation/NativeImageBridge.cpp src/Generation/GenerationDefaults.cpp src/Generation/NativeModelInspection.cpp)
             target_include_directories(${result_test} PRIVATE src
                 $<TARGET_PROPERTY:stable-diffusion,INTERFACE_INCLUDE_DIRECTORIES>)
             target_compile_features(${result_test} PRIVATE cxx_std_23)
@@ -187,8 +250,26 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
                 IILD_BUILD_LIBRARY_DIRECTORY="$<TARGET_FILE_DIR:${result_test}>"
                 IILD_BUILD_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources")
             target_link_libraries(${result_test} PRIVATE Threads::Threads ${IILD_JSON_C_TARGET} zip ${CMAKE_DL_LIBS})
+            if(NOT CMAKE_CROSSCOMPILING AND (APPLE OR IILD_MODEL_GPU_DIRECTX OR IILD_MODEL_GPU_VULKAN))
+                if(APPLE)
+                    set(iild_test_gpu_device 2)
+                elseif(IILD_MODEL_GPU_DIRECTX)
+                    set(iild_test_gpu_device 3)
+                else()
+                    set(iild_test_gpu_device 4)
+                endif()
+                target_sources(${result_test} PRIVATE src/Generation/NativeModelGpu.cpp)
+                target_compile_definitions(${result_test} PRIVATE IILD_HAS_MODEL_GPU=1 IILD_TEST_GPU_HIRES=1
+                    IILD_TEST_GPU_DEVICE=${iild_test_gpu_device} IILD_MODEL_METAL_ENABLED=$<BOOL:${APPLE}>
+                    IILD_MODEL_VULKAN_ENABLED=$<BOOL:${SD_VULKAN}> IILD_MODEL_DIRECTX_ENABLED=$<BOOL:${IILD_MODEL_GPU_DIRECTX}> GGML_MAX_NAME=160)
+                target_link_libraries(${result_test} PRIVATE ggml)
+            endif()
             iild_resource_test(${result_test} ${result_test} "@WORK@/${result_test}-contract")
         endforeach()
+        if(IILD_MODEL_GPU_VULKAN AND (APPLE OR IILD_MODEL_GPU_DIRECTX) AND NOT CMAKE_CROSSCOMPILING)
+            iild_resource_test(NativeResultVulkanTests NativeResultTests "@WORK@/native-vulkan-hires-contract")
+            set_tests_properties(NativeResultVulkanTests PROPERTIES ENVIRONMENT "IILD_TEST_GPU_DEVICE=vulkan")
+        endif()
         add_executable(NativeVideoResultTests tests/NativeVideoResultTests.cpp
             src/Generation/NativeVideo.cpp src/Generation/NativeVideoBridge.cpp)
         target_include_directories(NativeVideoResultTests PRIVATE src
@@ -254,6 +335,10 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_link_libraries(NativeDetailerTests PRIVATE stable-diffusion)
         target_compile_features(NativeDetailerTests PRIVATE cxx_std_23)
         iild_resource_test(NativeDetailerTests NativeDetailerTests "@WORK@/native-detailer-contract")
+        add_executable(NativeUpscalerLearnedTests tests/NativeUpscalerLearnedTests.cpp)
+        target_compile_features(NativeUpscalerLearnedTests PRIVATE cxx_std_23)
+        target_link_libraries(NativeUpscalerLearnedTests PRIVATE iiLocalDiffusion)
+        iild_resource_test(NativeUpscalerLearnedTests NativeUpscalerLearnedTests "@WORK@/upscaler")
         add_executable(NativeLearnedUpscalerTests tests/NativeLearnedUpscalerTests.cpp)
         target_include_directories(NativeLearnedUpscalerTests PRIVATE "${iild_backend_source}/src"
             $<TARGET_PROPERTY:stable-diffusion,INCLUDE_DIRECTORIES>)
@@ -793,7 +878,8 @@ install(FILES src/ModelPackaging/python/iild_model_packaging.py
 
 install(FILES README.md THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime)
 install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime FILES_MATCHING PATTERN "*.md" PATTERN "*.json")
-install(FILES docs/licenses/DWPose.txt DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/licenses COMPONENT Runtime)
+install(FILES docs/licenses/DWPose.txt docs/licenses/SwinIR-Apache-2.0.txt docs/licenses/Real-ESRGAN-BSD-3-Clause.txt docs/licenses/Dawn-BSD-3-Clause.txt
+    DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/licenses COMPONENT Runtime)
 install(FILES resources/generation-defaults.json resources/README.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources COMPONENT Runtime)
 install(FILES scripts/provision_flux1_text_encoders.py scripts/provision_flux1_schnell.py scripts/provision_flux1_canny.py
@@ -897,7 +983,7 @@ install(
 )
 
 install(
-    FILES src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/ImageModelRouting.hpp src/Generation/NativeExecutionControl.hpp src/Generation/NativeImageBridge.hpp src/Generation/NativeVideo.hpp src/Generation/NativeVideoBridge.hpp src/Generation/ImageParameters.hpp src/Generation/ImageWatermark.hpp src/Generation/NativePose.hpp
+    FILES src/Generation/NativeUpscaler.hpp src/Generation/NativeUpscalerBridge.hpp src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/ImageModelRouting.hpp src/Generation/NativeExecutionControl.hpp src/Generation/NativeImageBridge.hpp src/Generation/NativeVideo.hpp src/Generation/NativeVideoBridge.hpp src/Generation/ImageParameters.hpp src/Generation/ImageWatermark.hpp src/Generation/NativePose.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Generation
 )
 

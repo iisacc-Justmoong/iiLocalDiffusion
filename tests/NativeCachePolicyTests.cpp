@@ -6,6 +6,9 @@ int main(int argc, char **argv) {
     using namespace iiLocalDiffusion::native_detail;
     if (argc != 2) return 1;
     constexpr auto GiB = 1024ull * 1024 * 1024;
+    if (needsDiskBackedStreaming(4 * GiB, 4 * GiB)) return 29;
+    if (!needsDiskBackedStreaming(4 * GiB + 1, 4 * GiB)) return 30;
+    if (needsDiskBackedStreaming(4 * GiB, 0)) return 31;
     // Preserve Metal limits and reserve host memory. Low-memory budgets must never
     // be rounded upward; the iOS shared-memory policy is tested separately.
     if (memoryBudget({8 * GiB, 5 * GiB, 6 * GiB}) != 4864ull * 1024 * 1024) return 2;

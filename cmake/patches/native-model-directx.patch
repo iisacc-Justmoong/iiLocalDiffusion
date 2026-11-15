@@ -1,0 +1,12 @@
+--- a/ggml/src/ggml-webgpu/ggml-webgpu.cpp
++++ b/ggml/src/ggml-webgpu/ggml-webgpu.cpp
+@@ -3980,6 +3980,9 @@
+ 
+ static void ggml_backend_webgpu_request_adapter(wgpu::Instance & instance, wgpu::Adapter & adapter) {
+     wgpu::RequestAdapterOptions options = {};
++#if defined(IILD_GGML_DIRECTX_ONLY) && defined(_WIN32)
++    options.backendType = wgpu::BackendType::D3D12;
++#endif
+ 
+ #ifndef __EMSCRIPTEN__
+     // TODO: track need for these toggles: https://issues.chromium.org/issues/42251215

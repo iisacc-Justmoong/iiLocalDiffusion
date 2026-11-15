@@ -8,6 +8,7 @@
 #include "GenerationDefaults.hpp"
 #include "UnifiedModel.hpp"
 #include "NativeEngineAccess.hpp"
+#include "NativeUpscalerInternal.hpp"
 #include <cmath>
 #include <algorithm>
 #include <memory>
@@ -19,6 +20,7 @@
 #include <stdexcept>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <string_view>
 #include <thread>
@@ -87,6 +89,13 @@ void nativeEngineOnThread(bool owns) {
     ownsEngine = owns;
 #else
     (void)owns;
+#endif
+}
+bool nativeEngineOwnedByCurrentThread() noexcept {
+#if IILD_HAS_NATIVE_DIFFUSION
+    return ownsEngine;
+#else
+    return false;
 #endif
 }
 void releaseImageCacheForVideoLocked() {
@@ -163,6 +172,15 @@ NativeGenerationResult generateNativeImageWithExecutionControl(const NativeGener
     return generateNativeImageWithOptions(request, {}, cancelled, progress, control);
 }
 
+struct HiresSelection {
+    Upscaler &upscaler;
+    const UpscaleOptions &options;
+    NativeHiresUpscalerReport *report;
+    std::stop_token stop;
+    std::string error;
+    float residentDenoise = -1.f;
+};
+
 static NativeGenerationResult nativeImage(const NativeGenerationRequest &request,
     const NativeGenerationOptions &options, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress, const std::shared_ptr<NativeExecutionControl> &control,
@@ -171,7 +189,7 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
     const std::filesystem::path &explicitVae = {}, const NativeModelComponents *components = nullptr,
     const NativeSamplingControls *sampling = nullptr, bool residentWeights = false,
     const NativeAdvancedControls *advanced = nullptr, NativeImageReport *report = nullptr,
-    bool applyComponentSettings = true)
+    bool applyComponentSettings = true, HiresSelection *hiresSelection = nullptr)
 {
     NativeGenerationResult result;
     native_detail::NativeTelemetry telemetry;
@@ -186,12 +204,25 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         return std::chrono::steady_clock::now() - started - paused >= std::chrono::milliseconds(request.timeoutMilliseconds);
     };
     const auto stopped = [&] {
-        return cancelled || (control && !control->waitUntilRunnable(cancelled)) || timedOut();
+        return cancelled || (hiresSelection && hiresSelection->stop.stop_requested())
+            || (control && !control->waitUntilRunnable(cancelled, hiresSelection ? hiresSelection->stop : std::stop_token{})) || timedOut();
     };
     const auto identifyWeight = [residentWeights](const std::filesystem::path &path) {
         return residentWeights ? native_detail::modelMetadataIdentity(path) : native_detail::modelIdentity(path);
     };
     try {
+#if IILD_HAS_NATIVE_DIFFUSION
+        if (native_detail::nativeEngineOwnedByCurrentThread())
+            throw std::runtime_error("Native generation cannot be re-entered from its engine callback.");
+#endif
+        if (hiresSelection && hiresSelection->stop.stop_requested()) { result.cancelled=true; return result; }
+        if (hiresSelection) {
+            if (advanced ? !advanced->hires : (!components || !components->hires))
+                throw std::invalid_argument("An injected Hires upscaler requires Hires to be enabled.");
+            if (!advanced && (!std::isfinite(hiresSelection->residentDenoise)
+                              || hiresSelection->residentDenoise <= 0 || hiresSelection->residentDenoise > 1))
+                throw std::invalid_argument("Invalid Hires denoising strength.");
+        }
         requireSupportedModelFile(request.modelPath);
         requireSupportedModelFile(explicitVae);
         for (const auto &lora : options.loras) requireSupportedModelFile(lora.path);
@@ -222,7 +253,7 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                 || (advanced->detailer && advanced->denoiseStrength == 0)
                 || !std::isfinite(advanced->refinerSwitch) || advanced->refinerSwitch < 0 || advanced->refinerSwitch > 1
                 || (advanced->hires && (advanced->denoiseStrength == 0
-                    || (advanced->upscaler != "lanczos" && advanced->upscaler != "nearest"
+                    || (!hiresSelection && advanced->upscaler != "lanczos" && advanced->upscaler != "nearest"
                         && advanced->upscaler != "bilinear" && advanced->upscaler != "bicubic"
                         && advanced->upscaler != "4x-ultra"))))
                 throw std::runtime_error("Invalid or unsupported native advanced controls.");
@@ -261,7 +292,7 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                     throw std::runtime_error("Invalid ControlNet regional mask RGB image.");
             }
         }
-        if (cancelled) { result.cancelled = true; telemetry.finish(result.error.empty() && !result.cancelled, result.cancelled ? "cancelled" : result.error); return result; }
+        if (cancelled || (hiresSelection && hiresSelection->stop.stop_requested())) { result.cancelled = true; telemetry.finish(result.error.empty() && !result.cancelled, result.cancelled ? "cancelled" : result.error); return result; }
         if (!request.modelPath.is_absolute() || !std::filesystem::is_regular_file(request.modelPath)
             || std::filesystem::canonical(request.modelPath) != request.modelPath)
             throw std::runtime_error("Choose an available local model file.");
@@ -348,7 +379,7 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         };
         const auto ipIdentity = identifyIPAdapters();
         std::string upscalerPath, upscalerIdentity;
-        if (advanced && advanced->hires && advanced->upscaler == "4x-ultra") {
+        if (!hiresSelection && advanced && advanced->hires && advanced->upscaler == "4x-ultra") {
             const auto &path = advanced->upscalerModel;
             if (!path.is_absolute() || !std::filesystem::is_regular_file(path)
                 || std::filesystem::canonical(path) != path)
@@ -391,12 +422,12 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         std::unique_lock lock(cache.mutex, std::defer_lock);
         if (progress) progress({NativeGenerationStage::Waiting});
         while (!lock.try_lock_for(std::chrono::milliseconds(20))) {
-            if (control) control->waitUntilRunnable(cancelled);
-            if (cancelled) { result.cancelled = true; telemetry.finish(result.error.empty() && !result.cancelled, result.cancelled ? "cancelled" : result.error); return result; }
+            if (control) control->waitUntilRunnable(cancelled, hiresSelection ? hiresSelection->stop : std::stop_token{});
+            if (cancelled || (hiresSelection && hiresSelection->stop.stop_requested())) { result.cancelled = true; telemetry.finish(result.error.empty() && !result.cancelled, result.cancelled ? "cancelled" : result.error); return result; }
             if (timedOut()) throw std::runtime_error("Native image generation exceeded its time limit.");
         }
-        if (control) control->waitUntilRunnable(cancelled);
-        if (cancelled) { result.cancelled = true; telemetry.finish(result.error.empty() && !result.cancelled, result.cancelled ? "cancelled" : result.error); return result; }
+        if (control) control->waitUntilRunnable(cancelled, hiresSelection ? hiresSelection->stop : std::stop_token{});
+        if (cancelled || (hiresSelection && hiresSelection->stop.stop_requested())) { result.cancelled = true; telemetry.finish(result.error.empty() && !result.cancelled, result.cancelled ? "cancelled" : result.error); return result; }
         if (timedOut()) throw std::runtime_error("Native image generation exceeded its time limit.");
         struct EngineAccess {
             EngineAccess() { ownsEngine = true; }
@@ -690,7 +721,9 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
 #endif
         if (backend == NativeComputeBackend::Cpu) {
             contextParameters.backend = "cpu";
-            contextParameters.params_backend = "cpu";
+            contextParameters.params_backend = !residentWeights &&
+                    native_detail::needsDiskBackedStreaming(result.modelBytes, budget)
+                ? "te=disk,diffusion=disk" : "cpu";
         }
         // Apply adapters at runtime and preserve read-only checkpoint mappings.
         contextParameters.lora_apply_mode = LORA_APPLY_AT_RUNTIME;
@@ -1006,11 +1039,15 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                     {"nearest", SD_HIRES_UPSCALER_NEAREST}, {"bilinear", SD_HIRES_UPSCALER_BILINEAR},
                     {"bicubic", SD_HIRES_UPSCALER_BICUBIC}, {"lanczos", SD_HIRES_UPSCALER_LANCZOS},
                     {"4x-ultra", SD_HIRES_UPSCALER_MODEL}};
-                parameters.hires.upscaler = upscalers.at(advanced->upscaler);
+                parameters.hires.upscaler = hiresSelection ? SD_HIRES_UPSCALER_LANCZOS : upscalers.at(advanced->upscaler);
                 parameters.hires.model_path = upscalerPath.c_str();
                 parameters.hires.denoising_strength = advanced->denoiseStrength;
                 parameters.hires.steps = std::max(1, int(request.steps * advanced->denoiseStrength));
             }
+        }
+        else if (hiresSelection) {
+            parameters.hires.denoising_strength = hiresSelection->residentDenoise;
+            parameters.hires.steps = std::max(1, int(static_cast<float>(request.steps) * hiresSelection->residentDenoise));
         }
         // Keep request-owned schedule storage alive and writable for the engine.
         auto customSigmas = sampling ? sampling->customSigmas : std::vector<float>{};
@@ -1071,14 +1108,61 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         }
         struct ReportReset { ~ReportReset() { iild_set_image_report_callback(nullptr, nullptr); } } reportReset;
         {
+            struct HiresState {
+                HiresSelection *selection;
+                const std::function<bool()> stop;
+            } hiresState{hiresSelection, stopped};
+            struct ResetHires { ~ResetHires() { iild_set_hires_upscale_callback(nullptr, nullptr); } } resetHires;
+            if (hiresSelection) iild_set_hires_upscale_callback(
+                [](sd_image_t input, uint32_t width, uint32_t height, uint8_t *output, void *opaque) -> bool {
+                    auto &state = *static_cast<HiresState *>(opaque);
+                    try {
+                        native_detail::UpscaleStopScope cancellationScope(&state.stop);
+                        if (state.stop()) throw UpscaleCancelled();
+                        if (!input.data || input.channel != 3 || !output || !width || !height)
+                            throw std::invalid_argument("Invalid Hires image supplied by the native engine.");
+                        const auto targetBytes=std::uint64_t(width)*height*3;
+                        if (targetBytes>state.selection->options.maxOutputBytes)
+                            throw std::invalid_argument("Hires target exceeds the selected output byte limit.");
+                        const auto count = std::size_t(input.width) * input.height * input.channel;
+                        UpscaleImage image{input.width,input.height,input.channel,
+                                           std::vector<std::uint8_t>(input.data,input.data+count)};
+                        auto execution = upscaleImage(std::move(image), state.selection->upscaler,
+                            state.selection->options, state.selection->stop, [&](int, int) { return !state.stop(); });
+                        if (state.stop()) throw UpscaleCancelled();
+                        const bool resampled = execution.image.width != width || execution.image.height != height;
+                        if (resampled) {
+                            auto filter = makeInterpolationUpscaler(UpscaleFilter::Lanczos3);
+                            auto session = filter->open({});
+                            execution.image = session->process(execution.image,width,height,{});
+                        }
+                        if (state.stop()) throw UpscaleCancelled();
+                        if (execution.image.width != width || execution.image.height != height || execution.image.channels != 3
+                            || execution.image.pixels.size() != std::size_t(width)*height*3)
+                            throw std::runtime_error("Hires upscaler returned an invalid image.");
+                        std::memcpy(output,execution.image.pixels.data(),execution.image.pixels.size());
+                        if (auto *report = state.selection->report) {
+                            report->upscaler = execution.upscaler;
+                            report->passes = std::move(execution.passes);
+                            report->details = std::move(execution.details);
+                            report->appliedScale = execution.appliedScale;
+                            report->targetWidth = width; report->targetHeight = height;
+                            report->resampled = resampled;
+                        }
+                        return true;
+                    } catch (const std::exception &e) { state.selection->error = e.what(); return false; }
+                      catch (...) { state.selection->error = "Unknown Hires provider failure."; return false; }
+                }, &hiresState);
             Elapsed timing{result.generationMilliseconds};
             ok = useRefiner
                 ? generate_image_with_refiner(context, cache.refiner.get(), advanced->refinerSwitch,
                     &parameters, &images.data, &images.count, options.negativePrompt.c_str())
                 : generate_image(context, &parameters, &images.data, &images.count);
         }
-        if (cancelled) { result.cancelled = true; telemetry.finish(result.error.empty() && !result.cancelled, result.cancelled ? "cancelled" : result.error); return result; }
+        if (cancelled || (hiresSelection && hiresSelection->stop.stop_requested())) { result.cancelled = true; telemetry.finish(result.error.empty() && !result.cancelled, result.cancelled ? "cancelled" : result.error); return result; }
         if (timedOut()) throw std::runtime_error("Native image generation exceeded its time limit.");
+        if (!ok && hiresSelection && !hiresSelection->error.empty())
+            throw std::runtime_error("Hires upscaler failed: " + hiresSelection->error);
         if (!ok || !images.data || images.count != 1 || !images.data[0].data || images.data[0].channel != 3)
             throw std::runtime_error(callbacks.failure("The native engine did not return a complete RGB image."));
         if (report) {
@@ -1345,6 +1429,33 @@ NativeGenerationResult generateNativeAdvancedImage(const NativeGenerationRequest
     resolved.hires = advanced.hires;
     return nativeImage(request, options, cancelled, progress, control, false, backend,
                        preview, nullptr, 1.0f, resolved.vae, &resolved, nullptr, true, &advanced);
+}
+NativeGenerationResult generateNativeAdvancedImageWithUpscaler(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const NativeModelComponents &components,
+    const NativeAdvancedControls &advanced, Upscaler &upscaler, const UpscaleOptions &upscaleOptions,
+    NativeComputeBackend backend, const std::atomic_bool &cancelled, NativeHiresUpscalerReport *report,
+    const NativeProgressCallback &progress, const NativePreviewCallback &preview,
+    const std::shared_ptr<NativeExecutionControl> &control, std::stop_token stop)
+{
+    if (report) *report = {};
+    HiresSelection selection{upscaler,upscaleOptions,report,stop,{}};
+    auto resolved = components; resolved.hires = advanced.hires;
+    return nativeImage(request, options, cancelled, progress, control, false, backend,
+                       preview, nullptr, 1.0f, resolved.vae, &resolved, nullptr, true, &advanced,
+                       nullptr, true, &selection);
+}
+NativeGenerationResult generateNativeResidentImageWithUpscaler(const NativeGenerationRequest &request,
+    const NativeGenerationOptions &options, const NativeModelComponents &components,
+    const NativeSamplingControls &sampling, float denoiseStrength, Upscaler &upscaler,
+    const UpscaleOptions &upscaleOptions, NativeComputeBackend backend, const std::atomic_bool &cancelled,
+    NativeHiresUpscalerReport *report, const NativeProgressCallback &progress,
+    const NativePreviewCallback &preview, const std::shared_ptr<NativeExecutionControl> &control, std::stop_token stop)
+{
+    if (report) *report = {};
+    HiresSelection selection{upscaler,upscaleOptions,report,stop,{},denoiseStrength};
+    return nativeImage(request, options, cancelled, progress, control, false, backend,
+                       preview, nullptr, 1.0f, components.vae, &components, &sampling, true, nullptr,
+                       nullptr, true, &selection);
 }
 NativeGenerationResult generateNativeImageWithSampling(const NativeGenerationRequest &request,
     const NativeGenerationOptions &options, const NativeModelComponents &components,

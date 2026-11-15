@@ -1,0 +1,19 @@
+--- a/ggml/src/ggml-webgpu/ggml-webgpu.cpp
++++ b/ggml/src/ggml-webgpu/ggml-webgpu.cpp
+@@ -4002,6 +4002,16 @@
+                                  return;
+                              }
+                              adapter = std::move(_adapter);
++#if defined(IILD_GGML_DIRECTX_ONLY) && defined(_WIN32)
++                             wgpu::AdapterInfo info{};
++                             if (adapter.GetInfo(&info) != wgpu::Status::Success ||
++                                 info.backendType != wgpu::BackendType::D3D12 ||
++                                 (info.adapterType != wgpu::AdapterType::DiscreteGPU &&
++                                  info.adapterType != wgpu::AdapterType::IntegratedGPU)) {
++                                 GGML_LOG_ERROR("ggml_webgpu: No hardware D3D12 adapter is available.\n");
++                                 adapter = wgpu::Adapter{};
++                             }
++#endif
+                          }),
+                      UINT64_MAX);
+ }

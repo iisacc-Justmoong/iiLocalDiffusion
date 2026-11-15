@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "README.md",
-    "sha256": "c526a2be5627c38a88378963f992feb2a7f1b190ec354bcc982fbf6f15ee5598",
-    "bytes": 30556,
+    "sha256": "2ab25797e350923f5d1d79275ea241a65f2bf9d32228024b431ca8143be77d8a",
+    "bytes": 30792,
     "line_count": 559,
     "encoding": "utf-8",
     "language": "ko"
@@ -155,7 +155,7 @@
       "kind": "paragraph",
       "start_line": 44,
       "end_line": 44,
-      "raw": "App consumers can also use [in-process native image inference](docs/native-image-generation.md), including iOS builds with `IILD_ENABLE_NATIVE_DIFFUSION=ON`.\n"
+      "raw": "App consumers can also use [in-process native image inference](docs/native-image-generation.md), including iOS builds with `IILD_ENABLE_NATIVE_DIFFUSION=ON`, and [pluggable image upscalers](docs/native-image-generation.md#업스케일러-호환성-계약) with Hires integration, tiled SRVGG/SwinIR CPU and optional Metal, DirectX 12, and Vulkan acceleration, resource limits and cancellation.\n"
     },
     {
       "id": "b000020",
@@ -1921,6 +1921,13 @@
         "block_id": "b000019",
         "label": "in-process native image inference",
         "target": "docs/native-image-generation.md",
+        "kind": "relative",
+        "line": 44
+      },
+      {
+        "block_id": "b000019",
+        "label": "pluggable image upscalers",
+        "target": "docs/native-image-generation.md#업스케일러-호환성-계약",
         "kind": "relative",
         "line": 44
       },

@@ -27,3 +27,4 @@
 /resources/models/krea2-turbo-openpose-controlnet.safetensors
 /resources/depth-estimators/
 /resources/models/flux1-instantx-canny/
+resources/

@@ -260,3 +260,231 @@ C 경계 `iild_native_generate_with_preview_v1`의 RGB 버퍼는 콜백이 반�
 Krea2 분류는 메타데이터 검사와 적재된 런타임의 `sd_get_model_family` 양쪽에 적용한다. 런타임이 `other`를 반환하면 img2img 전용 분기와 자동 스케줄이 우회되므로, `NativeRefinerSamplingTests`는 실제 엔진 소스를 컴파일하여 두 분류가 일치하는지 가중치 없이 검사한다.
 
 `NativeResultTests`와 `NativeMobileResultTests`는 Krea2 입력의 중복 편집 조건 방지와 해상도별 sigma 전달, 기존 편집 모델의 다중 참조 유지, 다른 모델로 기본값이 유출되지 않는지를 검사한다. 실제 체크포인트 검증에는 `NativeVaeRoundTripProbe`로 RGB→VAE→RGB를 분리하고 `NativeImg2ImgSmoke`로 인코더·확산·디코더 전체를 실행한다. 두 도구는 interleaved RGB 파일을 사용하며, 자동 CTest에 대형 모델 실행을 추가하지 않는다. 전체 추론 도구의 마지막 선택 인자 `prompt.txt`는 UTF-8 원래 프롬프트를 그대로 읽는다. 입력 RGB 크기와 출력 크기를 별도로 지정하여 원본 첨부의 네이티브 리사이즈 경로도 검증할 수 있다.
+
+## 업스케일러 호환성 계약
+
+`Generation/NativeUpscaler.hpp`의 `Upscaler`와 호출별 세션을 통해 이미지
+확대 구현을 인자로 전달한다. 내장 최근접·양선형·바이큐빅·Lanczos3 필터,
+명시적으로 지정한 ESRGAN/RRDB·SRVGG·SwinIR 모델과 애플리케이션의 교체
+가능한 구현이 같은 계약을 사용한다. 입력은 소유된 8비트 인터리브 이미지이며
+너비·높이·채널과 바이트 수를 검증한다. 픽셀 필터는 1·3·4채널을 처리하고
+모델 기반 제공자는 RGB만 받는다. 미지원 모델이나 옵션은 다른 방식으로 묵시적 대체하지 않는다.
+
+호출자는 배율 또는 최종 치수, 반복 횟수, 출력 바이트 상한을 지정한다.
+배율을 생략하거나 0으로 지정하면 세션의 기본값을 사용한다. 보간은 2배,
+모델 기반 제공자는 선택된 모델의 고유 배율이며 실제 배율을 결과에 기록한다.
+ESRGAN 구현의 모델 경로·CPU/자동 선택·타일 크기·스레드 수는 업스케일러
+생성 시 지정한다. 모델은 요청된 시점에만 로드하고 세션 종료 시 반환하며,
+모델 고유 배율과 요청 치수가 다르면 실패한다. RRDB는 `.safetensors`와
+`.gguf`를, SRVGG·SwinIR 제공자는 `.safetensors`를 받는다. 단계별 진행 콜백과 취소는 호출자의 명시적
+요청에 따라 동작하며 외부 엔진의 단일 계산 호출 중에는 그 호출이 반환된
+뒤 취소를 반영한다. 결과에는 실제 실행한 단계와 치수를 기록한다.
+Python에서도 같은 네이티브 경계를 통해 호출하고 다른 업스케일러 객체를
+전달할 수 있다. 보간·SRVGG·SwinIR CPU 제공자와 외부 제공자 계약은 네이티브
+확산 엔진을 빼고 빌드해도 사용할 수 있다. GPU 제공자와 RRDB 모델 제공자는 네이티브 확산
+엔진이 필요하다. 후처리 외에도 아래의 별도 Hires 진입점에 제공자를 지정할 수
+있다. 기존 생성 기본값과 기존 Hires 모델 선택은 그대로 유지된다.
+
+### 호출 예시
+
+다음 예시는 생성 결과를 호출자가 지정한 업스케일러에 넘긴다. 생성된
+`rgb`를 소유권 이동하므로 생성 API의 모델과 샘플링 기본값은 변경되지 않는다.
+
+```cpp
+#include <Generation/NativeDiffusion.hpp>
+#include <Generation/NativeUpscaler.hpp>
+
+using namespace iiLocalDiffusion;
+// generated는 성공한 generateNative... 호출의 NativeGenerationResult이다.
+auto upscaler = makeEsrganUpscaler({"/models/upscaler.safetensors",
+                                    UpscaleDevice::Cpu, 256, 4});
+UpscaleOptions options;
+options.scale = 4;                   // 선택한 모델의 고유 배율
+options.passes = 1;
+options.maxOutputBytes = 512ULL * 1024 * 1024;
+auto execution = upscaleGeneratedImage(std::move(generated), *upscaler, options);
+// execution.image, execution.passes, execution.details를 사용한다.
+```
+
+`makeInterpolationUpscaler(UpscaleFilter::Lanczos3)` 등은 별도 모델 없이
+사용한다. 임의 크기는 `targetWidth`와 `targetHeight`를 함께 지정하며,
+명시 치수는 한 번의 패스에서만 사용할 수 있다. 각 축은 원본보다 작을 수
+없다. 배율은 각 패스에 적용되고 정수 픽셀로 반올림된다. 자동 배율은
+모델을 연 뒤 첫 연산 전에 한도를 검사한다. 출력 바이트 상한은
+각 출력 이미지에 대한 제한이며 입력·중간 버퍼·모델·GPU 메모리를 포함하는
+전체 프로세스 메모리 상한은 아니다. 외부 Python 제공자는 전달받은 한도를
+자체 연산 전에 준수해야 하며, 공통 함수는 반환 결과도 검증한다. 4채널
+보간은 비프리멀티플라이 RGBA 각 채널을 독립적으로 처리한다.
+
+```python
+from native_upscaler import Image, NativeUpscaler, Options, upscale_image
+
+# pixels는 호출자가 소유한 RGB8 바이트이다.
+source = Image(width, height, 3, pixels)
+upscaler = NativeUpscaler("lanczos3")
+image, report = upscale_image(source, upscaler, Options(scale=2, passes=1))
+```
+
+Python 모듈은 설치된 `share/iiLocalDiffusion/reference/diffusers`에서 가져올
+수 있다. 모델 기반 호출은 `NativeUpscaler("esrgan", model=path, device="cpu",
+tile_size=256, threads=4)`를 사용한다. 타일 `0`은 타일링을 끈다. 이 백엔드의
+타일 겹침은 현재 25%로 고정이다. 자동 장치 선택은 특정 GPU에서 실행되었다는
+증거가 아니다. SRVGG와 SwinIR은 `NativeUpscaler("srvgg", model=path,
+device="cpu")`, `NativeUpscaler("swinir", model=path, device="cpu")`로
+선택한다. `"model"`은 텐서 이름으로 두 구조를 판별한다. 이름이나 확장자가
+같다고 임의의 모델 구조가 호환되는 것은 아니다. 가중치 다운로드, 변환, ONNX
+실행은 하지 않는다. 다른 구조는 애플리케이션이 별도의 `Upscaler`와
+`UpscalerSession`을 제공해 연결한다. 세션의 `defaultScale()`을 재정의하면
+호출자가 배율을 생략할 때 그 값을 사용한다. Python에서도 `upscale(image,
+options, progress=...)`를 구현한 객체를 직접 전달할 수 있으며 제공자 전용
+설정은 그 객체에 변경 없이 전달된다. Python 제공자는 자동 배율을 사용한
+경우 실제 값을 결과 보고서의 `applied_scale`에 포함해야 한다. 내장 제공자는 모르는 설정을 거부한다.
+
+예를 들어 Metal이 준비된 Apple 빌드에서는
+`NativeUpscaler("swinir", model=path, device="metal", tile_size=256)`을 전달한다.
+같은 설정 객체를 `hires_upscaler`로 지정하면 Hires에도 적용된다.
+
+세션은 성공·오류·취소 시 파괴된다. 콜백은 완료된 패스마다 실행되고 `false`
+또는 Python `False`를 반환하면 이후 작업을 취소한다. C++ `std::stop_token`도
+지원한다. 모델 로드, 공유 엔진 잠금 대기 또는 외부 엔진 단일 계산은 도중에
+강제로 중단하지 못하며 반환 직후 취소를 확인한다. 독립 업스케일의 진행
+콜백은 엔진 잠금 밖에서 호출한다. Hires 제공자의 `open`·`process`는 생성
+엔진의 잠금 안에서 호출되므로 그 안에서 이미지 생성을 재진입하지 않아야 하며,
+재진입 요청은 오류로 거부된다. 합성 가중치를 이용한 테스트는 이 연결을 확인하지만 특정 공개
+모델의 품질, 모든 가중치 변형 또는 실제 제품 사용을 보증하지 않는다.
+엔진 계열의 공개 업스케일 경계는 [stable-diffusion.cpp 문서](https://github.com/leejet/stable-diffusion.cpp/blob/master/examples/server/api.md)를 참고할 수 있으며,
+실제 지원 범위는 이 프로젝트에 고정된 엔진 버전을 기준으로 한다.
+
+<a id="hires-provider"></a>
+
+### Hires 제공자 연결
+
+`generateNativeAdvancedImageWithUpscaler`는 `NativeAdvancedControls::hires`가
+활성화된 요청에서 제공자와 `UpscaleOptions`를 받아 VAE 디코딩과 Hires
+재인코딩 사이에 실행한다. 제공자의 결과 크기가 Hires 캔버스와 다르면
+Lanczos3으로 한 번 재샘플링한다. `NativeHiresUpscalerReport`는 실제 제공자,
+모델 설정, 패스별 치수·배율, 최종 캔버스와 재샘플링 여부를 담는다.
+실패·취소 시 중간 이미지는 성공 결과가 아니며 콜백과 세션은 해제된다.
+
+```cpp
+NativeAdvancedControls advanced;
+advanced.hires = true;
+NativeModelUpscalerOptions modelOptions;
+modelOptions.model = modelPath; // SRVGG 또는 SwinIR .safetensors
+modelOptions.device = UpscaleDevice::Cpu;
+modelOptions.threads = 4;
+auto provider = makeNativeModelUpscaler(modelOptions);
+UpscaleOptions upscaleOptions; // 배율 0: 모델 고유 배율
+NativeHiresUpscalerReport hiresReport;
+auto result = generateNativeAdvancedImageWithUpscaler(
+    request, generationOptions, components, advanced, *provider, upscaleOptions,
+    NativeComputeBackend::Cpu, cancelled, &hiresReport);
+```
+
+제공자 계약이 RGB8이므로 이 진입점은 중간 VAE 출력을 RGB8로 변환한 다음
+재인코딩한다. 기존의 float 내부 Hires 경로와 수치가 동일하다고 가정해서는
+안 된다. Hires 취소 토큰이나 기존 취소 플래그는 CPU 모델의 계산 경계에서
+확인한다. 외부 제공자는 전달받은 `stop_token`을 직접 준수해야 한다. 기존
+4배 ESRGAN Hires 경로도 남아 있다. C++에서는 위 진입점과 샘플링 설정 및
+메모리 상주 가중치를 유지하는 `generateNativeResidentImageWithUpscaler`를
+사용할 수 있다.
+
+`iild_native_generate_hires_v1`은 V3 생성 요청과 V3 업스케일러 설정을 결합하고
+실제 제공자·모델 설정·배율·패스·재샘플링 결과를 `hires_upscaler` 메타데이터로
+반환한다. 생성 준비와 실제 생성은 별도 호출이며, Hires가 꺼진 요청에 제공자를
+지정하면 오류가 발생한다. Python의 컴포넌트 인식 생성 경로에서도 같은 기능을 쓴다.
+
+```python
+from native_image import NativeEngine
+from native_upscaler import NativeUpscaler, Options
+
+upscaler = NativeUpscaler("swinir", model="/models/upscaler.safetensors", device="cpu", threads=4)
+# args는 기존 컴포넌트 인식 생성 요청이며 native_v2가 True여야 한다.
+image, metadata = NativeEngine().image(
+    args, seed=42, hires_upscaler=upscaler, hires_options=Options(),
+    hires_denoise_strength=0.35)
+print(metadata["hires_upscaler"])
+```
+
+Python Hires는 `NativeUpscaler` 제공자를 받으며 기존의 독립 업스케일 함수는
+호출자 정의 Python 제공자도 받는다. 컴포넌트 인식 생성 경로가 아닌 기존 V1 생성
+요청과 통합 모델 다단계 요청에서는 Python Hires 제공자 주입을 지원하지 않는다.
+기존 V1 기본값은 유지한다. 별도의 Diffusers Python Hires 함수도 제공자를
+받으며 그 범위는 [Hires Fix](hires-fix.md#hires-provider-injection)에 적혀 있다.
+
+### 모델 형식과 한계
+
+`NativeModelUpscalerOptions`의 `architecture`는 `Automatic`, `SRVGG`,
+`SwinIR` 중 하나이다. 자동 판별은 가중치의 텐서 이름을 사용하며, 인식한 미지원
+구조와 누락 텐서·비연속 블록·비유한 값은 오류로 거부한다. SRVGG는 RGB
+합성곱, PReLU/ReLU/기울기 0.1 LeakyReLU, 픽셀 셔플과 최근접 잔차를
+지원한다. 기본 활성화는 PReLU이며 다른 활성화는 명시적으로 선택한다.
+
+SwinIR은 RGB 초해상도를 대상으로 윈도·이동 윈도 어텐션, 상대 위치 편향,
+MLP, 1-conv/3-conv 잔차, pixelshuffledirect, pixelshuffle, nearest+conv
+출력 헤드를 구현한다. 기본 이미지 범위는 1, QK 스케일은 헤드 차원에 따른
+기본값이며 `swinIRImageRange`, `swinIRQkScale`로 명시적으로 바꿀 수 있다.
+이 값은 가중치만으로 판별할 수 없으므로 모델 설정과 일치시켜야 한다.
+일반적인 교대 이동 윈도 구성을 전제로 하며, 가중치에 기록되지 않은 비표준
+이동 설정은 지원하지 않는다. 저장된 상대 위치 인덱스는 표준 인덱스와 편향
+테이블에 일치하는지 검사하며, 이동 윈도 마스크는 입력 크기에 맞게 다시 계산한다.
+절대 위치 임베딩, 다운샘플 블록과 다른 텐서 형식은 거부한다. 입력의 reflect
+padding 조건이 맞지 않으면 오류를 반환한다.
+두 모델 모두 F32·F16·BF16 `.safetensors`를 F32 연산으로 실행한다.
+`Automatic`은 CPU를 유지한다. `Cpu`, `Metal`, `DirectX`, `Vulkan`을 명시해
+선택할 수 있으며 선택한 GPU를 사용할 수 없거나 필요한 연산을 제공하지 않으면
+오류로 종료한다. GPU를 요청했을 때 CPU로 조용히 대체하지 않는다.
+C 경계의 `iild_upscale_request_v1.cpu` 값은 기존 0(자동)·1(CPU)을 유지하며
+SRVGG·SwinIR에 대해 2(Metal)·3(DirectX)·4(Vulkan)를 추가로 받는다.
+
+GPU 모드에서는 합성곱과 SwinIR의 선형 투영을 선택한 GPU에 제출한다.
+활성화·정규화·어텐션·픽셀 셔플과 CPU/GPU 사이의 데이터 변환은 CPU에서
+실행하는 혼합 방식이다. 가중치는 해당 업스케일 세션의 GPU 메모리에 한 번씩
+올리고 세션 종료 시 해제한다. `details`에는 `actual_device`, `gpu_adapter`,
+`execution`, `gpu_convolutions`, `gpu_projections`가 기록된다. GPU 연산이 진행 중인
+동안에는 그 연산이 반환된 뒤 취소를 반영한다. 가속은 장치와 작업 크기에 따라
+달라지며 속도 향상을 보장하지 않는다.
+
+`tileSize`는 입력 픽셀 단위의 타일 중심 크기이며 `0`은 전체 이미지 처리이다.
+각 타일은 모델의 수용 영역을 포함하도록 자동 확장되고 SwinIR은 윈도 경계에
+맞춰 정렬된다. 결과 보고서의 `tile_halo`와 `tile_alignment`는 적용한 값을
+보여준다. 중심 영역만 결과에 복사하므로 인접 타일을 단순히 이어 붙이지 않는다.
+모델이 깊거나 이미지가 작으면 확장된 타일이 전체 이미지에 가까워질 수 있다.
+전체 입력과 최종 출력도 메모리에 유지되며 `maxWorkingBytes`를 충족해야 한다.
+
+Metal은 네이티브 확산 엔진이 활성화된 Apple 빌드에서 사용할 수 있다. Vulkan은
+타깃 Vulkan SDK와 셰이더 도구를 준비하고 `IILD_MODEL_GPU_VULKAN=ON`으로 빌드한다.
+Windows DirectX 12는 해당 타깃의 네이티브 Dawn CMake 패키지를 `Dawn_DIR` 등으로
+제공하고 `IILD_MODEL_GPU_DIRECTX=ON`으로 빌드한다. 이 경로는 Dawn의 네이티브
+D3D12 하드웨어 장치를 선택하며 브라우저나 소프트웨어 어댑터를 사용하지 않는다. 다른 iiSDK 모듈에 대한
+링크 의존성은 추가하지 않는다. 현재 각 백엔드의 첫 번째 GPU를 사용한다.
+Dawn의 고정된 ggml 백엔드는 세션별 가중치·작업 버퍼를 반환한 뒤에도 공유
+레지스트리와 논리 장치를 프로세스 수명 동안 유지한다. 실제 어댑터의 상세 이름은
+이 백엔드에서 항상 보고되지 않는다.
+
+```sh
+cmake -S . -B build -DIILD_ENABLE_NATIVE_DIFFUSION=ON -DIILD_MODEL_GPU_VULKAN=ON
+# Windows: provide the target-native Dawn package instead of enabling Vulkan.
+cmake -S . -B build -DIILD_ENABLE_NATIVE_DIFFUSION=ON -DIILD_MODEL_GPU_DIRECTX=ON -DDawn_DIR=/path/to/Dawn
+```
+
+`threads`는 호출 스레드를 포함한 세션의 CPU 작업자 수이며, 추가 작업자는
+명시적으로 요청했을 때만 생성되어 세션 종료 시 반환된다. `maxWeightBytes`는
+입력 파일과 디코딩된 가중치 각각의 상한이다. `maxWorkingBytes`는 각 중간
+텐서의 상한이며 프로세스 전체 메모리 상한은 아니다. Python 생성자에서는
+`max_weight_bytes`, `max_working_bytes`, `srvgg_activation`,
+`swinir_image_range`, `swinir_qk_scale`로 지정한다. 실제 이미지 범위와 각
+블록의 QK 스케일은 결과의 `details`에 기록된다.
+
+합성 F32·F16·BF16 가중치로 SRVGG의 합성곱·활성화·셔플·잔차와 SwinIR의
+정규화·어텐션·위치 편향·이동 윈도·MLP·출력 헤드를 검증한다. 이 검사는
+공개 학습 가중치의 실제 품질·성능을 검증하지 않는다. 모델 구조는
+[SwinIR 원본](https://github.com/JingyunLiang/SwinIR/tree/6545850fbf8df298df73d81f3e8cba638787c8bd)과
+[Real-ESRGAN 원본](https://github.com/xinntao/Real-ESRGAN/tree/a4abfb2979a7bbff3f69f58f58ae324608821e27)을
+참고했다. 가중치 라이선스는 모델별로 확인해야 한다.
+
+`NativeModelGpuTests`는 합성 가중치의 CPU 결과와 실제 선택한 GPU 결과를 비교하고
+GPU 연산 횟수와 타일링을 확인한다. Vulkan 또는 DirectX를 빌드하면 해당 장치용
+테스트도 등록되며 실제 실행에는 그 GPU가 필요하다. `NativeDawnRegistryTests`는
+네이티브 Dawn의 반복·동시 세션에서 행렬곱과 합성곱을 확인한다. 한 운영체제의
+성공 결과가 다른 운영체제나 GPU의 실행 성공을 뜻하지 않는다.

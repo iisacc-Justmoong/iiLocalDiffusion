@@ -17,8 +17,8 @@
 #endif
 
 namespace iiLocalDiffusion {
-NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const std::atomic_bool &cancelled,
-    const NativeProgressCallback &progress, const NativeVideoFrameObserver &frame)
+static NativeVideoResult generateNativeVideoImpl(const NativeVideoRequest &request, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const NativeVideoFrameObserver &frame, bool lowVram)
 {
     NativeVideoResult result;
     native_detail::NativeTelemetry telemetry;
@@ -92,6 +92,10 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
                 if (!error.empty()) context += "Engine errors:\n" + error;
                 return context;
             }
+            void clearFailureContext() {
+                const std::lock_guard guard(mutex);
+                error.clear(); warnings.clear();
+            }
             ~Callbacks() {
                 sd_set_abort_callback(nullptr, nullptr);
                 sd_set_progress_stage_callback(nullptr, nullptr);
@@ -100,7 +104,7 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
             }
         } callbacks{cancelled, progress, telemetry, {}, {}, {}};
         sd_set_abort_callback([](void *data) { return static_cast<Callbacks *>(data)->cancelled.load(); }, &callbacks);
-        if (request.cpu || request.cpuTextEncoding) {
+        const auto enableCpuProgress = [&] {
             sd_set_backend_eval_callback([](ggml_tensor *, bool ask, void *data) {
                 auto &state = *static_cast<Callbacks *>(data);
                 if (ask) return ++state.nodes % 16 == 0;
@@ -109,7 +113,8 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
                 if (state.progress) state.progress({NativeGenerationStage::Computing, completed, 0});
                 return !state.cancelled.load();
             }, &callbacks);
-        }
+        };
+        if (request.cpu || request.cpuTextEncoding || lowVram) enableCpuProgress();
         sd_set_progress_stage_callback([](sd_progress_stage_t stage, int step, int total, float, void *data) {
             auto &state = *static_cast<Callbacks *>(data);
             if (stage == SD_PROGRESS_SAMPLE) state.telemetry.stage("denoise", step, total);
@@ -165,6 +170,9 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
         if (progress) progress({NativeGenerationStage::Loading});
         const auto model = source.string(), encoder = textEncoder.string();
         const auto budget = std::to_string(double(result.memoryBudgetBytes) / (1024.0 * 1024 * 1024));
+        const bool streamModel = native_detail::needsDiskBackedStreaming(
+            std::filesystem::file_size(source), result.memoryBudgetBytes) ||
+            native_detail::needsDiskBackedStreaming(std::filesystem::file_size(textEncoder), result.memoryBudgetBytes);
         sd_ctx_params_t contextParameters; sd_ctx_params_init(&contextParameters);
         contextParameters.model_path = model.c_str(); contextParameters.llm_path = encoder.c_str();
         contextParameters.n_threads = result.threads; contextParameters.enable_mmap = true;
@@ -174,20 +182,36 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
         std::string backend = request.backend == "rocm" ? "HIP" : request.backend;
         const bool explicitGpuPlacement = !request.cpu && backend != "cpu" && (request.cpuTextEncoding || backend != "auto");
         if (!request.cpu && backend != "auto") contextParameters.backend = backend.c_str();
-        if (!request.cpu && request.cpuTextEncoding) {
-            backend = backend == "auto" ? "te=cpu" : "te=cpu,diffusion=" + backend + ",vae=" + backend;
+        if (!request.cpu && (request.cpuTextEncoding || lowVram)) {
+            backend = backend == "auto" ? (lowVram ? "te=cpu,vae=cpu" : "te=cpu")
+                : "te=cpu,diffusion=" + backend + ",vae=" + (lowVram ? std::string("cpu") : backend);
             contextParameters.backend = backend.c_str();
         }
         // Any explicit placement disables the engine's auto-fit. Keep video
         // diffusion weights reloadable so unused segments can be evicted within
         // the live GPU budget rather than accumulating until allocation fails.
         if (explicitGpuPlacement) contextParameters.params_backend = "diffusion=disk";
+        // Large packages may include a separate text encoder. Keep both major
+        // components reloadable while preserving the requested compute backend.
+        // Keep the engine's auto-fit and VAE retry behavior for an entirely
+        // automatic request; it already chooses disk when residency will not
+        // fit. Explicit placement disables auto-fit and needs this policy.
+        if (streamModel && (request.cpu || request.cpuTextEncoding || request.backend != "auto")) {
+            contextParameters.params_backend = "te=disk,diffusion=disk";
+            telemetry.note("video model exceeds memory budget; using disk-backed segmented weights");
+        }
+        if (lowVram) {
+            contextParameters.params_backend = "te=disk,diffusion=disk,vae=disk";
+            contextParameters.disable_prefetch = true;
+            telemetry.note("video low-vram: CPU text/VAE, disk-backed weights, bounded segment residency");
+        }
         if (request.precision != "auto") contextParameters.wtype = str_to_sd_type(request.precision == "float16" ? "f16"
             : request.precision == "bfloat16" ? "bf16" : "f32");
         std::unique_ptr<sd_ctx_t, decltype(&free_sd_ctx)> context(new_sd_ctx(&contextParameters), free_sd_ctx);
         if (!context || !sd_ctx_supports_video_generation(context.get()))
             throw std::runtime_error("This checkpoint is not supported by the native video engine. " + callbacks.failureContext());
         NativeReferenceImage previous;
+        bool cpuDiskFallback = false;
         for (std::size_t index = 0; index < request.shots.size(); ++index) {
             if (cancelled) { result.cancelled = true; return result; }
             const auto &shot = request.shots[index];
@@ -198,7 +222,7 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
             parameters.video_frames = shot.frames; parameters.fps = shot.fps; parameters.seed = shot.seed;
             parameters.sample_params.sample_steps = request.steps;
             parameters.sample_params.guidance.txt_cfg = request.guidanceScale;
-            parameters.strength = shot.conditioningStrength; parameters.vae_tiling_params.enabled = request.vaeTiling;
+            parameters.strength = shot.conditioningStrength; parameters.vae_tiling_params.enabled = request.vaeTiling || lowVram;
             const auto image = [](const NativeReferenceImage &value) -> sd_image_t {
                 if (value.rgb.empty()) return {};
                 return {static_cast<std::uint32_t>(value.width), static_cast<std::uint32_t>(value.height), 3,
@@ -211,8 +235,37 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
             } frames;
             telemetry.stage("text-encode");
             if (progress) progress({NativeGenerationStage::Encoding});
-            const bool generated = generate_video(context.get(), &parameters, &frames.data, &frames.count, nullptr);
+            callbacks.clearFailureContext();
+            bool generated = generate_video(context.get(), &parameters, &frames.data, &frames.count, nullptr);
             if (cancelled) { result.cancelled = true; return result; }
+            const auto firstFailure = callbacks.failureContext();
+            if ((!generated || !frames.data || frames.count != shot.frames) &&
+                !cpuDiskFallback && !request.cpu && request.backend == "auto" &&
+                firstFailure.find("model manager cannot make enough memory available on") != std::string::npos) {
+                // GPU graph workspace cannot be swapped to disk. Release the GPU
+                // context and let the OS page CPU compute memory while the model
+                // manager reloads diffusion weights from their original mapping.
+                if (frames.data) free_sd_images(frames.data, frames.count);
+                frames.data = nullptr; frames.count = 0;
+                context.reset();
+                if (cancelled) { result.cancelled = true; return result; }
+                contextParameters.backend = "cpu";
+                contextParameters.params_backend = lowVram ? "te=disk,diffusion=disk,vae=disk" : "te=disk,diffusion=disk";
+                enableCpuProgress();
+                telemetry.note("video fallback: CPU compute with disk-backed text and diffusion weights after GPU budget failure");
+                if (progress) progress({NativeGenerationStage::Waiting});
+                if (cancelled) { result.cancelled = true; return result; }
+                callbacks.clearFailureContext();
+                context.reset(new_sd_ctx(&contextParameters));
+                cpuDiskFallback = true;
+                if (!context || !sd_ctx_supports_video_generation(context.get()))
+                    throw std::runtime_error("CPU disk-backed video fallback could not initialize. " + firstFailure + callbacks.failureContext());
+                generated = generate_video(context.get(), &parameters, &frames.data, &frames.count, nullptr);
+                if (cancelled) { result.cancelled = true; return result; }
+                if (!generated || !frames.data || frames.count != shot.frames)
+                    throw std::runtime_error("CPU disk-backed video fallback failed. Initial GPU failure:\n" +
+                        firstFailure + "Fallback failure:\n" + callbacks.failureContext());
+            }
             if (!generated || !frames.data || frames.count != shot.frames)
                 throw std::runtime_error("Native video generation returned incomplete frames. " + callbacks.failureContext());
             for (int position = 0; position < frames.count; ++position) {
@@ -236,7 +289,7 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
             || native_detail::modelMetadataIdentity(textEncoder) != encoderIdentity)
             throw std::runtime_error("Video model resources changed during generation");
 #else
-        (void)progress; (void)frame;
+        (void)progress; (void)frame; (void)lowVram;
         throw std::runtime_error("This SDK was built without native video inference");
 #endif
     } catch (const std::exception &error) {
@@ -244,5 +297,13 @@ NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const s
         if (!result.cancelled) result.error = error.what();
     }
     return result;
+}
+NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const NativeVideoFrameObserver &frame) {
+    return generateNativeVideoImpl(request, cancelled, progress, frame, false);
+}
+NativeVideoResult generateNativeVideoLowVram(const NativeVideoRequest &request, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const NativeVideoFrameObserver &frame) {
+    return generateNativeVideoImpl(request, cancelled, progress, frame, true);
 }
 }

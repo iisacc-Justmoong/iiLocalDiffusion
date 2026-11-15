@@ -74,6 +74,8 @@ def build_parser():
     parser.add_argument("--device", choices=("auto", "cpu", "mps", "metal", "cuda", "rocm"), default="auto")
     parser.add_argument("--dtype", choices=("auto", "float32", "float16", "bfloat16"), default="auto")
     parser.add_argument("--offload", choices=("auto", "none", "model", "sequential"), default="auto")
+    parser.add_argument("--low-vram", action=argparse.BooleanOptionalAction, default=False,
+                        help="Use bounded disk-backed video execution")
     parser.add_argument("--cpu-text-encoding", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--vae-tiling", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--decode-timestep", type=float, default=0.05)
@@ -215,6 +217,10 @@ def plan_shots(args):
 
 
 def resolve_options(args):
+    if getattr(args, "low_vram", False):
+        args.offload = "sequential"
+        args.cpu_text_encoding = True
+        args.vae_tiling = True
     args.seed = resolve_seed(args.seed)
     for name in ("width", "height"):
         value = _integer(getattr(args, name), name, 32, 4096)
@@ -279,7 +285,7 @@ def configuration(args):
     # Keep the input vocabulary replayable; the generated shot plan belongs in
     # the output sidecar, not in a config that the parser could not load again.
     remote = args.model_input.kind != "local"
-    local_controls = {"device", "dtype", "offload", "cpu_text_encoding", "vae_tiling", "max_sequence_length",
+    local_controls = {"device", "dtype", "offload", "low_vram", "cpu_text_encoding", "vae_tiling", "max_sequence_length",
                       "decode_timestep", "decode_noise_scale", "image_cond_noise_scale", "cache_dir", "local_files_only"}
     return {name: str(value) if isinstance(value, Path) else value
             for name in args._argument_names
