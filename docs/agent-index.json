@@ -14,14 +14,14 @@
       "document_id": "urn:iisacc:document:0733b27ab0cfa88effd8d0d55647d3ff07b3488d7a9f239723536ff108d7be85",
       "source": "AGENT.md",
       "agent_json": "docs/entrypoints/AGENT.agent.json",
-      "source_sha256": "8f8cbcb7a72897ddf2490d22e3c03966cf8fc411a51118301e67bb1a1463d1ac",
+      "source_sha256": "6ef884beb7bea16c28761d30d143dd34bdabb55a3e7bf20465842d7064d5baa4",
       "role": "instructions"
     },
     {
       "document_id": "urn:iisacc:document:f20c8ea15d96eebf88a185abd134d6b0bf305ed07e9248841e6ff3bbd6939552",
       "source": "README.md",
       "agent_json": "docs/entrypoints/README.agent.json",
-      "source_sha256": "2ab25797e350923f5d1d79275ea241a65f2bf9d32228024b431ca8143be77d8a",
+      "source_sha256": "cb66af878d390b061649db55941747ae2b76ebce67f1b5bd1c8f21e996f49c89",
       "role": "overview"
     },
     {
@@ -53,6 +53,13 @@
       "role": "guide"
     },
     {
+      "document_id": "urn:iisacc:document:2847e54ddfacaa15cb114b89baa7842871bd7738aadafc98f7fb2486bf95cb45",
+      "source": "docs/License.md",
+      "agent_json": "docs/License.agent.json",
+      "source_sha256": "1bfcf1b0082fa639b87dabeb4d50e3b507a91111afb13566d475cacd917fd3d0",
+      "role": "guide"
+    },
+    {
       "document_id": "urn:iisacc:document:2cfdb65f0f336f89fc481a7c932c7f6cf94d7f0ff644cc4bc15dd540a899bd53",
       "source": "docs/ModelInspection.md",
       "agent_json": "docs/ModelInspection.agent.json",
@@ -70,7 +77,7 @@
       "document_id": "urn:iisacc:document:08004737022fab34c35954dd3b5661edf00b6bf2443cf597f0cccc52519e99a9",
       "source": "docs/README.md",
       "agent_json": "docs/README.agent.json",
-      "source_sha256": "4c098663ece7a08a08b910d02e26b8ab92ba230bc1b2361ff2c73ddaa5f0ca66",
+      "source_sha256": "8220635d01c019750a274b7ee4cc1f8743538ac79e346df1e7d8079a0f85062c",
       "role": "overview"
     },
     {
@@ -182,7 +189,7 @@
       "document_id": "urn:iisacc:document:6ebdd83983cdad5ff06fe9bf4c92e701992bf94c44b9614b8bbdcdef684dc0da",
       "source": "docs/dependencies.md",
       "agent_json": "docs/dependencies.agent.json",
-      "source_sha256": "dacf47f6dc62d72e60d153d001a126ab282b7587b6d65f2383838e600ef33912",
+      "source_sha256": "296587a60fc0c0992d56221caf8328a45f4c613cd587ebe700f3a362fbf65151",
       "role": "guide"
     },
     {

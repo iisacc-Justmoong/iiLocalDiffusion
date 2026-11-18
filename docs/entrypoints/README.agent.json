@@ -10,9 +10,9 @@
   },
   "source": {
     "path": "README.md",
-    "sha256": "2ab25797e350923f5d1d79275ea241a65f2bf9d32228024b431ca8143be77d8a",
-    "bytes": 30792,
-    "line_count": 559,
+    "sha256": "cb66af878d390b061649db55941747ae2b76ebce67f1b5bd1c8f21e996f49c89",
+    "bytes": 31076,
+    "line_count": 564,
     "encoding": "utf-8",
     "language": "ko"
   },
@@ -1423,108 +1423,122 @@
       "title": "License"
     },
     {
-      "id": "b000178",
+      "id": "b000203",
       "kind": "blank",
       "start_line": 520,
       "end_line": 520,
       "raw": "\n"
     },
     {
-      "id": "b000179",
+      "id": "b000204",
       "kind": "paragraph",
       "start_line": 521,
       "end_line": 521,
-      "raw": "SPDX-License-Identifier: MIT\n"
+      "raw": "SPDX-License-Identifier: Apache-2.0\n"
     },
     {
-      "id": "b000180",
+      "id": "b000205",
       "kind": "blank",
       "start_line": 522,
       "end_line": 522,
       "raw": "\n"
     },
     {
-      "id": "b000181",
+      "id": "b000206",
       "kind": "paragraph",
       "start_line": 523,
-      "end_line": 525,
-      "raw": "The original code and documentation in iiLocalDiffusion are distributed under\nthe MIT License. See [LICENSE](LICENSE)\nfor the full license text.\n"
+      "end_line": 527,
+      "raw": "The iiLocalDiffusion tree in this repository is licensed under the\n[Apache License, Version 2.0](LICENSE) (SPDX `Apache-2.0`).\nThe copyright notice is `Copyright (c) 2026 iisacc`. Attribution for this\ndistribution is in [NOTICE](NOTICE). The Korean statement of the same policy\nis [docs/License.md](docs/License.md).\n"
     },
     {
-      "id": "b000182",
+      "id": "b000207",
       "kind": "blank",
-      "start_line": 526,
-      "end_line": 526,
+      "start_line": 528,
+      "end_line": 528,
       "raw": "\n"
     },
     {
-      "id": "b000183",
+      "id": "b000208",
       "kind": "paragraph",
-      "start_line": 527,
+      "start_line": 529,
+      "end_line": 530,
+      "raw": "iisacc products under Product are licensed under the GNU Affero General\nPublic License (AGPL).\n"
+    },
+    {
+      "id": "b000209",
+      "kind": "blank",
+      "start_line": 531,
       "end_line": 531,
-      "raw": "Third-party code, libraries, tools, and model weights retain their respective\nlicenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency\nnotices. The SD 1.5 reference uses CreativeML OpenRAIL-M, SDXL Base 1.0 uses\nCreativeML Open RAIL++-M, and FLUX.1-schnell uses Apache-2.0; no model weights\nare stored in this repository.\n"
-    },
-    {
-      "id": "b000184",
-      "kind": "blank",
-      "start_line": 532,
-      "end_line": 532,
       "raw": "\n"
     },
     {
-      "id": "b000185",
+      "id": "b000210",
       "kind": "paragraph",
-      "start_line": 533,
-      "end_line": 533,
+      "start_line": 532,
+      "end_line": 536,
+      "raw": "Third-party and vendored code, libraries, tools, and model weights\nkeep their original licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)\nfor dependency notices. The SD 1.5 reference uses CreativeML OpenRAIL-M,\nSDXL Base 1.0 uses CreativeML Open RAIL++-M, and FLUX.1-schnell uses\nApache-2.0; no model weights are stored in this repository.\n"
+    },
+    {
+      "id": "b000211",
+      "kind": "blank",
+      "start_line": 537,
+      "end_line": 537,
+      "raw": "\n"
+    },
+    {
+      "id": "b000212",
+      "kind": "paragraph",
+      "start_line": 538,
+      "end_line": 538,
       "raw": "Native progress now distinguishes weight loading, denoising and image decoding. The pinned backend patch and cooperative cancellation/deadline contract are described in [native-image-generation.md](docs/native-image-generation.md).\n"
     },
     {
-      "id": "b000186",
+      "id": "b000213",
       "kind": "blank",
-      "start_line": 534,
-      "end_line": 534,
+      "start_line": 539,
+      "end_line": 539,
       "raw": "\n"
     },
     {
-      "id": "b000187",
+      "id": "b000214",
       "kind": "paragraph",
-      "start_line": 535,
-      "end_line": 535,
+      "start_line": 540,
+      "end_line": 540,
       "raw": "Native generation optionally caches a copy of the Q8/VAE F16 model on disk preserving the original, and keeps the engine and mmap of the most recent successful model in memory. Apple's per-device GPU budget, total CPU core, direct mmap upload, and cache invalidation contract are referenced in the [native documentation](docs/native-image-generation.md).\n"
     },
     {
-      "id": "b000188",
+      "id": "b000215",
       "kind": "blank",
-      "start_line": 536,
-      "end_line": 536,
+      "start_line": 541,
+      "end_line": 541,
       "raw": "\n"
     },
     {
-      "id": "b000189",
+      "id": "b000216",
       "kind": "paragraph",
-      "start_line": 537,
-      "end_line": 537,
+      "start_line": 542,
+      "end_line": 542,
       "raw": "`generateNativeImageWithBackend` adds explicit CPU-only image inference for consumers with a background CPU grant and no GPU access. Existing APIs keep automatic placement and ABI layouts. See [native execution](docs/native-image-generation.md#explicit-cpu-execution-for-background-tasks) for resource and cache behavior.\n"
     },
     {
-      "id": "b000190",
+      "id": "b000217",
       "kind": "blank",
-      "start_line": 538,
-      "end_line": 538,
+      "start_line": 543,
+      "end_line": 543,
       "raw": "\n"
     },
     {
-      "id": "b000191",
+      "id": "b000218",
       "kind": "paragraph",
-      "start_line": 539,
-      "end_line": 539,
+      "start_line": 544,
+      "end_line": 544,
       "raw": "Native VAE validates the full tensor structure before mounting, and automatically adjusts the SDXL tile size according to the memory budget. Abnormal latent values and decoding values are blocked as errors before saving to RGB. Policies and methods for comparing actual weight values are recorded for [VAE validation and automatic optimization](docs/native-image-generation.md#vae-마운트-검증과-자동-최적화).\n"
     },
     {
       "id": "b000192",
       "kind": "heading",
-      "start_line": 540,
-      "end_line": 540,
+      "start_line": 545,
+      "end_line": 545,
       "raw": "## Native model packaging\n",
       "level": 2,
       "title": "Native model packaging"
@@ -1532,50 +1546,50 @@
     {
       "id": "b000193",
       "kind": "blank",
-      "start_line": 541,
-      "end_line": 541,
+      "start_line": 546,
+      "end_line": 546,
       "raw": "\n"
     },
     {
       "id": "b000194",
       "kind": "paragraph",
-      "start_line": 542,
-      "end_line": 548,
+      "start_line": 547,
+      "end_line": 553,
       "raw": "The Qt-free `iiLocalDiffusion::ModelPackaging` module bundles a model folder,\nsafetensors shards, LoRA/VAE tensors and supporting tokenizer/configuration\nassets into one verified safetensors container. GGUF components are retained\nbyte for byte and can be materialized as GGUF; ONNX model files are rejected. It streams weights\nwithout casting them and provides\nbyte-identical original-file restoration. See [model packaging](docs/model-packaging.md)\nfor the format, C++ API, `iild-model-package` CLI and validation contract.\n"
     },
     {
       "id": "b000195",
       "kind": "blank",
-      "start_line": 549,
-      "end_line": 549,
+      "start_line": 554,
+      "end_line": 554,
       "raw": "\n"
     },
     {
       "id": "b000196",
       "kind": "paragraph",
-      "start_line": 550,
-      "end_line": 550,
+      "start_line": 555,
+      "end_line": 555,
       "raw": "Model merging uses the reserved `.iild-merge-<tempfile token>` workspace beneath the output directory and removes it on normal success or failure. Society holds a parent temporary lease while merging; its container maintenance can recognize an abandoned workspace without deriving temporary names from a user filename.\n"
     },
     {
       "id": "b000197",
       "kind": "blank",
-      "start_line": 551,
-      "end_line": 551,
+      "start_line": 556,
+      "end_line": 556,
       "raw": "\n"
     },
     {
       "id": "b000198",
       "kind": "html",
-      "start_line": 552,
-      "end_line": 552,
+      "start_line": 557,
+      "end_line": 557,
       "raw": "<!-- workspace-docs:readme:start -->\n"
     },
     {
       "id": "b000199",
       "kind": "heading",
-      "start_line": 553,
-      "end_line": 553,
+      "start_line": 558,
+      "end_line": 558,
       "raw": "## Documentation entry points\n",
       "level": 2,
       "title": "Documentation entry points"
@@ -1583,15 +1597,15 @@
     {
       "id": "b000200",
       "kind": "blank",
-      "start_line": 554,
-      "end_line": 554,
+      "start_line": 559,
+      "end_line": 559,
       "raw": "\n"
     },
     {
       "id": "b000201",
       "kind": "list",
-      "start_line": 555,
-      "end_line": 558,
+      "start_line": 560,
+      "end_line": 563,
       "raw": "- Human overview: this English `README.md`.\n- Agent instructions: [AGENT.md](AGENT.md).\n- Human documentation: [documentation index](docs/README.md).\n- Structured agent documentation: [agent index](docs/agent-index.json).\n",
       "items": [
         {
@@ -1619,8 +1633,8 @@
     {
       "id": "b000202",
       "kind": "html",
-      "start_line": 559,
-      "end_line": 559,
+      "start_line": 564,
+      "end_line": 564,
       "raw": "<!-- workspace-docs:readme:end -->\n"
     }
   ],
@@ -1687,7 +1701,7 @@
       "level": 2,
       "title": "Native model packaging",
       "anchor": "native-model-packaging",
-      "start_line": 540
+      "start_line": 545
     },
     {
       "block_id": "b000199",
@@ -1695,7 +1709,7 @@
       "level": 2,
       "title": "Documentation entry points",
       "anchor": "documentation-entry-points",
-      "start_line": 553
+      "start_line": 558
     }
   ],
   "indexes": {
@@ -2254,74 +2268,88 @@
         "line": 517
       },
       {
-        "block_id": "b000181",
-        "label": "LICENSE",
+        "block_id": "b000206",
+        "label": "Apache License, Version 2.0",
         "target": "LICENSE",
         "kind": "relative",
         "line": 524
       },
       {
-        "block_id": "b000183",
-        "label": "THIRD_PARTY_NOTICES.md",
-        "target": "THIRD_PARTY_NOTICES.md",
+        "block_id": "b000206",
+        "label": "NOTICE",
+        "target": "NOTICE",
         "kind": "relative",
-        "line": 528
+        "line": 526
       },
       {
-        "block_id": "b000185",
-        "label": "native-image-generation.md",
-        "target": "docs/native-image-generation.md",
+        "block_id": "b000206",
+        "label": "docs/License.md",
+        "target": "docs/License.md",
+        "kind": "relative",
+        "line": 527
+      },
+      {
+        "block_id": "b000210",
+        "label": "THIRD_PARTY_NOTICES.md",
+        "target": "THIRD_PARTY_NOTICES.md",
         "kind": "relative",
         "line": 533
       },
       {
-        "block_id": "b000187",
+        "block_id": "b000212",
+        "label": "native-image-generation.md",
+        "target": "docs/native-image-generation.md",
+        "kind": "relative",
+        "line": 538
+      },
+      {
+        "block_id": "b000214",
         "label": "native documentation",
         "target": "docs/native-image-generation.md",
         "kind": "relative",
-        "line": 535
+        "line": 540
       },
       {
-        "block_id": "b000189",
+        "block_id": "b000216",
         "label": "native execution",
         "target": "docs/native-image-generation.md#explicit-cpu-execution-for-background-tasks",
         "kind": "relative",
-        "line": 537
+        "line": 542
       },
       {
-        "block_id": "b000191",
+        "block_id": "b000218",
         "label": "VAE validation and automatic optimization",
         "target": "docs/native-image-generation.md#vae-마운트-검증과-자동-최적화",
         "kind": "relative",
-        "line": 539
+        "line": 544
       },
       {
         "block_id": "b000194",
         "label": "model packaging",
         "target": "docs/model-packaging.md",
         "kind": "relative",
-        "line": 547
+        "line": 552
       },
       {
         "block_id": "b000201",
         "label": "AGENT.md",
         "target": "AGENT.md",
         "kind": "relative",
-        "line": 556
+        "line": 561
       },
       {
         "block_id": "b000201",
         "label": "documentation index",
         "target": "docs/README.md",
         "kind": "relative",
-        "line": 557
+        "line": 562
       },
       {
         "block_id": "b000201",
         "label": "agent index",
         "target": "docs/agent-index.json",
         "kind": "relative",
-        "line": 558
+        "line": 563
       }
     ],
     "tables": []
