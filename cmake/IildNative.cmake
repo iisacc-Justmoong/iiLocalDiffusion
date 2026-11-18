@@ -61,10 +61,37 @@ if(IILD_ENABLE_NATIVE_DIFFUSION)
         # Also apply with FETCHCONTENT_SOURCE_DIR_IILD_SDCPP (PATCH_COMMAND is
         # skipped for that override). Refuse drift instead of guessing a patch.
         find_package(Git REQUIRED)
-        target_include_directories(stable-diffusion PRIVATE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src/Generation")
-        foreach(patch_name native-progress-cancellation native-mapped-upload native-tensor-wakeup native-metal-shared-upload native-conversion-cancellation native-thread-safe-logging native-model-family native-mapped-buffer-compatibility native-inplace-backend-compatibility native-metal-storage-ops native-vae-fallback native-cpu-flash-attention native-vae-decode-safety native-krea2-embedded-encoder native-metal-fp8-capability native-backend-telemetry native-bulk-weight-read native-resident-model-memory native-resident-progress native-runtime-residency native-reference-capacity native-pixel-upscalers native-text-conditioning native-controlnet-fail-closed native-controlnet-hires-hint native-canny-preprocessing native-resident-alignment native-freeu native-learned-upscaler native-resident-detailer native-sdxl-refiner native-refiner-sampling native-controlnet-region-mask native-multi-controlnet native-ip-adapter-execution native-multi-ip-attention native-ip-adapter-resources native-krea2-img2img native-krea2-component-mount native-cpu-mixed-bf16 native-image-resolved-report native-cpu-segment-streaming native-hires-upscaler-bridge native-model-directx native-model-dawn-session native-model-dawn-callback native-model-directx-hardware)
+        target_include_directories(stable-diffusion PRIVATE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src/Generation" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src")
+        foreach(patch_name native-progress-cancellation native-mapped-upload native-tensor-wakeup native-metal-shared-upload native-conversion-cancellation native-thread-safe-logging native-model-family native-mapped-buffer-compatibility native-inplace-backend-compatibility native-metal-storage-ops native-vae-fallback native-cpu-flash-attention native-vae-decode-safety native-vae-encode-budget native-krea2-embedded-encoder native-metal-fp8-capability native-metal-int8-capability native-backend-telemetry native-bulk-weight-read native-resident-model-memory native-resident-progress native-runtime-residency native-reference-capacity native-pixel-upscalers native-text-conditioning native-controlnet-fail-closed native-controlnet-hires-hint native-canny-preprocessing native-resident-alignment native-freeu native-learned-upscaler native-resident-detailer native-sdxl-refiner native-refiner-sampling native-controlnet-region-mask native-multi-controlnet native-ip-adapter-execution native-multi-ip-attention native-ip-adapter-resources native-krea2-img2img native-krea2-component-mount native-anima-component-mount native-anima-llm-validation native-cpu-mixed-bf16 native-image-resolved-report native-cpu-segment-streaming native-hires-upscaler-bridge native-model-directx native-model-dawn-session native-model-dawn-callback native-model-directx-hardware native-model-content-format native-mixed-case-index native-wan-expert-namespace native-index-content-format)
             set(native_patch "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/patches/${patch_name}.patch")
             set(native_source "${iild_sdcpp_SOURCE_DIR}")
+            if(patch_name STREQUAL "native-model-content-format")
+                # The index-suffix follow-up supersedes this loader hunk.
+                execute_process(COMMAND "${GIT_EXECUTABLE}" apply --reverse --check
+                    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/patches/native-mixed-case-index.patch"
+                    WORKING_DIRECTORY "${native_source}" RESULT_VARIABLE native_mixed_index_applied
+                    OUTPUT_QUIET ERROR_QUIET)
+                if(native_mixed_index_applied EQUAL 0)
+                    continue()
+                endif()
+            endif()
+            if(patch_name STREQUAL "native-wan-expert-namespace")
+                # The later content probe inserts code beside this patch's
+                # loader hunk. Verify the complete follow-up and the earlier
+                # patch's exact changes before accepting the shared context.
+                execute_process(COMMAND "${GIT_EXECUTABLE}" apply --reverse --check
+                    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/patches/native-index-content-format.patch"
+                    WORKING_DIRECTORY "${native_source}" RESULT_VARIABLE native_index_content_applied
+                    OUTPUT_QUIET ERROR_QUIET)
+                if(native_index_content_applied EQUAL 0)
+                    execute_process(COMMAND "${GIT_EXECUTABLE}" apply --reverse --check -C0 "${native_patch}"
+                        WORKING_DIRECTORY "${native_source}" RESULT_VARIABLE native_wan_changes_applied
+                        OUTPUT_QUIET ERROR_QUIET)
+                    if(native_wan_changes_applied EQUAL 0)
+                        continue()
+                    endif()
+                endif()
+            endif()
             if(patch_name MATCHES "^(native-krea2-embedded-encoder|native-vae-fallback|native-krea2-img2img)$")
                 # Component mounting extends these existing hunks. Accept their
                 # superseded state only when the exact follow-up reverses cleanly.

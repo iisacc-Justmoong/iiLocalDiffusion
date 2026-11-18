@@ -1,23 +1,31 @@
 #include "NativeVideo.hpp"
 #include "NativeCachePolicy.hpp"
+#include "NativeModelPaths.hpp"
 #include "NativeEngineAccess.hpp"
 #include "NativeTelemetry.hpp"
+#include "ModelPackaging/ModelInspection.hpp"
 #include "ModelPackaging/ModelPackaging.hpp"
+#include "ModelPackaging/ModelGGUFInspection.hpp"
+#include "ModelPackaging/ModelWanNames.hpp"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <memory>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <stop_token>
 #include <thread>
+#include <utility>
 #if IILD_HAS_NATIVE_DIFFUSION
 #include <stable-diffusion.h>
 #endif
 
 namespace iiLocalDiffusion {
-static NativeVideoResult generateNativeVideoImpl(const NativeVideoRequest &request, const std::atomic_bool &cancelled,
+static NativeVideoResult generateNativeVideoImpl(const NativeVideoRequest &request, const NativeVideoComponents &components,
+    const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress, const NativeVideoFrameObserver &frame, bool lowVram)
 {
     NativeVideoResult result;
@@ -35,16 +43,158 @@ static NativeVideoResult generateNativeVideoImpl(const NativeVideoRequest &reque
             || request.shots.empty() || request.shots.size() > 256 || !frame)
             throw std::invalid_argument("Invalid native video dimensions, sampling parameters or shots");
         const auto source = std::filesystem::absolute(request.modelPath).lexically_normal();
-        if (!std::filesystem::is_regular_file(source) || std::filesystem::canonical(source) != source)
-            throw std::invalid_argument("Choose a local, unredirected video checkpoint");
+        if (!native_detail::isCanonicalOrShardIndex(source))
+            throw std::invalid_argument("Choose a local video checkpoint or a validated shard index");
         const auto isOnnx = [](const std::filesystem::path &path) {
             auto ext = path.extension().u8string();
             for (auto &c : ext) if (c >= u8'A' && c <= u8'Z') c += u8'a' - u8'A';
             return ext == u8".onnx";
         };
-        if (isOnnx(source) || (!request.textEncoderPath.empty() && isOnnx(request.textEncoderPath)))
-            throw std::invalid_argument("ONNX video checkpoints and text encoders are not supported");
+        if (isOnnx(source) || (!request.textEncoderPath.empty() && isOnnx(request.textEncoderPath))
+            || (!components.vaePath.empty() && isOnnx(components.vaePath))
+            || (!components.highNoiseModelPath.empty() && isOnnx(components.highNoiseModelPath))
+            || (!components.visionEncoderPath.empty() && isOnnx(components.visionEncoderPath)))
+            throw std::invalid_argument("ONNX video checkpoints and components are not supported");
+        const auto inspectIndex = [](const std::filesystem::path &path) -> std::optional<iild::SafetensorsIndex> {
+            const auto container=iild::detectModelContainer(path);
+            if (container!="safetensors-index" && !iild::hasSafetensorsIndexSuffix(path.filename().string())) return std::nullopt;
+            if (container=="safetensors" || container=="gguf") return std::nullopt;
+            return iild::inspectSafetensorsIndex(path);
+        };
+        const auto modelIndex=inspectIndex(source);
         const auto identity = native_detail::modelMetadataIdentity(source);
+        const auto sourceFormat=iild::detectModelContainer(source);
+        const auto embeddedMain=sourceFormat=="safetensors" ? iild::detail::inspectEmbeddedMainGguf(source)
+                                                           : std::optional<iild::detail::EmbeddedGgufMain>{};
+        // Output modality overrides do not change the underlying model family.
+        // Unknown architectures retain the existing LLM behavior and must still
+        // pass the native engine's complete component validation.
+        const bool wan=iild::inspectModel(source).family=="Wan";
+        const auto packageAssets=(sourceFormat=="safetensors" && (wan || embeddedMain))
+            ? iild::detail::inspectIncludedPackageAssets(source) : iild::detail::PackageAssets{};
+        const auto &packageRoles=packageAssets.roles;
+        // Bare and Diffusers-style Wan weights need a diffusion mount. Keep the
+        // original mount as well for an embedded encoder or VAE.
+        constexpr std::array<std::string_view,2> bareWanNames{"patch_embedding.weight","blocks.0.cross_attn.norm_k.weight"};
+        bool mountWanDiffusion=false;
+        if (wan) {
+            std::array<bool,bareWanNames.size()> foundBare{};
+            iild::detail::WanDiffusersSignature diffusersSignature;
+            const auto inspectName = [&](std::string_view name) {
+                for (std::size_t i=0;i<bareWanNames.size();++i) if (name==bareWanNames[i]) foundBare[i]=true;
+                diffusersSignature.add(name);
+            };
+            if (embeddedMain) {
+                for (const auto &name:embeddedMain->catalog.tensorNames) inspectName(name);
+            } else if (modelIndex) {
+                for (const auto &tensor:modelIndex->tensors) inspectName(tensor.name);
+            } else if (sourceFormat=="safetensors" || sourceFormat=="gguf") {
+                std::vector<std::string> ownedNames;
+                ownedNames.reserve(bareWanNames.size()+diffusersSignature.prefixes.size()*diffusersSignature.markers.size());
+                for (auto name:bareWanNames) ownedNames.emplace_back(name);
+                for (auto prefix:diffusersSignature.prefixes) for (auto marker:diffusersSignature.markers)
+                    ownedNames.push_back(std::string(prefix)+std::string(marker));
+                std::vector<std::string_view> candidates; candidates.reserve(ownedNames.size());
+                for (const auto &name:ownedNames) candidates.push_back(name);
+                for (const auto &name:iild::probeModelTensorNames(source,candidates).matches) inspectName(name);
+            }
+            mountWanDiffusion=std::all_of(foundBare.begin(),foundBare.end(),[](bool found) {return found;})
+                || diffusersSignature.prefix().has_value();
+        }
+        const auto validOptionalFloat=[](float value,float maximum) {
+            return std::isfinite(value) && (value == -1 || (value >= 0 && value <= maximum));
+        };
+        if (!validOptionalFloat(components.moeBoundary,1) || !validOptionalFloat(components.highNoiseGuidance,100)
+            || (components.highNoiseSteps != -1 && (components.highNoiseSteps < 1 || components.highNoiseSteps > 1000)))
+            throw std::invalid_argument("Invalid high-noise video sampling controls");
+        const float moeBoundary=components.moeBoundary != -1 ? components.moeBoundary
+            : wan && packageAssets.wanMoeBoundary ? *packageAssets.wanMoeBoundary : -1;
+        const bool expertControls=moeBoundary != -1 || components.highNoiseSteps != -1 || components.highNoiseGuidance != -1;
+        if (expertControls && components.highNoiseModelPath.empty() &&
+            !(wan && packageRoles.contains("high_noise_model")))
+            throw std::invalid_argument("High-noise sampling controls require a high-noise model");
+        if (!wan && (!components.highNoiseModelPath.empty() || !components.visionEncoderPath.empty()))
+            throw std::invalid_argument("High-noise and vision video components require a recognized Wan checkpoint");
+        constexpr std::array<std::string_view,12> embeddedEncoderNames{
+            "text_encoders.llm.model.embed_tokens.weight",
+            "text_encoders.llm.model.norm.weight",
+            "text_encoders.llm.model.layers.0.self_attn.q_proj.weight",
+            "text_encoders.llm.token_embd.weight",
+            "text_encoders.llm.output_norm.weight",
+            "text_encoders.llm.blk.0.attn_q.weight",
+            "text_encoders.t5xxl.transformer.shared.weight",
+            "text_encoders.t5xxl.transformer.encoder.final_layer_norm.weight",
+            "text_encoders.t5xxl.transformer.encoder.block.0.layer.0.SelfAttention.q.weight",
+            "text_encoders.t5xxl.transformer.token_embd.weight",
+            "text_encoders.t5xxl.transformer.enc.output_norm.weight",
+            "text_encoders.t5xxl.transformer.enc.blk.0.attn_q.weight"};
+        bool embeddedEncoder=false;
+        if (request.textEncoderPath.empty()) {
+            std::vector<std::string> found;
+            bool embeddedPackage=false;
+            if (embeddedMain) {
+                for (const auto &name:embeddedMain->catalog.tensorNames)
+                    if (std::find(embeddedEncoderNames.begin(),embeddedEncoderNames.end(),name)!=embeddedEncoderNames.end())
+                        found.push_back(name);
+                embeddedPackage=packageRoles.contains("text_encoder");
+            } else if (modelIndex) {
+                for (const auto &tensor:modelIndex->tensors)
+                    if (std::find(embeddedEncoderNames.begin(),embeddedEncoderNames.end(),tensor.name)!=embeddedEncoderNames.end())
+                        found.push_back(tensor.name);
+            } else {
+                const auto format=iild::detectModelContainer(source);
+                if (format=="safetensors" || format=="gguf") {
+                    auto probe=iild::probeModelTensorNames(source,embeddedEncoderNames);
+                    found=std::move(probe.matches);embeddedPackage=probe.embeddedPackage;
+                }
+            }
+            const auto has=[&](std::string_view name) {
+                return std::find(found.begin(),found.end(),name)!=found.end();
+            };
+            const std::size_t offset=wan?6:0;
+            embeddedEncoder=!embeddedPackage && (has(embeddedEncoderNames[offset]) || has(embeddedEncoderNames[offset+3]))
+                && (has(embeddedEncoderNames[offset+1]) || has(embeddedEncoderNames[offset+4]))
+                && (has(embeddedEncoderNames[offset+2]) || has(embeddedEncoderNames[offset+5]));
+        }
+        if (native_detail::modelMetadataIdentity(source)!=identity)
+            throw std::runtime_error("Video model changed during component inspection");
+        if (modelIndex && request.textEncoderPath.empty() && !embeddedEncoder)
+            throw std::invalid_argument("A standalone indexed video model requires an explicit compatible text encoder");
+        const auto totalSize = [](const std::filesystem::path &path, const std::optional<iild::SafetensorsIndex> &index) {
+            auto size=std::filesystem::file_size(path);
+            if (index) for (const auto &shard : index->shards) {
+                if (shard.sizeBytes>std::numeric_limits<std::uintmax_t>::max()-size)
+                    throw std::runtime_error("Video model shard sizes exceed the supported range");
+                size+=shard.sizeBytes;
+            }
+            return size;
+        };
+        const auto modelSize=totalSize(source,modelIndex);
+        struct ComponentSnapshot {
+            std::filesystem::path path;
+            std::string identity;
+            std::optional<iild::SafetensorsIndex> index;
+            std::uintmax_t bytes=0;
+        };
+        const auto snapshot = [&](const std::filesystem::path &path) {
+            ComponentSnapshot value;
+            if (path.empty()) return value;
+            value.path=std::filesystem::absolute(path).lexically_normal();
+            if (!native_detail::isCanonicalOrShardIndex(value.path))
+                throw std::invalid_argument("Choose local video component files or validated shard indexes");
+            value.index=inspectIndex(value.path);
+            value.identity=native_detail::modelMetadataIdentity(value.path);
+            value.bytes=totalSize(value.path,value.index);
+            return value;
+        };
+        std::array componentFiles{snapshot(components.vaePath),snapshot(components.highNoiseModelPath),
+                                   snapshot(components.visionEncoderPath),ComponentSnapshot{}};
+        const auto verifyComponents = [&] {
+            return std::all_of(componentFiles.begin(),componentFiles.end(),[](const ComponentSnapshot &file) {
+                return file.path.empty() || (native_detail::modelMetadataIdentity(file.path)==file.identity
+                    && (!file.index || iild::verifySafetensorsIndex(*file.index)));
+            });
+        };
         const auto validateImage = [&](const NativeReferenceImage &image) {
             if (!image.rgb.empty() && (image.width != request.width || image.height != request.height
                 || image.rgb.size() != static_cast<std::size_t>(request.width) * static_cast<std::size_t>(request.height) * 3))
@@ -136,12 +286,10 @@ static NativeVideoResult generateNativeVideoImpl(const NativeVideoRequest &reque
             }
             if (std::getenv("IILD_NATIVE_DIAGNOSTICS")) std::fputs(text, stderr);
         }, &callbacks);
-        auto textEncoder = request.textEncoderPath;
-        if (textEncoder.empty()) {
-            if (request.assetCacheDirectory.empty()) throw std::invalid_argument("Choose a model asset cache or explicit supported text encoder");
+        const auto materialize = [&](const std::string &role,const std::filesystem::path &relative=std::filesystem::path{}) {
+            if (request.assetCacheDirectory.empty()) throw std::invalid_argument("Choose a model asset cache or provide the required video component explicitly");
             std::stop_source stop;
-            textEncoder = iild::materializeModelPackageAsset(source, request.assetCacheDirectory, "text_encoder", stop.get_token(),
-                [&](const auto &event) {
+            const auto observer = [&](const auto &event) {
                     if (cancelled) stop.request_stop();
                     // The existing ABI has signed 32-bit counters. Report MiB,
                     // not bytes: the bundled Gemma encoder exceeds 2 GiB.
@@ -153,9 +301,28 @@ static NativeVideoResult generateNativeVideoImpl(const NativeVideoRequest &reque
                     telemetry.stage("preparing-model", static_cast<int>(completed), static_cast<int>(total));
                     if (progress) progress({NativeGenerationStage::Preparing,
                         static_cast<int>(completed), static_cast<int>(total)});
-                });
-        }
-        const auto encoderIdentity = native_detail::modelMetadataIdentity(textEncoder);
+                };
+            return relative.empty() ? iild::materializeModelPackageAsset(source,request.assetCacheDirectory,role,stop.get_token(),observer)
+                                    : iild::materializeModelPackageAssetByPath(source,request.assetCacheDirectory,relative,stop.get_token(),observer);
+        };
+        if (embeddedMain) componentFiles[3]=snapshot(materialize("model",embeddedMain->relativePath));
+        auto textEncoder = request.textEncoderPath;
+        if (textEncoder.empty() && !embeddedEncoder) textEncoder=materialize("text_encoder");
+        // A non-LTX package keeps its separate VAE under a component namespace.
+        // Only an included Wan VAE is mounted; duplicates already in the main
+        // model stay in place, and ambiguous roles are rejected by materialize.
+        if (wan && components.vaePath.empty() && packageRoles.contains("video_vae"))
+            componentFiles[0]=snapshot(materialize("video_vae"));
+        if (wan && components.highNoiseModelPath.empty() && packageRoles.contains("high_noise_model"))
+            componentFiles[1]=snapshot(materialize("high_noise_model"));
+        if (wan && components.visionEncoderPath.empty() && packageRoles.contains("vision_encoder"))
+            componentFiles[2]=snapshot(materialize("vision_encoder"));
+        const auto encoderIndex=textEncoder.empty() ? std::optional<iild::SafetensorsIndex>{} : inspectIndex(textEncoder);
+        const auto encoderSize=textEncoder.empty() ? std::uintmax_t{0} : totalSize(textEncoder,encoderIndex);
+        const auto encoderIdentity=textEncoder.empty() ? std::string{} : native_detail::modelMetadataIdentity(textEncoder);
+        if (native_detail::modelMetadataIdentity(source)!=identity || (modelIndex && !iild::verifySafetensorsIndex(*modelIndex))
+            || (encoderIndex && !iild::verifySafetensorsIndex(*encoderIndex)) || !verifyComponents())
+            throw std::runtime_error("Video model shards changed during preparation");
         if (cancelled) { result.cancelled = true; return result; }
         result.threads = request.threads > 0 ? request.threads : std::max(1, sd_get_num_physical_cores());
 #if defined(__APPLE__)
@@ -168,13 +335,23 @@ static NativeVideoResult generateNativeVideoImpl(const NativeVideoRequest &reque
         telemetry.note("video=1 memory_budget_bytes=" + std::to_string(result.memoryBudgetBytes));
         telemetry.stage("model-load");
         if (progress) progress({NativeGenerationStage::Loading});
-        const auto model = source.string(), encoder = textEncoder.string();
+        const auto model = (componentFiles[3].path.empty() ? source : componentFiles[3].path).string(), encoder = textEncoder.string();
+        const auto vae=componentFiles[0].path.string(), high=componentFiles[1].path.string(), vision=componentFiles[2].path.string();
         const auto budget = std::to_string(double(result.memoryBudgetBytes) / (1024.0 * 1024 * 1024));
         const bool streamModel = native_detail::needsDiskBackedStreaming(
-            std::filesystem::file_size(source), result.memoryBudgetBytes) ||
-            native_detail::needsDiskBackedStreaming(std::filesystem::file_size(textEncoder), result.memoryBudgetBytes);
+            modelSize, result.memoryBudgetBytes) ||
+            native_detail::needsDiskBackedStreaming(encoderSize, result.memoryBudgetBytes) ||
+            std::any_of(componentFiles.begin(),componentFiles.end(),[&](const auto &file) {
+                return native_detail::needsDiskBackedStreaming(file.bytes,result.memoryBudgetBytes);
+            });
         sd_ctx_params_t contextParameters; sd_ctx_params_init(&contextParameters);
-        contextParameters.model_path = model.c_str(); contextParameters.llm_path = encoder.c_str();
+        contextParameters.model_path = model.c_str();
+        if (mountWanDiffusion) contextParameters.diffusion_model_path=model.c_str();
+        if (wan) contextParameters.t5xxl_path = encoder.empty() ? nullptr : encoder.c_str();
+        else contextParameters.llm_path = encoder.empty() ? nullptr : encoder.c_str();
+        contextParameters.vae_path=vae.empty() ? nullptr : vae.c_str();
+        contextParameters.high_noise_diffusion_model_path=high.empty() ? nullptr : high.c_str();
+        contextParameters.clip_vision_path=vision.empty() ? nullptr : vision.c_str();
         contextParameters.n_threads = result.threads; contextParameters.enable_mmap = true;
         contextParameters.flash_attn = contextParameters.diffusion_flash_attn = true;
         contextParameters.eager_load = false; contextParameters.max_vram = budget.c_str();
@@ -222,6 +399,9 @@ static NativeVideoResult generateNativeVideoImpl(const NativeVideoRequest &reque
             parameters.video_frames = shot.frames; parameters.fps = shot.fps; parameters.seed = shot.seed;
             parameters.sample_params.sample_steps = request.steps;
             parameters.sample_params.guidance.txt_cfg = request.guidanceScale;
+            if (moeBoundary != -1) parameters.moe_boundary=moeBoundary;
+            if (components.highNoiseSteps != -1) parameters.high_noise_sample_params.sample_steps=components.highNoiseSteps;
+            if (components.highNoiseGuidance != -1) parameters.high_noise_sample_params.guidance.txt_cfg=components.highNoiseGuidance;
             parameters.strength = shot.conditioningStrength; parameters.vae_tiling_params.enabled = request.vaeTiling || lowVram;
             const auto image = [](const NativeReferenceImage &value) -> sd_image_t {
                 if (value.rgb.empty()) return {};
@@ -286,7 +466,9 @@ static NativeVideoResult generateNativeVideoImpl(const NativeVideoRequest &reque
             result.frameCounts.push_back(frames.count);
         }
         if (native_detail::modelMetadataIdentity(source) != identity
-            || native_detail::modelMetadataIdentity(textEncoder) != encoderIdentity)
+            || (!textEncoder.empty() && native_detail::modelMetadataIdentity(textEncoder) != encoderIdentity)
+            || (modelIndex && !iild::verifySafetensorsIndex(*modelIndex))
+            || (encoderIndex && !iild::verifySafetensorsIndex(*encoderIndex)) || !verifyComponents())
             throw std::runtime_error("Video model resources changed during generation");
 #else
         (void)progress; (void)frame; (void)lowVram;
@@ -300,10 +482,18 @@ static NativeVideoResult generateNativeVideoImpl(const NativeVideoRequest &reque
 }
 NativeVideoResult generateNativeVideo(const NativeVideoRequest &request, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress, const NativeVideoFrameObserver &frame) {
-    return generateNativeVideoImpl(request, cancelled, progress, frame, false);
+    return generateNativeVideoImpl(request, {}, cancelled, progress, frame, false);
 }
 NativeVideoResult generateNativeVideoLowVram(const NativeVideoRequest &request, const std::atomic_bool &cancelled,
     const NativeProgressCallback &progress, const NativeVideoFrameObserver &frame) {
-    return generateNativeVideoImpl(request, cancelled, progress, frame, true);
+    return generateNativeVideoImpl(request, {}, cancelled, progress, frame, true);
+}
+NativeVideoResult generateNativeVideoWithComponents(const NativeVideoRequest &request, const NativeVideoComponents &components,
+    const std::atomic_bool &cancelled, const NativeProgressCallback &progress, const NativeVideoFrameObserver &frame) {
+    return generateNativeVideoImpl(request, components, cancelled, progress, frame, false);
+}
+NativeVideoResult generateNativeVideoLowVramWithComponents(const NativeVideoRequest &request, const NativeVideoComponents &components,
+    const std::atomic_bool &cancelled, const NativeProgressCallback &progress, const NativeVideoFrameObserver &frame) {
+    return generateNativeVideoImpl(request, components, cancelled, progress, frame, true);
 }
 }

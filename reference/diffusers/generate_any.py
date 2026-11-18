@@ -19,7 +19,7 @@ import tempfile
 import wave
 from typing import Any
 
-from generation_output import publish_file
+from generation_output import protect_model_directory, publish_file
 from generation_defaults import pipeline_lora_family, resolve_family_default_lora
 from generation_preview import add_preview_options, attach_preview, validate_preview_location
 from generic_io import (ARCHITECTURES, automatic_token_spec, load_tensor_input,
@@ -28,8 +28,9 @@ from hardware import accelerator_preflight, select_device, validate_execution_de
 from lora import (add_lora_options, apply_lora, lora_metadata, resolve_lora_selection,
                   validate_lora_activation, validate_lora_support, verify_lora_identity)
 from inference_session import (SchedulerConfiguration, cached_configuration, cached_pipeline,
-                               cached_placement, is_preparing, record_device_placement, record_execution, verify_pipeline_sources)
-from weight_files import model_content_sha256, file_sha256, file_signature
+                               cached_placement, invalidate_pipeline, is_preparing, record_device_placement, record_execution, verify_pipeline_sources)
+from weight_files import (LocalWeightFile, checked_safetensors_path, model_content_sha256,
+                          file_sha256, file_signature)
 from vae_defaults import resolve_vae_selection, load_selected_vae, verify_vae_selection, vae_metadata, single_file_has_vae
 import krea2_contract
 import krea2_single_file
@@ -48,8 +49,10 @@ import krea2_color_control
 import krea2_regions
 import krea2_ostris_control
 import moss_runtime
+import moss_hires
 import moss_text_encoder
 import model_config_defaults
+from generation_config import ConfigurationArgumentParser
 import moss_tokenizer
 import moss_controlnet
 import moss_rapid
@@ -89,15 +92,19 @@ def report_dependency_progress(completed: int, _name: str) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser = ConfigurationArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('--config', type=Path, help='JSON generation request with CLI options taking precedence')
     parser.add_argument("--model", "--model-path", dest="model", required=True,
                         help="Local Diffusers directory or .safetensors file")
     parser.add_argument("--revision", help=argparse.SUPPRESS)
     parser.add_argument("--pipeline-class", help="Installed diffusers pipeline class; otherwise use model_index.json")
+    parser.add_argument("--variant", help="Explicit Diffusers directory weight variant, such as fp16")
     parser.add_argument("--model-config", help="Local complete Diffusers configuration/extras for a single file")
     parser.add_argument('--model-config-preset', choices=('moss-image-sft', 'krea2-raw', 'krea2-turbo', 'flux1-schnell'),
                         help='Use a verified bundled single-file model configuration')
-    parser.add_argument("--vae", help="Replacement local Diffusers VAE directory; omitted Qwen RGB VAE uses installed fallback")
+    parser.add_argument("--vae", help="Replacement local VAE directory, Safetensors or PyTorch file or shard index")
+    parser.add_argument('--dequantize-pytorch', action=argparse.BooleanOptionalAction, default=False,
+                        help='Restore supported PyTorch quantized tensors as float32 when converting checkpoints')
     parser.add_argument("--base-model", help="Civitai identity checked against the selected pipeline architecture")
     add_lora_options(parser)
     parser.add_argument("--default-modifiers", action=argparse.BooleanOptionalAction, default=True,
@@ -128,6 +135,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int)
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
+    parser.add_argument("--num-images", type=int, help="Requested total images for a single prompt")
+    parser.add_argument("--hires-fix", action=argparse.BooleanOptionalAction, default=None,
+                        help="Enable supported model-specific target-size refinement")
+    parser.add_argument("--hires-upscaler", choices=("nearest", "bilinear", "bicubic", "lanczos"))
+    parser.add_argument("--hires-strength", "--hires-denoising-strength", type=float)
     parser.add_argument("--sigmas", type=read_json, help="Custom unshifted sigma array; Krea 2 validates its numerical contract")
     parser.add_argument("--steps", type=int)
     parser.add_argument("--guidance-scale", type=float)
@@ -199,8 +211,49 @@ def validate_input_descriptors(value: Any) -> None:
                 validate_input_descriptors(item)
 
 
+def overridden_weight_components(args: argparse.Namespace) -> set[str]:
+    """Identify components supplied independently of the pipeline directory."""
+    excluded = set()
+    if getattr(args, 'vae_selection', None) is not None:
+        excluded.add('vae')
+    if (getattr(args, 'moss_text_encoder_selection', None) is not None
+            or getattr(args, 'text_encoder_selection', None) is not None
+            or getattr(args, 'text_encoder_status', None) == 'precomputed-embeddings'):
+        excluded.add('text_encoder')
+    excluded.update(getattr(args, 'flux_text_encoders', {}))
+    excluded.update(role for role, status in getattr(args, 'flux_text_encoder_status', {}).items()
+                    if status == 'precomputed-embeddings')
+    return excluded
+
+
+def single_file_diffusers_fallback_components(diffusers: Any, index: dict[str, Any]) -> set[str]:
+    """Find Diffusers models loaded from the config, rather than the checkpoint."""
+    model_base = getattr(diffusers, 'ModelMixin', None)
+    original_base = getattr(diffusers, 'FromOriginalModelMixin', None)
+    if not isinstance(model_base, type) or not isinstance(original_base, type):
+        return set()
+    result = set()
+    for name, declaration in index.items():
+        if (not isinstance(declaration, (list, tuple)) or len(declaration) != 2
+                or declaration[0] != 'diffusers' or not isinstance(declaration[1], str)):
+            continue
+        model = getattr(diffusers, declaration[1], None)
+        if isinstance(model, type) and issubclass(model, model_base) and not issubclass(model, original_base):
+            result.add(name)
+    return result
+
+
 def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
+    from image_package import current as current_package, verify_source as verify_package_source
     result = argparse.Namespace(**vars(args))
+    result.model_conversion = None
+    result.original_model_path = None
+    result.single_file_component_only = False
+    result.directory_gguf_components = {}
+    result.image_package = current_package()
+    verify_package_source(result.image_package)
+    original_signature = None
+    container = None
     if not args.local_files_only:
         raise ValueError("Generation requires local-only model loading.")
     if not args.model.strip():
@@ -212,8 +265,20 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
         result.source_kind = "directory" if source.is_dir() else "single-file"
         if args.revision is not None:
             raise ValueError("--revision applies only to a remote Hub repository, not local files.")
-        if not source.is_dir() and (not source.is_file() or source.suffix.casefold() not in (".safetensors", ".safetensor") or not source.stat().st_size):
-            raise ValueError("Local model files must be non-empty safetensors files; use a Diffusers directory for other layouts.")
+        if not source.is_dir():
+            from downloaded_model import model_container_format
+            if source.suffix.casefold() == '.onnx' or not source.stat().st_size:
+                raise ValueError("Local model files must contain safetensors or a weights-only PyTorch checkpoint.")
+            original_signature = file_signature(source)
+            try:
+                container = model_container_format(source)
+            except ValueError as error:
+                raise ValueError("Local model files must contain safetensors or a weights-only PyTorch checkpoint.") from error
+            if container not in ('safetensors', 'safetensors-index', 'pytorch', 'pytorch-index', 'gguf'):
+                raise ValueError('Local model files must contain Safetensors, GGUF, or a weights-only PyTorch checkpoint.')
+            result.single_file_component_only = container == 'gguf'
+            if file_signature(source) != original_signature:
+                raise RuntimeError("Model changed during container detection.")
     else:
         raise ValueError(f"--model must be an existing local file or directory: {args.model}")
     result.local_files_only = True
@@ -225,19 +290,26 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
                                                          getattr(args, 'generation_resources', None),
                                                          preset=getattr(args, 'model_config_preset', None))
                           if not args.model_config else None)
+        adjacent_config = None
+        if (not args.model_config and not getattr(args, 'model_config_preset', None)
+                and default_config is None and result.single_file_component_only):
+            from gguf_component import nearby_config
+            adjacent_config = nearby_config(source)
+            default_config = adjacent_config
         if not args.model_config and default_config is None:
             raise ValueError("A single-file model requires --model-config with local Diffusers configuration or a compatible --model-config-preset.")
         config = Path(args.model_config).expanduser().absolute() if args.model_config else default_config
         if not config.is_dir() or not (config / "model_index.json").is_file():
             raise ValueError("--model-config must be a local directory containing model_index.json.")
         result.model_config = str(config)
-        result.model_config_status = 'explicit' if args.model_config else 'bundled'
-        if getattr(args, 'model_config_preset', None) == 'flux1-schnell':
-            flux1_single_file.validate_schnell(result.model, config)
+        result.model_config_status = 'explicit' if args.model_config else 'adjacent' if adjacent_config else 'bundled'
     elif args.model_config or getattr(args, 'model_config_preset', None):
         raise ValueError("--model-config and --model-config-preset are only valid for a single-file --model.")
     if args.pipeline_class and not IDENTIFIER.fullmatch(args.pipeline_class):
         raise ValueError("--pipeline-class must be a public installed Diffusers class name, not a module or script path.")
+    if args.variant is not None:
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', args.variant):
+            raise ValueError('--variant requires a simple, nonempty variant name.')
     if args.seed is not None and not 0 <= args.seed <= 2**63 - 1:
         raise ValueError("--seed must be in the inclusive range 0..2^63-1.")
     for name in ("width", "height", "steps", "audio_sample_rate"):
@@ -246,6 +318,8 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
             raise ValueError(f"--{name.replace('_', '-')} must be positive.")
     if args.guidance_scale is not None and not math.isfinite(args.guidance_scale):
         raise ValueError("--guidance-scale must be finite.")
+    if args.num_images is not None and not 1 <= args.num_images <= 1000:
+        raise ValueError("--num-images must be between 1 and 1000.")
     if args.device == "cpu" and args.offload != "none":
         raise ValueError("CPU execution requires --offload none.")
     result.inputs = read_inputs(args.pipeline_inputs)
@@ -264,9 +338,67 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
         value = getattr(args, option)
         if value is not None:
             result.inputs[key] = value
+    if args.num_images is not None:
+        prompt = result.inputs.get("prompt")
+        if isinstance(prompt, list) and len(prompt) != 1:
+            raise ValueError("--num-images requires a single prompt.")
+        if args.num_images != 1 or "num_images_per_prompt" in result.inputs:
+            result.inputs["num_images_per_prompt"] = args.num_images
     result.cache_dir = args.cache_dir.expanduser().absolute()
     result.output_dir = args.output_dir.expanduser().absolute()
+    conversion_options = {'quantized_tensors': 'dequantize'} if args.dequantize_pytorch else {}
+    if container in ('pytorch', 'pytorch-index'):
+        if args.print_config:
+            raise ValueError('Legacy checkpoint conversion is deferred until generation. '
+                             'Use --inspect-model for a metadata-only check.')
+        if (not is_preparing() and result.output_dir.exists() and not args.overwrite
+                and any(provider.iterdir(result.output_dir))):
+            raise ValueError(f"Output directory is not empty: {result.output_dir}; choose a fresh directory or pass --overwrite.")
+        from checkpoint_conversion import materialize_safetensors, verify_conversion_source
+        conversion = materialize_safetensors(str(source), result.cache_dir / 'checkpoint-conversions', **conversion_options)
+        if not conversion.get('converted'):
+            raise RuntimeError('Legacy checkpoint conversion did not produce safetensors weights.')
+        if file_signature(source) != original_signature:
+            raise RuntimeError('Source checkpoint changed between inspection and conversion.')
+        verify_conversion_source(conversion)
+        result.original_model_path = str(source)
+        result.model_conversion = conversion
+        result.model = conversion['converted_path']
+        protect_model_directory(result)
+    if result.image_package:
+        result.original_model_path = result.image_package['source']
     index, folder = load_model_index(result)
+    result.variant_selection = 'explicit' if args.variant is not None else 'default'
+    if result.single_file_component_only and index['_class_name'] == 'MOSSImagePipeline':
+        raise ValueError('The pinned MOSS pipeline does not support GGUF transformer weights.')
+    if container == 'safetensors-index':
+        moss_index = (index['_class_name'] == 'MOSSImagePipeline'
+                      and result.pipeline_class in (None, 'MOSSImagePipeline'))
+        if moss_index:
+            from downloaded_model import inspect_downloaded_model
+            report = inspect_downloaded_model(source)
+            if report['architecture'] != 'moss-image' or report['role'] != 'checkpoint':
+                raise ValueError('An indexed MOSS transformer requires MOSS Image checkpoint weights.')
+        else:
+            if args.print_config:
+                raise ValueError('Sharded checkpoint materialization is deferred until generation. '
+                                 'Use --inspect-model for a metadata-only check.')
+            if (not is_preparing() and result.output_dir.exists() and not args.overwrite
+                    and any(provider.iterdir(result.output_dir))):
+                raise ValueError(f"Output directory is not empty: {result.output_dir}; choose a fresh directory or pass --overwrite.")
+            from checkpoint_conversion import materialize_safetensors, verify_conversion_source
+            conversion = materialize_safetensors(str(source), result.cache_dir / 'checkpoint-conversions', **conversion_options)
+            if not conversion.get('converted') or file_signature(source) != original_signature:
+                raise RuntimeError('Source checkpoint changed or failed to materialize after inspection.')
+            verify_conversion_source(conversion)
+            result.original_model_path = str(source)
+            result.model_conversion = conversion
+            result.model = conversion['converted_path']
+            protect_model_directory(result)
+    if (result.single_file_component_only and getattr(args, 'model_config_preset', None) == 'flux1-schnell'):
+        raise ValueError('GGUF requires an explicit compatible local FLUX configuration; the Schnell preset validates Safetensors only.')
+    if result.source_kind == 'single-file' and getattr(args, 'model_config_preset', None) == 'flux1-schnell':
+        flux1_single_file.validate_schnell(result.model, Path(result.model_config))
     result.moss_text_encoder_selection = moss_text_encoder.resolve(result.moss_text_encoder,
                                                                     result.pipeline_class or index['_class_name'])
     if result.moss_text_encoder_selection:
@@ -299,6 +431,9 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
             or index['_class_name'] != 'FluxPipeline'
             or (result.pipeline_class is not None and result.pipeline_class != 'FluxPipeline')):
         raise ValueError('--flux-transformer-storage requires a FLUX.1 single-file checkpoint.')
+    if result.single_file_component_only and (result.flux_transformer_storage is not None
+            or result.krea2_fp8_storage is not None or result.moss_transformer_storage is not None):
+        raise ValueError('The selected specialized transformer storage option cannot be combined with GGUF.')
     if result.flux_transformer_storage == 'cpu-stream' and result.offload != 'none':
         raise ValueError('FLUX transformer cpu-stream storage requires --offload none.')
     result.krea2_control_size_explicit = any(key in result.inputs for key in ('width', 'height'))
@@ -307,6 +442,7 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
     result.krea2_regions = krea2_regions.resolve(result, result.pipeline_class or index['_class_name'])
     result.generic_controlnet = generic_controlnet.resolve(result, index)
     result.moss_rapid = moss_rapid.resolve(result, result.pipeline_class or index['_class_name'])
+    result.moss_hires = moss_hires.resolve(result, result.pipeline_class or index['_class_name'])
     if isinstance(result.generic_controlnet, (krea2_controlnet.Selection, krea2_color_control.Selection)) and result.generic_controlnet.auto_bucket:
         result.krea2['control_resolution'] = {'mode': 'input-aspect-bucket', 'status': 'pending-input-decode'}
         if result.krea2['mu_override'] is None:
@@ -345,6 +481,7 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
         elif (result.pipeline_class or index['_class_name']) in flux_tokenizer.FLUX1_CLIP_PIPELINES:
             selected, status = flux_text_encoder.resolve_fallback(result, index, folder, role)
             if (role == 'text_encoder_2' and status == 'model' and result.source_kind == 'single-file'
+                    and not result.single_file_component_only
                     and result.flux_t5_fp8_storage == 'cpu-stream'
                     and flux_text_encoder._single_file_has_encoder(result.model, role)):
                 selected = flux_text_encoder.resolve_embedded_t5(result.model,
@@ -359,6 +496,16 @@ def resolve_arguments(args: argparse.Namespace) -> argparse.Namespace:
         raise ValueError('FLUX T5 cpu-stream storage requires --offload none.')
     if result.flux_t5_fp8_storage == 'cpu-stream' and result.lora_selection is not None:
         flux_t5_stream.validate_lora(result.lora_selection)
+    if result.source_kind == 'directory':
+        import gguf_component
+        result.directory_gguf_components = gguf_component.discover(
+            folder, index, result.variant, overridden_weight_components(result))
+    if result.source_kind == 'directory' and result.variant is None:
+        from directory_checkpoint_conversion import automatic_variant
+        result.variant = automatic_variant(folder, index, overridden_weight_components(result)
+                                           | set(result.directory_gguf_components))
+        if result.variant is not None:
+            result.variant_selection = 'automatic'
     validate_preview_location(args.preview_dir, result.output_dir)
     return result
 
@@ -369,11 +516,23 @@ def configuration(args: argparse.Namespace) -> dict[str, Any]:
         pipeline_inputs.pop('width', None)
         pipeline_inputs.pop('height', None)
     return {
-        "runner": "generic-diffusers", "model": args.model, "source_kind": args.source_kind,
+        "runner": "generic-diffusers", "model": args.original_model_path or args.model, "source_kind": args.source_kind,
+        "variant": args.variant, "variant_selection": args.variant_selection,
+        "directory_gguf_components": {name: {"path": weight.path, "size_bytes": weight.size_bytes,
+                                                "validation": "content signature and file identity"}
+                                      for name, weight in getattr(args, 'directory_gguf_components', {}).items()},
         "revision": args.revision, "model_config": args.model_config,
         "model_config_status": getattr(args, 'model_config_status', 'not-applicable'),
         "model_config_preset": getattr(args, 'model_config_preset', None), "base_model": args.base_model,
+        "image_package": ({key: args.image_package[key] for key in
+                           ('source', 'architecture', 'transformer', 'text_encoder', 'vae', 'prepared_transformer')}
+                          | ({'selected_components': dict(args.image_package['selected_components'])}
+                             if args.image_package.get('selected_components') else {})
+                          if getattr(args, 'image_package', None) else None),
         "pipeline_class": args.pipeline_class, "pipeline_inputs": pipeline_inputs, "seed": args.seed,
+        "dequantize_pytorch": getattr(args, 'dequantize_pytorch', False),
+        "num_images": args.num_images, "hires_fix": args.hires_fix,
+        "hires": args.moss_hires.metadata() if args.moss_hires else None,
         "lora": args.lora, "lora_scale": args.lora_selection.scale if args.lora_selection else None,
         "lora_weight_name": args.lora_weight_name,
         "generation_defaults": args.default_modifier_metadata,
@@ -560,17 +719,30 @@ def model_identity(folder: Path, single_file: str | None = None) -> dict[str, An
     files = [file_identity(path, folder, model_file=True) for path in model_files(folder)]
     result: dict[str, Any] = {"directory": str(folder), "files": files}
     if single_file:
-        result["single_file"] = file_identity(Path(single_file), model_file=True)
+        source = Path(single_file)
+        from downloaded_model import model_container_format
+        if model_container_format(source) == 'safetensors-index':
+            from native_image import native_weight
+            from weight_files import verify_weight_file
+            selected = native_weight(str(source), 'MOSS transformer')
+            result['single_file'] = file_identity(source, model_file=True)
+            result['single_file_shards'] = [file_identity(Path(shard.path), model_file=True)
+                                             for shard in selected.shards]
+            verify_weight_file(selected, 'MOSS transformer')
+        else:
+            result["single_file"] = file_identity(source, model_file=True)
     return result
 
 
-def verify_identity(identity: dict[str, Any]) -> None:
+def _verify_identity(identity: dict[str, Any]) -> None:
     folder = Path(identity["directory"])
     if [str(path.relative_to(folder)) for path in model_files(folder)] != [entry["path"] for entry in identity["files"]]:
         raise RuntimeError(f"Model directory changed while loading/generating: {folder}")
     entries = list(identity["files"])
     if identity.get("single_file"):
         entries.append(identity["single_file"])
+    entries.extend(identity.get('single_file_shards', []))
+    entries.extend(identity.get('directory_gguf_files', []))
     for entry in entries:
         path = Path(entry["path"])
         if not path.is_absolute():
@@ -580,6 +752,19 @@ def verify_identity(identity: dict[str, Any]) -> None:
                 or (entry.get("signature") is not None and file_signature(path) != tuple(entry["signature"]))
                 or (entry["sha256"] is not None and model_content_sha256(path) != entry["sha256"])):
             raise RuntimeError(f"Model file changed while loading/generating: {path}")
+    from checkpoint_conversion import verify_conversion_source
+    for conversion in identity.get('directory_conversions', ()):
+        verify_conversion_source(conversion)
+    from directory_checkpoint_conversion import verify_source_snapshot
+    verify_source_snapshot(identity.get('directory_sources'))
+
+
+def verify_identity(identity: dict[str, Any]) -> None:
+    try:
+        _verify_identity(identity)
+    except Exception:
+        invalidate_pipeline()
+        raise
 
 
 def load_pipeline(args: argparse.Namespace, diffusers: Any, dtype: Any) -> tuple[Any, dict[str, Any]]:
@@ -596,32 +781,58 @@ def load_pipeline(args: argparse.Namespace, diffusers: Any, dtype: Any) -> tuple
     call_class = builtin_pipeline(diffusers, selected_control.target_pipeline) if selected_control else pipeline_class
     validate_call_arguments(call_class.__call__, args.inputs, seed=args.seed)
     assert folder is not None
-    krea_single = (args.source_kind == 'single-file' and index['_class_name'] == 'Krea2Pipeline'
+    gguf_single = getattr(args, 'single_file_component_only', False)
+    krea_single = (args.source_kind == 'single-file' and not gguf_single and index['_class_name'] == 'Krea2Pipeline'
                    and pipeline_class.__name__ == 'Krea2Pipeline')
-    moss_single = (args.source_kind == 'single-file' and index['_class_name'] == 'MOSSImagePipeline'
+    moss_single = (args.source_kind == 'single-file' and not gguf_single and index['_class_name'] == 'MOSSImagePipeline'
                    and pipeline_class.__name__ == 'MOSSImagePipeline')
     if args.source_kind == "single-file":
-        if not krea_single and not moss_single and not hasattr(pipeline_class, "from_single_file"):
+        if not gguf_single and not krea_single and not moss_single and not hasattr(pipeline_class, "from_single_file"):
             raise ValueError(f"{pipeline_class.__name__} has no built-in single-file loader. Provide a complete Diffusers directory or use the workflow backend.")
-        unsafe = [str(path.relative_to(folder)) for path in provider.rglob(folder, "*")
-                  if path.is_file() and path.suffix in UNSAFE_WEIGHTS]
-        if unsafe:
-            raise ValueError("Single-file configuration extras must contain safetensors weights only; remove/convert pickle weights: " + ", ".join(unsafe[:5]))
+    if gguf_single:
+        import gguf_component
+        gguf_selection = gguf_component.select(index, pipeline_class, diffusers, folder)
+    directory_gguf = getattr(args, 'directory_gguf_components', {})
+    if directory_gguf:
+        import gguf_component
+        directory_selections = {name: gguf_component.select(index, pipeline_class, diffusers, folder, name)
+                                for name in directory_gguf}
     identity = model_identity(folder, args.model if args.source_kind == "single-file" else None)
+    if directory_gguf:
+        from weight_files import verify_weight_file
+        identity['directory_gguf_files'] = []
+        for name, weight in directory_gguf.items():
+            verify_weight_file(weight, 'GGUF ' + name)
+            identity['directory_gguf_files'].append(file_identity(Path(weight.path), model_file=True))
+            verify_weight_file(weight, 'GGUF ' + name)
     control_identity = (model_identity(Path(selected_control.directory))
                         if isinstance(selected_control, generic_controlnet.Selection) and selected_control.weight is None else None)
     kwargs = {"dtype": dtype, "local_files_only": True, "cache_dir": str(args.cache_dir),
               "use_safetensors": True, "trust_remote_code": False}
+    if args.variant is not None and (args.source_kind == 'directory' or krea_single or gguf_single):
+        kwargs['variant'] = args.variant
     # A saved SD3 pipeline may explicitly omit T5. Diffusers requires those
     # constructor arguments as None even though model_index.json records them.
     parameters = inspect.signature(pipeline_class.__init__).parameters
     kwargs.update({name: None for name, value in index.items()
                    if value == [None, None] and name in parameters})
     selection = getattr(args, "vae_selection", None)
+    if selection is not None and getattr(selection, 'source_kind', None) == 'file':
+        cache = Path(args.cache_dir).resolve()
+        model_root = folder.resolve()
+        paths = [(cache / 'vae-overlays').resolve()]
+        if getattr(selection, 'container_kind', None) in ('pytorch', 'pytorch-index'):
+            conversions = (cache / 'vae-checkpoint-conversions').resolve()
+            paths.append(conversions)
+            output = Path(args.output_dir).resolve()
+            if output == conversions or output in conversions.parents or conversions in output.parents:
+                raise ValueError('The output directory must not overlap the VAE conversion cache.')
+        if any(path == model_root or model_root in path.parents for path in paths):
+            raise ValueError('The cache for VAE loading must be outside the model configuration directory.')
     if selection is not None and pipeline_class.__name__ != "MOSSImagePipeline":
         if "vae" not in parameters:
             raise ValueError("The selected pipeline does not accept a VAE component.")
-        kwargs["vae"] = load_selected_vae(selection, diffusers, dtype)
+        kwargs["vae"] = load_selected_vae(selection, diffusers, dtype, cache_dir=args.cache_dir)
     text_encoder = getattr(args, 'text_encoder_selection', None)
     if text_encoder is not None:
         if 'text_encoder' not in parameters:
@@ -658,38 +869,85 @@ def load_pipeline(args: argparse.Namespace, diffusers: Any, dtype: Any) -> tuple
         kwargs[role] = flux_text_encoder.load(selected, dtype, storage=storage)
         flux_encoder_loading[role] = kwargs[role]._iild_flux_text_encoder_loading
     single_file_loading = None
-    if krea_single:
-        kwargs['transformer'] = krea2_single_file.load(args.model, folder / 'transformer', dtype,
-                                                       storage=getattr(args, 'krea2_fp8_storage', None) or 'dense')
-        single_file_loading = kwargs['transformer']._iild_single_file_loading
-        pipeline = pipeline_class.from_pretrained(str(folder), **kwargs)
-    elif pipeline_class.__name__ == "MOSSImagePipeline":
-        moss_kwargs = {'progress': report_moss_loading_progress}
-        if moss_single:
-            moss_kwargs['transformer_file'] = args.model
-            moss_kwargs['transformer_storage'] = getattr(args, 'moss_transformer_storage', None) or 'dense'
-        if getattr(args, 'moss_text_encoder_selection', None):
-            moss_kwargs['text_encoder_file'] = args.moss_text_encoder_selection
-            moss_kwargs['text_config_selection'] = args.moss_text_config_selection
-        if getattr(args, 'moss_tokenizer_selection', None):
-            moss_kwargs['tokenizer_selection'] = args.moss_tokenizer_selection
-        pipeline = moss_runtime.load(folder, dtype, selection, diffusers, **moss_kwargs)
-        if moss_single:
-            single_file_loading = pipeline.transformer._iild_single_file_loading
-    elif args.source_kind == "single-file":
-        if (pipeline_class.__name__ == 'FluxPipeline' and getattr(args, 'vae_status', None) == 'model'
-                and single_file_has_vae(args.model)):
-            flux1_single_file.validate_embedded_vae(args.model, folder, diffusers)
-        if pipeline_class.__name__ == 'FluxPipeline' and getattr(args, 'flux_transformer_storage', None) == 'cpu-stream':
-            kwargs['transformer'] = flux1_transformer_stream.load(args.model, folder, dtype)
+    from directory_checkpoint_conversion import prepare
+    excluded = overridden_weight_components(args)
+    if krea_single or moss_single:
+        excluded.add('transformer')
+    if gguf_single:
+        excluded.add(gguf_selection.name)
+    excluded.update(directory_gguf)
+    primary_sources = [args.original_model_path, args.model]
+    primary_sources.extend(record.get('path') for record in (args.model_conversion or {}).get('original_shards', ()))
+    conversion_options = {'quantized_tensors': 'dequantize'} if getattr(args, 'dequantize_pytorch', False) else {}
+    prepared_context = prepare(folder, index, args.cache_dir, args.output_dir, args.variant, excluded,
+                               strip_legacy=args.source_kind == 'single-file',
+                               primary_sources=primary_sources,
+                               transformer_markers=(args.source_kind == 'single-file'
+                                                    and not (krea_single or moss_single or gguf_single)),
+                               merge_diffusers_components=(single_file_diffusers_fallback_components(diffusers, index)
+                                   if args.source_kind == 'single-file' and not (krea_single or moss_single or gguf_single) else ()),
+                               **conversion_options)
+    directory_gguf_loading = {}
+    with prepared_context as prepared:
+        load_folder = prepared.path if prepared is not None else folder
+        for name, weight in directory_gguf.items():
+            kwargs[name], directory_gguf_loading[name] = gguf_component.load(
+                directory_selections[name], weight, load_folder, args.cache_dir, dtype, diffusers)
+        if gguf_single:
+            selected = identity['single_file']
+            signature = selected.get('signature')
+            weight = LocalWeightFile(selected['path'], selected['resolved_path'], selected['sha256'],
+                                     selected['size_bytes'], tuple(signature) if signature is not None else None)
+            kwargs[gguf_selection.name], single_file_loading = gguf_component.load(
+                gguf_selection, weight, load_folder, args.cache_dir, dtype, diffusers)
+            pipeline = pipeline_class.from_pretrained(str(load_folder), **kwargs)
+        elif krea_single:
+            kwargs['transformer'] = krea2_single_file.load(args.model, load_folder / 'transformer', dtype,
+                                                           storage=getattr(args, 'krea2_fp8_storage', None) or 'dense')
             single_file_loading = kwargs['transformer']._iild_single_file_loading
-        pipeline = pipeline_class.from_single_file(args.model, config=str(folder), **kwargs)
-    else:
-        pipeline = pipeline_class.from_pretrained(str(folder), **kwargs)
+            pipeline = pipeline_class.from_pretrained(str(load_folder), **kwargs)
+        elif pipeline_class.__name__ == "MOSSImagePipeline":
+            moss_kwargs = {'progress': report_moss_loading_progress}
+            if selection is not None and getattr(selection, 'source_kind', None) == 'file':
+                moss_kwargs['vae_cache_dir'] = args.cache_dir
+            if args.variant is not None:
+                moss_kwargs['variant'] = args.variant
+            if moss_single:
+                moss_kwargs['transformer_file'] = args.model
+                moss_kwargs['transformer_storage'] = getattr(args, 'moss_transformer_storage', None) or 'dense'
+            if getattr(args, 'moss_text_encoder_selection', None):
+                moss_kwargs['text_encoder_file'] = args.moss_text_encoder_selection
+                moss_kwargs['text_config_selection'] = args.moss_text_config_selection
+            if getattr(args, 'moss_tokenizer_selection', None):
+                moss_kwargs['tokenizer_selection'] = args.moss_tokenizer_selection
+            pipeline = moss_runtime.load(load_folder, dtype, selection, diffusers, **moss_kwargs)
+            if moss_single:
+                single_file_loading = pipeline.transformer._iild_single_file_loading
+        elif args.source_kind == "single-file":
+            if (pipeline_class.__name__ == 'FluxPipeline' and getattr(args, 'vae_status', None) == 'model'
+                    and single_file_has_vae(args.model)):
+                flux1_single_file.validate_embedded_vae(args.model, folder, diffusers)
+            if pipeline_class.__name__ == 'FluxPipeline' and getattr(args, 'flux_transformer_storage', None) == 'cpu-stream':
+                kwargs['transformer'] = flux1_transformer_stream.load(args.model, folder, dtype)
+                single_file_loading = kwargs['transformer']._iild_single_file_loading
+            selected = identity["single_file"]
+            signature = selected.get("signature")
+            weight = LocalWeightFile(selected["path"], selected["resolved_path"], selected["sha256"],
+                                     selected["size_bytes"], tuple(signature) if signature is not None else None)
+            with checked_safetensors_path(weight, args.cache_dir / "single-file-aliases", "model") as safe_path:
+                pipeline = pipeline_class.from_single_file(str(safe_path), config=str(load_folder), **kwargs)
+        else:
+            pipeline = pipeline_class.from_pretrained(str(load_folder), **kwargs)
+    args.model_directory_conversions = prepared.conversions if prepared is not None else []
+    args.model_directory_sources = prepared.sources if prepared is not None else None
+    if args.model_directory_sources is not None:
+        identity['directory_conversions'] = args.model_directory_conversions
+        identity['directory_sources'] = args.model_directory_sources
     if pipeline.__class__ is not pipeline_class:
         raise RuntimeError(f"Requested {pipeline_class.__name__}, but loader instantiated {pipeline.__class__.__name__}.")
     flux_t5_embedded = None
-    if args.source_kind == 'single-file' and pipeline_class.__name__ in flux_tokenizer.FLUX1_CLIP_PIPELINES:
+    if (args.source_kind == 'single-file' and not gguf_single
+            and pipeline_class.__name__ in flux_tokenizer.FLUX1_CLIP_PIPELINES):
         encoder_status = getattr(args, 'flux_text_encoder_status', {})
         if encoder_status.get('text_encoder') == 'model':
             from model_loading import require_materialized_component
@@ -719,12 +977,15 @@ def load_pipeline(args: argparse.Namespace, diffusers: Any, dtype: Any) -> tuple
     flux_tokenizer.verify_selections(flux_selections)
     for selected in flux_encoders.values():
         flux_text_encoder.verify_selection(selected)
+    vae_conversion = getattr(getattr(pipeline, 'vae', None), '_iild_vae_conversion', None)
     return pipeline, {"identity": identity, "controlnet_identity": control_identity, "index_class": index["_class_name"],
                       "actual_class": pipeline.__class__.__name__,
                       "base_model_validation": validate_base_model(args.base_model, pipeline.__class__, diffusers),
+                      **({'vae_conversion': vae_conversion} if vae_conversion else {}),
                       **({'flux_clip_token_limit': flux_clip_limit} if flux_clip_limit else {}),
                       **({'flux_t5_embedded_loading': flux_t5_embedded} if flux_t5_embedded else {}),
                       **({'flux_text_encoder_loading': flux_encoder_loading} if flux_encoder_loading else {}),
+                      **({'directory_gguf_loading': directory_gguf_loading} if directory_gguf_loading else {}),
                       **({'single_file_loading': single_file_loading} if single_file_loading is not None else {})}
 
 
@@ -832,17 +1093,21 @@ def prepared_pipeline(args, diffusers, dtype, device):
     flux_encoders = getattr(args, 'flux_text_encoders', {})
     for selected in flux_encoders.values():
         flux_text_encoder.verify_selection(selected)
-    key = (("diffusers", pipeline_name, str(dtype), repr(selection), repr(vae), repr(text_encoder), repr(tokenizer), repr(flux_tokenizers), repr(flux_encoders),
+    key = (("diffusers", pipeline_name, str(dtype), repr(selection), repr(vae), repr(text_encoder), repr(tokenizer), repr(flux_tokenizers), repr(flux_encoders), args.variant,
             (getattr(args, "krea2", None) or {}).get("variant"), getattr(args, 'krea2_fp8_storage', None),
-            getattr(args, 'flux_t5_fp8_storage', None), getattr(args, 'flux_transformer_storage', None))
+            getattr(args, 'flux_t5_fp8_storage', None), getattr(args, 'flux_transformer_storage', None),
+            getattr(args, 'dequantize_pytorch', False))
            if not args.generic_controlnet and pipeline_name in ("StableDiffusionPipeline", "StableDiffusionXLPipeline", "FluxPipeline", "Krea2Pipeline") else None)
     if is_preparing() and key is None:
         raise ValueError("Foreground preparation requires a retained local image pipeline.")
     sources = [folder] + ([args.model] if args.source_kind == "single-file" else [])
+    if getattr(args, 'image_package', None):
+        sources.append(args.image_package['source'])
     if selection is not None:
         sources.append(Path(selection.source) / selection.weight_name)
     if vae is not None:
         sources.extend([vae.weight.path, vae.config_path])
+        sources.extend(shard.path for shard in getattr(vae.weight, 'shards', ()))
     if text_encoder is not None:
         sources.extend([text_encoder.weight.path, text_encoder.config_path])
     if tokenizer is not None:
@@ -878,6 +1143,13 @@ def prepared_pipeline(args, diffusers, dtype, device):
                           if selection is not None else None)
         return pipeline, model, SchedulerConfiguration(pipeline) if key is not None else None, activation
     (pipeline, model, scheduler, activation), configuration_hit = cached_pipeline(key, sources, load)
+    args.model_directory_conversions = model['identity'].get('directory_conversions', [])
+    args.model_directory_sources = model['identity'].get('directory_sources')
+    try:
+        verify_identity(model['identity'])
+    except Exception:
+        invalidate_pipeline()
+        raise
     if configuration_hit:
         scheduler.restore(pipeline)
     # The declaration is a per-request validation, independent of loaded weights.
@@ -895,6 +1167,23 @@ def prepared_pipeline(args, diffusers, dtype, device):
 
 def output_value(result: Any, key: str) -> Any:
     return result.get(key) if isinstance(result, dict) else getattr(result, key, None)
+
+
+def validate_requested_image_count(result: Any, count: int | None, image_module: Any) -> None:
+    if count is None:
+        return
+    images = output_value(result, "images")
+    if images is None:
+        raise ValueError("The generated image count does not match --num-images: no images were returned.")
+    if isinstance(images, image_module.Image) or (hasattr(images, "shape") and len(images.shape) == 3):
+        actual = 1
+    else:
+        try:
+            actual = len(images)
+        except TypeError as error:
+            raise ValueError("The generated image count cannot be determined.") from error
+    if actual != count:
+        raise ValueError(f"The generated image count {actual} does not match --num-images {count}.")
 
 
 def as_array(value: Any, np: Any) -> Any:
@@ -1107,10 +1396,26 @@ def safety_metadata(result: Any, pipeline: Any, outputs: list[dict[str, Any]]) -
     return metadata
 
 
+def verify_generation_model_inputs(args: argparse.Namespace) -> None:
+    from checkpoint_conversion import verify_conversion_source
+    from directory_checkpoint_conversion import verify_source_snapshot
+    try:
+        verify_source_snapshot(getattr(args, 'model_directory_sources', None))
+        verify_conversion_source(getattr(args, 'model_conversion', None))
+        for conversion in getattr(args, 'model_directory_conversions', ()):
+            verify_conversion_source(conversion)
+    except Exception:
+        invalidate_pipeline()
+        raise
+
+
 def publish_generation(result: Any, pipeline: Any, args: argparse.Namespace, image_module: Any,
                        np: Any, report: dict[str, Any]) -> tuple[Path, list[dict[str, Any]]]:
+    protect_model_directory(args)
+    verify_generation_model_inputs(args)
     previous = retire_previous_report(args.output_dir) if args.overwrite else None
     outputs = save_outputs(result, pipeline, args, image_module, np)
+    verify_generation_model_inputs(args)
     completed = {**report, "outputs": outputs, "safety": safety_metadata(result, pipeline, outputs)}
     if previous is not None:
         completed["previous_report"] = str(previous)
@@ -1228,6 +1533,8 @@ def main(argv: list[str] | None = None) -> int:
         if is_preparing():
             verify_identity(model["identity"])
             verify_pipeline_sources()
+            from checkpoint_conversion import verify_conversion_source
+            verify_conversion_source(args.model_conversion)
             return 0
         reference_resize_trace = None
         reference_resize_context = nullcontext()
@@ -1269,8 +1576,14 @@ def main(argv: list[str] | None = None) -> int:
             region_context = region_module.execution(pipeline, inputs, region_selection, region_image, torch, np)
         else:
             region_context = nullcontext(None)
+        hires_trace = None
         with torch.no_grad(), reference_resize_context, reference_vae_context, generic_controlnet.sd3_control_seed(pipeline, args.generic_controlnet, args.seed, torch), krea2_contract.execution(pipeline, inputs, args.krea2, torch) as krea2_trace, control_context as control_trace, region_context as region_trace, rapid_context as rapid_adapter:
-            result = moss_rapid.generate(pipeline, inputs, rapid_adapter, control_trace, torch) if rapid else pipeline(**inputs)
+            if args.moss_hires:
+                result, hires_trace = moss_hires.run(pipeline, inputs, args.moss_hires,
+                                                     expected_count=inputs.get('num_images_per_prompt', 1),
+                                                     Image=Image, torch=torch)
+            else:
+                result = moss_rapid.generate(pipeline, inputs, rapid_adapter, control_trace, torch) if rapid else pipeline(**inputs)
         validate_execution_device(pipeline, device)
         validate_lora_activation(pipeline, args.lora_activation)
         verify_lora_identity(args.lora_selection)
@@ -1306,8 +1619,10 @@ def main(argv: list[str] | None = None) -> int:
             verify_identity(depth_identity)
         verify_input_files(input_files)
         verify_pipeline_sources()
+        from image_package import verify_source as verify_package_source
+        verify_package_source(getattr(args, 'image_package', None))
         versions = {}
-        for package in ("torch", "diffusers", "transformers", "accelerate", "safetensors", "sentencepiece", "numpy", "Pillow", "peft"):
+        for package in ("torch", "diffusers", "transformers", "accelerate", "safetensors", "gguf", "sentencepiece", "numpy", "Pillow", "peft"):
             try:
                 versions[package] = importlib.metadata.version(package)
             except importlib.metadata.PackageNotFoundError:
@@ -1318,6 +1633,7 @@ def main(argv: list[str] | None = None) -> int:
         if preprocessor_report is not None:
             preprocessor_report['output_identity'] = processed_identity
         report = {"schema_version": 1, "request": configuration(args), "model": model,
+                  "hires_execution": hires_trace,
                   "krea2_execution": krea2_trace,
                   "control_execution": control_trace,
                   "control_reference_resize": reference_resize_trace,
@@ -1330,6 +1646,9 @@ def main(argv: list[str] | None = None) -> int:
                               "device_placement_cache_hit": args.device_placement_cache_hit,
                               "execution_device": device, "dtype": str(dtype), "offload": args.offload},
                   "validation_scope": "Successful execution of these exact files and inputs; not universal family compatibility, visual quality, or model-license clearance."}
+        if args.model_conversion:
+            report['model_conversion'] = args.model_conversion
+        validate_requested_image_count(result, args.num_images, Image)
         report_path, outputs = publish_generation(result, pipeline, args, Image, np, report)
         print(json.dumps({"report": str(report_path), "outputs": [item["path"] for item in outputs]}, indent=2))
         return 0

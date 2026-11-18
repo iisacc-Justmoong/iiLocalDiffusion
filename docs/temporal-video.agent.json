@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/temporal-video.md",
-    "sha256": "c68c1c3985404016a5931fe438aabb2ce87cdc5702f44f890f67892db93cd971",
-    "bytes": 17723,
+    "sha256": "61b30f8349a5c2407c8ba9ace77bbe373c2d4acb184d31d830d8134d10699777",
+    "bytes": 17980,
     "line_count": 137,
     "encoding": "utf-8",
     "language": "ko"
@@ -673,7 +673,7 @@
       "kind": "paragraph",
       "start_line": 119,
       "end_line": 119,
-      "raw": "로컬 실행을 위해 `--model-path` / `--model` 는 완전한 LTX Diffusers 디렉토리가 필요합니다. 비-null 수정어거먼트는 거부됩니다. 내장 컴포넌트와 safetensors 만 로드되며, 누락된 리소스는 다운로드 없이 실패합니다. `--cache-dir` 는 임시 작업 저장소를 제어하며, 모델 선택이 아닙니다. 모델 신원 기록에는 컴포넌트 파일 해시와 크기가 포함되며, 로드와 추론은 소스 파일 변경을 확인합니다.\n"
+      "raw": "로컬 실행을 위해 `--model-path` / `--model` 는 완전한 LTX Diffusers 디렉토리 또는 네이티브 safetensors/GGUF 체크포인트를 사용한다. 파일 확장자가 달라도 내용으로 형식 후보를 판별하며 텍스트 인코더에도 같은 규칙을 적용한다. ONNX와 PyTorch는 이 비디오 파일 경로에서 허용하지 않는다. 비-null 수정어거먼트는 거부됩니다. 내장 컴포넌트와 safetensors 만 로드되며, 누락된 리소스는 다운로드 없이 실패합니다. `--cache-dir` 는 임시 작업 저장소를 제어하며, 모델 선택이 아닙니다. 모델 신원 기록에는 컴포넌트 파일 해시와 크기가 포함되며, 로드와 추론은 소스 파일 변경을 확인합니다.\n"
     },
     {
       "id": "b000078",

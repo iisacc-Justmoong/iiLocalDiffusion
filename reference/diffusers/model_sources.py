@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import ipaddress
 import math
+import os
 from pathlib import Path
 import re
 from urllib.parse import urlsplit
@@ -40,6 +41,19 @@ def is_remote(args):
     return getattr(args, "model_api", None) is not None or getattr(args, "model_cloud", None) is not None
 
 
+def local_model_path(source):
+    """Keep an index's logical shard base; canonicalize ordinary model files."""
+    path = Path(os.path.abspath(os.path.expanduser(os.fspath(source))))
+    if path.is_file():
+        from downloaded_model import model_container_format
+        try:
+            if model_container_format(path) in ('safetensors-index', 'pytorch-index'):
+                return path
+        except ValueError:
+            pass
+    return path.resolve(strict=True)
+
+
 def resolve_model_input(args):
     selected = [(kind, getattr(args, field, None))
                 for kind, field in (("local", "model"), ("api", "model_api"), ("cloud", "model_cloud"))
@@ -59,7 +73,7 @@ def resolve_model_input(args):
         path = Path(location).expanduser()
         if not path.is_file() and not path.is_dir():
             raise ValueError("--model-path must be an existing local model path.")
-        return ModelInput(kind, str(path.resolve()))
+        return ModelInput(kind, str(local_model_path(path)))
     timeout = 300 if timeout is None else timeout
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 0 < timeout <= 86400:
         raise ValueError("--model-timeout must be finite and in (0,86400].")

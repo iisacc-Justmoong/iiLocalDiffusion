@@ -22,9 +22,9 @@ iild-generate --model-path /models/illustration.safetensors \
   --output-dir /existing/parent/new-result
 ```
 
-`--backend local` 도 LoRA, ControlNet, 텍스트 인버전, HiRes, 스케줄러, 데이터 타입 및 오프로드에 대한 기존 프리셋 옵션을 모두 받습니다. 예측 메타데이터는 명시적으로 덮어쓰이지 않는 한 유지됩니다. `.safetensor` 와 대문자 접미사는 원래 파일을 이름 변경하거나 복사하지 않고 확인된 임시 `.safetensors` 별칭을 사용합니다.
+`--backend local`의 사용 가능한 LoRA, ControlNet, 텍스트 인버전, HiRes, 스케줄러와 오프로드 옵션은 선택된 엔진에 따라 다르며 지원되지 않는 옵션은 오류로 보고한다. 예측 메타데이터는 명시적으로 덮어쓰지 않는 한 유지한다. 이름이 바뀐 safetensors 파일은 내용으로 식별하고, 필요한 경우 원본을 확인한 임시 `.safetensors` 별칭을 사용한다.
 
-구성된 FLUX.1 단일 파일에는 여전히 로컬 보조 가중치와 `--model-config`가 필요하다. 그 밖의 지원되는 Diffusers 파이프라인은 완전한 로컬 모델 디렉터리 또는 호환되는 단일 파일 구성과 함께 `--backend diffusers`를 사용한다. SD2, SD3, 편집/refiner 및 양자화 모델을 SDXL로 잘못 취급하지 않는다. 선택적 레거시 변환/GGUF/그래프 백엔드는 `--backend comfyui-local`로 명시적으로 선택한다. [관리형 ComfyUI](managed-comfyui-image.md)를 참고한다. 해당 백엔드로 자동 대체 경로는 없다.
+구성된 FLUX.1 단일 파일에는 여전히 로컬 보조 가중치와 `--model-config`가 필요하다. 그 밖의 지원되는 Diffusers 파이프라인은 완전한 로컬 모델 디렉터리 또는 호환되는 단일 파일 구성과 함께 `--backend diffusers`를 사용한다. SD2, SD3, 편집/refiner 및 양자화 모델을 SDXL로 잘못 취급하지 않는다. 지원되는 PyTorch 체크포인트는 생성 시 안전한 safetensors 변환을 거쳐 선택된 로컬 엔진에 전달한다. [관리형 ComfyUI](managed-comfyui-image.md)는 명시적으로 선택하는 별도 백엔드이며 자동 대체하지 않는다.
 
 `--seed` 를 생략하면 요청마다 새 무작위 기본 시드가 선택됩니다. `--seed 0` 를 포함한 명시적인 시드는 유지됩니다. 해결된 요청 및 이미지별 메타데이터는 실제 시드를 기록하며, 이미지 배치들은 `--seed-stride` 를 사용하여 후속 시드를 유도합니다. Deforum/Interpolator 와 LTX 도 요청마다 기본 시드를 무작위화하면서 구성된 프레임/샷 시드 정책을 유지합니다.
 

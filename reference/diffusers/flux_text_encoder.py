@@ -123,11 +123,12 @@ def resolve_fallback(args, index, folder, role):
         return None, 'not-declared'
     if component != ['transformers', ROLES[role][0]]:
         raise ValueError(f'FLUX {role} declares an incompatible encoder.')
-    if args.source_kind == 'single-file' and _single_file_has_encoder(args.model, role):
+    if (args.source_kind == 'single-file' and not getattr(args, 'single_file_component_only', False)
+            and _single_file_has_encoder(args.model, role)):
         return None, 'model'
     component_dir = Path(folder) / role
-    if any(path.is_file() and (path.suffix in ('.safetensors', '.bin', '.pt', '.ckpt')
-                              or path.name.endswith('.index.json')) for path in component_dir.glob('*')):
+    from directory_checkpoint_conversion import component_has_weights
+    if component_has_weights(component_dir):
         return None, 'model'
     if uses_precomputed(args.inputs):
         return None, 'precomputed-embeddings'

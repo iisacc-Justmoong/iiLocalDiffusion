@@ -122,7 +122,7 @@ int llmValidationCalls = 0;
 bool expectCpu = false;
 bool expectCpuDisk = false;
 bool expectResidentModel = false;
-std::string selectedVae;
+std::string selectedVae, loadedPrimaryPath;
 std::string selectedClipL, selectedClipG, selectedT5, selectedLlm;
 bool expectHires = true;
 float actualCfg = 0, actualDistilled = 0, actualFlowShift = 0;
@@ -176,6 +176,7 @@ void sd_set_preview_callback(sd_preview_cb_t callback, preview_t mode, int inter
 int32_t sd_get_num_physical_cores() { return 2; }
 void sd_ctx_params_init(sd_ctx_params_t *parameters) { *parameters = {}; parameters->auto_fit = true; }
 sd_ctx_t *new_sd_ctx(const sd_ctx_params_t *parameters) {
+    loadedPrimaryPath = parameters->model_path ? parameters->model_path : "";
     require(parameters->memory_resident_model == expectResidentModel,
             "Resident model mode was not propagated to the native backend");
     if (expectCpu) {
@@ -272,6 +273,7 @@ bool sd_model_inspect_vae(const char *path, sd_model_vae_info_t *info) {
 bool sd_model_validate_vae(const char *, const char *) { ++vaeValidationCalls; return validExternalVae; }
 bool sd_model_has_embedded_llm(const char *, bool *embedded) { *embedded = embeddedLlm; return true; }
 bool sd_model_validate_krea2_llm(const char *) { ++llmValidationCalls; return validExternalLlm; }
+bool sd_model_validate_anima_llm(const char *) { ++llmValidationCalls; return validExternalLlm; }
 sample_method_t sd_get_default_sample_method(const sd_ctx_t *) { return static_cast<sample_method_t>(0); }
 int sd_ctx_reference_image_capacity(const sd_ctx_t *) { return referenceCapacity; }
 bool sd_ctx_has_control_net(const sd_ctx_t *) { return controlNetAvailable && !selectedControlNet.empty(); }
@@ -459,6 +461,9 @@ bool generate_image(sd_ctx_t *, const sd_img_gen_params_t *parameters, sd_image_
     require(tiling.enabled == (!sdxl || parameters->hires.target_width > expectedTile * 8
         || parameters->hires.target_height > expectedTile * 8),
             "Small SDXL canvases must decode without tile-local normalization differences");
+    require(!sdxl || !tiling.enabled || (tiling.extra_tiling_args &&
+            std::string(tiling.extra_tiling_args).find("iild_encode_tile_factor=1") != std::string::npos),
+            "Tiled SDXL encoding must not exceed the selected VAE tile budget");
     ++generationCalls;
     ipAtGeneration = ipMarkers;
     if (!replaceIPDuringGeneration.empty()) { std::ofstream file(replaceIPDuringGeneration); file << "replaced IP resources during inference"; }
@@ -470,7 +475,10 @@ bool generate_image(sd_ctx_t *, const sd_img_gen_params_t *parameters, sd_image_
     if (abortCallback && abortCallback(abortData)) return false;
     if (output == Output::failed) return false;
     if (output == Output::engineError) {
-        if (logCallback) logCallback(SD_LOG_ERROR, "VAE decode allocation failed", logData);
+        if (logCallback) {
+            logCallback(SD_LOG_WARN, "model manager cannot make enough memory available on fixture\n", logData);
+            logCallback(SD_LOG_ERROR, "VAE decode allocation failed", logData);
+        }
         return false;
     }
     if (output == Output::missing) return true;
@@ -580,6 +588,121 @@ int main(int argc, char **argv) {
         NativeGenerationRequest request;
         request.modelPath = std::filesystem::canonical(model);
         request.prompt = "portrait";
+        {
+            const auto original=request.modelPath;
+            const auto shardA=directory/"shard-a.safetensors",shardB=directory/"shard-b.safetensors";
+            const auto makeShard=[](const std::filesystem::path &path,const std::string &name,char value) {
+                const auto json="{\""+name+"\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}";
+                std::ofstream out(path,std::ios::binary|std::ios::trunc);
+                const auto size=static_cast<std::uint64_t>(json.size());
+                for (unsigned i=0;i<8;++i) out.put(static_cast<char>((size>>(8*i))&255));
+                out << json; for (int i=0;i<4;++i) out.put(value);
+            };
+            makeShard(shardA,"first.weight",'a'); makeShard(shardB,"second.weight",'b');
+            const auto index=directory/"fixture.safetensors.index.json";
+            { std::ofstream out(index); out << R"({"weight_map":{"first.weight":"shard-a.safetensors","second.weight":"shard-b.safetensors"}})"; }
+            request.modelPath=index;
+            NativeGenerationOptions options; options.defaultModifiers=false;
+            std::atomic_bool localCancelled{false};
+            releaseNativeDiffusionCache();
+            auto first=generateNativeImageWithOptions(request,options,localCancelled);
+            require(first.error.empty() && !first.modelCacheHit,"Sharded model failed to prepare: "+first.error);
+            require(first.modelBytes==std::filesystem::file_size(index)+std::filesystem::file_size(shardA)+std::filesystem::file_size(shardB),
+                    "Sharded model size must include the index and all shards");
+            auto warm=generateNativeImageWithOptions(request,options,localCancelled);
+            require(warm.error.empty() && warm.modelCacheHit,"Unchanged shards did not reuse the native cache");
+            const auto originalTime=std::filesystem::last_write_time(shardA);
+            makeShard(shardA,"first.weight",'c');
+            std::filesystem::last_write_time(shardA,originalTime);
+            auto changed=generateNativeImageWithOptions(request,options,localCancelled);
+            require(changed.error.empty() && !changed.modelCacheHit,"Changed shard reused a stale native context");
+            const auto renamedIndex=directory/"fixture-index.data";
+            std::filesystem::copy_file(index,renamedIndex,std::filesystem::copy_options::overwrite_existing);
+            request.modelPath=renamedIndex;
+            auto renamedFirst=generateNativeImageWithOptions(request,options,localCancelled);
+            require(renamedFirst.error.empty() && loadedPrimaryPath==renamedIndex.string() &&
+                    renamedFirst.modelBytes==std::filesystem::file_size(renamedIndex)+std::filesystem::file_size(shardA)+std::filesystem::file_size(shardB),
+                    "A renamed index did not reach the image engine with its complete shard size");
+            auto renamedWarm=generateNativeImageWithOptions(request,options,localCancelled);
+            require(renamedWarm.error.empty() && renamedWarm.modelCacheHit,"An unchanged renamed index did not reuse its context");
+            makeShard(shardA,"first.weight",'d');
+            auto renamedChanged=generateNativeImageWithOptions(request,options,localCancelled);
+            require(renamedChanged.error.empty() && !renamedChanged.modelCacheHit,"A renamed index reused a changed shard context");
+            const auto snapshot=directory/"hf-image-snapshot",blobs=directory/"hf-image-blobs";
+            std::filesystem::create_directories(snapshot);std::filesystem::create_directories(blobs);
+            const auto blob=blobs/"index-hash",blob2=blobs/"index-hash-2";
+            {std::ofstream out(blob);out<<R"({"weight_map":{"first.weight":"shard-a.safetensors","second.weight":"shard-b.safetensors"}})";}
+            std::filesystem::copy_file(blob,blob2);
+            const auto linkedIndex=snapshot/"fixture.safetensors.index.json";
+            std::error_code symlinkError;std::filesystem::create_symlink(blob,linkedIndex,symlinkError);
+            if (!symlinkError) {
+                std::filesystem::create_symlink(shardA,snapshot/"shard-a.safetensors");
+                std::filesystem::create_symlink(shardB,snapshot/"shard-b.safetensors");
+                request.modelPath=linkedIndex;
+                auto linked=generateNativeImageWithOptions(request,options,localCancelled);
+                require(linked.error.empty() && loadedPrimaryPath==linkedIndex.string(),
+                    "Linked image index must retain its logical path in the native loader: "+linked.error);
+                require(linked.modelBytes==std::filesystem::file_size(blob)+std::filesystem::file_size(shardA)+
+                        std::filesystem::file_size(shardB),"Linked model size must include its selected shards");
+                auto cachedLink=generateNativeImageWithOptions(request,options,localCancelled);
+                require(cachedLink.error.empty() && cachedLink.modelCacheHit,"Unchanged linked index did not reuse the native cache");
+                const auto renamedLink=snapshot/"fixture-index.data";
+                std::filesystem::create_symlink(blob,renamedLink);
+                request.modelPath=renamedLink;
+                auto renamedLinked=generateNativeImageWithOptions(request,options,localCancelled);
+                require(renamedLinked.error.empty() && loadedPrimaryPath==renamedLink.string() &&
+                        renamedLinked.modelBytes==std::filesystem::file_size(blob)+std::filesystem::file_size(shardA)+std::filesystem::file_size(shardB),
+                    "Renamed linked image index lost its logical shard base");
+                const auto otherSnapshot=directory/"hf-image-snapshot-other";
+                std::filesystem::create_directories(otherSnapshot);
+                const auto otherIndex=otherSnapshot/"fixture.safetensors.index.json";
+                const auto otherShard=blobs/"other-shard.safetensors";
+                makeShard(otherShard,"first.weight",'z');
+                std::filesystem::create_symlink(blob,otherIndex);
+                std::filesystem::create_symlink(otherShard,otherSnapshot/"shard-a.safetensors");
+                std::filesystem::create_symlink(shardB,otherSnapshot/"shard-b.safetensors");
+                request.modelPath=otherIndex;
+                auto other=generateNativeImageWithOptions(request,options,localCancelled);
+                require(other.error.empty() && !other.modelCacheHit && loadedPrimaryPath==otherIndex.string(),
+                    "Snapshots sharing one index blob must retain independent shard identities");
+                request.modelPath=linkedIndex;
+                auto reloadedLink=generateNativeImageWithOptions(request,options,localCancelled);
+                require(reloadedLink.error.empty() && !reloadedLink.modelCacheHit,
+                    "Returning to a different snapshot must not reuse its sibling's context");
+                std::filesystem::remove(linkedIndex);std::filesystem::create_symlink(blob2,linkedIndex);
+                auto retargeted=generateNativeImageWithOptions(request,options,localCancelled);
+                require(retargeted.error.empty() && !retargeted.modelCacheHit,"A retargeted index reused a stale native context");
+                bool retargetedDuringGeneration=false;
+                const auto changedDuringGeneration=generateNativeImageWithOptions(request,options,localCancelled,
+                    [&](const NativeGenerationProgress &event) {
+                        if (!retargetedDuringGeneration && event.stage==NativeGenerationStage::Denoising) {
+                            std::filesystem::remove(linkedIndex);
+                            std::filesystem::create_symlink(blob,linkedIndex);
+                            retargetedDuringGeneration=true;
+                        }
+                    });
+                require(retargetedDuringGeneration && !changedDuringGeneration.error.empty() &&
+                        changedDuringGeneration.rgb.empty(),
+                    "Retargeting an image index during generation must discard the resulting pixels");
+                NativeModelComponents linkedComponents;
+                linkedComponents.clipL=linkedIndex;linkedComponents.vae=linkedIndex;
+                auto componentResult=generateNativeImageWithComponents(request,options,linkedComponents,
+                    NativeComputeBackend::Automatic,localCancelled);
+                require(componentResult.error.empty() && selectedClipL==linkedIndex.string() && selectedVae==linkedIndex.string(),
+                    "Linked image component indexes must keep their logical shard bases: "+componentResult.error);
+            }
+            const auto renamed=directory/"single.safetensors.index.json";
+            writeModelFixture(renamed,"standalone model with misleading suffix");
+            request.modelPath=renamed;
+            auto standalone=generateNativeImageWithOptions(request,options,localCancelled);
+            require(standalone.error.empty(),"Safetensors content with an index suffix was not loaded as a single file: "+standalone.error);
+            { std::ofstream out(index,std::ios::trunc); out << R"({"weight_map":{"tensor":"../outside.safetensors"}})"; }
+            request.modelPath=index;
+            auto invalid=generateNativeImageWithOptions(request,options,localCancelled);
+            require(!invalid.error.empty(),"An invalid index reached the native engine");
+            request.modelPath=original;
+            releaseNativeDiffusionCache();
+        }
         {
             const auto path = request.modelPath.string();
             iild_native_request_v1 bridge{};
@@ -822,7 +945,36 @@ int main(int argc, char **argv) {
             require(!imageReportCallback && !imageReportData, "Engine settings callback outlived its generation");
         }
         {
+            NativeModelComponents components;
+            NativeGenerationOptions options; options.defaultModifiers = false;
+            expectHires = true;
+            const auto enabled = generateNativeImageWithComponents(request, options, components,
+                NativeComputeBackend::Automatic, cancelled);
+            require(enabled.error.empty() && !enabled.rgb.empty(), "Default component Hires failed: " + enabled.error);
+            auto large = request; large.width = 3648; large.height = 2048;
+            const auto enlarged = generateNativeImageWithComponents(large, options, components,
+                NativeComputeBackend::Automatic, cancelled);
+            require(enlarged.error.empty() && enlarged.width == large.width && enlarged.height == large.height
+                && enlarged.rgb.size() == std::size_t(large.width) * large.height * 3,
+                "The enlarged Hires output did not retain its requested size: " + enlarged.error);
+            components.hires = false;
+            expectHires = false;
+            const auto disabled = generateNativeImageWithComponents(request, options, components,
+                NativeComputeBackend::Automatic, cancelled);
+            require(disabled.error.empty() && !disabled.rgb.empty(), "Explicit single-pass component generation failed: " + disabled.error);
+            expectHires = true;
             NativeAdvancedControls advanced;
+            expectedDenoise = advanced.denoiseStrength;
+            expectResidentModel = true;
+            const auto advancedDefault = generateNativeAdvancedImage(request, options, NativeModelComponents{}, advanced,
+                NativeComputeBackend::Automatic, cancelled);
+            require(advancedDefault.error.empty() && !advancedDefault.rgb.empty(), "Default advanced Hires failed: " + advancedDefault.error);
+            expectedDenoise = .35f;
+            expectResidentModel = false;
+        }
+        {
+            NativeAdvancedControls advanced;
+            advanced.hires = false; // Exercise the explicit single-pass selection below.
             NativeGenerationOptions modifiers;
             modifiers.defaultModifiers = false;
             NativeModelComponents components;
@@ -1046,6 +1198,7 @@ int main(int argc, char **argv) {
             const auto model = directory / "selected-control.safetensors";
             { std::ofstream file(model); file << "control fixture"; }
             NativeAdvancedControls advanced;
+            advanced.hires = false; // Keep this ControlNet test single-pass.
             advanced.controls.push_back({std::filesystem::canonical(model),
                 {16, 16, std::vector<uint8_t>(16 * 16 * 3, 41)}, "Canny", 0.7f});
             NativeGenerationOptions options; options.defaultModifiers = false;
@@ -1187,6 +1340,7 @@ int main(int argc, char **argv) {
             result = generateNativeAdvancedImage(request, options, components, advanced,
                 NativeComputeBackend::Automatic, cancelled);
             require(result.error.empty() && actualFreeU, "FreeU could not be re-enabled on a warm model");
+            components.hires = false; // Keep this legacy comparison explicitly single-pass.
             result = generateNativeImageWithResidentWeights(request, options, components, NativeSamplingControls{},
                 NativeComputeBackend::Automatic, cancelled, false);
             require(result.error.empty() && result.modelCacheHit && !actualFreeU,
@@ -1210,6 +1364,7 @@ int main(int argc, char **argv) {
             NativeGenerationOptions options;
             NativeModelComponents components;
             NativeAdvancedControls advanced;
+            advanced.hires = false;
             advanced.ipAdapters = {{a, v, {2, 1, std::vector<uint8_t>(6, 31)}, .3f, {2, 1, {0, 0, 0, 255, 255, 255}}},
                 {b, v, {1, 1, std::vector<uint8_t>(3, 71)}, .7f, {}}};
             const auto generate = [&] { return generateNativeAdvancedImage(request, options, components, advanced,
@@ -1228,6 +1383,7 @@ int main(int argc, char **argv) {
             advanced.ipAdapters.clear(); result = generate();
             require(result.error.empty() && result.modelCacheHit && ipLoads == loads && ipMarkers.empty(),
                 "Disabled IP inputs leaked or unloaded resident resources");
+            components.hires = false;
             result = generateNativeImageWithResidentWeights(request, options, components, NativeSamplingControls{},
                 NativeComputeBackend::Automatic, cancelled, false);
             require(result.error.empty() && result.modelCacheHit && ipMarkers.empty(), "IP leaked into a legacy resident request");
@@ -1293,6 +1449,7 @@ int main(int argc, char **argv) {
             refineOptions.negativePrompt = "user negative";
             NativeModelComponents refineComponents;
             NativeAdvancedControls refineControls;
+            refineControls.hires = false;
             refineControls.refiner = true; refineControls.refinerSwitch = .65f;
             const auto generateRefined = [&] {
                 return generateNativeAdvancedImage(request, refineOptions, refineComponents, refineControls,
@@ -1380,6 +1537,7 @@ int main(int argc, char **argv) {
             NativeGenerationOptions detailOptions; detailOptions.defaultModifiers = false;
             NativeModelComponents detailComponents;
             NativeAdvancedControls detailControls;
+            detailControls.hires = false;
             detailControls.detailer = true;
             auto beforeDetail = generationCalls;
             auto detailResult = generateNativeAdvancedImage(request, detailOptions, detailComponents, detailControls,
@@ -1425,6 +1583,7 @@ int main(int argc, char **argv) {
             options.defaultModifiers = false;
             NativeModelComponents components;
             NativeAdvancedControls controls;
+            controls.hires = false;
             controls.promptWeighting = false;
             controls.embeddings.push_back({"coastal", std::filesystem::canonical(embedding)});
             auto result = generateNativeAdvancedImage(request, options, components, controls,
@@ -1575,7 +1734,49 @@ int main(int argc, char **argv) {
                 require(selectedLlm == llm.string() && selectedVae == vae.string(),
                     "Packaged components did not reach the native context");
                 require(actualCfg == 0, "Package binding changed the quick-generation guidance default");
+                const auto badLlm = directory / "anima-incompatible-text-result-fixture.safetensors";
+                writeModelFixture(badLlm, "Anima incompatible encoder fixture");
+                package.components.llm = badLlm;
+                validExternalLlm = false;
+                releaseNativeDiffusionCache();
+                const auto beforeInvalid = generationCalls;
+                const auto invalid = generateNativeImageWithResidentPackage(package, options,
+                    NativeComputeBackend::Automatic, cancelled);
+                require(invalid.error.find("Qwen3-0.6B") != std::string::npos && generationCalls == beforeInvalid,
+                    "An incompatible Anima encoder must be rejected before generation: " + invalid.error
+                    + "; generation delta=" + std::to_string(generationCalls - beforeInvalid));
+                validExternalLlm = true;
                 expectResidentModel = false;
+                releaseNativeDiffusionCache();
+            }
+            {
+                request.modelPath = directory / "anima-no-encoder.safetensors";
+                writeModelFixture(request.modelPath, "Anima split model without text encoder");
+                missingVae = false; embeddedLlm = false;
+                releaseNativeDiffusionCache();
+                const auto beforeMissing = generationCalls;
+                const auto missing = generateNativeImageWithOptions(request, options, cancelled);
+                require(missing.error.find("Qwen3-0.6B") != std::string::npos && generationCalls == beforeMissing,
+                    "Missing Anima text encoder must be reported before generation");
+                const auto resources = directory / "anima-encoder-resources";
+                std::filesystem::create_directories(resources);
+                const auto encoder = resources / "qwen.safetensors";
+                writeModelFixture(encoder, "Qwen encoder fixture");
+                std::ofstream(resources / "generation-defaults.json")
+                    << "{\"version\":1,\"fallback_llms\":[{\"file\":\"qwen.safetensors\",\"size\":"
+                    << std::filesystem::file_size(encoder)
+                    << ",\"class_name\":\"Qwen3ForCausalLM\",\"families\":[\"anima\"]}]}";
+                options.resourceDirectory = resources;
+                releaseNativeDiffusionCache();
+                const auto beforeValidation = llmValidationCalls;
+                const auto ready = generateNativeImageWithOptions(request, options, cancelled);
+                require(ready.error.empty() && selectedLlm == encoder.string() && llmValidationCalls == beforeValidation + 1,
+                    "A cataloged Anima text encoder was not validated and mounted");
+                const auto warm = generateNativeImageWithOptions(request, options, cancelled);
+                require(warm.error.empty() && warm.modelCacheHit && llmValidationCalls == beforeValidation + 1,
+                    "A warm Anima context did not reuse its validated encoder");
+                options.resourceDirectory = emptyResources;
+                embeddedLlm = true;
                 releaseNativeDiffusionCache();
             }
             for (bool needsVae : {false, true}) {
@@ -1719,8 +1920,11 @@ int main(int argc, char **argv) {
             const auto result = generateNativeImageWithProgress(request, cancelled, {});
             require(!result.error.empty() && result.rgb.empty(), "Invalid result accepted");
             require(result.error.find(warning) == std::string::npos, "Warning hid the real failure");
-            if (failure == Output::engineError)
+            if (failure == Output::engineError) {
                 require(result.error.find("VAE decode allocation failed") != std::string::npos, "Lost backend error");
+                require(result.error.find("model manager cannot make enough memory available on fixture") != std::string::npos,
+                        "Lost the capacity warning explaining the backend failure");
+            }
             if (failure == Output::refinementFailed)
                 require(result.error.find("Hires refinement failed") != std::string::npos, "Lost Hires failure");
             if (failure == Output::wrongSize)

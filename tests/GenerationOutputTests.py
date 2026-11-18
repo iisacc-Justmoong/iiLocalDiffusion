@@ -49,6 +49,59 @@ class GenerationOutputTests(unittest.TestCase):
             args = self.args("--output", str(path), "--overwrite")
             self.assertEqual(generation_output.resolve_output_paths(args), [path])
 
+    def test_overwrite_cannot_replace_checkpoint_index_shards_or_conversion(self):
+        with resource_fixture.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            index, shard, converted = root / "index.json", root / "shard.png", root / "converted.png"
+            for path in (index, shard, converted):
+                path.write_bytes(b"model weights")
+            conversion = {"original": {"path": str(index)},
+                          "original_shards": [{"path": str(shard)}],
+                          "converted_path": str(converted)}
+            # The first image's JSON report can collide with the index even
+            # when the image itself has a distinct extension.
+            for output in (index.with_suffix(".png"), shard, converted):
+                with self.subTest(output=output):
+                    args = self.args("--output", str(output), "--overwrite")
+                    args.model_conversion = conversion
+                    with self.assertRaisesRegex(ValueError, "model input"):
+                        generation_output.resolve_output_paths(args)
+            self.assertTrue(all(path.read_bytes() == b"model weights" for path in (index, shard, converted)))
+
+    def test_direct_single_file_checkpoint_is_protected_from_output_overwrite(self):
+        with resource_fixture.TemporaryDirectory() as temporary:
+            source = Path(temporary) / 'model.png'
+            source.write_bytes(b'original model')
+            args = self.args('--output', str(source), '--overwrite')
+            args.source_kind, args.model = 'single-file', str(source)
+            with self.assertRaisesRegex(ValueError, 'model input'):
+                generation_output.resolve_output_paths(args)
+            args.output_dir = source.parent
+            with self.assertRaisesRegex(ValueError, 'model input'):
+                generation_output.protect_model_directory(args)
+            self.assertEqual(source.read_bytes(), b'original model')
+
+    def test_directory_pipeline_cannot_contain_output(self):
+        with resource_fixture.TemporaryDirectory() as temporary:
+            model = Path(temporary) / 'model';model.mkdir()
+            args = self.args()
+            args.source_kind, args.model, args.output_dir = 'directory', str(model), model / 'output'
+            with self.assertRaisesRegex(ValueError, 'model input'):
+                generation_output.protect_model_directory(args)
+
+    def test_explicit_vae_and_shards_are_protected_from_output(self):
+        with resource_fixture.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, shard, config = root / 'vae.png', root / 'part.png', root / 'config.json'
+            for path in (source, shard, config): path.write_bytes(b'original')
+            selection = SimpleNamespace(weight=SimpleNamespace(path=str(source), shards=(SimpleNamespace(path=str(shard)),)),
+                                        config_path=str(config))
+            for output in (source, shard, config.with_suffix('.png')):
+                args = self.args('--output', str(output), '--overwrite')
+                args.vae_selection = selection
+                with self.assertRaisesRegex(ValueError, 'model input'):
+                    generation_output.resolve_output_paths(args)
+
     def test_quoted_home_paths_are_expanded_before_execution_and_serialization(self):
         args = self.args("--output", "~/iild-result/image.png", "--cache-dir", "~/iild-cache",
                          "--xet-cache-dir", "~/iild-xet")

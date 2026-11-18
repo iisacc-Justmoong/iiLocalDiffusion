@@ -22,6 +22,13 @@ struct ModelInspection {
     std::string diagnostic;
 };
 
+// A bounded prefix probe only; full container and inference validation remain
+// the responsibility of the selected reader and backend. Returns
+// "safetensors", "safetensors-index", "gguf", "pytorch", "pytorch-index", or "unknown". Index
+// detection reads a bounded index; a renamed index also probes each referenced
+// shard's container signature. PyTorch is a bounded signature/ZIP-directory
+// candidate only; pickle and tensor contents are not executed or validated.
+[[nodiscard]] std::string detectModelContainer(const std::filesystem::path &path) noexcept;
 [[nodiscard]] ModelInspection inspectModel(const std::filesystem::path &path);
 [[nodiscard]] std::string modelInspectionJson(const ModelInspection &inspection);
 

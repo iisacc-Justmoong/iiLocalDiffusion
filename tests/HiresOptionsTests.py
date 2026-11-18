@@ -47,6 +47,57 @@ def resolved(*arguments, preset=presets.SD15_PRESET, base=None):
 
 
 class HiresOptionsTests(unittest.TestCase):
+    def test_only_boolean_false_disables_a_still_image_request(self):
+        for value in (None, True, False):
+            args = base_arguments(presets.SD15_PRESET)
+            args.hires_fix = value
+            resolve_hires_options(presets.SD15_PRESET, args)
+            self.assertIs(args.hires_fix, value is not False)
+        for value in (0, 1, "false", "", [], {}):
+            with self.subTest(value=value):
+                args = base_arguments(presets.SD15_PRESET)
+                args.hires_fix = value
+                with self.assertRaisesRegex(ValueError, "boolean"):
+                    resolve_hires_options(presets.SD15_PRESET, args)
+
+    def test_saved_configuration_only_accepts_a_boolean_override(self):
+        from _file_provider import provider
+        def configured_parser():
+            result = parser()
+            result.add_argument("--config", type=Path)
+            return result
+        with resource_fixture.TemporaryDirectory(prefix="hires-saved-") as directory:
+            saved = Path(directory) / "generation.json"
+            for values, expected in (({}, True), ({"hires_fix": None}, True),
+                                     ({"hires_fix": True}, True), ({"hires_fix": False}, False)):
+                with self.subTest(values=values):
+                    provider.write_text(saved, json.dumps(values))
+                    args = configured_parser().parse_args(["--config", str(saved)], namespace=base_arguments(presets.SD15_PRESET))
+                    resolve_hires_options(presets.SD15_PRESET, args)
+                    self.assertIs(args.hires_fix, expected)
+            for value in (0, "false"):
+                provider.write_text(saved, json.dumps({"hires_fix": value}))
+                with self.subTest(value=value), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    configured_parser().parse_args(["--config", str(saved)], namespace=base_arguments(presets.SD15_PRESET))
+
+    def test_animation_does_not_store_an_implicit_hires_disable(self):
+        model = str(ROOT / "tests/fixtures/sd-v1-manifest")
+        for mode in ("2D", "Interpolator"):
+            with self.subTest(mode=mode):
+                _, args = generate.resolve_request({"model": model, "default_modifiers": False,
+                                                     "animation_mode": mode, "max_frames": 5})
+                self.assertIs(args.hires_fix, True)
+                values = configuration_values(args)
+                self.assertIsNone(values["hires_fix"])
+                _, replay = generate.resolve_request(values)
+                self.assertIs(replay.hires_fix, True)
+                _, explicit = generate.resolve_request({"model": model, "default_modifiers": False,
+                    "animation_mode": mode, "max_frames": 5, "hires_fix": False})
+                self.assertIs(configuration_values(explicit)["hires_fix"], False)
+                with self.assertRaises(SystemExit):
+                    generate.resolve_request({"model": model, "default_modifiers": False,
+                        "animation_mode": mode, "max_frames": 5, "hires_fix": True})
+
     def test_default_request_halves_base_and_replays_final_dimensions(self):
         from hires_options import base_request
         for name, width, height, base in (("sd15", 512, 768, (256, 384)),

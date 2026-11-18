@@ -2,6 +2,7 @@
 """Anima worker routing, retained model preparation and transactional queue output."""
 import io
 import ctypes as C
+import hashlib
 import importlib.util
 import json
 import os
@@ -21,6 +22,36 @@ from inference_worker import serve
 class NativeImageTests(unittest.TestCase):
     setUp = fixtures.DownloadedModelTests.setUp
     safetensors = fixtures.DownloadedModelTests.safetensors
+
+    def test_macos_loader_rejects_a_different_library_selected_by_dyld(self):
+        requested = self.directory / "current" / "libiiLocalDiffusion.dylib"
+        actual = self.directory / "old" / "libiiLocalDiffusion.dylib"
+        for file in (requested, actual):
+            file.parent.mkdir()
+            file.touch()
+        with patch.object(native_image.sys, "platform", "darwin"), \
+             patch.object(native_image.C, "CDLL", return_value=Mock()), \
+             patch.object(native_image, "loaded_library_path", return_value=actual, create=True):
+            with self.assertRaisesRegex(RuntimeError, "DYLD_LIBRARY_PATH") as failure:
+                native_image.load_library(requested)
+        self.assertIn(str(requested), str(failure.exception))
+        self.assertIn(str(actual), str(failure.exception))
+
+    def test_macos_loader_accepts_symlinks_to_the_requested_library(self):
+        requested = self.directory / "libiiLocalDiffusion.dylib"
+        requested.touch()
+        alias = self.directory / "alias.dylib"
+        alias.symlink_to(requested)
+        library = Mock()
+        with patch.object(native_image.sys, "platform", "darwin"), \
+             patch.object(native_image.C, "CDLL", return_value=library), \
+             patch.object(native_image, "loaded_library_path", return_value=alias, create=True):
+            self.assertIs(native_image.load_library(requested), library)
+
+    def test_legacy_bridge_rejects_an_explicit_hires_disable(self):
+        engine = native_image.NativeEngine.__new__(native_image.NativeEngine)
+        with self.assertRaisesRegex(ValueError, "component-aware"):
+            engine.image(SimpleNamespace(native_v2=False, hires_fix=False), 17)
 
     def test_hires_provider_passes_sampling_and_model_options_to_native_bridge(self):
         from native_upscaler import NativeUpscaler, Options
@@ -62,13 +93,39 @@ class NativeImageTests(unittest.TestCase):
         self.assertAlmostEqual(seen['denoise'], .4)
         engine.free.assert_called_once_with(1)
 
+    @unittest.skipUnless(importlib.util.find_spec("PIL"), "Pillow is required")
+    def test_worker_uses_explicit_hires_filter_and_strength(self):
+        from PIL import Image
+        calls = []
+        class Engine:
+            library = SimpleNamespace(_name="fixture-library")
+            def image(self, args, seed, *, prepare=False, **options):
+                if prepare:
+                    return None, {"weight_storage": "anonymous"}
+                calls.append(options)
+                return Image.new("RGB", (args.width, args.height)), {}
+        engine = Engine()
+        output = self.directory / "explicit-hires"
+        with patch.object(native_image, "cached_pipeline", return_value=(engine, True)), \
+             patch.object(native_image, "NativeUpscaler") as provider, \
+             patch.object(native_image, "verify_pipeline_sources"):
+            self.assertEqual(standalone_image.main(["--model", str(self.model()), "--width", "64", "--height", "120",
+                "--hires-fix", "--hires-upscaler", "bicubic", "--hires-strength", "0.4", "--output-dir", str(output)]), 0)
+        provider.assert_called_once_with("bicubic", library="fixture-library")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual((calls[0]["hires_options"].target_width, calls[0]["hires_options"].target_height), (64, 128))
+        self.assertEqual(calls[0]["hires_denoise_strength"], .4)
+        manifest = json.loads((output / "generation.json").read_text())
+        self.assertTrue(manifest["images"][0]["fixture"]["hires"])
+
     def test_adapter_collection_does_not_release_runtime_sources(self):
         import gc
         from inference_session import InferenceSession
         library = Mock(_name="native-fixture")
         library.iild_native_available_v1.return_value = 1
         with patch.object(native_image, "library_path", return_value=Path("fixture")), \
-                patch.object(native_image.C, "CDLL", return_value=library):
+                patch.object(native_image.C, "CDLL", return_value=library), \
+                patch.object(native_image, "loaded_library_path", return_value=None, create=True):
             with InferenceSession():
                 engine = native_image.NativeEngine()
                 del engine
@@ -127,10 +184,44 @@ class NativeImageTests(unittest.TestCase):
         self.assertEqual((args.width, args.height, args.steps), (64, 120, 10))
         self.assertEqual(args.negative_prompt, "")
 
+    def test_native_anima_routes_safetensors_with_a_nonstandard_extension(self):
+        for name in ("anima.bin", "anima.data", "anima.gguf", "anima.json"):
+            with self.subTest(name=name):
+                model = self.model(name=name)
+                preset, args = standalone_image.resolve_arguments(self.values(model))
+                self.assertIsNone(preset)
+                self.assertEqual((args.engine, args.architecture), ("native", "anima"))
+                self.assertEqual(Path(args.model), model)
+
+    def test_split_anima_automatically_mounts_verified_catalog_components(self):
+        model = self.safetensors({"net.llm_adapter.blocks.0.cross_attn.q_proj.weight": [2, 2],
+                                  "net.blocks.0.self_attn.q_proj.weight": [2, 2]}, name="split.safetensors")
+        llm = self.safetensors({"fixture.weight": [1]}, name="anima-llm.safetensors")
+        vae = self.safetensors({"fixture.weight": [1]}, name="anima-vae.safetensors")
+        def entry(path, **extra):
+            return {"file": path.name, "size": path.stat().st_size,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), **extra}
+        catalog = {"version": 1,
+            "fallback_llms": [entry(llm, families=["anima"], class_name="Qwen3ForCausalLM")],
+            "fallback_vae": entry(vae, families=["qwen-image"], class_name="AutoencoderKLQwenImage")}
+        (self.directory / "generation-defaults.json").write_text(json.dumps(catalog))
+        _, resolved = standalone_image.resolve_arguments(self.values(model, generation_resources=str(self.directory),
+                                                                     default_modifiers=False))
+        self.assertEqual(resolved.components, {"llm": str(llm), "vae": str(vae)})
+        self.assertTrue(resolved.native_plan["ready_for_loading"])
+        _, explicit = standalone_image.resolve_arguments(self.values(model, generation_resources=str(self.directory),
+                                                                     components={"llm": str(llm)}))
+        self.assertEqual(explicit.components, {"llm": str(llm), "vae": str(vae)})
+        catalog["fallback_llms"][0]["class_name"] = "Qwen3VLForConditionalGeneration"
+        (self.directory / "generation-defaults.json").write_text(json.dumps(catalog))
+        with self.assertRaisesRegex(ValueError, "Qwen3-0.6B"):
+            standalone_image.resolve_arguments(self.values(model, generation_resources=str(self.directory)))
+
     def test_missing_components_and_unimplemented_overrides_are_rejected(self):
         incomplete = self.safetensors({"net.llm_adapter.blocks.0.cross_attn.q_proj.weight": [2, 2]})
-        with self.assertRaisesRegex(ValueError, "missing components: vae, llm"):
-            standalone_image.resolve_arguments(self.values(incomplete))
+        (self.directory / "generation-defaults.json").write_text('{"version":1,"fallback_llms":[]}')
+        with self.assertRaisesRegex(ValueError, "Qwen3-0.6B"):
+            standalone_image.resolve_arguments(self.values(incomplete, generation_resources=str(self.directory)))
         for values in ({"vae": "different.safetensors"}, {"guidance_scale": -1},
                        {"device": "cuda"}, {"base_model": "SD 1.5"},
                        {"width": 65}, {"num_images": 0}, {"seed": -1}):

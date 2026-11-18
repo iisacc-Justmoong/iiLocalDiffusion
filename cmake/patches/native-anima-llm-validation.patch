@@ -1,0 +1,49 @@
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -679,6 +679,8 @@
+ SD_API void enable_imatrix_collection(void);
+ SD_API void disable_imatrix_collection(void);
+ 
++SD_API bool sd_model_validate_anima_llm(const char* llm_path);
++
+ SD_API const char* sd_commit(void);
+ SD_API const char* sd_version(void);
+ 
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -4898,6 +4898,33 @@
+     return pixel_t;
+ }
+ 
++// Anima's conditioner uses the Qwen3-0.6B-Base text tower. Validate the
++// external component independently before the model payload is resident.
++bool sd_model_validate_anima_llm(const char* llm_path) {
++    if (llm_path == nullptr || *llm_path == '\0') return false;
++    ModelLoader loader;
++    if (!loader.init_from_file_and_convert_name(llm_path, "text_encoders.llm.", VERSION_ANIMA)) return false;
++    const auto& storage = loader.get_tensor_storage_map();
++    const auto embedding = storage.find("text_encoders.llm.model.embed_tokens.weight");
++    if (embedding == storage.end() || embedding->second.ne[0] != 1024 || embedding->second.ne[1] != 151936 ||
++        storage.find("text_encoders.llm.model.layers.27.self_attn.q_proj.weight") == storage.end() ||
++        storage.find("text_encoders.llm.model.layers.28.self_attn.q_proj.weight") != storage.end()) return false;
++    std::unique_ptr<ggml_backend, decltype(&ggml_backend_free)> cpu(ggml_backend_cpu_init(), ggml_backend_free);
++    if (!cpu) return false;
++    LLM::LLMRunner encoder(LLM::LLMArch::QWEN3, cpu.get(), storage, "text_encoders.llm", false);
++    std::map<std::string, ggml_tensor*> required;
++    encoder.get_param_tensors(required, "text_encoders.llm");
++    if (required.empty()) return false;
++    for (const auto& [name, tensor] : required) {
++        const auto found = storage.find(name);
++        if (found == storage.end() || !std::equal(tensor->ne, tensor->ne + GGML_MAX_DIMS, found->second.ne)) {
++            LOG_WARN("Anima Qwen3-0.6B text encoder tensor contract mismatch: %s", name.c_str());
++            return false;
++        }
++    }
++    return true;
++}
++
+ static void set_ltxv_video_position(sd::Tensor<float>* positions,
+                                     int64_t token,
+                                     float t_start,

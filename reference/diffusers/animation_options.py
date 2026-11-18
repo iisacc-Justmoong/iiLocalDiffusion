@@ -71,5 +71,5 @@ def resolve_animation_options(args: Any) -> None:
         raise ValueError("--video-crf must be in [0,51].")
     if args.num_images != 1:
         raise ValueError("Animation requires --num-images 1; --max-frames controls video length.")
-    if args.hires_fix:
+    if args.hires_fix and "hires_fix" in getattr(args, "_provided", {"hires_fix"}):
         raise ValueError("Animation does not combine with --hires-fix; choose the video resolution directly.")

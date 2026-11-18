@@ -123,8 +123,8 @@ def plan_native(inspection, components=None):
         raise ValueError(f"No native image backend contract for {architecture or inspection.get('role')}. Use a matching Diffusers pipeline package.")
     if inspection.get("task") != "text-to-image":
         raise ValueError(f"{inspection.get('task')} requires image/mask inputs and its matching pipeline; it is not a text-to-image request.")
-    if inspection.get("format") not in ("safetensors", "gguf"):
-        raise ValueError("Native inference requires safetensors or GGUF weights; convert legacy pickle checkpoints first.")
+    if inspection.get("format") not in ("safetensors", "safetensors-index", "gguf"):
+        raise ValueError("Native inference requires Safetensors, a validated Safetensors index, or GGUF weights; convert legacy pickle checkpoints first.")
     if components is not None and not isinstance(components, dict):
         raise ValueError("--components must be an object of native component names and local file paths.")
     components = dict(components or {})
@@ -138,7 +138,8 @@ def plan_native(inspection, components=None):
     for slot, path in components.items():
         if not isinstance(path, str) or not path or "\0" in path or not Path(path).expanduser().is_file():
             raise ValueError(f"Component {slot} requires an existing local weight file.")
-        components[slot] = str(Path(path).expanduser().resolve())
+        from model_sources import local_model_path
+        components[slot] = str(local_model_path(path))
     present = set(inspection.get("component_slots", [])) | set(components)
     required = ["vae", *encoders]
     missing = [slot for slot in required if slot not in present]

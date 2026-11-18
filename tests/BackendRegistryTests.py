@@ -64,7 +64,7 @@ class BackendRegistryTests(unittest.TestCase):
         _, automatic = standalone_image.resolve_arguments(self.request('krea2', krea2_variant='auto'))
         self.assertEqual(automatic.krea2_variant, 'raw')
         self.assertEqual(automatic.krea2['variant_source'], 'native-quality-default')
-        for overrides in ({'width': 65}, {'width': 4096},
+        for overrides in ({'width': 65}, {'width': 4104},
                           {'sigmas': [1, .5], 'steps': 3}):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 standalone_image.resolve_arguments(self.request('krea2', **overrides))
@@ -243,7 +243,37 @@ class BackendRegistryTests(unittest.TestCase):
         engine.rgb, engine.free = rgb, lambda handle: None
         image, _ = engine.image(args, 71)
         self.assertEqual(image.getpixel((0, 0)), (20, 40, 80))
-        self.assertEqual(received[0], (args.components["clip_l"], args.components["t5xxl"], args.components["vae"], 1, 1.0, 3.5, 0, 71))
+        self.assertEqual(received[0], (args.components["clip_l"], args.components["t5xxl"], args.components["vae"], 1, 1.0, 3.5, 1, 71))
+        args.hires_fix = None
+        engine.image(args, 73)
+        self.assertEqual(received[-1][6:], (1, 73))
+        for invalid in (0, 1, "false", ""):
+            args.hires_fix = invalid
+            with self.subTest(value=invalid), self.assertRaisesRegex(ValueError, "boolean"):
+                engine.image(args, 74)
+        _, disabled = standalone_image.resolve_arguments(self.request("flux1-dev", device="cpu", hires_fix=False))
+        engine.image(disabled, 72)
+        self.assertEqual(received[-1][6:], (0, 72))
+        self.assertFalse(native_image.configuration_values(disabled)["hires_fix"])
+        _, replay = standalone_image.resolve_arguments(standalone_image.build_parser().parse_values(
+            native_image.configuration_values(disabled)))
+        self.assertFalse(replay.hires_fix)
+
+    def test_native_larger_output_dimensions_are_accepted(self):
+        _, args = standalone_image.resolve_arguments(self.request('flux1-dev', width=4096, height=2048))
+        self.assertEqual((args.width, args.height), (4096, 2048))
+
+    def test_native_hires_controls_validate_and_survive_replay(self):
+        _, args = standalone_image.resolve_arguments(self.request('flux1-dev', hires_fix=True,
+            hires_upscaler='bicubic', hires_denoising_strength=.45))
+        values = native_image.configuration_values(args)
+        self.assertEqual((values['hires_fix'], values['hires_upscaler'], values['hires_denoising_strength']),
+                         (True, 'bicubic', .45))
+        _, replay = standalone_image.resolve_arguments(standalone_image.build_parser().parse_values(values))
+        self.assertEqual((replay.hires_fix, replay.hires_upscaler, replay.hires_denoising_strength),
+                         (True, 'bicubic', .45))
+        with self.assertRaisesRegex(ValueError, 'require Hires Fix'):
+            standalone_image.resolve_arguments(self.request('flux1-dev', hires_fix=False, hires_denoising_strength=.45))
 
     @unittest.skipUnless(importlib.util.find_spec('PIL'), 'Pillow required')
     def test_native_v3_ctypes_boundary_carries_sampling(self):

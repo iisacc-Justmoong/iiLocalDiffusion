@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/generation-defaults.md",
-    "sha256": "439a193253c46adfc0bbe829f44e25695f1210027a882dddb7122dd869dbc8c4",
-    "bytes": 20727,
+    "sha256": "e17918b49877096908a959d88b41fa523c45e1c083e72c9a54e670fce19fd04e",
+    "bytes": 22963,
     "line_count": 136,
     "encoding": "utf-8",
     "language": "ko"
@@ -442,7 +442,7 @@
       "kind": "paragraph",
       "start_line": 72,
       "end_line": 72,
-      "raw": "범용 로더의 명시적 교체는 `--vae /path/to/vae-directory`이며 `config.json`과 `diffusion_pytorch_model.safetensors`가 필요하다. 기존 SD/SDXL/FLUX 프리셋은 `--vae /path/to/vae.safetensors` 계약을 유지한다. 프리셋·standalone SDXL 체크포인트·범용 디렉터리/단일 파일에서 같은 기본 레지스트리를 사용한다. FLUX 단일 디노이저 파일은 텍스트 인코더·토크나이저 등 다른 필수 컴포넌트가 들어 있는 로컬 `--model-config`가 필요하다. VAE 폴백은 다른 누락 컴포넌트를 다운로드하지 않는다.\n"
+      "raw": "범용 로더의 명시적 교체는 `--vae`로 로컬 VAE 디렉터리, 표준 Diffusers 텐서 이름의 Safetensors 또는 PyTorch 파일과 샤드 인덱스를 지정할 수 있다. 디렉터리에서는 지정한 variant, 기본 Safetensors 파일·샤드 인덱스, 기본 PyTorch 가중치 순으로 선택한다. 기본 가중치가 없고 variant가 하나면 자동 선택하며 여러 개면 명시해야 한다. PyTorch는 선택 시 역직렬화하지 않으며 로딩 시 검증된 weights-only 변환으로 Safetensors 캐시를 준비한다. VAE의 일반 Torch per-tensor·per-channel 양자화 가중치는 로딩 전에 float32로 복원하며, packed 모듈이나 지원되지 않는 양자화 형식은 거부한다. 복원된 모든 텐서는 VAE 설정과 엄격하게 대조한다. 파일을 지정하면 같은 디렉터리 또는 파이프라인의 `vae/config.json`에서 호환 설정을 확인하고, 임시 로딩 경로에서 모든 텐서와 샤드 식별자를 검증한다. 둘 다 없으면 지원 계열의 고정된 기본 설정만 검증해 사용하며 기본 VAE 가중치는 필요하지 않다. `AutoencoderKL` 및 `AutoencoderKLFlux2` 독립 VAE는 기존 LDM 이름과 `vae.` 또는 `first_stage_model.` 접두사가 있는 가중치도 지원한다. 설정에 맞는 모든 텐서의 이름·형상·일대일 대응을 확인한 후 임시 로딩 파일에 이름과 필요한 차원만 변환하며 원본 바이트는 유지한다. 텐서 누락, 추가, 충돌 또는 호환되지 않는 형상은 오류로 처리한다. 기존 SD/SDXL/FLUX 프리셋은 `--vae /path/to/vae.safetensors` 계약을 유지한다. 프리셋·standalone SDXL 체크포인트·범용 디렉터리/단일 파일에서 같은 기본 레지스트리를 사용한다. FLUX 단일 디노이저 파일은 텍스트 인코더·토크나이저 등 다른 필수 컴포넌트가 들어 있는 로컬 `--model-config`가 필요하다. VAE 폴백은 다른 누락 컴포넌트를 다운로드하지 않는다.\n"
     },
     {
       "id": "b000042",
@@ -568,7 +568,7 @@
       "kind": "paragraph",
       "start_line": 90,
       "end_line": 90,
-      "raw": "리소스 저장소가 아직 동기화되지 않은 경우에는 디렉터리·명세의 일반 파일 여부와 크기를 먼저 검사한다. 빈 디렉터리 또는 누락된 `generation-defaults.json`을 `file_size()`에 바로 전달하지 않는다. 필수 VAE 누락 오류에는 `qwen-image` 같은 필요한 계열과 리소스 설치·동기화 안내를 포함한다. `defaultModifiers=false`인 Anima 통합본의 정상 내장 VAE 경로는 리소스 명세를 요구하지 않는다. `NativeVaeConfigTests`는 누락 폴더·빈 폴더·명세 대신 디렉터리가 있는 경우를, `NativeResultTests`와 `NativeMobileResultTests`는 Anima 통합본 성공·외부 VAE 누락 시 추론 전 실패를 검사한다.\n"
+      "raw": "리소스 저장소가 아직 동기화되지 않은 경우에는 디렉터리·명세의 일반 파일 여부와 크기를 먼저 검사한다. 빈 디렉터리 또는 누락된 `generation-defaults.json`을 `file_size()`에 바로 전달하지 않는다. 필수 VAE 누락 오류에는 `qwen-image` 같은 필요한 계열과 리소스 설치·동기화 안내를 포함한다. `defaultModifiers=false`인 Anima 통합본의 정상 내장 VAE 경로는 리소스 명세를 요구하지 않는다. `NativeVaeConfigTests`는 누락 폴더·빈 폴더·명세 대신 디렉터리가 있는 경우를, `NativeResultTests`와 `NativeMobileResultTests`는 Anima 통합본 성공·외부 VAE 누락 시 추론 전 실패를 검사한다. Anima 독립 디노이저의 선택형 Qwen3-0.6B-Base 인코더는 `fallback_llms`에 공식 고정 리비전·크기·SHA-256으로 등록된다. `python3 scripts/provision_anima_text_encoder.py`는 작업 공간 리소스에 다운로드를 재개하고 검증 후 게시하며, `--check`는 존재 및 무결성만 확인한다. `--resources /absolute/path`는 같은 카탈로그가 있는 다른 리소스 디렉터리를 선택한다. 선택형 파일은 없을 때 일반 리소스 감사에서 생략하고, 존재하면 해시를 검사하며 변경된 대상을 덮어쓰지 않는다. Python 네이티브 워커도 명시적 또는 내장 구성 요소를 우선하며, 빠진 Anima 인코더와 Qwen 이미지 VAE만 동일 카탈로그에서 선택하고 설정된 검증 정책을 적용한다.\n"
     },
     {
       "id": "b000060",
@@ -926,7 +926,7 @@
       {
         "block_id": "b000059",
         "line": 90,
-        "text": "리소스 저장소가 아직 동기화되지 않은 경우에는 디렉터리·명세의 일반 파일 여부와 크기를 먼저 검사한다. 빈 디렉터리 또는 누락된 `generation-defaults.json`을 `file_size()`에 바로 전달하지 않는다. 필수 VAE 누락 오류에는 `qwen-image` 같은 필요한 계열과 리소스 설치·동기화 안내를 포함한다. `defaultModifiers=false`인 Anima 통합본의 정상 내장 VAE 경로는 리소스 명세를 요구하지 않는다. `NativeVaeConfigTests`는 누락 폴더·빈 폴더·명세 대신 디렉터리가 있는 경우를, `NativeResultTests`와 `NativeMobileResultTests`는 Anima 통합본 성공·외부 VAE 누락 시 추론 전 실패를 검사한다.",
+        "text": "리소스 저장소가 아직 동기화되지 않은 경우에는 디렉터리·명세의 일반 파일 여부와 크기를 먼저 검사한다. 빈 디렉터리 또는 누락된 `generation-defaults.json`을 `file_size()`에 바로 전달하지 않는다. 필수 VAE 누락 오류에는 `qwen-image` 같은 필요한 계열과 리소스 설치·동기화 안내를 포함한다. `defaultModifiers=false`인 Anima 통합본의 정상 내장 VAE 경로는 리소스 명세를 요구하지 않는다. `NativeVaeConfigTests`는 누락 폴더·빈 폴더·명세 대신 디렉터리가 있는 경우를, `NativeResultTests`와 `NativeMobileResultTests`는 Anima 통합본 성공·외부 VAE 누락 시 추론 전 실패를 검사한다. Anima 독립 디노이저의 선택형 Qwen3-0.6B-Base 인코더는 `fallback_llms`에 공식 고정 리비전·크기·SHA-256으로 등록된다. `python3 scripts/provision_anima_text_encoder.py`는 작업 공간 리소스에 다운로드를 재개하고 검증 후 게시하며, `--check`는 존재 및 무결성만 확인한다. `--resources /absolute/path`는 같은 카탈로그가 있는 다른 리소스 디렉터리를 선택한다. 선택형 파일은 없을 때 일반 리소스 감사에서 생략하고, 존재하면 해시를 검사하며 변경된 대상을 덮어쓰지 않는다. Python 네이티브 워커도 명시적 또는 내장 구성 요소를 우선하며, 빠진 Anima 인코더와 Qwen 이미지 VAE만 동일 카탈로그에서 선택하고 설정된 검증 정책을 적용한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },

@@ -1,4 +1,4 @@
-"""LTX 2 packages through the Qt-free C++ SDK; Python publishes verified MP4s."""
+"""Native video checkpoints through the Qt-free C++ SDK and verified MP4 publication."""
 from _file_provider import provider
 import ctypes as C
 import hashlib
@@ -31,6 +31,12 @@ class Request(C.Structure):
                 ("cpu_text_encoding", C.c_int32), ("shots", C.POINTER(Shot)), ("shot_count", C.c_size_t)]
 
 
+class Components(C.Structure):
+    _fields_ = [("size", C.c_size_t), ("video_vae", C.c_char_p), ("high_noise_model", C.c_char_p),
+                ("vision_encoder", C.c_char_p), ("moe_boundary", C.c_float),
+                ("high_noise_steps", C.c_int32), ("high_noise_guidance", C.c_float)]
+
+
 Frame = C.CFUNCTYPE(C.c_int, C.c_size_t, C.c_int32, C.c_int32, C.c_int32,
                    C.c_void_p, C.c_size_t, C.c_void_p)
 
@@ -39,7 +45,7 @@ def native_shot_plan(shot, output_fps):
     """Native VAE padding stays inside inference; publish exactly the shot timeline."""
     for condition in shot["conditions"]:
         if condition["frame"] not in (0, shot["frames"] - 1):
-            raise ValueError("Native LTX video supports first/last keyframes; interior image conditions require the Diffusers route.")
+            raise ValueError("Native video supports first/last keyframes; interior image conditions require a compatible Diffusers route.")
     strengths = {condition["strength"] for condition in shot["conditions"]}
     if len(strengths) > 1 or (shot["continue_previous"] and strengths and strengths != {1.0}):
         raise ValueError("Native first/last keyframes must use the same conditioning strength.")
@@ -50,8 +56,22 @@ def native_shot_plan(shot, output_fps):
             "indices": indices, "strength": next(iter(strengths), 1.0)}
 
 
-def model_metadata(path):
+def model_metadata(path, indexed_weight=None):
     stat = path.stat()
+    from downloaded_model import model_container_format
+    if model_container_format(path) == 'safetensors-index':
+        from image_package import inspect_sharded_index
+        from native_image import native_weight
+        from weight_files import verify_weight_file
+        weight = indexed_weight or native_weight(path, 'native video model')
+        report = inspect_sharded_index(path)
+        data = path.read_bytes()
+        verify_weight_file(weight, 'native video model')
+        return {'source': str(path), 'size_bytes': stat.st_size + sum(shard.size_bytes for shard in weight.shards),
+                'mtime_ns': stat.st_mtime_ns, 'header_sha256': hashlib.sha256(data).hexdigest(),
+                'model_version': report['metadata'].get('model_version', ''),
+                'execution_pipeline': 'iiLocalDiffusion.NativeVideo',
+                'shards': [{'path': shard.path, 'size_bytes': shard.size_bytes} for shard in weight.shards]}
     with provider.open(path, "rb") as file:
         prefix = file.read(8)
         if len(prefix) != 8:
@@ -80,6 +100,12 @@ class NativeVideoEngine:
             self.generate_low_vram = getattr(self.library, "iild_native_video_generate_low_vram_v1", None)
             if self.generate_low_vram is not None:
                 self.generate_low_vram.argtypes, self.generate_low_vram.restype = self.generate.argtypes, C.c_void_p
+            self.generate_with_components = getattr(self.library, "iild_native_video_generate_with_components_v1", None)
+            self.generate_low_vram_with_components = getattr(self.library, "iild_native_video_generate_low_vram_with_components_v1", None)
+            for function in (self.generate_with_components, self.generate_low_vram_with_components):
+                if function is not None:
+                    function.argtypes = [C.POINTER(Request), C.POINTER(Components), Progress, Frame, C.c_void_p]
+                    function.restype = C.c_void_p
             self.metadata = self.library.iild_native_video_metadata_v1
             self.metadata.argtypes, self.metadata.restype = [C.c_void_p], C.c_char_p
             self.free = self.library.iild_native_video_free_v1
@@ -89,7 +115,15 @@ class NativeVideoEngine:
 
     def render(self, args, output, image_module, keyframes):
         low_vram = args.offload == "sequential"
-        generate = getattr(self, "generate_low_vram", None) if low_vram else self.generate
+        fields = ("video_vae", "high_noise_model", "vision_encoder", "moe_boundary", "high_noise_steps", "high_noise_guidance")
+        has_components = any(getattr(args, name, None) is not None for name in fields)
+        if has_components:
+            name = "generate_low_vram_with_components" if low_vram else "generate_with_components"
+            generate = getattr(self, name, None)
+            if generate is None:
+                raise RuntimeError("Native video components require an updated iiLocalDiffusion runtime; rebuild and reinstall the SDK.")
+        else:
+            generate = getattr(self, "generate_low_vram", None) if low_vram else self.generate
         if generate is None:
             raise RuntimeError("Low VRAM requires an updated iiLocalDiffusion runtime; rebuild and reinstall the SDK.")
         plans = [native_shot_plan(shot, args.fps) for shot in args.shots]
@@ -158,7 +192,19 @@ class NativeVideoEngine:
                           ("metal" if args.device == "mps" else args.device).encode(), args.dtype.encode(),
                           args.width, args.height, args.steps, 0, args.guidance_scale,
                           args.device == "cpu", args.vae_tiling, args.cpu_text_encoding, requests, len(values))
-        handle = generate(C.byref(request), callback, observer, None)
+        if has_components:
+            def component_path(name):
+                value = getattr(args, name, None)
+                return str(value).encode() if value is not None else None
+            def optional_number(name):
+                value = getattr(args, name, None)
+                return value if value is not None else -1
+            components = Components(C.sizeof(Components), *(component_path(name) for name in fields[:3]),
+                                    optional_number("moe_boundary"), optional_number("high_noise_steps"),
+                                    optional_number("high_noise_guidance"))
+            handle = generate(C.byref(request), C.byref(components), callback, observer, None)
+        else:
+            handle = generate(C.byref(request), callback, observer, None)
         if not handle:
             raise RuntimeError("Native video did not return a result.")
         try:
@@ -179,6 +225,10 @@ class NativeVideoEngine:
 
 def generate_video(args):
     report_progress("loading")
+    from video_checkpoint_conversion import verify as verify_conversions
+    verify_conversions(args)
+    verify_directory = getattr(args, '_native_source_verifier', lambda: None)
+    verify_directory()
     # Reject unsupported conditioning before any multi-GB asset is materialized.
     for shot in args.shots:
         native_shot_plan(shot, args.fps)
@@ -186,16 +236,37 @@ def generate_video(args):
     preflight_interpolator(args, environment)
     keyframes, keyframe_metadata = load_keyframes(args, environment["Image"])
     path = Path(args.model)
-    model = model_metadata(path)
+    from downloaded_model import model_container_format
+    from native_image import native_weight
+    from weight_files import verify_weight_file
+    indexed = native_weight(path, 'native video model') if model_container_format(path) == 'safetensors-index' else None
+    encoder_indexed = (native_weight(args.text_encoder, 'native video text encoder') if args.text_encoder
+                       and model_container_format(args.text_encoder) == 'safetensors-index' else None)
+    model = model_metadata(path, indexed)
+    if getattr(args, '_native_directory_source', None):
+        model['directory_source'] = args._native_directory_source
     stat = path.stat()
     stamps = {path: (stat.st_size, stat.st_mtime_ns)}
-    if args.text_encoder:
-        stat = args.text_encoder.stat()
-        stamps[args.text_encoder] = (stat.st_size, stat.st_mtime_ns)
+    components = [(name, getattr(args, name, None)) for name in ("text_encoder", "video_vae", "high_noise_model", "vision_encoder")]
+    component_indexes = []
+    for name, component in components:
+        if component:
+            stat = component.stat()
+            stamps[component] = (stat.st_size, stat.st_mtime_ns)
+            if name != "text_encoder" and model_container_format(component) == 'safetensors-index':
+                component_indexes.append((name, native_weight(component, f'native video {name}')))
     started = time.monotonic()
     with AnimationOutput(args) as output:
         source_frames, execution = NativeVideoEngine().render(args, output, environment["Image"], keyframes)
+        verify_conversions(args)
+        verify_directory()
         verify_model_files(stamps)
+        if indexed:
+            verify_weight_file(indexed, 'native video model')
+        if encoder_indexed:
+            verify_weight_file(encoder_indexed, 'native video text encoder')
+        for name, weight in component_indexes:
+            verify_weight_file(weight, f'native video {name}')
         shots = [{**shot, "conditioning_source": "previous-shot-final-frame" if shot["continue_previous"] else "keyframes-or-text"}
                  for shot in args.shots]
         interpolation = {"enabled": False, "reason": "fps-at-most-12"}
@@ -205,14 +276,27 @@ def generate_video(args):
             frames, interpolation = interpolate_video(args, shots, source_frames, output, environment)
         report_progress("encoding-video")
         encoded = encode_video(output.frames, output.video, args, environment)
+        verify_conversions(args)
+        verify_directory()
         verify_model_files(stamps)
+        if indexed:
+            verify_weight_file(indexed, 'native video model')
+        if encoder_indexed:
+            verify_weight_file(encoder_indexed, 'native video text encoder')
+        for name, weight in component_indexes:
+            verify_weight_file(weight, f'native video {name}')
         report = {"schema": "iild-temporal-video-v1", "status": "complete", "model": model,
                   "method": "native-joint-spatiotemporal-diffusion" + ("+motion-interpolation" if args.interpolation_enabled else ""),
                   "camera_control": "text-conditioning", "shot_composition": "cut", "execution": execution,
-                  "configuration": configuration(args), "shots": shots, "frames": frames, "source_frames": source_frames,
-                  "stages": [{"name": "LTX 2 native", "output_frames": len(source_frames), "verified_rgb_frames": True}],
+                  "configuration": getattr(args, '_native_original_configuration', None) or configuration(args),
+                  "shots": shots, "frames": frames, "source_frames": source_frames,
+                  "stages": [{"name": "Native video", "output_frames": len(source_frames), "verified_rgb_frames": True}],
                   "interpolation": interpolation, "keyframes": list(keyframe_metadata.values()), "video": encoded,
                   "elapsed_seconds": time.monotonic() - started, "versions": environment["versions"]}
+        conversions = getattr(args, '_native_conversions', {})
+        if conversions:
+            report['checkpoint_conversions'] = {name: {key: value[key] for key in ('original', 'original_shards', 'output') if key in value}
+                                                for name, value in conversions.items()}
         output.commit(report)
     report_progress("complete", args.max_frames, args.max_frames)
     return report

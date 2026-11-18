@@ -33,7 +33,7 @@ from generation_options import (
     resolve_generation_options, resolved_dtype, select_device_index,
     uses_negative_prompt, validate_generation_options, with_generation_defaults,
 )
-from generation_output import hires_base_paths, publish_file, resolve_output_paths, write_png
+from generation_output import hires_base_paths, protect_model_inputs, publish_file, resolve_output_paths, write_png
 from generation_preview import add_preview_options, attach_preview, validate_preview_location
 from generation_scheduler import configure_scheduler, validate_clip_skip, validate_scheduler_values
 from generation_tensor_inputs import load_tensor_inputs
@@ -281,7 +281,7 @@ def resolve_arguments(args: argparse.Namespace) -> tuple[PipelinePreset | None, 
         modifiers.append("embedding")
     if resolved.controlnet_selection is not None:
         modifiers.append("controlnet")
-    if resolved.hires_fix:
+    if resolved.hires_fix and getattr(resolved, "_hires_applicable", True):
         modifiers.append("hires")
     suffix = "" if not modifiers else "-" + "-".join(modifiers)
     generation_filename = f"{filename.stem}{suffix}{filename.suffix}"
@@ -682,7 +682,7 @@ def validate_generation_arguments(preset: PipelinePreset | None, args: argparse.
         return
     base_validation_args = args
     if (preset.family == "flux1-schnell" and args.true_cfg_scale == 1
-            and getattr(args, "hires_fix", False)
+            and getattr(args, "_hires_applicable", True) and getattr(args, "hires_fix", False)
             and getattr(args, "hires_true_cfg_scale", 1) > 1):
         # Shared negative prompts may be used only by refinement. Validate the
         # first pass without them while retaining the original replayable request.
@@ -903,6 +903,8 @@ def run(preset, args) -> int:
     record_execution(device, optimization["offload_policy"], args.model_selection.source)
     if preparing:
         verify_pipeline_sources()
+        from checkpoint_conversion import verify_conversion_source
+        verify_conversion_source(getattr(args, "model_conversion", None))
         return 0
 
     if animation:
@@ -985,6 +987,8 @@ def run(preset, args) -> int:
     if len(result.images) != args.num_images:
         raise RuntimeError(f"Expected {args.num_images} generated images, received {len(result.images)}.")
     verify_pipeline_sources()
+    from checkpoint_conversion import verify_conversion_source
+    verify_conversion_source(getattr(args, "model_conversion", None))
     validated = []
     for image in result.images:
         if image.mode != "RGB":
@@ -992,6 +996,7 @@ def run(preset, args) -> int:
         validated.append((image, validate_rendered_image(image, render_args.width, render_args.height)))
     outputs = []
     for path, (image, extrema) in zip(output_paths, validated):
+        protect_model_inputs(args, [path])
         write_png(image, path, compress_level=args.png_compress_level,
                   optimize=args.png_optimize, overwrite=args.overwrite)
         outputs.append({
@@ -1002,6 +1007,7 @@ def run(preset, args) -> int:
     base_outputs = []
     if args.hires_fix and args.hires_save_base:
         for path, image in zip(hires_base_paths(output_paths), base_images):
+            protect_model_inputs(args, [path])
             write_png(image, path, compress_level=args.png_compress_level,
                       optimize=args.png_optimize, overwrite=args.overwrite)
             base_outputs.append({"mode": image.mode, "path": str(path.resolve()),
@@ -1090,6 +1096,8 @@ def run(preset, args) -> int:
             ),
         },
     }
+    if getattr(args, "model_conversion", None):
+        metadata["model_conversion"] = args.model_conversion
     for index, (path, output) in enumerate(zip(output_paths, outputs)):
         metadata_path = path.with_suffix(".json")
         per_image = {
@@ -1098,6 +1106,7 @@ def run(preset, args) -> int:
             "output": output,
             "batch": {"index": index, "count": args.num_images, "outputs": outputs},
         }
+        protect_model_inputs(args, [path])
         write_json_atomically(metadata_path, per_image, overwrite=args.overwrite)
         if base_outputs:
             base_output = base_outputs[index]
@@ -1122,6 +1131,7 @@ def run(preset, args) -> int:
                             "component_dtypes": base_stage["component_dtypes"],
                             "cpu_conditioning": base_stage["cpu_conditioning"]},
             }
+            protect_model_inputs(args, [Path(base_output["path"])])
             write_json_atomically(Path(base_output["path"]).with_suffix(".json"),
                                   base_metadata, overwrite=args.overwrite)
         print(f"Image: {path.resolve()}")

@@ -191,6 +191,13 @@ def verify_pipeline_sources():
         session.verify()
 
 
+def invalidate_pipeline():
+    """Discard a resident pipeline after its independently checked inputs change."""
+    session = _current.get()
+    if session is not None:
+        session.clear()
+
+
 def cached_placement(key, prepare):
     session = _current.get()
     return (prepare(None), False) if session is None else session.placement(key, prepare)

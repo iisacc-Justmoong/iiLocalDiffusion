@@ -60,7 +60,8 @@ class GenericControlIntegrationTests(unittest.TestCase):
             seed=7, preview_dir=None, krea2=({'variant': 'raw', 'mu_override': None, 'resolved_mu': None}
                                              if auto_bucket else None), lora_activation=None, lora_selection=None,
             vae_selection=None, text_encoder_selection=None, tokenizer_selection=None, model_configuration_cache_hit=False,
-            device_placement_cache_hit=False, moss_rapid=SimpleNamespace(weights=[]) if rapid else None)
+            device_placement_cache_hit=False, moss_rapid=SimpleNamespace(weights=[]) if rapid else None,
+            moss_hires=None, model_conversion=None, num_images=None)
         args.moss_regions = SimpleNamespace(map_path='region.png') if regions else None
         calls = {}
         fingerprints = []

@@ -15,7 +15,7 @@ import struct
 
 from civitai_catalog import lookup_base_model
 from inference_session import cached_configuration
-from weight_files import model_content_sha256, metadata_model_validation
+from weight_files import file_signature, model_content_sha256, metadata_model_validation
 from backend_registry import detect_moss_transformer, detect_transformer, embedded_slots, PROFILES, plan_native
 
 
@@ -25,8 +25,9 @@ MAX_ITEMS = 200_000
 _DTYPE_BITS = {
     "BOOL": 8, "U8": 8, "I8": 8, "I16": 16, "U16": 16,
     "F16": 16, "BF16": 16, "I32": 32, "U32": 32, "F32": 32,
-    "F64": 64, "I64": 64, "U64": 64, "F8_E4M3": 8,
-    "F8_E5M2": 8, "F8_E8M0": 8, "F4": 4, "F6_E2M3": 6,
+    "F64": 64, "C64": 64, "I64": 64, "U64": 64, "F8_E4M3": 8,
+    "F8_E4M3FN": 8, "F8_E4M3FNUZ": 8, "F8_E5M2": 8, "F8_E5M2FNUZ": 8,
+    "F8_E8M0": 8, "F4": 4, "F6_E2M3": 6,
     "F6_E3M2": 6,
 }
 _ROLES = {
@@ -89,6 +90,50 @@ def _read_exact(source, count):
     if len(result) != count:
         raise ValueError("Truncated model header")
     return result
+
+
+def model_container_format(path):
+    """Identify safe native containers by bounded content before extension hints."""
+    path = Path(path)
+    size = path.stat().st_size
+    with path.open("rb") as source:
+        prefix = source.read(32)
+    if prefix.startswith(b"GGUF"):
+        return "gguf"
+    if len(prefix) >= 9:
+        length = struct.unpack("<Q", prefix[:8])[0]
+        if 2 <= length <= MAX_HEADER_BYTES and length <= size - 8 and prefix[8:9] == b"{":
+            return "safetensors"
+    # PyTorch zip/pickle signatures outrank extension hints; they still require
+    # the separate weights-only legacy reader and never enter safe-only loaders.
+    if prefix.startswith(b'L119547037146038801333356L\n.') or prefix.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")) or (
+            len(prefix) >= 2 and prefix[0] == 0x80 and prefix[1] in (2, 3, 4, 5)):
+        return "pytorch"
+    if prefix.lstrip(b' \t\r\n').startswith(b'{') or prefix and not prefix.strip(b' \t\r\n'):
+        from image_package import probe_model_container
+        index_format = probe_model_container(path)
+        if index_format in ('safetensors-index', 'pytorch-index'):
+            return index_format
+        raise ValueError('Unsupported or incomplete JSON model index; its shards were not identified as a single supported format.')
+    suffix = path.suffix.casefold()
+    if suffix in (".safetensors", ".safetensor"):
+        return "safetensors"
+    if suffix == ".gguf":
+        return "gguf"
+    if suffix in (".ckpt", ".pt", ".pth", ".bin"):
+        return "pytorch"
+    raise ValueError("Unsupported local model container; use safetensors, GGUF, or a weights-only PyTorch checkpoint")
+
+
+def is_supported_model_container(path, *, allow_gguf=True):
+    """Check a local container candidate without claiming full validity or executability."""
+    path = Path(path)
+    if path.suffix.casefold() == ".onnx" or not path.is_file():
+        return False
+    try:
+        return model_container_format(path) in (("safetensors", "gguf") if allow_gguf else ("safetensors",))
+    except (OSError, ValueError):
+        return False
 
 
 def _safetensors(path):
@@ -216,7 +261,11 @@ def _torch_checkpoint(path):
     except RuntimeError as error:
         raise ValueError(str(error)) from error
     try:
-        state = torch.load(str(path), map_location="meta", weights_only=True)
+        # Some Torch builds dispatch from a filename's suffix before looking at
+        # content. An open binary descriptor keeps the weights-only PyTorch
+        # reader selected even when the source is named *.safetensors.
+        with path.open("rb") as source:
+            state = torch.load(source, map_location="meta", weights_only=True)
     except Exception as error:
         raise ValueError("Checkpoint cannot be inspected with torch.load(weights_only=True); unsafe pickle loading is not permitted") from error
     for _ in range(8):
@@ -236,6 +285,43 @@ def _torch_checkpoint(path):
     if not shapes:
         raise ValueError("Checkpoint contains no tensor weights")
     return shapes, {}, [f"Inspected {len(shapes)} tensor shapes using torch weights_only=True on the meta device"]
+
+
+def _torch_index(index):
+    """Inspect each shard with the restricted Torch loader and bind every name."""
+    from image_package import inspect_pytorch_index
+    base = Path(index['path']).parent
+    shards = [base / item['relative_path'] for item in index['shards']]
+    expected = [set() for _ in shards]
+    for tensor in index['tensors']:
+        name, shard = tensor.get('name'), tensor.get('shard')
+        if not isinstance(name, str) or not name or type(shard) is not int or not 0 <= shard < len(shards):
+            raise ValueError('Invalid PyTorch index tensor mapping')
+        if name in expected[shard]:
+            raise ValueError('Duplicate PyTorch index tensor mapping')
+        expected[shard].add(name)
+    paths = [Path(index['path']), *shards]
+    before = [file_signature(path) for path in paths]
+    if inspect_pytorch_index(paths[0]) != index:
+        raise RuntimeError('PyTorch index or shard changed before inspection')
+    result, evidence = {}, []
+    for path, names in zip(shards, expected):
+        shapes, _, notes = _torch_checkpoint(path)
+        evidence.extend(notes)
+        if not shapes and any('PyTorch is unavailable' in note for note in notes):
+            evidence.append('PyTorch index tensor membership was not checked')
+            if [file_signature(p) for p in paths] != before or inspect_pytorch_index(paths[0]) != index:
+                raise RuntimeError('PyTorch index or shard changed during inspection')
+            index['_source_signatures'] = [list(signature) for signature in before]
+            return {}, {}, evidence
+        if set(shapes) != names or set(result).intersection(shapes):
+            raise ValueError('PyTorch index does not exactly cover its shard tensors')
+        result.update(shapes)
+    if [file_signature(path) for path in paths] != before or inspect_pytorch_index(paths[0]) != index:
+        raise RuntimeError('PyTorch index or shard changed during inspection')
+    index['_source_signatures'] = [list(signature) for signature in before]
+    evidence.append('Validated exact PyTorch index tensor mapping with weights-only metadata')
+    return result, {}, evidence
 
 
 def _tensor_identity(shapes):
@@ -343,16 +429,26 @@ def _info(path, info_path):
     return info, str(selected.absolute()), evidence
 
 
-def inspect_downloaded_model(path, info_path=None):
+def inspect_downloaded_model(path, info_path=None, package_model=None):
     """Resolve bounded model evidence, reusing unchanged headers/sidecars in a session."""
     selected = Path(path).expanduser().absolute()
     metadata = ([Path(info_path).expanduser().absolute()] if info_path is not None else
                 [selected.with_suffix(".civitai.info"), Path(str(selected) + ".civitai.info")])
-    return cached_configuration(("checkpoint-inspection", str(selected), tuple(map(str, metadata))),
-                                [selected, *metadata], lambda: _inspect_downloaded_model(selected, info_path))
+    sources = [selected, *metadata]
+    if selected.is_file():
+        container = model_container_format(selected)
+        if container == 'safetensors-index':
+            from image_package import sharded_index_paths
+            sources.extend(sharded_index_paths(selected))
+        elif container == 'pytorch-index':
+            from image_package import inspect_pytorch_index
+            index = inspect_pytorch_index(selected)
+            sources.extend(selected.parent / item['relative_path'] for item in index['shards'])
+    return cached_configuration(("checkpoint-inspection", str(selected), tuple(map(str, metadata)), package_model),
+                                sources, lambda: _inspect_downloaded_model(selected, info_path, package_model))
 
 
-def _inspect_downloaded_model(path, info_path=None):
+def _inspect_downloaded_model(path, info_path=None, package_model=None):
     """Return bounded local routing evidence; reject malformed or conflicting identity.
 
     ``base_model`` is a validated Civitai category only when metadata names one.
@@ -363,15 +459,45 @@ def _inspect_downloaded_model(path, info_path=None):
     selected = Path(path).expanduser().absolute()
     if not selected.is_file():
         raise FileNotFoundError(f"Local model file does not exist: {selected}")
-    suffix = selected.suffix.casefold()
-    formats = {".safetensors": ("safetensors", _safetensors), ".safetensor": ("safetensors", _safetensors),
-               ".gguf": ("gguf", _gguf), ".ckpt": ("pytorch", _torch_checkpoint),
-               ".pt": ("pytorch", _torch_checkpoint), ".pth": ("pytorch", _torch_checkpoint), ".bin": ("pytorch", _torch_checkpoint)}
-    if suffix not in formats:
-        raise ValueError("Unsupported local model container; use safetensors, GGUF, or a weights-only PyTorch checkpoint")
-    format_name, reader = formats[suffix]
-    shapes, metadata, evidence = reader(selected)
-    architecture, role, tensor_evidence, task = _tensor_identity(shapes)
+    before = file_signature(selected)
+    format_name = model_container_format(selected)
+    sharded = None
+    if format_name == 'safetensors-index':
+        from image_package import inspect_sharded_index
+        sharded = inspect_sharded_index(selected)
+        shapes = {entry['name']: tuple(entry['shape']) for entry in sharded['tensors']}
+        metadata = sharded['metadata']
+        evidence = ['Validated Safetensors index, exact tensor mapping, and all shard headers']
+    elif format_name == 'pytorch-index':
+        from image_package import inspect_pytorch_index
+        sharded = inspect_pytorch_index(selected)
+        shapes, metadata, evidence = _torch_index(sharded)
+    else:
+        reader = {"safetensors": _safetensors, "gguf": _gguf, "pytorch": _torch_checkpoint}[format_name]
+        shapes, metadata, evidence = reader(selected)
+    if file_signature(selected) != before:
+        raise RuntimeError(f"Model changed during container inspection: {selected}")
+    package = None
+    if format_name == 'safetensors' and metadata.get('iild_package_schema'):
+        from image_package import inspect_if_package
+        package = inspect_if_package(str(selected), package_model)
+    if package_model is not None and package is None:
+        raise ValueError('--package-model requires an embedded image package.')
+    if package:
+        mapping = package.get('_tensor_mapping')
+        if mapping:
+            shapes = {original: shapes[output] for original, output in mapping.items()}
+            architecture, role, task = package['architecture'], 'checkpoint', package.get('task')
+            tensor_evidence = ['Recognized image transformer in the validated embedded component mapping',
+                               *package.get('_tensor_evidence', [])]
+        else:
+            # Unknown packages can contain unrelated models and adapters; their
+            # flattened tensor namespace is not evidence of one model's role.
+            shapes = {}
+            architecture, role, task = None, 'unknown', None
+            tensor_evidence = ['No unambiguous image checkpoint in the embedded component mappings']
+    else:
+        architecture, role, tensor_evidence, task = _tensor_identity(shapes)
     evidence.extend(tensor_evidence)
     info, resolved_info, info_evidence = _info(selected, info_path)
     evidence.extend(info_evidence)
@@ -452,6 +578,10 @@ def _inspect_downloaded_model(path, info_path=None):
         components.append("vae")
     if any(key.startswith(("cond_stage_model.", "conditioner.embedders.", "text_encoders.", "text_encoder.")) for key in shapes):
         components.append("text_encoder")
+    if package and package.get('architecture') == architecture:
+        for name, key in (('vae', 'vae'), ('text_encoder', 'text_encoder')):
+            if package.get(key) and name not in components:
+                components.append(name)
     missing = [component for component in ("vae", "text_encoder") if component not in components] if role == "checkpoint" else []
     weights_role = "denoiser" if role == "checkpoint" and missing else role
     confidence = "exact" if any(s.startswith("Matched Civitai SHA256:") for s in evidence) else "metadata" if record else "architecture" if architecture else "unknown"
@@ -463,6 +593,21 @@ def _inspect_downloaded_model(path, info_path=None):
             "task": task or (record.get("task") if record else "text-to-image"),
             "role_guidance": _GUIDANCE.get(role, "This component needs its matching backend workflow and base model."),
             "component_slots": embedded_slots(shapes, architecture)}
-    if architecture in PROFILES and role == "checkpoint" and report["task"] == "text-to-image" and format_name in ("safetensors", "gguf"):
+    if package:
+        report['embedded_package'] = {key: package.get(key, '') for key in
+                                      ('architecture', 'encoding', 'transformer', 'text_encoder', 'vae')}
+        report['embedded_package']['component_paths'] = package.get('component_paths', [])
+        report['embedded_package']['selection_reason'] = package.get('selection_reason', '')
+        if package.get('ambiguous_components'):
+            report['embedded_package']['ambiguous_components'] = package['ambiguous_components']
+    if sharded:
+        base = Path(sharded['path']).parent
+        report['sharded_index'] = {'shards': [str(base / item['relative_path']) for item in sharded['shards']],
+                                   'metadata_bytes_read': sharded['metadata_bytes_read']}
+        if format_name == 'pytorch-index':
+            report['sharded_index']['source_signatures'] = sharded['_source_signatures']
+    if architecture in PROFILES and role == "checkpoint" and report["task"] == "text-to-image" and format_name in ("safetensors", "safetensors-index", "gguf"):
         report["backend_plan"] = plan_native(report)
+    if file_signature(selected) != before:
+        raise RuntimeError(f"Model changed during inspection: {selected}")
     return report

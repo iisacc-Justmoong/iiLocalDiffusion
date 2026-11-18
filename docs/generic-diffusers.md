@@ -6,6 +6,14 @@
 
 고정된 Krea 2, FLUX.1 및 MOSS 리소스와 기존 전처리기를 결합하는 명시적 호출 예제는 [로컬 ControlNet 리소스 실행 조합](controlnet-resource-recipes.md)을 참조한다.
 
+공통 런처는 내장 MOSS 이미지 패키지를 C++ 구성 요소 카탈로그와 원본 텐서 서명으로 Diffusers에 연결한다. 원본 샤드 인덱스와 체크섬을 확인해 변환기와 필요한 인코더·VAE만 캐시에 준비하며, 사용자가 CLI나 설정 파일에서 지정한 구성 요소를 우선한다. 여러 후보가 있는 패키지에서는 명시된 `main` 또는 `--package-model`로 변환기를 고르고, 중복 인코더나 VAE는 `--package-components` 또는 외부 경로로 지정한다. 결과 기록에는 원본 패키지와 준비된 변환기 및 명시된 구성 요소를 남긴다. 자동과 명시적 Diffusers 경로 모두 `--config`를 지원하고 CLI 옵션이 우선한다. `--inspect-model`은 가중치 복원 없이 구성 요소를 보고하고, 패키지 `--print-config`는 복원을 미룬다는 안내를 반환한다. 합성 패키지와 대체 엔진 테스트는 사전 학습 모델의 실제 생성 검증이 아니다.
+
+Diffusers의 JSON 설정은 모델 및 로컬 인코더 경로를 설정 파일의 위치를 기준으로 해석한다.
+`pipeline_inputs`와 `tensor_outputs`는 JSON 객체로, `sigmas`는 배열로 지정할 수 있다.
+해당 백엔드에 없는 옵션이나 표현할 수 없는 불리언 값은 무시하지 않고 거부한다.
+MOSS 수학·런타임 합성 테스트는 임시 테스트 모듈만 복원하여 같은 프로세스에서
+PyTorch의 지연 로딩 모듈과 네이티브 연산자 등록이 유지되도록 한다.
+
 Civitai 기본 모델 라벨은 모델 가족을 식별하며, 범용 파일 형식이 아닙니다. 예를 들어, SDXL 에서 파생된 가족은 SDXL 파이프라인 아키텍처를 공유할 수 있지만, 다른 스케줄러, 예측 유형 또는 조건부 구성을 필요로 합니다. 일반 러너는 제공된 모델 구성과 실제 파이프라인 호출 서명을 사용합니다. `--base-model` 는 Civitai 카탈로그 라벨을 선택된 파이프라인 아키텍처와 대조합니다. SD/SDXL/SD3/Flux /Flux2/Qwen 작업 형제들은 명시적으로 그룹화되어 편집, 인페인팅 및 ControlNet 변형이 사용 가능하게 유지되도록 하며, 가중치 로딩 전에 가족 간 불일치가 거부됩니다. 다른 일반적인 파이프라인은 설치된 아키텍처 네임스페이스를 사용합니다. Diffusers 파이프라인 클래스가 없는 카탈로그 항목은 `declared-only` 로 표시됩니다. 알 수 없는 이름과 호스트 전용 라벨은 거부됩니다. 이는 파이프라인 아키텍처만 설정합니다: 아키텍처 내 SD1 와 SD2 를 구별하거나 특정 미세 조정 작업을 식별할 수 없습니다. 텐서 아키텍처를 변경하지도 않고 아무런 알림 없이 모델 가중치를 변환하지도 않습니다.
 
 <a id="model-loading"></a>
@@ -26,7 +34,13 @@ reference/diffusers/.venv/bin/python reference/diffusers/generate_any.py \
 
 `--model`는 기존 로컬 경로여야 합니다. 허브 ID, URL 및 null이 아닌 개정은 거부됩니다. 다운로드 단계가 없습니다. 모델 로드는 항상 `local_files_only=True`, `use_safetensors=True` 및 `trust_remote_code=False`를 사용합니다. [로컬 모델 생성](local-model-generation.md)를 참조하세요.
 
-명시적 또는 기존 리소스에서 선택한 대체 VAE는 로딩 진단의 누락·미사용·크기 불일치 텐서와 오류를 검사하고, 하나라도 있으면 생성을 중단한다. 빠른 `IILD_MODEL_VALIDATION=metadata` 모드에서도 작은 VAE 설정 파일은 SHA-256으로 확인하고 로딩 및 생성 전후 변경을 검사한다. 이 모드의 대형 가중치는 여전히 파일 메타데이터로 확인하므로 가중치 전체 해시를 확인한 것으로 표시하지 않는다. 모델 자체에 포함된 VAE는 해당 파이프라인의 로딩 계약을 따른다.
+Diffusers 디렉터리에서 선언된 Diffusers·Transformers 구성 요소의 표준 PyTorch 단일 가중치 또는 분할 인덱스만 있는 경우, 기존 제한된 weights-only 변환기로 필요한 구성 요소를 Safetensors 캐시에 준비한다. 원본 구성과 토크나이저를 포함한 임시 로딩 디렉터리를 사용하고 원본은 수정하지 않는다. 같은 구성 요소와 variant에 Safetensors 가중치가 이미 있으면 이를 우선한다. `--variant`는 내장 Diffusers 및 고정 MOSS 파이프라인의 명시적인 가중치 variant를 지정하며, 단일 체크포인트에 딸린 보조 구성 요소에도 적용한다. 디렉터리 모델에서 생략하면 기본 가중치를 우선하며, 기본 가중치가 부족하고 실제로 사용하는 구성 요소의 공통 variant가 하나뿐일 때 자동으로 선택한다. 후보가 여러 개이거나 일치하지 않으면 사용자가 선택하도록 보고한다. 외부 인코더나 VAE 등으로 대체된 내부 구성 요소는 variant 선택과 변환에서 제외한다. 인코더와 VAE의 variant 분할 인덱스는 가중치가 존재하는 것으로 감지하며, 불완전한 인덱스를 다른 기본 구성 요소로 조용히 대체하지 않는다. MOSS에서 해당 variant가 없는 구성 요소는 기본 가중치를 사용하며, 파일 variant만을 근거로 생성 단계 수나 샘플링 설정을 바꾸지 않는다. 입력과 변환 결과는 로딩 및 출력 게시 전까지 다시 검사하고, 임시 디렉터리는 로딩 이후 제거한다. `--dequantize-pytorch`를 명시하면 주 체크포인트와 디렉터리의 PyTorch 구성 요소에서 지원되는 Torch 양자화 텐서를 float32로 복원하며, 기본값은 거부이다. 동일한 옵션은 JSON `dequantize_pytorch` 불리언으로 지정할 수 있고 CLI가 우선한다. 이 옵션은 GGUF·bitsandbytes·임의의 packed 객체를 변환하지 않는다. 디렉터리의 구조와 텐서 변환은 모델 아키텍처 지원이나 생성 품질을 보증하지 않는다. 선언된 내장 변환기 또는 UNet 디렉터리에 GGUF 가중치가 있으면 표준 가중치와 명시적 variant의 우선순위를 지켜 선택하고, 후보가 여러 개면 임의로 선택하지 않는다. 원본 식별자를 로딩과 결과 게시까지 확인한다.
+
+파일과 디렉터리 심볼릭 링크를 지원하고 순환 링크는 거부한다. 임시 로딩 디렉터리에서 심볼릭 링크를 사용할 수 없을 때는 검증한 복사본을 사용한다. 연결된 원본 디렉터리와 파일의 식별자는 로딩과 출력 게시 전후에 검사한다. 유지 중인 파이프라인의 원본이 바뀌면 현재 요청을 중단하고 메모리 캐시를 폐기하여 다음 요청이 모델을 다시 읽도록 한다. 변환 캐시는 원본이나 연결된 모델 디렉터리 안에 둘 수 없으며 출력은 그 디렉터리나 변환 캐시와 겹칠 수 없다.
+
+단일 체크포인트에 제공한 Diffusers 설정 디렉터리도 선언된 보조 구성 요소의 PyTorch 가중치를 동일하게 변환한다. 표준 구성 요소 이름에 `.bin` 대신 `.pt`, `.pth`, `.ckpt`를 사용한 단일 파일과 분할 인덱스도 인식한다. 구성 요소 파일이나 인덱스의 확장자가 Safetensors여도 실제 내용이 PyTorch이면 내용에 맞춰 변환한다. 같은 우선순위에 후보가 여러 개면 임의로 선택하지 않는다. 주 체크포인트가 Safetensors 분할 인덱스이면 확인된 샤드를 병합해 일반 단일 파일 로더에 전달하며 MOSS 전용 인덱스 로더는 기존 직접 로딩을 유지한다. Transformers 보조 구성 요소는 Diffusers 단일 파일 로더가 표준 Transformers 가중치를 찾을 수 있도록 임시 설정에 연결하며 체크포인트에 포함된 구성 요소의 우선순위는 유지한다. 체크포인트에 포함되지 않고 별도 로드되는 Diffusers 보조 구성 요소는 필요할 때 Safetensors 샤드를 제한된 메모리로 결합해 단일 파일 로더에 제공한다. 선택한 variant가 있으면 이 보조 구성 요소에도 적용한다. 외부에서 대체한 구성 요소와 단일 체크포인트에서 직접 로드한 MOSS·Krea 변환기는 변환하지 않는다. 단일 파일 로더가 임의 pickle을 읽지 못하도록 임시 설정 디렉터리에는 원본 PyTorch 가중치와 인덱스를 노출하지 않는다. 선언된 구성 요소 밖의 미확인 pickle은 기존처럼 거부한다. 모델과 설정 원본은 그대로 유지한다.
+
+명시적 또는 기존 리소스에서 선택한 대체 VAE는 로딩 진단의 누락·미사용·크기 불일치 텐서와 오류를 검사하고, 하나라도 있으면 생성을 중단한다. 빠른 `IILD_MODEL_VALIDATION=metadata` 모드에서도 작은 VAE 설정 파일은 SHA-256으로 확인하고 로딩 및 생성 전후 변경을 검사한다. 이 모드의 대형 가중치는 여전히 파일 메타데이터로 확인하므로 가중치 전체 해시를 확인한 것으로 표시하지 않는다. 모델 자체에 포함된 VAE는 해당 파이프라인의 로딩 계약을 따른다. 명시적 VAE는 디렉터리 외에 별도의 Safetensors·PyTorch 파일이나 샤드 인덱스도 지원하며, 선택한 로컬 설정과 텐서 전체가 일치해야 한다. PyTorch 입력은 설정 조회 시 역직렬화하지 않고 로딩할 때 검증된 weights-only 변환기로 준비하며, 원본과 샤드의 식별자를 유지한다. 별도 VAE의 지원되는 Torch 양자화 텐서는 일반 실수 VAE로 자동 복원하고, 사용한 정책과 텐서 개수는 로딩 보고서와 변환 manifest에 남긴다. VAE의 `vae.`·`first_stage_model.` 접두사와 `AutoencoderKL`·`AutoencoderKLFlux2`의 기존 LDM 이름은 설정과의 일대일 대응을 검증해 임시 파일에서 변환한다. 분할 인덱스의 하위 경로와 누락된 선택적 메타데이터는 임시 로딩 경로에서 정규화하며 원본은 수정하지 않는다.
 
 `tests/VaeDefaultsRuntimeTests.py`는 로컬에 배치된 Qwen Image, FLUX.1 및 FLUX.2 대체 VAE의 safetensors 헤더를 실제 Diffusers 클래스의 메타 장치 구조와 대조한다. 가중치 전체를 리소스 매니페스트의 SHA-256과 비교하려면 `IILD_VERIFY_BUNDLED_VAE_PAYLOAD=1`을 설정해 같은 테스트 파일의 `VaeDefaultsRuntimeTests.test_existing_local_vae_payloads_match_the_resource_manifest`를 실행한다. 없는 리소스는 건너뛰기로 표시된다. 이 검사는 파일 식별 및 구조 검증이며 이미지 생성이나 모든 텐서의 수치 품질 검증이 아니다.
 
@@ -318,7 +332,7 @@ iild-generate --backend diffusers --model /absolute/path/flux2-klein-base-4b \
 
 공개 가중치의 safetensors 헤더는 Krea 2 depth 어댑터 리비전 `21889413aa7282a6e78bd510247cceccad034b24`의 224개 블록 대상, MOSS 색상·깊이 어댑터 리비전 `357d7cc1eefd746de28ed74741c79464e3d82daa`의 262개 대상, FLUX.2 Fun 2602 리비전 `b3dcd7836a0e926248dac3ccba8fc0853495764b`의 76개 텐서를 각각 구조 검사와 대조했다. Krea 2 depth의 전체 파일 SHA-256과 450개 텐서 값의 유한성을 확인했다. Krea 2 트랜스포머와 FLUX.2 제어 블록은 실제 Diffusers 클래스를 메타 장치에 구성해 공개 헤더의 크기와 대조했다. MOSS는 추가로 [Comfy-Org 배포본](https://huggingface.co/Comfy-Org/MOSS-Image/blob/f7a9772e063542422b66dd492c4e17aa64f7797b/loras/moss_image_color_depth_control.safetensors)의 전체 파일 SHA-256과 526개 텐서 값의 유한성을 확인하고, 메타 장치에서 만든 실제 MOSS 트랜스포머와 크기를 대조했다. 세 헤더의 고정 스냅샷은 `resources/test-fixtures/`에서 오프라인 회귀 테스트에 사용한다. 소형 무작위 트랜스포머·VAE·어댑터를 이용한 수치 테스트는 실행, 시드 반복 및 후크 복원을 확인한다. FLUX.2 Fun 2602의 전체 파일 SHA-256과 76개 텐서 값의 유한성도 확인했다. 사전 학습된 베이스 모델로 이미지를 생성한 검증은 아니다.
 
-로컬 `.safetensors` 체크포인트에는 **로컬** Diffusers 구성 디렉터리 또는 위에서 설명한 명시적 내장 설정이 필요합니다. 필요한 구성 요소는 모델에서 제공하거나 위에 명시된 호환 대체 리소스로 충족해야 합니다. Krea 2와 MOSS의 지원되는 원본 트랜스포머 파일을 제외하면 선택된 클래스는 Diffusers의 `from_single_file`을 구현해야 합니다. 파이프라인의 디렉토리 형식을 지원하는 것이 모든 단일 파일 형식을 로드한다는 것을 의미하지는 않습니다. 특히, 트랜스포머 전용 파일은 필요한 VAE 와 텍스트 인코더가 없으면 완전한 파이프라인이 되지 않습니다. 클래스에 단일 파일 로더가 없으면 완전한 Diffusers 디렉토리를 제공하거나 워크플로 백엔드를 사용해야 합니다.
+로컬 단일 파일 체크포인트에는 **로컬** Diffusers 구성 디렉터리 또는 위에서 설명한 명시적 내장 설정이 필요합니다. 필요한 구성 요소는 모델에서 제공하거나 위에 명시된 호환 대체 리소스로 충족해야 합니다. Krea 2와 MOSS의 지원되는 원본 트랜스포머 파일을 제외하면 선택된 클래스는 Diffusers의 `from_single_file`을 구현해야 합니다. 파이프라인의 디렉토리 형식을 지원하는 것이 모든 단일 파일 형식을 로드한다는 것을 의미하지는 않습니다. 특히, 트랜스포머 전용 파일은 필요한 VAE 와 텍스트 인코더가 없으면 완전한 파이프라인이 되지 않습니다. 클래스에 단일 파일 로더가 없으면 완전한 Diffusers 디렉토리를 제공하거나 워크플로 백엔드를 사용해야 합니다.
 
 Krea 2는 Diffusers 파이프라인에 단일 파일 로더가 없어도 원본의 비양자화 트랜스포머와 Comfy-Org의 스칼라 배율 E4M3 FP8 트랜스포머 safetensors를 직접 읽을 수 있다. `--model-config` 디렉터리는 Krea 2 `model_index.json`, `transformer/config.json`, 스케줄러 및 필요한 구성 요소를 제공해야 한다. VAE, 텍스트 인코더와 토크나이저가 없다면 위에서 설명한 기존 Krea 2 대체 리소스를 사용한다. 원본 텐서 이름과 선택된 트랜스포머의 모든 이름·크기를 대조하고, 블록 변조 벡터를 변환한 뒤 메모리에 직접 로드한다. 선택한 정밀도로 변환 전후의 유한값을 확인하며 별도의 변환 체크포인트를 만들지 않는다. 공개 Comfy-Org E4M3 FP8 파일은 기본적으로 각 FP8 값과 스칼라 배율을 요청된 실행 정밀도로 변환해 일반 밀집 가중치로 로드한다. 선택적으로 `--krea2-fp8-storage cpu-stream`을 지정하면 트랜스포머 블록 및 텍스트 융합의 FP8 가중치를 CPU에 압축 상태로 유지하고, 각 선형층 실행 시 해당 계층만 계산 정밀도로 복원해 선택한 장치로 옮긴다. 이 방식은 `--offload none`을 요구하며 일반 LoRA만 함께 사용할 수 있다. FP8 가중치와 스케일이 별도로 보관되므로 불완전한 모델을 저장하지 않도록 이 스트리밍 모델의 `state_dict` 직렬화를 거부한다. 일반 LoRA 로딩 중 PEFT의 내부 상태 조회는 해당 모델과 호출 컨텍스트에 한해 허용하고, 성공이나 실패 후 다시 차단한다. 저장 가능한 모델이 필요하면 원본 체크포인트를 보존하거나 지원되는 밀집 로딩을 사용한다. VAE, 텍스트 인코더, 비양자화 가중치와 현재 계산 중인 선형층은 별도 메모리를 사용하며 반복 전송과 복원 때문에 느릴 수 있다. 네이티브 FP8 행렬 연산을 사용하지 않으므로 ComfyUI FP8 커널과의 비트 단위 결과 일치는 보장하지 않는다. 생성 보고서의 `model.single_file_loading`에 파일 형식, FP8 계층 수, 저장 방식, FP8 원본 바이트 수와 최대 단일 계층의 복원 바이트 수를 기록한다. 이 수치는 전체 프로세스나 GPU 메모리의 실측값이 아니다. MXFP8·NVFP4·INT8 및 다른 양자화 형식은 지원하지 않는다. 실제 Krea 2 베이스 가중치는 크므로 해당 정밀도의 모델과 나머지 구성 요소를 담을 충분한 메모리가 필요하다.
 
@@ -353,7 +367,7 @@ reference/diffusers/.venv/bin/python reference/diffusers/generate_any.py \
   --output-dir resources/outputs/reference/single-file-run
 ```
 
-체크포인트 `.ckpt` , 피클 `.pt` / `.pth` / `.bin` , GGUF , 및 커스텀 Python 모델 패키지는 이 러너에 의해 읽히지 않습니다. 단일 파일 구성 추가 항목은 피클 형식 가중치를 포함해서는 안 됩니다. Diffusers 의 0.40 내부 단일 파일 추가 항목 로더는 `use_safetensors` 를 모든 컴포넌트로 전달하지 않으므로 해당 파일들은 명시적으로 거부됩니다. 양자화된 GGUF 모델과 설치된 Diffusers 에 의해 구현되지 않은 계열의 경우, 일치하는 로컬 워크플로우/ 런타임 와 함께 상위 워크플로우 백엔드를 사용하세요.
+단일 베이스 파일이 PyTorch ZIP 또는 레거시 pickle 체크포인트이면 설치된 Torch 2.10.0 이상의 weights-only 로더와 safetensors를 사용해 생성 시 `--cache-dir/checkpoint-conversions/`에 변환한다. GGUF 가중치는 로컬 파이프라인 설정이 선언한 유일한 내장 변환기 또는 UNet 구성 요소에 Diffusers의 GGUF 양자화 로더로 연결한다. GGUF 로더에는 `gguf`와 해당 런타임이 지원하는 양자화가 필요하며, 구성 요소가 모호하거나 호환되지 않으면 실패한다. 로컬 구성과 호환되는 아키텍처 및 나머지 구성 요소가 필요하며 원본은 수정하지 않는다. 원래 경로는 재실행 설정에, 원본 및 변환본 식별자는 생성 보고서에 남기고 출력 게시 전후로 두 파일을 다시 확인한다. `--print-config`는 대용량 변환 대신 `--inspect-model`을 안내한다. 변환에는 모델 크기에 비례한 CPU 메모리와 디스크가 필요하고 지원하지 않는 객체나 양자화는 거부될 수 있다. 사용자 정의 Python 모델 코드는 실행하지 않는다. 예를 들어 `iild-generate --backend diffusers --model /models/flux.gguf --model-config /models/flux-pipeline --prompt 'a red cube'`는 로컬 구성에 맞는 GGUF 변환기를 사용한다. GGUF 파일을 선언된 `transformer` 또는 `unet` 디렉터리에서 직접 선택하면 상위의 유효한 파이프라인 설정도 자동으로 찾는다.
 
 <a id="kolors-and-task-specific-checkpoints"></a>
 
@@ -507,13 +521,17 @@ reference/diffusers/.venv/bin/python tests/GenericIOTests.py
 설치된 파이프라인은 실행 가능한 모델 지원을 결정합니다. 공식 [Diffusers 파이프라인 개요](https://huggingface.co/docs/diffusers/api/pipelines/overview) 와 [단일 파일 로더 문서](https://huggingface.co/docs/diffusers/api/loaders/single_file)를 참조하세요. Civitai 카탈로그 경로 및 유효한 CLI 구성은 호환성 경로이며, 해당 계열의 모든 체크포인트가 성공적으로 생성되었다는 증거가 아닙니다.
 # Embedded MOSS VAE
 
-For MOSS Image, `--vae` may identify an extracted Safetensors component as well
-as a Diffusers directory. The worker prepares a private job-cache directory,
-associates those weights with the verified FLUX.2 configuration, and loads the
-VAE with strict tensor and latent-contract checks. Legacy VAE tensor names and
-1×1 attention shapes are mapped to the pinned Diffusers structure without
+For MOSS Image, `--vae` accepts a Diffusers directory, Safetensors or PyTorch
+file, or a validated shard index. PyTorch weights are converted only when the
+VAE loads, using the restricted weights-only checkpoint conversion path.
+The loader checks the VAE configuration, every tensor and the packed latent
+contract. Legacy FLUX.2 names and 1×1 attention shapes are mapped without
 changing tensor bytes; missing, duplicate and mismatched tensors are rejected.
-The verified FLUX.2 resource
-catalog is still required. Other pipeline families retain their directory-only
-override contract. A valid package header does not establish compatible tensor
-values or successful pretrained generation.
+The extracted single-file Safetensors MOSS path still requires the verified
+FLUX.2 resource catalog and its reference VAE weights. Other explicit files use
+their compatible local configuration or the pinned family fallback config.
+A valid package header does not prove successful pretrained generation.
+
+단일 파일 형식은 확장자보다 알려진 내용 서명을 우선해 식별한다. 범용 Safetensors와 GGUF 로더에는 원본 신원을 검사한 임시 표준 확장자 경로를 전달하며, 심볼릭 링크를 만들 수 없는 환경에서는 원본과 해시를 비교한 임시 복사본을 사용하고 완료 후 제거한다. PyTorch 컨테이너는 weights-only 검사를 거쳐 변환된 Safetensors만 전달하며, ONNX는 이 경로에 전달하지 않는다. `--num-images`는 단일 프롬프트의 이미지 수를 지정하고 출력 개수를 게시 전에 검사한다.
+
+MOSS Image 범용 경로는 `--hires-fix`의 최종 크기를 16픽셀 배수로 검사하고 절반 크기의 기본 이미지를 생성한다. 이미지를 지정한 보간법으로 최종 크기에 맞춘 후 FLUX.2 VAE로 다시 인코딩하고, 정규화된 잠재값에 강도에 따른 노이즈를 추가하여 새 MOSS 스케줄러로 디노이징한다. 기본 강도는 0.35이며 `--hires-strength`와 `--hires-upscaler`로 지정할 수 있다. 보고서는 두 단계의 실제 디노이징 횟수를 기록하고 진행 이벤트는 두 단계를 합쳐 표시한다. 디노이징이 완료되지 않거나 결과 크기·개수가 일치하지 않으면 결과를 게시하지 않는다. 이 경로는 단일 프롬프트, PIL 이미지 출력, `--offload none`에 한정되고 ControlNet·영역 프롬프트·rapid 어댑터 조합은 거부한다. 다른 범용 파이프라인의 HiRes는 지원되지 않으며 조용히 단일 패스로 바꾸지 않는다. `--no-hires-fix`는 명시적인 단일 패스를 선택한다. 작은 무작위 가중치 테스트는 실제 상용 MOSS 모델의 생성 품질이나 성공을 증명하지 않는다.

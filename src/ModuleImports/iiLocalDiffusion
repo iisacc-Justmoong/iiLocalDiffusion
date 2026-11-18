@@ -1,0 +1,33 @@
+#pragma once
+
+// C++ public entry for iiLocalDiffusion; the linked components select the API.
+
+#if defined(IISDK_IMPORT_IILOCALDIFFUSION_CORE)
+#include <Compute/ComputeRuntime.hpp>
+#include <Compute/CoreMLModel.hpp>
+#include <Compute/LinearLayer.hpp>
+#include <Flux/FluxModelManifest.hpp>
+#include <Generation/NativeUpscaler.hpp>
+#include <Generation/NativeUpscalerBridge.hpp>
+#include <Generation/GenerationIO.hpp>
+#include <Generation/NativeDiffusion.hpp>
+#include <Generation/NativeVaeInspection.hpp>
+#include <Generation/NativeTextEncoderInspection.hpp>
+#include <Generation/ImageModelRouting.hpp>
+#include <Generation/ImagePackageBridge.hpp>
+#include <Generation/NativeExecutionControl.hpp>
+#include <Generation/NativeImageBridge.hpp>
+#include <Generation/NativeVideo.hpp>
+#include <Generation/NativeVideoBridge.hpp>
+#include <Generation/ImageParameters.hpp>
+#include <Generation/ImageWatermark.hpp>
+#include <Generation/NativePose.hpp>
+#include <ModelManifest/DiffusionModelManifest.hpp>
+#include <ModelManifest/ModelManifest.hpp>
+#include <StableDiffusion/StableDiffusionModelManifest.hpp>
+#endif
+
+#if defined(IISDK_IMPORT_IILOCALDIFFUSION_PACKAGING)
+#include <ModelPackaging/ModelPackaging.hpp>
+#include <ModelPackaging/ModelInspection.hpp>
+#endif

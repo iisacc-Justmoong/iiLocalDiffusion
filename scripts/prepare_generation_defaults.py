@@ -35,14 +35,17 @@ def prepare(root, check=False):
             save_file({"clip_l": vectors}, target, metadata={"token": item["token"],
                       "source_sha256": item["source_sha256"]})
     vaes = ([manifest["fallback_vae"]] if "fallback_vae" in manifest else []) + manifest.get("fallback_vaes", [])
-    llms = manifest.get("fallback_llms", [])
+    all_llms = manifest.get("fallback_llms", [])
+    llms = [item for item in all_llms if item.get("optional") is not True]
+    optional_llms = [item for item in all_llms if item.get("optional") is True
+                     and ((root / item["file"]).exists() or (root / item["file"]).is_symlink())]
     tokenizers = manifest.get("fallback_tokenizers", [])
     moss_config = [manifest["fallback_moss_text_config"]] if "fallback_moss_text_config" in manifest else []
     moss_weight = manifest.get("fallback_moss_text_weights")
     optional_moss_weights = ([moss_weight] if isinstance(moss_weight, dict)
                              and (root / moss_weight["file"]).exists() else [])
     flux_weights = manifest.get("fallback_flux_text_weights", [])
-    for item in [*fallback_loras(manifest), *manifest["negative_embeddings"], *llms, *moss_config,
+    for item in [*fallback_loras(manifest), *manifest["negative_embeddings"], *llms, *optional_llms, *moss_config,
                  *manifest.get("fallback_flux_text_configs", []),
                  *flux_weights, *optional_moss_weights,
                  *(llm["config"] for llm in llms if "config" in llm),
@@ -51,7 +54,7 @@ def prepare(root, check=False):
         path = root / item["file"]
         with path.open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        if check or item in flux_weights or item in optional_moss_weights:
+        if check or item in flux_weights or item in optional_moss_weights or item in optional_llms:
             if digest != item["sha256"] or path.stat().st_size != item["size"]:
                 raise ValueError(f"Bundled resource identity changed: {path}")
         else:

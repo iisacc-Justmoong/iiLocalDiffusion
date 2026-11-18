@@ -9,6 +9,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #if defined(_WIN32)
 #include <windows.h>
 #else
@@ -83,6 +84,22 @@ std::filesystem::path resource(const std::filesystem::path &root, json_object *i
         || headerLength + 8 > std::filesystem::file_size(path))
         throw std::runtime_error("Invalid bundled safetensors resource; fetch Git LFS objects: " + path.string());
     return path;
+}
+
+// Native text encoders may be GGUF as well as safetensors. Identify GGUF by
+// its header rather than its name; the backend validates its complete tensors.
+std::filesystem::path llmResource(const std::filesystem::path &root, json_object *item) {
+    const auto path = resourcePath(root, item);
+    std::ifstream input(path, std::ios::binary);
+    char header[8]{};
+    input.read(header, sizeof(header));
+    if (input.gcount() >= 4 && std::string_view(header, 4) == "GGUF") {
+        if (input.gcount() != static_cast<std::streamsize>(sizeof(header)) || std::filesystem::file_size(path) < 24
+            || (header[4] != 2 && header[4] != 3) || header[5] || header[6] || header[7])
+            throw std::runtime_error("Invalid GGUF text encoder header: " + path.string());
+        return path;
+    }
+    return resource(root, item);
 }
 
 std::string validateVaeConfig(const std::filesystem::path &root, json_object *item, const std::string &family) {
@@ -301,8 +318,15 @@ DefaultVae loadFallbackVae(const std::filesystem::path &directory, const std::st
 }
 
 DefaultLlm loadFallbackLlm(const std::filesystem::path &directory, const std::string &family) {
-    if (family != "krea2") throw std::runtime_error("No verified default text encoder for " + family + '.');
-    const auto root = manifestRoot(directory, "Required Qwen3-VL-4B text encoder resources for " + family);
+    const auto encoderClass = [](const std::string &name) -> std::string {
+        if (name == "krea2") return "Qwen3VLForConditionalGeneration";
+        if (name == "anima") return "Qwen3ForCausalLM";
+        return {};
+    };
+    const auto requiredClass = encoderClass(family);
+    if (requiredClass.empty()) throw std::runtime_error("No verified default text encoder for " + family + '.');
+    const std::string encoderName = family == "anima" ? "Qwen3-0.6B-Base" : "Qwen3-VL-4B";
+    const auto root = manifestRoot(directory, "Required " + encoderName + " text encoder resources for " + family);
     const auto manifestPath = root / "generation-defaults.json";
     const auto before = modelIdentity(manifestPath);
     std::unique_ptr<json_object, decltype(&json_object_put)> manifest(
@@ -316,25 +340,24 @@ DefaultLlm loadFallbackLlm(const std::filesystem::path &directory, const std::st
         std::set<std::string> seen;
         for (std::size_t i = 0; i < json_object_array_length(entries); ++i) {
             auto *item = json_object_array_get_idx(entries, i);
-            if (std::string(json_object_get_string(field(item, "class_name", json_type_string)))
-                != "Qwen3VLForConditionalGeneration")
-                throw std::runtime_error("Incompatible fallback text encoder architecture.");
+            const std::string actualClass = json_object_get_string(field(item, "class_name", json_type_string));
             auto *families = field(item, "families", json_type_array);
             if (!json_object_array_length(families)) throw std::runtime_error("Missing text encoder families.");
             for (std::size_t j = 0; j < json_object_array_length(families); ++j) {
                 auto *value = json_object_array_get_idx(families, j);
-                if (!json_object_is_type(value, json_type_string)
-                    || std::string(json_object_get_string(value)) != "krea2")
-                    throw std::runtime_error("Unverified fallback text encoder family.");
+                if (!json_object_is_type(value, json_type_string)) throw std::runtime_error("Unverified fallback text encoder family.");
                 const std::string member = json_object_get_string(value);
+                const auto expectedClass = encoderClass(member);
+                if (expectedClass.empty()) throw std::runtime_error("Unverified fallback text encoder family.");
+                if (actualClass != expectedClass) throw std::runtime_error("Incompatible fallback text encoder architecture.");
                 if (!seen.insert(member).second) throw std::runtime_error("Duplicate fallback text encoder family: " + member);
                 if (member == family) selected = item;
             }
         }
     }
-    if (!selected) throw std::runtime_error("Missing Qwen3-VL-4B text encoder for " + family
+    if (!selected) throw std::runtime_error("Missing " + encoderName + " text encoder for " + family
         + "; add or sync the SDK generation resources, then try again.");
-    const auto path = resource(root, selected);
+    const auto path = llmResource(root, selected);
     if (modelIdentity(manifestPath) != before) throw std::runtime_error("Generation defaults changed while reading.");
     return {path, before + ':' + modelIdentity(path)};
 }

@@ -86,8 +86,13 @@ def source_file(value: str | Path, name: str) -> Path:
     path = Path(value).expanduser().resolve()
     if not path.is_file() or not path.stat().st_size:
         raise ValueError(f"{name} must be a nonempty local model file: {path}")
-    if path.suffix.lower() not in (".safetensors", ".safetensor", ".gguf", ".ckpt", ".pt", ".pth", ".bin"):
-        raise ValueError(f"Unsupported downloaded model format: {path.suffix}")
+    from downloaded_model import model_container_format
+    if path.suffix.casefold() == '.onnx':
+        raise ValueError("ONNX is not supported by this model backend.")
+    try:
+        model_container_format(path)
+    except ValueError as error:
+        raise ValueError(f"Unsupported downloaded model format: {path}") from error
     return path
 
 
@@ -140,9 +145,10 @@ def resolved_request(args):
     model_type = args.model_type
     if model_type == "auto":
         bundled = set(inspection.get("available_components", [])) & {"vae", "text_encoder"}
+        from downloaded_model import model_container_format
         model_type = "diffusion_model" if (not bundled and (inspection.get("weights_role") == "denoiser"
                                             or {"vae", "text_encoder"} <= set(files))
-                                            or model.suffix.lower() == ".gguf") else "checkpoint"
+                                            or model_container_format(model) == "gguf") else "checkpoint"
     if model_type == "diffusion_model" and not {"vae", "text_encoder"} <= set(files):
         raise ValueError(f"Split {base} denoiser requires --vae and --text-encoder components.")
     prediction = args.prediction_type or inspection.get("prediction_type")
@@ -156,11 +162,13 @@ def resolved_request(args):
 
 def stage_models(request, job):
     from checkpoint_conversion import materialize_safetensors
+    from downloaded_model import model_container_format
     paths = {"model": request["model"], **request["components"]}
     staged, identities = {}, {}
     for name, value in paths.items():
         original = source_file(value, name)
-        if original.suffix.lower() in (".ckpt", ".pt", ".pth", ".bin"):
+        container = model_container_format(original)
+        if container in ("pytorch", "pytorch-index"):
             conversion = materialize_safetensors(original, DEFAULT_CONVERSION_DIRECTORY)
             path = Path(conversion["converted_path"])
             identities[name] = conversion
@@ -171,8 +179,7 @@ def stage_models(request, job):
         folder = (("checkpoints" if request["model_type"] == "checkpoint" else "diffusion_models") if name == "model"
                   else "diffusion_models" if name in ("model_negative", "decoder")
                   else "vae" if name == "vae" else "text_encoders")
-        suffix = path.suffix.lower()
-        target = job / "models" / folder / (name + (".safetensors" if suffix == ".safetensor" else suffix))
+        target = job / "models" / folder / (name + (".gguf" if container == "gguf" else ".safetensors"))
         provider.mkdir(target.parent, parents=True, exist_ok=True)
         target.symlink_to(path)
         identities[name]["staged_path"] = str(target)

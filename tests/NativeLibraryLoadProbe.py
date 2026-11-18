@@ -11,7 +11,9 @@ args = parser.parse_args()
 library_path = args.library.resolve(strict=True)
 library = ctypes.CDLL(str(library_path))
 for symbol in ("iild_native_video_generate_v1", "iild_native_video_metadata_v1",
-               "iild_native_video_free_v1"):
+               "iild_native_video_free_v1", "iild_image_package_inspect_v1",
+               "iild_image_package_materialize_v1", "iild_image_package_json_v1",
+               "iild_image_package_free_v1"):
     getattr(library, symbol)
 
 if sys.platform == "darwin":
@@ -24,4 +26,4 @@ if sys.platform == "darwin":
     if any("onnx" in path.name.lower() for path in images):
         raise RuntimeError("Retired ONNX runtime entered the native video dependency closure")
 
-print("Installed native video library loaded successfully")
+print("Native video and image package worker interfaces loaded successfully")

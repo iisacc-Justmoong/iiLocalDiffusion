@@ -7,6 +7,7 @@ import resource_fixture
 import hashlib
 import importlib.util
 import json
+import struct
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -143,6 +144,35 @@ class ModelLoadingTests(unittest.TestCase):
             with self.subTest(source=source), self.assertRaises(ValueError):
                 weight_files.resolve_weight_file(source, "--vae")
 
+    def test_safe_tensor_components_use_content_not_the_filename(self) -> None:
+        header = json.dumps({'weight': {'dtype': 'F32', 'shape': [1], 'data_offsets': [0, 4]}}).encode()
+        for name in ('encoder.bin', 'vae.data', 'adapter.ckpt', 'model.gguf'):
+            with self.subTest(name=name):
+                path = self.directory / name
+                path.write_bytes(struct.pack('<Q', len(header)) + header + bytes(4))
+                selected = weight_files.resolve_weight_file(str(path), '--model')
+                with weight_files.checked_safetensors_path(selected, self.directory / 'aliases', 'model') as alias:
+                    self.assertEqual(alias.suffix, '.safetensors')
+                    self.assertEqual(alias.resolve(), path)
+        for name, content in (('unsafe.safetensors', b'PK\x03\x04' + bytes(16)),
+                              ('quantized.safetensors', b'GGUF' + bytes(16)),
+                              ('renamed.onnx', struct.pack('<Q', len(header)) + header + bytes(4))):
+            with self.subTest(name=name):
+                path = self.directory / name
+                path.write_bytes(content)
+                with self.assertRaises(ValueError):
+                    weight_files.resolve_weight_file(str(path), '--model')
+
+    def test_weight_container_cannot_change_during_content_detection(self):
+        path = self.directory / 'changed.safetensors'
+        path.write_bytes(b'first fixture')
+        def change(selected, allow_gguf):
+            path.write_bytes(b'other fixture')
+            return True
+        with patch('downloaded_model.is_supported_model_container', side_effect=change):
+            with self.assertRaisesRegex(RuntimeError, 'changed'):
+                weight_files.resolve_weight_file(str(path), '--model')
+
     def test_identity_rejects_same_size_mutation_and_deletion(self) -> None:
         weight = self.weight(content=b"before!")
         path = Path(weight.path)
@@ -178,6 +208,30 @@ class ModelLoadingTests(unittest.TestCase):
             self.assertEqual(str(path.resolve()), weight.resolved_file)
         self.assertFalse(alias.exists())
         self.assertTrue(Path(weight.path).is_file())
+
+    def test_alias_uses_verified_temporary_copy_when_symlinks_are_unavailable(self) -> None:
+        weight = self.weight("model.safetensor", b"model contents")
+        before = weight_files.file_signature(Path(weight.path))
+        with patch.object(Path, "symlink_to", side_effect=OSError("unavailable")):
+            with weight_files.checked_safetensors_path(weight, self.directory / "aliases", "model") as path:
+                alias = path
+                self.assertFalse(path.is_symlink())
+                self.assertNotEqual(path.resolve(), Path(weight.path).resolve())
+                self.assertEqual(path.read_bytes(), b"model contents")
+            self.assertFalse(alias.exists())
+        self.assertEqual(weight_files.file_signature(Path(weight.path)), before)
+
+    def test_alias_copy_detects_corruption_and_cleans_up(self) -> None:
+        weight = self.weight("model.safetensor", b"model contents")
+        aliases = self.directory / "aliases"
+        def bad_copy(source, destination, **kwargs):
+            Path(destination).write_bytes(b"damaged bytes!")
+        with patch.object(Path, "symlink_to", side_effect=OSError("unavailable")), \
+             patch.object(weight_files.provider, "copyfile", side_effect=bad_copy):
+            with self.assertRaisesRegex(RuntimeError, "copy"):
+                with weight_files.checked_safetensors_path(weight, aliases, "model"):
+                    self.fail("A corrupt copy reached the loader")
+        self.assertEqual(list(aliases.iterdir()), [])
 
     def test_standard_suffix_preserves_path_and_checks_changes_after_load(self) -> None:
         weight = self.weight(content=b"before!")

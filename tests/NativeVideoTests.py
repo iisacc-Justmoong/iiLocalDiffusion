@@ -2,6 +2,7 @@
 import ctypes as C
 import json
 import os
+import pickle
 from pathlib import Path
 import struct
 import sys
@@ -13,7 +14,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference/diffusers"))
 from _file_provider import provider
-from native_video import NativeVideoEngine, Request, Shot, Progress, Frame, native_shot_plan, model_metadata
+from native_video import NativeVideoEngine, Request, Shot, Components, Progress, Frame, native_shot_plan, model_metadata
 from video_options import build_parser, resolve_options
 
 
@@ -37,6 +38,43 @@ class NativeVideoTests(unittest.TestCase):
         self.assertEqual(args.model, str(self.model))
         self.assertIsNone(args.text_encoder)
         self.assertEqual(model_metadata(self.model)["model_version"], "2.3.0")
+
+    def test_standalone_shard_index_is_a_validated_video_input(self):
+        mapping = {}
+        for name, filename in (('video.first', 'part-1.safetensors'), ('video.second', 'part-2.safetensors')):
+            raw = json.dumps({name: {'dtype': 'U8', 'shape': [1], 'data_offsets': [0, 1]}}).encode()
+            (self.root / filename).write_bytes(struct.pack('<Q', len(raw)) + raw + b'x')
+            mapping[name] = filename
+        index = self.root / 'model.safetensors.index.json'
+        index.write_text(json.dumps({'weight_map': mapping}))
+        args = resolve_options(build_parser().parse_args(['--model', str(index), '--output', str(self.root / 'video.mp4'),
+            '--width', '32', '--height', '32', '--frames', '9', '--fps', '12']))
+        self.assertEqual(args.model, str(index))
+        report = model_metadata(index)
+        self.assertEqual(len(report['shards']), 2)
+        self.assertEqual(report['size_bytes'], index.stat().st_size + sum((self.root / name).stat().st_size
+                                                                        for name in mapping.values()))
+
+    def test_legacy_video_preparation_preserves_replay_and_rechecks_shards(self):
+        import checkpoint_conversion
+        import video_checkpoint_conversion
+        shard = self.root / 'part.bin'
+        shard.write_bytes(pickle.dumps(0x1950a86a20f9469cfc6c, protocol=2) + b'fixture')
+        index = self.root / 'torch-index.json'
+        index.write_text(json.dumps({'weight_map': {'fixture.weight': shard.name}}))
+        args = self.options('--model', str(index), '--text-encoder', str(index))
+        original = checkpoint_conversion._identity(index)
+        conversion = {'converted': True, 'converted_path': str(self.model),
+                      'original': original, 'original_shards': [checkpoint_conversion._identity(shard)],
+                      'output': checkpoint_conversion._identity(self.model)}
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion):
+            video_checkpoint_conversion.prepare(args)
+        self.assertEqual((args.model, args.text_encoder), (str(self.model), self.model))
+        self.assertEqual(args._native_original_configuration['model'], str(index))
+        video_checkpoint_conversion.verify(args)
+        shard.write_bytes(shard.read_bytes()+b'changed')
+        with self.assertRaisesRegex(RuntimeError, 'changed'):
+            video_checkpoint_conversion.verify(args)
 
     def test_low_vram_flag_sets_execution_controls(self):
         args = self.options("--low-vram", "--no-cpu-text-encoding", "--no-vae-tiling")
@@ -66,6 +104,22 @@ class NativeVideoTests(unittest.TestCase):
         self.assertIn("local", result["error"])
         self.assertNotIn("ABI", result["error"])
         self.assertEqual(result["frame_counts"], [])
+        self.assertIsNotNone(engine.generate_with_components)
+        components = Components(C.sizeof(Components), None, None, None, -1, -1, -1)
+        handle = engine.generate_with_components(C.byref(request), C.byref(components), callback, observer, None)
+        try:
+            result = json.loads(engine.metadata(handle))
+        finally:
+            engine.free(handle)
+        self.assertIn("local", result["error"])
+        self.assertNotIn("ABI", result["error"])
+        components.size = 0
+        handle = engine.generate_with_components(C.byref(request), C.byref(components), callback, observer, None)
+        try:
+            result = json.loads(engine.metadata(handle))
+        finally:
+            engine.free(handle)
+        self.assertIn("components ABI", result["error"])
 
     def test_native_padding_preserves_source_frame_endpoints(self):
         args = self.options("--frames", "24", "--fps", "24")
@@ -159,6 +213,62 @@ class NativeVideoTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Low VRAM.*runtime"):
             engine.render(args, output, None, {})
 
+    def test_native_components_use_extension_and_reject_old_runtime(self):
+        from PIL import Image
+        vae = self.root / 'vae.safetensors'
+        high = self.root / 'high.safetensors'
+        vision = self.root / 'vision.safetensors'
+        for path in (vae, high, vision):
+            path.write_bytes(self.model.read_bytes())
+        for low in (False, True):
+            args = self.options('--video-vae', str(vae), '--high-noise-model', str(high),
+                                '--vision-encoder', str(vision), '--moe-boundary', '0.75',
+                                '--high-noise-steps', '7', '--high-noise-guidance', '3.5',
+                                *(['--low-vram'] if low else []))
+            output = SimpleNamespace(frames=self.root / ('frames-low' if low else 'frames-normal'))
+            provider.mkdir(output.frames)
+            engine = NativeVideoEngine.__new__(NativeVideoEngine)
+            engine.generate = lambda *unused: self.fail('Components must not be silently ignored')
+            engine.generate_low_vram = engine.generate
+            calls = []
+            def generate(request, components, progress, frame, user):
+                value = C.cast(components, C.POINTER(Components)).contents
+                self.assertEqual(value.size, C.sizeof(Components))
+                self.assertEqual((value.video_vae, value.high_noise_model, value.vision_encoder),
+                                 tuple(str(path).encode() for path in (vae, high, vision)))
+                self.assertEqual((value.moe_boundary, value.high_noise_steps, value.high_noise_guidance), (0.75, 7, 3.5))
+                data = C.create_string_buffer(bytes([42]) * (32 * 32 * 3))
+                for index in range(9): frame(0, index, 32, 32, data, 32 * 32 * 3, None)
+                calls.append(True)
+                return 1
+            engine.generate_with_components = generate if not low else None
+            engine.generate_low_vram_with_components = generate if low else None
+            engine.metadata = lambda _: b'{"error":"","cancelled":false,"frame_counts":[9]}'
+            engine.free = lambda _: None
+            engine.render(args, output, Image, {})
+            self.assertEqual(calls, [True])
+            engine.generate_with_components = engine.generate_low_vram_with_components = None
+            with self.assertRaisesRegex(RuntimeError, 'components.*runtime'):
+                engine.render(args, output, Image, {})
+
+    def test_packaged_expert_controls_reach_native_component_validation(self):
+        from PIL import Image
+        args = self.options('--moe-boundary', '0.75')
+        output = SimpleNamespace(frames=self.root / 'frames-packaged-expert')
+        provider.mkdir(output.frames)
+        engine = NativeVideoEngine.__new__(NativeVideoEngine)
+        def generate(request, components, progress, frame, user):
+            value = C.cast(components, C.POINTER(Components)).contents
+            self.assertIsNone(value.high_noise_model)
+            self.assertEqual(value.moe_boundary, 0.75)
+            data = C.create_string_buffer(bytes([42]) * (32 * 32 * 3))
+            for index in range(9): frame(0, index, 32, 32, data, 32 * 32 * 3, None)
+            return 1
+        engine.generate_with_components = generate
+        engine.metadata = lambda _: b'{"error":"","cancelled":false,"frame_counts":[9]}'
+        engine.free = lambda _: None
+        engine.render(args, output, Image, {})
+
     def test_preparing_counts_and_completed_graph_batches_reach_worker_protocol(self):
         from PIL import Image
         args = self.options()
@@ -194,6 +304,57 @@ class NativeVideoTests(unittest.TestCase):
                                                   "--output", str(self.root / "video.mp4")]), 0)
             native.assert_called_once()
             legacy.assert_not_called()
+
+    def test_native_video_report_does_not_claim_an_ltx_architecture(self):
+        import native_video
+        args = self.options()
+        class Output:
+            frames = self.root / 'frames'
+            video = self.root / 'temporary.mp4'
+            def __enter__(self): return self
+            def __exit__(self, *unused): return False
+            def commit(self, report): self.report = report
+        output = Output()
+        with patch('native_video.preflight_animation', return_value={'Image': object(), 'versions': {}}), \
+             patch('native_video.preflight_interpolator'), \
+             patch('native_video.load_keyframes', return_value=({}, {})), \
+             patch('native_video.AnimationOutput', return_value=output), \
+             patch('native_video.NativeVideoEngine') as engine, \
+             patch('native_video.encode_video', return_value={}), \
+             patch('native_video.report_progress'):
+            engine.return_value.render.return_value = ([{'index': 0}], {'frame_counts': [9]})
+            report = native_video.generate_video(args)
+        self.assertEqual(report['stages'][0]['name'], 'Native video')
+        self.assertIs(output.report, report)
+
+    def test_changed_converted_source_cannot_publish_a_video(self):
+        import checkpoint_conversion
+        import native_video
+        args = self.options()
+        original = self.root / 'legacy-source.bin'
+        original.write_bytes(b'legacy fixture')
+        args._native_conversions = {'model': {'original': checkpoint_conversion._identity(original),
+            'converted_path': str(self.model), 'output': checkpoint_conversion._identity(self.model)}}
+        class Output:
+            frames = self.root / 'frames-changed'
+            video = self.root / 'temporary-changed.mp4'
+            report = None
+            def __enter__(self): return self
+            def __exit__(self, *unused): return False
+            def commit(self, report): self.report = report
+        output = Output()
+        def render(*unused):
+            original.write_bytes(b'changed legacy fixture')
+            return [{'index': 0}], {'frame_counts': [9]}
+        with patch('native_video.preflight_animation', return_value={'Image': object(), 'versions': {}}), \
+             patch('native_video.preflight_interpolator'), patch('native_video.load_keyframes', return_value=({}, {})), \
+             patch('native_video.AnimationOutput', return_value=output), patch('native_video.NativeVideoEngine') as engine, \
+             patch('native_video.encode_video') as encode, patch('native_video.report_progress'):
+            engine.return_value.render.side_effect = render
+            with self.assertRaisesRegex(RuntimeError, 'changed'):
+                native_video.generate_video(args)
+        self.assertIsNone(output.report)
+        encode.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/local-image-generation.md",
-    "sha256": "bc2ecc62344d8d85f774cf8386fa272f326a93ee5d77e069548883f6f80b78cf",
-    "bytes": 8814,
+    "sha256": "0fdb828f3d178e2ab0323cba44ef651db7c96dfb4aca4607594e176152e1b301",
+    "bytes": 8871,
     "line_count": 74,
     "encoding": "utf-8",
     "language": "ko"
@@ -160,7 +160,7 @@
       "kind": "paragraph",
       "start_line": 25,
       "end_line": 25,
-      "raw": "`--backend local` 도 LoRA, ControlNet, 텍스트 인버전, HiRes, 스케줄러, 데이터 타입 및 오프로드에 대한 기존 프리셋 옵션을 모두 받습니다. 예측 메타데이터는 명시적으로 덮어쓰이지 않는 한 유지됩니다. `.safetensor` 와 대문자 접미사는 원래 파일을 이름 변경하거나 복사하지 않고 확인된 임시 `.safetensors` 별칭을 사용합니다.\n"
+      "raw": "`--backend local`의 사용 가능한 LoRA, ControlNet, 텍스트 인버전, HiRes, 스케줄러와 오프로드 옵션은 선택된 엔진에 따라 다르며 지원되지 않는 옵션은 오류로 보고한다. 예측 메타데이터는 명시적으로 덮어쓰지 않는 한 유지한다. 이름이 바뀐 safetensors 파일은 내용으로 식별하고, 필요한 경우 원본을 확인한 임시 `.safetensors` 별칭을 사용한다.\n"
     },
     {
       "id": "b000020",
@@ -174,7 +174,7 @@
       "kind": "paragraph",
       "start_line": 27,
       "end_line": 27,
-      "raw": "구성된 FLUX.1 단일 파일에는 여전히 로컬 보조 가중치와 `--model-config`가 필요하다. 그 밖의 지원되는 Diffusers 파이프라인은 완전한 로컬 모델 디렉터리 또는 호환되는 단일 파일 구성과 함께 `--backend diffusers`를 사용한다. SD2, SD3, 편집/refiner 및 양자화 모델을 SDXL로 잘못 취급하지 않는다. 선택적 레거시 변환/GGUF/그래프 백엔드는 `--backend comfyui-local`로 명시적으로 선택한다. [관리형 ComfyUI](managed-comfyui-image.md)를 참고한다. 해당 백엔드로 자동 대체 경로는 없다.\n"
+      "raw": "구성된 FLUX.1 단일 파일에는 여전히 로컬 보조 가중치와 `--model-config`가 필요하다. 그 밖의 지원되는 Diffusers 파이프라인은 완전한 로컬 모델 디렉터리 또는 호환되는 단일 파일 구성과 함께 `--backend diffusers`를 사용한다. SD2, SD3, 편집/refiner 및 양자화 모델을 SDXL로 잘못 취급하지 않는다. 지원되는 PyTorch 체크포인트는 생성 시 안전한 safetensors 변환을 거쳐 선택된 로컬 엔진에 전달한다. [관리형 ComfyUI](managed-comfyui-image.md)는 명시적으로 선택하는 별도 백엔드이며 자동 대체하지 않는다.\n"
     },
     {
       "id": "b000022",
@@ -495,7 +495,7 @@
       {
         "block_id": "b000021",
         "line": 27,
-        "text": "구성된 FLUX.1 단일 파일에는 여전히 로컬 보조 가중치와 `--model-config`가 필요하다. 그 밖의 지원되는 Diffusers 파이프라인은 완전한 로컬 모델 디렉터리 또는 호환되는 단일 파일 구성과 함께 `--backend diffusers`를 사용한다. SD2, SD3, 편집/refiner 및 양자화 모델을 SDXL로 잘못 취급하지 않는다. 선택적 레거시 변환/GGUF/그래프 백엔드는 `--backend comfyui-local`로 명시적으로 선택한다. [관리형 ComfyUI](managed-comfyui-image.md)를 참고한다. 해당 백엔드로 자동 대체 경로는 없다.",
+        "text": "구성된 FLUX.1 단일 파일에는 여전히 로컬 보조 가중치와 `--model-config`가 필요하다. 그 밖의 지원되는 Diffusers 파이프라인은 완전한 로컬 모델 디렉터리 또는 호환되는 단일 파일 구성과 함께 `--backend diffusers`를 사용한다. SD2, SD3, 편집/refiner 및 양자화 모델을 SDXL로 잘못 취급하지 않는다. 지원되는 PyTorch 체크포인트는 생성 시 안전한 safetensors 변환을 거쳐 선택된 로컬 엔진에 전달한다. [관리형 ComfyUI](managed-comfyui-image.md)는 명시적으로 선택하는 별도 백엔드이며 자동 대체하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       }

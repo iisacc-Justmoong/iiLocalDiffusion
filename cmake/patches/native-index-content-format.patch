@@ -1,0 +1,39 @@
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -174,6 +174,22 @@
+     LOG_VERBOSE("using %d threads for model loading", n_threads_);
+ }
+ 
++// Probe only a bounded JSON prefix. The index reader validates weight_map;
++// iiLocalDiffusion validates the complete indexed shard set before loading.
++static bool iild_index_json_candidate(const std::string& path) {
++    std::ifstream file(path, std::ios::binary | std::ios::ate);
++    if (!file) return false;
++    const auto size = file.tellg();
++    if (size <= 0 || size > 64 * 1024 * 1024) return false;
++    file.seekg(0);
++    char c = 0;
++    for (int i = 0; i < 4096 && file.get(c); ++i) {
++        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
++        return c == '{';
++    }
++    return false;
++}
++
+ bool ModelLoader::init_from_file(const std::string& file_path, const std::string& prefix) {
+     // A standalone Diffusers Wan model is mounted once in its original
+     // namespace and once as diffusion metadata. Other models keep the upstream
+@@ -233,6 +249,13 @@
+             }
+             return name.empty() ? std::string{} : prefix + name;
+         });
++    }
++    // Content takes precedence over the index filename, but a Safetensors
++    // header whose first length byte is '{' must stay on its own reader.
++    if (!is_directory(file_path) && iild_index_json_candidate(file_path)
++        && !is_gguf_file(file_path) && !is_safetensors_file(file_path)) {
++        LOG_INFO("load %s using safetensors index format", file_path.c_str());
++        return init_from_safetensors_index_file(file_path, prefix);
+     }
+     if (is_directory(file_path)) {
+         LOG_INFO("load %s using diffusers format", file_path.c_str());

@@ -16,9 +16,10 @@ import sys
 import time
 from types import SimpleNamespace
 
-from generation_output import resolve_output_paths, write_png
+from generation_output import protect_model_inputs, resolve_output_paths, write_png
 from generate import write_json_atomically
 from generation_seed import resolve_seed
+from hires_options import hires_enabled
 from inference_session import cached_pipeline, is_preparing, record_execution, verify_pipeline_sources
 from lora import resolve_lora_selection
 from weight_files import file_sha256, verify_weight_file
@@ -109,8 +110,28 @@ def library_path():
     raise RuntimeError("The native iiLocalDiffusion library is missing. Reinstall the SDK with native inference enabled.")
 
 
+def loaded_library_path(library):
+    """Return the Mach-O that actually owns the SDK entry point, not the dlopen argument."""
+    class DlInfo(C.Structure):
+        _fields_ = [("filename", C.c_char_p), ("base", C.c_void_p),
+                    ("symbol", C.c_char_p), ("address", C.c_void_p)]
+
+    try:
+        entry = library.iild_native_available_v1
+    except AttributeError:
+        # NativeEngine gives older or incomplete libraries a more useful error.
+        return None
+    dladdr = C.CDLL(None).dladdr
+    dladdr.argtypes = (C.c_void_p, C.POINTER(DlInfo))
+    dladdr.restype = C.c_int
+    info = DlInfo()
+    if not dladdr(C.cast(entry, C.c_void_p), C.byref(info)) or not info.filename:
+        raise RuntimeError("Cannot determine which native iiLocalDiffusion library was loaded.")
+    return Path(os.fsdecode(info.filename))
+
+
 def load_library(path):
-    """Apply the SDK's configured DLL directories to Python's secure loader."""
+    """Load the configured SDK and reject macOS loader redirection to another copy."""
     path = Path(path).resolve()
     with ExitStack() as directories:
         if os.name == "nt":
@@ -120,7 +141,20 @@ def load_library(path):
                 if key not in seen and directory.is_dir():
                     seen.add(key)
                     directories.enter_context(os.add_dll_directory(str(directory.resolve())))
-        return C.CDLL(str(path))
+        library = C.CDLL(str(path))
+        if sys.platform == "darwin":
+            actual = loaded_library_path(library)
+            if actual is not None:
+                try:
+                    matches = os.path.samefile(path, actual)
+                except OSError:
+                    matches = path == actual.resolve()
+                if not matches:
+                    raise RuntimeError(
+                        f"The macOS loader selected a different iiLocalDiffusion library: {actual}. "
+                        f"The worker requested: {path}. Restart the worker without a conflicting "
+                        "DYLD_LIBRARY_PATH or DYLD_FRAMEWORK_PATH, or select the intended SDK library.")
+        return library
 
 
 class NativeEngine:
@@ -150,6 +184,11 @@ class NativeEngine:
     # Replacing a request/session adapter must not evict model source memory.
     def image(self, args, seed, *, prepare=False, hires_upscaler=None, hires_options=None,
               hires_denoise_strength=0.35):
+        use_hires = hires_enabled(getattr(args, "hires_fix", None))
+        if not use_hires and not args.native_v2:
+            raise ValueError("Disabling Hires Fix requires component-aware native generation.")
+        if hires_upscaler is not None and not use_hires:
+            raise ValueError("Hires upscaler requires Hires Fix to be enabled.")
         if hires_upscaler is None and hires_options is not None:
             raise ValueError("Hires options require an upscaler.")
         if hires_upscaler is not None:
@@ -196,7 +235,7 @@ class NativeEngine:
             function.restype = C.c_void_p
             paths = [args.components.get(slot, "").encode() or None for slot in ("clip_l", "clip_g", "t5xxl", "llm", "vae")]
             extended = RequestV2(C.sizeof(RequestV2), request, *paths, args.guidance_scale,
-                                 args.embedded_guidance, hires_upscaler is not None, args.device == "cpu",
+                                 args.embedded_guidance, use_hires, args.device == "cpu",
                                  {"auto": 0, "epsilon": 1, "v_prediction": 2}[args.prediction_type])
             if getattr(args, "native_v3", False) or hires_upscaler is not None:
                 try:
@@ -244,16 +283,46 @@ class NativeEngine:
 
 
 def native_weight(source, argument):
-    from downloaded_model import _safetensors, _gguf
-    from weight_files import LocalWeightFile, model_content_sha256, file_signature
-    path = Path(source).expanduser().resolve(strict=True)
-    if path.suffix.casefold() in (".safetensors", ".safetensor"):
+    from downloaded_model import _safetensors, _gguf, model_container_format
+    from weight_files import IndexedWeightFile, LocalWeightFile, model_content_sha256, file_signature
+    from model_sources import local_model_path
+    logical = Path(os.path.abspath(os.path.expanduser(os.fspath(source))))
+    path = local_model_path(logical)
+    container = model_container_format(logical)
+    if container == "safetensors":
         _safetensors(path)
-    elif path.suffix.casefold() == ".gguf":
+    elif container == "gguf":
         _gguf(path)
+    elif container == 'safetensors-index':
+        from image_package import inspect_sharded_index, sharded_index_paths
+        initial = file_signature(path)
+        paths = [Path(item) for item in sharded_index_paths(path)]
+        signatures = [file_signature(item) for item in paths]
+        report = inspect_sharded_index(path)
+        if file_signature(path) != initial or [file_signature(item) for item in paths] != signatures:
+            raise RuntimeError(f'Local {argument} shard index changed during inspection.')
+        reported = report['shards']
+        resolved_index = logical.resolve(strict=True)
+        if (Path(report['path']) != logical or Path(report['resolved_path']) != resolved_index or len(reported) != len(paths)
+                or any(logical.parent / item['relative_path'] != shard
+                       or item['resolved_path'] != before[0] or item['size_bytes'] != before[3]
+                       for item, shard, before in zip(reported, paths, signatures))):
+            raise RuntimeError('The Safetensors shard inventory changed during inspection.')
+        shards = []
+        for shard, before in zip(paths, signatures):
+            resolved_shard = shard.resolve(strict=True)
+            digest = model_content_sha256(resolved_shard)
+            if file_signature(shard) != before:
+                raise RuntimeError(f'Local {argument} shard changed during inspection: {shard}')
+            shards.append(LocalWeightFile(str(shard), str(resolved_shard), digest, resolved_shard.stat().st_size, before))
+        digest = model_content_sha256(resolved_index)
+        if file_signature(path) != initial or [file_signature(item) for item in paths] != signatures:
+            raise RuntimeError(f'Local {argument} shard index changed during inspection.')
+        return IndexedWeightFile(str(logical), str(resolved_index), digest,
+                                 resolved_index.stat().st_size, initial, tuple(shards))
     else:
         raise ValueError(f"{argument} requires safetensors or GGUF weights.")
-    return LocalWeightFile(str(Path(source).expanduser().absolute()), str(path), model_content_sha256(path),
+    return LocalWeightFile(str(logical), str(path), model_content_sha256(path),
                            path.stat().st_size, file_signature(path))
 
 
@@ -266,13 +335,18 @@ def resolve_arguments(args, inspection):
         inspection = dict(inspection, base_model=record["name"])
     components = dict(args.components)
     if args.vae:
-        if "vae" in components and Path(components["vae"]).expanduser().resolve() != Path(args.vae).expanduser().resolve():
+        from model_sources import local_model_path
+        if "vae" in components and local_model_path(components["vae"]) != local_model_path(args.vae):
             raise ValueError("Conflicting --vae and --components VAE paths.")
         components["vae"] = str(args.vae)
     args.native_plan = plan_native(inspection, components)
     if inspection.get("architecture") == "krea2" and args.native_plan["missing_components"]:
         from generation_defaults import resolve_krea2_components
         components = resolve_krea2_components(inspection, components, args.generation_resources)
+        args.native_plan = plan_native(inspection, components)
+    if inspection.get("architecture") == "anima" and args.native_plan["missing_components"]:
+        from generation_defaults import resolve_anima_components
+        components = resolve_anima_components(inspection, components, args.generation_resources)
         args.native_plan = plan_native(inspection, components)
     if args.native_plan["missing_components"]:
         raise ValueError(f"{inspection['architecture']} checkpoint is missing components: "
@@ -287,16 +361,27 @@ def resolve_arguments(args, inspection):
     if args.prediction_type != "auto" and args.architecture not in ("sd1", "sd2", "sdxl"):
         raise ValueError("Flow backends require their architecture's automatic prediction contract.")
     args.native_v2 = (args.architecture != "anima" or bool(components) or args.engine == "native"
-                      or any(name in args._provided for name in ("guidance_scale", "embedded_guidance")) or args.device == "cpu")
+                      or any(name in args._provided for name in ("guidance_scale", "embedded_guidance", "hires_fix",
+                                                                  "hires_upscaler", "hires_denoising_strength"))
+                      or args.device == "cpu")
     supported = {"config", "print_config", "model", "model_info", "base_model", "output", "output_dir", "work_dir",
                  "cache_dir", "preview_dir", "validate_only", "device", "prompt", "negative_prompt", "width", "height",
                  "steps", "seed", "num_images", "seed_stride", "default_modifiers", "generation_resources",
                  "lora", "lora_scale", "lora_weight_name", "progress", "png_compress_level", "png_optimize", "overwrite",
                  "local_files_only", "engine", "components", "vae", "guidance_scale", "embedded_guidance", "prediction_type",
-                 "krea2_variant", "krea2_mu", "native_sampler", "sigmas"}
+                 "krea2_variant", "krea2_mu", "native_sampler", "sigmas", "hires_fix", "hires_upscaler", "hires_denoising_strength"}
     unsupported = set(args._provided) - supported
     if unsupported:
         raise ValueError("Native image inference does not support these overrides: " + ", ".join("--" + name.replace("_", "-") for name in sorted(unsupported)))
+    args.hires_fix = hires_enabled(getattr(args, "hires_fix", None))
+    if not args.hires_fix and (args.hires_upscaler is not None or args.hires_denoising_strength is not None):
+        raise ValueError("Hires upscaler and strength require Hires Fix to be enabled.")
+    if args.hires_upscaler is not None and args.hires_upscaler not in ("nearest", "bilinear", "bicubic", "lanczos"):
+        raise ValueError("Unsupported native Hires upscaler.")
+    if args.hires_denoising_strength is not None and (isinstance(args.hires_denoising_strength, bool)
+            or not isinstance(args.hires_denoising_strength, (int, float))
+            or not math.isfinite(args.hires_denoising_strength) or not 0 < args.hires_denoising_strength <= 1):
+        raise ValueError("Native Hires strength must be finite and in (0,1].")
     if args.device not in ("auto", "cpu"):
         raise ValueError("Native inference uses --device auto or cpu.")
     if not args.local_files_only:
@@ -317,9 +402,9 @@ def resolve_arguments(args, inspection):
         # Krea schedule against that canvas, not the final QuickGenerate crop.
         output_size = [args.width if args.width is not None else defaults['size'],
                        args.height if args.height is not None else defaults['size']]
-        if any(type(value) is not int or not 64 <= value <= 2048 or value % 8
+        if any(type(value) is not int or not 64 <= value <= 4096 or value % 8
                for value in output_size):
-            raise ValueError('Native image dimensions must be multiples of 8 in [64,2048].')
+            raise ValueError('Native image dimensions must be multiples of 8 in [64,4096].')
         canvas_size = [((value + 63) // 64) * 64 for value in output_size]
         inputs.update(zip(('width', 'height'), canvas_size))
         if args.guidance_scale is not None:
@@ -365,8 +450,8 @@ def resolve_arguments(args, inspection):
         setattr(args, name, value)
     for name in ("width", "height"):
         value = getattr(args, name)
-        if not 64 <= value <= 2048 or value % 8:
-            raise ValueError("Native image dimensions must be multiples of 8 in [64,2048].")
+        if not 64 <= value <= 4096 or value % 8:
+            raise ValueError("Native image dimensions must be multiples of 8 in [64,4096].")
     if not 1 <= args.steps <= 1000 or not 1 <= args.num_images <= 1000:
         raise ValueError("Native image steps and image count must be in [1,1000].")
     if not 0 <= args.png_compress_level <= 9:
@@ -381,9 +466,10 @@ def resolve_arguments(args, inspection):
     if not args.prompt.strip() or any("\0" in value or len(value.encode()) > 128000 for value in (args.prompt, args.negative_prompt)):
         raise ValueError("Native inference requires a nonempty prompt and bounded UTF-8 text without NUL.")
     model_file = native_weight(args.model, "--model")
-    args.model = model_file.resolved_file
+    args.model = model_file.execution_path
     args.model_selection = SimpleNamespace(single_file=model_file)
     args.native_component_files = {slot: native_weight(path, slot) for slot, path in args.components.items()}
+    args.components = {slot: weight.execution_path for slot, weight in args.native_component_files.items()}
     args.vae_file = args.native_component_files.get("vae")
     args.native_loras = []
     selection = resolve_lora_selection(args)
@@ -420,8 +506,11 @@ def publication_event(performance, event, started, error=""):
 
 def run(_preset, args):
     model = args.model_selection.single_file
-    sources = [model.resolved_file, *args.components.values(), *[path for path, _ in args.native_loras]]
-    key = ("native", args.architecture, args.device, args.prediction_type, model.resolved_file, tuple(sorted(args.components.items())),
+    sources = [model.execution_path, *[shard.path for shard in getattr(model, 'shards', ())],
+               *args.components.values(), *[path for path, _ in args.native_loras]]
+    if getattr(args, 'image_package', None):
+        sources.append(args.image_package['source'])
+    key = ("native", args.architecture, args.device, args.prediction_type, model.execution_path, tuple(sorted(args.components.items())),
            str(args.generation_resources), args.default_modifiers, tuple(args.native_loras))
     engine, _ = cached_pipeline(key, sources, NativeEngine)
     # Every queued batch has an explicit preload barrier, even without an idle
@@ -431,22 +520,42 @@ def run(_preset, args):
     if preparation.get("weight_storage") != "anonymous":
         raise RuntimeError("The native SDK did not preload model sources into anonymous memory. Update iiLocalDiffusion before generation.")
     if is_preparing():
+        from checkpoint_conversion import verify_conversion_source
+        verify_conversion_source(getattr(args, "model_conversion", None))
+        from image_package import verify_source as verify_package_source
+        verify_package_source(getattr(args, 'image_package', None))
         record_execution("native-" + args.device, "managed", args.model)
         return 0
     if args.preview_dir:
         args._native_preview = NativePreviewWriter(args.preview_dir)
     paths = resolve_output_paths(args)
+    hires_provider = None
+    hires_options = None
+    if args.hires_fix and (args.hires_upscaler is not None or args.hires_denoising_strength is not None):
+        kind = args.hires_upscaler or "lanczos"
+        hires_provider = NativeUpscaler("lanczos3" if kind == "lanczos" else kind, library=engine.library._name)
+        hires_options = UpscaleOptions(target_width=((args.width + 63) // 64) * 64,
+                                      target_height=((args.height + 63) // 64) * 64)
     for index, path in enumerate(paths):
         seed = args.seed + index * args.seed_stride
-        image, performance = engine.image(args, seed)
+        if hires_provider is None:
+            image, performance = engine.image(args, seed)
+        else:
+            image, performance = engine.image(args, seed, hires_upscaler=hires_provider, hires_options=hires_options,
+                hires_denoise_strength=args.hires_denoising_strength if args.hires_denoising_strength is not None else .35)
         performance["preparation"] = preparation
         publication_started = time.monotonic()
         publication_event(performance, "publication-start", publication_started)
         try:
             verify_weight_file(model, "model")
+            from checkpoint_conversion import verify_conversion_source
+            verify_conversion_source(getattr(args, "model_conversion", None))
             for slot, weight in args.native_component_files.items():
                 verify_weight_file(weight, slot)
             verify_pipeline_sources()
+            from image_package import verify_source as verify_package_source
+            verify_package_source(getattr(args, 'image_package', None))
+            protect_model_inputs(args, [path])
             provider.mkdir(path.parent, parents=True, exist_ok=True)
             write_png(image, path, compress_level=args.png_compress_level, optimize=args.png_optimize, overwrite=args.overwrite)
         except Exception as error:
@@ -463,12 +572,20 @@ def run(_preset, args):
                               "sampling": {"sampler": args.native_sampler, "sigmas": args.native_sigmas,
                                            "flow_shift": args.native_flow_shift if math.isfinite(args.native_flow_shift) else None},
                               "krea2": args.krea2,
-                              "hires": not args.native_v2},
+                              "hires": args.hires_fix},
                   "vae": {"source": "explicit" if args.vae_file else "checkpoint", "override": args.components.get("vae")}, "loras": args.native_loras,
                   "default_modifiers": args.default_modifiers, "performance": performance,
                   "output": {"path": str(path.resolve()), "sha256": file_sha256(path), "kind": "image",
                              "size": [args.width, args.height], "mode": "RGB",
                              "width": args.width, "height": args.height}, "batch": {"index": index, "count": len(paths)}}
+        if getattr(args, "model_conversion", None):
+            report["model_conversion"] = args.model_conversion
+        if getattr(args, 'image_package', None):
+            report['image_package'] = {key: args.image_package[key] for key in
+                ('source', 'architecture', 'transformer', 'text_encoder', 'vae', 'prepared_transformer')}
+            if args.image_package.get('selected_components'):
+                report['image_package']['selected_components'] = dict(args.image_package['selected_components'])
+        protect_model_inputs(args, [path])
         write_json_atomically(path.with_suffix(".json"), report, overwrite=args.overwrite)
         print(f"Image: {path}", flush=True)
     record_execution("native-" + args.device, "managed", args.model)
@@ -480,8 +597,11 @@ def configuration_values(args):
     names = ("model", "model_info", "base_model", "output_dir", "work_dir", "cache_dir", "preview_dir",
              "device", "prompt", "negative_prompt", "width", "height", "steps", "seed", "num_images",
              "seed_stride", "default_modifiers", "generation_resources", "lora", "lora_scale", "lora_weight_name",
-             "progress", "png_compress_level", "png_optimize", "overwrite", "local_files_only")
+             "progress", "png_compress_level", "png_optimize", "overwrite", "local_files_only",
+             "hires_fix", "hires_upscaler", "hires_denoising_strength")
     values = {name: getattr(args, name) for name in names if getattr(args, name) is not None}
+    if getattr(args, "original_model_path", None):
+        values["model"] = args.original_model_path
     if args.native_v2:
         values.update(engine="native", components=args.components, guidance_scale=args.guidance_scale,
                       embedded_guidance=args.embedded_guidance, prediction_type=args.prediction_type)

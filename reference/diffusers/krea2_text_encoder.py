@@ -73,12 +73,12 @@ def resolve(args, index, folder):
     if (args.pipeline_class or index['_class_name']) != 'Krea2Pipeline':
         return None, 'not-configured-for-pipeline'
     component = index.get('text_encoder')
-    if args.source_kind == 'single-file' and _single_file_has_encoder(args.model):
+    if (args.source_kind == 'single-file' and not getattr(args, 'single_file_component_only', False)
+            and _single_file_has_encoder(args.model)):
         return None, 'model'
     component_dir = Path(folder) / 'text_encoder'
-    if component not in (None, [None, None]) and any(
-            path.is_file() and (path.suffix in ('.safetensors', '.bin', '.pt', '.ckpt')
-                                or path.name.endswith('.index.json')) for path in component_dir.glob('*')):
+    from directory_checkpoint_conversion import component_has_weights
+    if component not in (None, [None, None]) and component_has_weights(component_dir):
         return None, 'model'
     if component not in (None, [None, None], ['transformers', 'Qwen3VLModel']):
         raise ValueError('Krea 2 fallback requires a Qwen3VLModel text encoder declaration.')

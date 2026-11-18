@@ -190,7 +190,9 @@ if(PYTHON_REFERENCE_ENABLED)
             diffusers/dit_conversion.py
             diffusers/model_merge.py diffusers/model_merge_options.py diffusers/model_merge_files.py
             diffusers/model_merge_lora.py diffusers/model_merge_lora_targets.py
-            diffusers/inference_session.py diffusers/inference_worker.py
+            diffusers/inference_session.py diffusers/inference_worker.py diffusers/image_package.py
+            diffusers/checkpoint_conversion.py diffusers/directory_checkpoint_conversion.py
+            diffusers/video_checkpoint_conversion.py
             diffusers/generation_defaults.py diffusers/long_clip_conditioning.py diffusers/lora.py
             diffusers/vae_defaults.py
             diffusers/standalone_image.py diffusers/checkpoint_config.py diffusers/generation_seed.py diffusers/configs/manifest.json
@@ -461,6 +463,8 @@ file(WRITE "${source_directory}/main.cpp" [=[
 #include <Flux/FluxModelManifest.hpp>
 #include <Generation/GenerationIO.hpp>
 #include <Generation/NativeDiffusion.hpp>
+#include <Generation/NativeVaeInspection.hpp>
+#include <Generation/NativeTextEncoderInspection.hpp>
 #include <Compute/LinearLayer.hpp>
 #include <Compute/CoreMLModel.hpp>
 #include <ModelManifest/DiffusionModelManifest.hpp>
@@ -475,6 +479,10 @@ file(WRITE "${source_directory}/main.cpp" [=[
 
 int main(const int argc, const char *const argv[])
 {
+    static_assert(std::is_same_v<decltype(&iiLocalDiffusion::validateNativeVae),
+        bool (*)(const std::filesystem::path &, const std::filesystem::path &)>);
+    static_assert(std::is_same_v<decltype(&iiLocalDiffusion::inspectNativeTextEncoder),
+        iiLocalDiffusion::NativeTextEncoderState (*)(const std::filesystem::path &, std::string_view)>);
     if (argc != 2 && argc != 3)
     {
         return 2;

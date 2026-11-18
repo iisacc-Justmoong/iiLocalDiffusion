@@ -19,6 +19,7 @@
 /resources/text_encoders/flux1_clip_l.safetensors
 /resources/text_encoders/flux1_t5xxl_fp8_scaled.safetensors
 /resources/text_encoders/moss_qwen35_int8_convrot.safetensors
+/resources/text_encoders/anima_qwen3_0_6b_base.safetensors
 /resources/models/moss_image_sft_bf16.safetensors
 /resources/models/moss_image_color_depth_control.safetensors
 /resources/models/flux1-schnell-fp8.safetensors

@@ -196,7 +196,7 @@ def _runtime_assets(model: MergeModelFiles) -> dict:
     result = {}
     for name, asset in model.assets.items():
         path = Path(name)
-        if name == "merge.json" or name.endswith(".safetensors.index.json"):
+        if name == "merge.json" or name.lower().endswith(".safetensors.index.json"):
             continue
         if path.suffix.lower() in (".json", ".yaml", ".yml") or any(
                 part.startswith("tokenizer") for part in path.parts[:-1]):
@@ -219,7 +219,7 @@ def validate_package_assets(models: list[MergeModelFiles]) -> None:
 
 def validate_shard_indexes(model: MergeModelFiles, key_files: dict[tuple[str, str], str]) -> None:
     for name, asset in model.assets.items():
-        if not name.endswith(".safetensors.index.json"):
+        if not name.lower().endswith(".safetensors.index.json"):
             continue
         try:
             value = json.loads(Path(asset.path).read_text(encoding="utf-8"))

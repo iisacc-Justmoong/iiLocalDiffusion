@@ -1,0 +1,23 @@
+diff --git a/src/name_conversion.cpp b/src/name_conversion.cpp
+--- a/src/name_conversion.cpp
++++ b/src/name_conversion.cpp
+@@ -1508,6 +1508,19 @@
+         prefix_map["clip_g."] = "text_encoders.clip_g.transformer.";
+     }
+ 
++    // Original Anima denoisers are often distributed without a checkpoint
++    // namespace. Mount only known Anima roots, preserving their optional net.
++    // layer; canonical or separately mounted components remain unchanged.
++    if (sd_version_is_anima(version)) {
++        for (const auto* root : {"llm_adapter.", "blocks.", "x_embedder.",
++                                 "t_embedder.", "t_embedding_norm.", "final_layer."}) {
++            if (starts_with(name, root) || starts_with(name, std::string("net.") + root)) {
++                name = "model.diffusion_model." + name;
++                break;
++            }
++        }
++    }
++
+     // ComfyUI complete Krea2 checkpoints embed Qwen3-VL under its model name.
+     // Normalize before vision and generic LLM conversion, including quant scales.
+     if (sd_version_is_krea2(version)) {

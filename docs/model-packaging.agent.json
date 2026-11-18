@@ -10,9 +10,9 @@
   },
   "source": {
     "path": "docs/model-packaging.md",
-    "sha256": "65e3c4bc1196dcbef5bdd205a50521bf01e5032b0734281f9a8d94b696f279da",
-    "bytes": 11048,
-    "line_count": 164,
+    "sha256": "d3087d9cf7e59cdef71f53d461b5f6db1061f13a489e1d1c487169853541b13d",
+    "bytes": 21364,
+    "line_count": 295,
     "encoding": "utf-8",
     "language": "en"
   },
@@ -118,7 +118,7 @@
       "kind": "paragraph",
       "start_line": 45,
       "end_line": 56,
-      "raw": "Metadata identifies `iild-safetensors-package-v1` in `iild_package_schema` and\nstores a JSON manifest in `iild_package_manifest`. Main safetensors tensor keys\nand original metadata remain intact. Separate safetensors components receive\nrole and source namespaces. GGUF components and tokenizer/configuration assets\nare retained as U8 assets under `__iild_assets__/`; extraction restores their\noriginal bytes and extension. Legacy `.safetensor` files and previously supported\nsupporting files remain readable. ONNX files and manifests declaring embedded\nONNX models are rejected during scanning, verification and materialization;\nexisting input files are not modified. This is\ncomponent bundling, not tensor averaging or LoRA fusion. A manifest-aware\nconsumer is required to load all components. Existing `.iildmodel` ZIP packages\nare a separate contract.\n"
+      "raw": "Metadata identifies `iild-safetensors-package-v1` in `iild_package_schema` and\nstores a JSON manifest in `iild_package_manifest`. Main safetensors tensor keys\nand original metadata remain intact. Separate safetensors components receive\nrole and source namespaces. GGUF components and tokenizer/configuration assets\nare retained as U8 assets under `__iild_assets__/`; extraction restores their\noriginal bytes and extension. Scans identify Safetensors and GGUF from bounded content headers even when file extensions differ. Legacy `.safetensor` files and previously supported\nsupporting files remain readable. ONNX files and manifests declaring embedded\nONNX models are rejected during scanning, verification and materialization;\nexisting input files are not modified. This is\ncomponent bundling, not tensor averaging or LoRA fusion. A manifest-aware\nconsumer is required to load all components. Existing `.iildmodel` ZIP packages\nare a separate contract. Package inputs for verification, extraction, materialization and calibration are identified by content; new package and repaired-model outputs still use `.safetensors`.\n"
     },
     {
       "id": "b000014",
@@ -161,21 +161,21 @@
       "id": "b000019",
       "kind": "paragraph",
       "start_line": 66,
-      "end_line": 86,
-      "raw": "Each selected Safetensors or GGUF source can have an explicitly assigned role\nand a position of main model or component. Leaving either choice automatic\nretains the detected role or the automatic main-model selection. A main position\nrequires the model role; only one model or sharded model group may be main.\nShard members identified by an included shard index share the group's assignment.\nIf automatically detected shard roles disagree, inspection requires one explicit\ngroup role rather than creating a partially classified model.\nInvalid paths, roles, positions and\nconflicting assignments are rejected before a package can be written. Assignments\nare applied before validation, duplicate detection and output key construction,\nand the report and manifest identify the effective role, position and whether each\nwas chosen by the user. Creation repeats the inspection with the same choices.\nSupported role values are `model`, `text_encoder`, `video_vae`, `audio_vae`,\n`projections`, `upscaler`, `lora` and `other`; `video_vae` remains the existing\nwire value for the VAE/decoder role. Empty values keep automatic detection.\nWhen an indexed optional sharded component is excluded, all its identified shards\nand its shard index are excluded together. An individually selected shard without\nits index cannot be identified as a group; include its index or model directory.\nCalibration retains explicitly assigned choices when repackaging an existing\npackage; older packages without explicit choices continue to be re-detected.\nAssigning a role does not establish architectural or inference compatibility.\n"
+      "end_line": 87,
+      "raw": "Each selected Safetensors or GGUF source can have an explicitly assigned role\nand a position of main model or component. Leaving either choice automatic\nretains the detected role or the automatic main-model selection. A main position\nrequires the model role; only one model or sharded model group may be main.\nShard members identified by an included shard index share the group's assignment.\nIf automatically detected shard roles disagree, inspection requires one explicit\ngroup role rather than creating a partially classified model.\nInvalid paths, roles, positions and\nconflicting assignments are rejected before a package can be written. Assignments\nare applied before validation, duplicate detection and output key construction,\nand the report and manifest identify the effective role, position and whether each\nwas chosen by the user. Creation repeats the inspection with the same choices.\nSupported role values are `model`, `text_encoder`, `video_vae`, `audio_vae`,\n`projections`, `upscaler`, `lora`, `high_noise_model`, `vision_encoder` and `other`; `video_vae` remains the existing\nwire value for the VAE/decoder role. Empty values keep automatic detection.\nWhen an indexed optional sharded component is excluded, all its identified shards\nand its shard index are excluded together. An individually selected shard without\nits index cannot be identified as a group; include its index or model directory.\nCalibration retains explicitly assigned choices when repackaging an existing\npackage; older packages without explicit choices continue to be re-detected.\nKnown GGUF diffusion architectures are detected as model roles before automatic main selection; explicit role assignments retain precedence. Assigning a role does not establish architectural or inference compatibility.\nThe GGUF architecture tags `wan`, `wan2.1` and `wan2.2` identify a diffusion-model role, but do not by themselves establish a video output modality: other models also reuse those tags.\n"
     },
     {
       "id": "b000020",
       "kind": "blank",
-      "start_line": 87,
-      "end_line": 87,
+      "start_line": 88,
+      "end_line": 88,
       "raw": "\n"
     },
     {
       "id": "b000021",
       "kind": "heading",
-      "start_line": 88,
-      "end_line": 88,
+      "start_line": 89,
+      "end_line": 89,
       "raw": "## Validation and resource use\n",
       "level": 2,
       "title": "Validation and resource use"
@@ -183,43 +183,99 @@
     {
       "id": "b000022",
       "kind": "blank",
-      "start_line": 89,
-      "end_line": 89,
+      "start_line": 90,
+      "end_line": 90,
       "raw": "\n"
     },
     {
       "id": "b000023",
       "kind": "paragraph",
-      "start_line": 90,
-      "end_line": 101,
-      "raw": "Safetensors headers, dtypes, shapes, JSON keys, contiguous extents and exact\nfile sizes are checked. GGUF headers, supported tensor encodings and byte extents\nare checked without loading the tensors. Shard indexes are\nresolved within their source directory and every indexed tensor must exist.\nLTX 2.x requires its model, video/audio decoders, projections and text encoder.\nDiffusers model indexes require their declared non-null component directories.\nIndexes inside selected library directories are checked relative to their own\ndirectory as well; an incomplete selected pipeline cannot be created. Legacy\n`iild-unified-model-v1` indexes retain their separate format.\nConflicting embedded VAE/projection tensors block packaging. In folder mode file\nsymlinks retain their logical names and directory symlinks are not traversed.\nExplicit library selections reject symlinks, including within selected directories.\n"
-    },
-    {
-      "id": "b000024",
-      "kind": "blank",
-      "start_line": 102,
-      "end_line": 102,
-      "raw": "\n"
-    },
-    {
-      "id": "b000025",
-      "kind": "paragraph",
-      "start_line": 103,
+      "start_line": 91,
       "end_line": 116,
-      "raw": "An 8 MiB streaming buffer bounds tensor I/O; JSON header size is limited to\n64 MiB. Disk space is checked before writing. Source snapshots are checked\nbefore and after copying; duplicate hashes are rechecked during creation.\nOutput tensor hashes and layout are validated by re-reading the output.\nCancellation removes temporary output. Extraction validates the package and\noriginal hashes, rejects unsafe paths, stages into a new directory and preserves\nthe source package. A selected safetensors or GGUF text encoder can also be\nreconstructed to the asset cache. Its format structure, mapping and whole-file\nSHA-256 are checked before publication; safetensors tensor hashes are checked\nseparately. Other weights are not read. No network,\nPython, Torch, GPU or tensor cast is required. This packaging check does not\nestablish that any particular inference backend supports the model architecture.\nMaterialization requires exactly one matching encoder component; a package with\nmultiple encoder files is rejected rather than silently choosing a shard.\n"
+      "raw": "Safetensors headers, dtypes, shapes, JSON keys, contiguous extents and exact\nfile sizes are checked. GGUF headers, supported tensor encodings and byte extents\nare checked without loading the tensors. Shard indexes are\nresolved within their source directory and every indexed tensor must exist.\nFP8 FNUZ and C64 descriptors are preserved byte for byte; recognizing their\nstorage does not establish that an inference engine supports their arithmetic.\nLTX 2.x requires its model, video/audio decoders, projections and text encoder.\nDiffusers model indexes require their declared non-null component directories.\nFor a WanPipeline or WanImageToVideoPipeline index declaring both `transformer` and `transformer_2` as\n`WanTransformer3DModel` and a numeric `boundary_ratio`, the first component is the high-noise expert and the\nsecond is the main low-noise expert. Each directory must contain exactly one\nweight group, including a validated sharded group; ambiguous or conflicting\nassignments are rejected. Explicit component roles `high_noise_model` and\n`vision_encoder` are also available for models without that index. These roles\ndo not by themselves establish runtime or model compatibility. A declared single image-to-video transformer is main; its declared CLIP image encoder is a vision_encoder component.\nFor a primary Safetensors model with a complete base Diffusers Wan tensor\nsignature, the primary tensor names map into the native Wan namespace, including\nsingle-model packages without a dual-expert pipeline index.\nThe manifest retains the original names and extraction reconstructs the source\nfiles; unrelated pipelines and incomplete signatures are not rewritten.\nThe validated boundary is recorded in the package for native video requests;\nindexes without a valid boundary are rejected for this automatic dual-expert\nroute rather than silently switching models at an assumed time.\nIndexes inside selected library directories are checked relative to their own\ndirectory as well; an incomplete selected pipeline cannot be created. Legacy\n`iild-unified-model-v1` indexes retain their separate format.\n"
     },
     {
-      "id": "b000026",
+      "id": "b000036",
       "kind": "blank",
       "start_line": 117,
       "end_line": 117,
       "raw": "\n"
     },
     {
+      "id": "b000037",
+      "kind": "paragraph",
+      "start_line": 118,
+      "end_line": 133,
+      "raw": "For standalone `*.safetensors.index.json` files, C++ callers can use\n`inspectSafetensorsIndex`, `verifySafetensorsIndex`, and\n`safetensorsIndexShardPaths`; the CLI exposes `iild-model-package inspect-index`\nand Python exposes `inspect_sharded_index`. The inspector checks every named\ntensor against exactly one referenced shard, including shapes, dtypes, extents,\nand safe relative paths. It rejects missing, extra, duplicate, truncated, or\nmisassigned tensors and returns file identities for later change detection.\nThe index suffix is matched without ASCII case sensitivity; the recorded shard\npaths and tensor names retain their original spelling and are resolved exactly.\nIndexes and individual headers are limited to 64 MiB, aggregate metadata to\n256 MiB, mappings to one million, and shards to 4,096. File symlinks are\nidentified by their targets. A linked index retains its selected path as the\nbase for relative shard references, while the index and each shard target are\nsnapshotted and rechecked. Image and video callers pass that same selected index\npath to the native loader; they do not copy or rewrite weights. Catalogs may apply stricter link policies.\nThe C bridge returns the same metadata without reading tensor values; this does not establish generation compatibility.\n"
+    },
+    {
+      "id": "b000038",
+      "kind": "blank",
+      "start_line": 134,
+      "end_line": 134,
+      "raw": "\n"
+    },
+    {
+      "id": "b000040",
+      "kind": "paragraph",
+      "start_line": 135,
+      "end_line": 148,
+      "raw": "`probeModelTensorNames`, `modelContainsTensorNames` and `findModelTensorNames` check exact source tensor names in Safetensors,\nstandalone shard indexes and GGUF without loading weights. It validates the\ncontainer metadata and checks source identity before and after the probe.\nCLI `contains-tensors --input MODEL --tensor NAME` accepts repeated `--tensor`\narguments, and Python `contains_tensors` and `find_tensor_names` provide the same result. Presence is\nnot proof of tensor shapes, numerical validity or backend compatibility. The probe\nalso reports whether Safetensors metadata claims an SDK package; package integrity\nstill requires the separate manifest and checksum verification path.\nFor a standalone Safetensors file, exact-name probing permits an unknown dtype\nwhile still validating header structure and data extents. It does not claim the\ndtype's shape-to-byte size or native-engine support. Packaging and indexed-shard\ninspection continue to require a known dtype.\nThe component-install test also exercises both Python operations against a\nrelocated CLI and a synthetic Safetensors file.\n"
+    },
+    {
+      "id": "b000041",
+      "kind": "blank",
+      "start_line": 149,
+      "end_line": 149,
+      "raw": "\n"
+    },
+    {
+      "id": "b000039",
+      "kind": "paragraph",
+      "start_line": 150,
+      "end_line": 152,
+      "raw": "Conflicting embedded VAE/projection tensors block packaging. In folder mode file\nsymlinks retain their logical names and directory symlinks are not traversed.\nExplicit library selections reject symlinks, including within selected directories.\n"
+    },
+    {
+      "id": "b000024",
+      "kind": "blank",
+      "start_line": 153,
+      "end_line": 153,
+      "raw": "\n"
+    },
+    {
+      "id": "b000025",
+      "kind": "paragraph",
+      "start_line": 154,
+      "end_line": 208,
+      "raw": "An 8 MiB streaming buffer bounds tensor I/O; JSON header size is limited to\n64 MiB. Disk space is checked before writing. Source snapshots are checked\nbefore and after copying; duplicate hashes are rechecked during creation.\nOutput tensor hashes and layout are validated by re-reading the output.\nCancellation removes temporary output. Extraction validates the package and\noriginal hashes, rejects unsafe paths, stages into a new directory and preserves\nthe source package. A selected safetensors or GGUF text encoder can also be\nreconstructed to the asset cache. Its format structure, mapping and whole-file\nSHA-256 are checked before publication; safetensors tensor hashes are checked\nseparately. Weights outside the selected component are not read. No network,\nPython, Torch, GPU or tensor cast is required. This packaging check does not\nestablish that any particular inference backend supports the model architecture.\nMaterialization accepts one unambiguous indexed Safetensors shard group as a\nsingle component and streams its tensors to a deterministic cached Safetensors\nfile. The embedded index must cover every tensor exactly once and all referenced\nshards, original headers, shapes and checksums must agree. Role-based selection\nrequires exactly one matching group; an explicit shard-index path selects a group\nwhen a package has several. Unindexed or ambiguous encoder files remain an error.\nThe source package is not modified; this conversion preserves tensor bytes and\ndtypes and per-tensor descriptor fields, but does not prove that an inference\nbackend supports the architecture. New manifests record the shard index for each\ncomponent. For older manifests, native image inspection verifies the embedded\nindex checksum and recovers its mapping; individual tensors and original shard\nchecksums are verified during reconstruction. If recorded roles disagree, role\nselection rejects the group; an explicit index path can select it. A shard\nalready deduplicated against the main model remains part of its indexed group,\nand an explicit original path can restore that shard. Cached output is revalidated\nbefore reuse. A per-call tensor lookup avoids repeated scans of the entire package\nheader. Synthetic tests exercise 2,048 mapped tensors and deduplicated shards.\nThe runtime's `Generation/ImagePackageBridge.hpp` exposes versioned C calls for\nbounded image-package inspection and exact component materialization, including\nprogress and cooperative cancellation; each JSON result must be freed by the\nsame library. The runtime Python `image_package` adapter uses this interface to\nroute packaged image models without reimplementing tensor grouping.\n`iiLocalDiffusion::inspectEmbeddedImagePackage` returns the inspection, selected\nspecialized components, and a catalog of original source/index paths and tensor\nname mappings in one bounded read. `inspectEmbeddedImageCatalog` exposes the\ncatalog separately; GGUF assets have no tensor mappings. The equivalent C ABI\nuses `iild_image_package_inspect_v1` and `iild_image_package_catalog_v1` and\nfrees reports with `iild_image_package_free_v1`. Catalog entries are metadata,\nnot proof that tensor payloads or their combinations are compatible. Before\nexecution, the exact selected source is materialized with index and checksum\nverification; multiple recognizable image checkpoints are not selected silently.\nThe Python router accepts `--package-model` with the original checkpoint or\nshard-index path to choose among recognized image checkpoints. When several\ncandidates exist, a single matching model explicitly assigned `main` by the\npackage creator is selected automatically; automatically inferred positions\nnever resolve ambiguity. The catalog exposes this user assignment for entire\nindexed groups, and the error for an unspecified ambiguous selection lists up\nto eight candidate paths.\nThe Python generation router accepts `--package-components` to map native slots\nor MOSS `llm` and `vae` slots to original paths inside a package. This is distinct from `--components`, which\nselects already available local files, and conflicts are rejected.\nInspection alone does not read model weights, and neither this bridge nor a\nsynthetic worker test establishes successful pretrained inference.\n"
+    },
+    {
+      "id": "b000026",
+      "kind": "blank",
+      "start_line": 209,
+      "end_line": 209,
+      "raw": "\n"
+    },
+    {
+      "id": "b000034",
+      "kind": "paragraph",
+      "start_line": 210,
+      "end_line": 234,
+      "raw": "For a recognized native image package with no complete embedded or explicitly\nchosen VAE, the router can inspect separate VAE candidates against the actual\nnative engine's tensor contract. `Generation/NativeVaeInspection.hpp` exposes\nmetadata-only inspection and candidate validation to C++; the versioned\n`iild_image_vae_inspect_v1` and `iild_image_vae_validate_v1` C functions return\nowned reports using the same free function as the package bridge. The Python\nadapter inspects a temporary sparse metadata view, copying only bounded Comfy\nquantization descriptors when required. It verifies and reconstructs only the\nunique compatible component. Multiple compatible candidates require an\nexplicit `--package-components` choice; unsupported contracts, no match, and\nfilesystems unable to create the sparse probe leave existing backend behavior\nunchanged. An explicit VAE always takes precedence. These contracts validate\ntensor names and dimensions, not weight values, text encoders, or inference.\nThe same package router can resolve CLIP-L, CLIP-G and T5-XXL for supported\nSD1/2, SDXL, SD3 and FLUX.1 slots. `Generation/NativeTextEncoderInspection.hpp`\nand the matching versioned C calls inspect native encoder contracts without\nexecuting tensors. The engine's optional-tensor rules are retained; T5-XXL\nauto-selection additionally requires the standard 24-layer 4096-dimensional\ncontract. Standard CLIP/T5 safetensors signatures are candidate filters only:\nall required engine tensors must match before a unique source is selected.\nGGUF assets without a package tensor mapping and other encoder architectures\nremain available through explicit component paths. An explicit component or a\ncomplete embedded component takes precedence, and multiple matching sources\nare reported rather than guessed. Native-runtime-disabled builds report the\ninspection contract as unsupported without changing their existing route.\n"
+    },
+    {
+      "id": "b000035",
+      "kind": "blank",
+      "start_line": 235,
+      "end_line": 235,
+      "raw": "\n"
+    },
+    {
       "id": "b000027",
       "kind": "heading",
-      "start_line": 118,
-      "end_line": 118,
+      "start_line": 236,
+      "end_line": 236,
       "raw": "## CLI and build\n",
       "level": 2,
       "title": "CLI and build"
@@ -227,15 +283,15 @@
     {
       "id": "b000028",
       "kind": "blank",
-      "start_line": 119,
-      "end_line": 119,
+      "start_line": 237,
+      "end_line": 237,
       "raw": "\n"
     },
     {
       "id": "b000029",
       "kind": "fenced_code",
-      "start_line": 120,
-      "end_line": 131,
+      "start_line": 238,
+      "end_line": 249,
       "raw": "```sh\ncmake --build build --target iild-model-package\nctest --test-dir build -R '^iiLocalDiffusion.ModelPackaging$' --output-on-failure\ncmake --install build --component ModelPackaging\niild-model-package scan --input /path/to/folder\niild-model-package create --input /path/to/folder --output /path/to/model.safetensors\niild-model-package create --input /path/to/folder --output /path/to/core.safetensors --exclude spatial_upscaler.safetensors\niild-model-package create --input /path/to/Models --select Checkpoint/base.safetensors --select LLM/encoder.gguf --output /path/to/model.safetensors\niild-model-package create --input /path/to/Models --select Other/base.safetensors --select Other/encoder.safetensors --assign-position Other/base.safetensors=main --assign-role Other/encoder.safetensors=text_encoder --output /path/to/model.safetensors\niild-model-package verify --input /path/to/model.safetensors\niild-model-package extract --input /path/to/model.safetensors --output /path/to/new-folder\n```\n",
       "language": "sh",
       "code": "cmake --build build --target iild-model-package\nctest --test-dir build -R '^iiLocalDiffusion.ModelPackaging$' --output-on-failure\ncmake --install build --component ModelPackaging\niild-model-package scan --input /path/to/folder\niild-model-package create --input /path/to/folder --output /path/to/model.safetensors\niild-model-package create --input /path/to/folder --output /path/to/core.safetensors --exclude spatial_upscaler.safetensors\niild-model-package create --input /path/to/Models --select Checkpoint/base.safetensors --select LLM/encoder.gguf --output /path/to/model.safetensors\niild-model-package create --input /path/to/Models --select Other/base.safetensors --select Other/encoder.safetensors --assign-position Other/base.safetensors=main --assign-role Other/encoder.safetensors=text_encoder --output /path/to/model.safetensors\niild-model-package verify --input /path/to/model.safetensors\niild-model-package extract --input /path/to/model.safetensors --output /path/to/new-folder\n",
@@ -244,30 +300,60 @@
     {
       "id": "b000030",
       "kind": "blank",
-      "start_line": 132,
-      "end_line": 132,
+      "start_line": 250,
+      "end_line": 250,
       "raw": "\n"
     },
     {
       "id": "b000031",
       "kind": "paragraph",
-      "start_line": 133,
-      "end_line": 162,
-      "raw": "The CLI emits NDJSON progress and a final report. SIGINT/SIGTERM request\ncooperative cancellation. Exit codes: 0 success, 2 error, 130 cancellation.\nThe `ModelPackaging` component also installs `iild_model_packaging.py` under\n`share/iiLocalDiffusion/python`. `scan_selection(root, paths, executable=...)`\nand `create_selection(root, paths, output, executable=...)` call the native CLI\nand return its final JSON report; paths are relative to the supplied root.\nThe executable defaults to `iild-model-package` on `PATH`, and failures raise\n`ModelPackagingError`. Empty selections are rejected rather than scanning the\nentire root. The wrapper does not depend on Torch or a GUI toolkit.\nBoth selection functions accept `assignments={\"relative/path\": {\"role\": \"model\",\n\"position\": \"main\"}}`; either field may be omitted for automatic selection.\nFor legacy packages with ambiguous roles, `iild-model-package materialize --input\nPACKAGE --output CACHE --asset-path RELATIVE_SOURCE` and the Python\n`materialize_package_asset(..., relative_source=...)` select the exact original\nmanifest path. The role and path options are mutually exclusive. Unsafe or\nduplicate source paths, incomplete mappings and checksum mismatches are errors;\nthe input package is not modified. This reconstructs a component, not a proof\nthat an engine can load it or generate an image.\nOn macOS the `ModelPackaging` install component also carries its selected\nOpenSSL Crypto dynamic library so its CLI can start without a developer-machine\ndynamic-library search path. CMake consumers still need an OpenSSL development\nSDK to resolve the exported static library's dependency.\nThe integration suite uses tiny Safetensors and GGUF files, sharded indexes,\nbyte-identical reconstruction, duplicate conflicts, missing components, ONNX\nrejection, output/cache tampering, no-overwrite behavior and cancellation.\nThe controlled native video adapter test checks that either encoder format\nreaches the engine; it is not a real-model inference or hardware performance test.\nThe canonical native-enabled `build/` also passed the image, controlled video\nadapter and video options tests; the packaging suite passed after its CLI target\nwas rebuilt.\n"
+      "start_line": 251,
+      "end_line": 281,
+      "raw": "The CLI emits NDJSON progress and a final report. SIGINT/SIGTERM request\ncooperative cancellation. Exit codes: 0 success, 2 error, 130 cancellation.\nThe `ModelPackaging` component also installs `iild_model_packaging.py` under\n`share/iiLocalDiffusion/python`. `scan_selection(root, paths, executable=...)`\nand `create_selection(root, paths, output, executable=...)` call the native CLI\nand return its final JSON report; paths are relative to the supplied root.\nThe executable defaults to `iild-model-package` on `PATH`, and failures raise\n`ModelPackagingError`. Empty selections are rejected rather than scanning the\nentire root. The wrapper does not depend on Torch or a GUI toolkit.\nBoth selection functions accept `assignments={\"relative/path\": {\"role\": \"model\",\n\"position\": \"main\"}}`; either field may be omitted for automatic selection.\nFor legacy packages with ambiguous roles, `iild-model-package materialize --input\nPACKAGE --output CACHE --asset-path RELATIVE_SOURCE` and the Python\n`materialize_package_asset(..., relative_source=...)` select the exact original\nmanifest path or its embedded Safetensors shard-index path. The role and path\noptions are mutually exclusive. Unsafe or\nduplicate source paths, incomplete mappings and checksum mismatches are errors;\nthe input package is not modified. This reconstructs a component, not a proof\nthat an engine can load it or generate an image.\nOn macOS the `ModelPackaging` install component also carries its selected\nOpenSSL Crypto dynamic library so its CLI can start without a developer-machine\ndynamic-library search path. CMake consumers still need an OpenSSL development\nSDK to resolve the exported static library's dependency.\nThe integration suite uses tiny Safetensors and GGUF files, sharded indexes,\nbyte-identical reconstruction, duplicate conflicts, missing components, ONNX\nrejection, output/cache tampering, no-overwrite behavior and cancellation.\nThe controlled native video adapter test checks that either encoder format\nreaches the engine; it is not a real-model inference or hardware performance test.\nThe canonical native-enabled `build/` also passed the image, controlled video\nadapter and video options tests; the packaging suite passed after its CLI target\nwas rebuilt.\n"
     },
     {
       "id": "b000032",
       "kind": "blank",
-      "start_line": 163,
-      "end_line": 163,
+      "start_line": 282,
+      "end_line": 282,
       "raw": "\n"
     },
     {
       "id": "b000033",
       "kind": "paragraph",
-      "start_line": 164,
-      "end_line": 164,
+      "start_line": 283,
+      "end_line": 283,
       "raw": "On 2026-10-27, the macOS arm64 source and separately staged CLI each passed all 23 packaging cases; the installed C++ consumer and controlled native video adapter tests also passed.\n"
+    },
+    {
+      "id": "b000042",
+      "kind": "blank",
+      "start_line": 284,
+      "end_line": 284,
+      "raw": "\n"
+    },
+    {
+      "id": "b000043",
+      "kind": "heading",
+      "start_line": 285,
+      "end_line": 285,
+      "raw": "## Renamed shard indexes\n",
+      "level": 2,
+      "title": "Renamed shard indexes"
+    },
+    {
+      "id": "b000044",
+      "kind": "blank",
+      "start_line": 286,
+      "end_line": 286,
+      "raw": "\n"
+    },
+    {
+      "id": "b000045",
+      "kind": "paragraph",
+      "start_line": 287,
+      "end_line": 295,
+      "raw": "A complete Safetensors shard group is preserved even when its index or shard\nfilenames use nonstandard extensions. New package manifests identify that index\nexplicitly; existing manifests with conventional index names remain readable.\nReconstruction still validates the original index, exact tensor coverage and\nchecksums, and never rewrites the source files. Same-directory links to one index\nare treated as one group, preferring a conventional index name; distinct indexes\nclaiming the same shard are rejected.\nNative index-probe and Wan loader patches are checked together during repeat\nconfiguration; tests also reapply them in an isolated resource workspace.\n"
     }
   ],
   "outline": [
@@ -301,7 +387,7 @@
       "level": 2,
       "title": "Validation and resource use",
       "anchor": "validation-and-resource-use",
-      "start_line": 88
+      "start_line": 89
     },
     {
       "block_id": "b000027",
@@ -309,7 +395,15 @@
       "level": 2,
       "title": "CLI and build",
       "anchor": "cli-and-build",
-      "start_line": 118
+      "start_line": 236
+    },
+    {
+      "block_id": "b000043",
+      "parent_id": "b000001",
+      "level": 2,
+      "title": "Renamed shard indexes",
+      "anchor": "renamed-shard-indexes",
+      "start_line": 285
     }
   ],
   "indexes": {
@@ -329,16 +423,51 @@
         "context": "paragraph"
       },
       {
+        "block_id": "b000019",
+        "line": 87,
+        "text": "The GGUF architecture tags `wan`, `wan2.1` and `wan2.2` identify a diffusion-model role, but do not by themselves establish a video output modality: other models also reuse those tags.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
         "block_id": "b000023",
-        "line": 93,
+        "line": 94,
         "text": "resolved within their source directory and every indexed tensor must exist.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
+        "block_id": "b000037",
+        "line": 123,
+        "text": "and safe relative paths. It rejects missing, extra, duplicate, truncated, or",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000040",
+        "line": 142,
+        "text": "still requires the separate manifest and checksum verification path.",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
         "block_id": "b000025",
-        "line": 113,
+        "line": 164,
         "text": "Python, Torch, GPU or tensor cast is required. This packaging check does not",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000045",
+        "line": 291,
+        "text": "checksums, and never rewrites the source files. Same-directory links to one index",
+        "basis": "lexical_match",
+        "context": "paragraph"
+      },
+      {
+        "block_id": "b000045",
+        "line": 293,
+        "text": "claiming the same shard are rejected.",
         "basis": "lexical_match",
         "context": "paragraph"
       }
@@ -355,7 +484,7 @@
   },
   "provenance": {
     "generator": "workspace-docs",
-    "version": "1.0.0",
+    "version": "1.0.0+manual-sync",
     "profile": "lossless-blocks-v1",
     "derived": true
   }

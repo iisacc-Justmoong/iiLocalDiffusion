@@ -124,6 +124,25 @@ class GenerationDefaultsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "resource identity changed"):
                 audit.prepare(root, check=False)
 
+    def test_optional_llm_is_checked_only_when_present_and_never_rewritten(self):
+        spec = importlib.util.spec_from_file_location("prepare_generation_defaults", ROOT / "scripts/prepare_generation_defaults.py")
+        audit = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(audit)
+        with resource_fixture.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = b"optional Anima encoder"
+            entry = {"file": "anima.safetensors", "size": len(payload),
+                     "sha256": hashlib.sha256(payload).hexdigest(), "optional": True}
+            catalog = root / "generation-defaults.json"
+            catalog.write_text(json.dumps({"version": 1, "negative_embeddings": [], "fallback_llms": [entry]}))
+            audit.prepare(root, check=True)
+            (root / entry["file"]).write_bytes(payload)
+            audit.prepare(root, check=True)
+            (root / entry["file"]).write_bytes(b"x" * len(payload))
+            with self.assertRaisesRegex(ValueError, "resource identity changed"):
+                audit.prepare(root, check=False)
+            self.assertEqual(json.loads(catalog.read_text())["fallback_llms"][0]["sha256"], entry["sha256"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -51,6 +51,19 @@ def checked_resource(root, item):
     return file
 
 
+def checked_native_resource(root, item):
+    """Validate a local native safetensors or GGUF component without changing it."""
+    relative = Path(item["file"])
+    path = root / relative
+    if relative.is_absolute() or ".." in relative.parts or not path.resolve().is_relative_to(root.resolve()):
+        raise ValueError("A generation-defaults resource escapes its package.")
+    from native_image import native_weight
+    file = native_weight(path, "generation default")
+    if file.size_bytes != item["size"] or (file.sha256 is not None and file.sha256 != item["sha256"]):
+        raise ValueError(f"Bundled generation resource differs from its manifest: {path}")
+    return file
+
+
 def resolve_krea2_components(inspection, components, directory=None):
     """Mount missing Krea2 components from the local resource catalog only.
 
@@ -77,6 +90,36 @@ def resolve_krea2_components(inspection, components, directory=None):
         if len(selected) != 1 or selected[0].get("class_name") != "AutoencoderKLWan":
             raise ValueError("Add or sync the verified Wan2.1 VAE generation resources for Krea2.")
         components["vae"] = checked_resource(root, selected[0]).path
+    return components
+
+
+def resolve_anima_components(inspection, components, directory=None):
+    """Mount cataloged Anima components only for slots absent from the model."""
+    components = dict(components)
+    present = set(inspection.get("component_slots", [])) | set(components)
+    missing = {"llm", "vae"} - present
+    if not missing:
+        return components
+    root, manifest = read_defaults(directory)
+    if "llm" in missing:
+        entries = manifest.get("fallback_llms", [])
+        if not isinstance(entries, list) or len(entries) > 64 or any(not isinstance(item, dict) for item in entries):
+            raise ValueError("Invalid fallback text encoder catalog.")
+        selected = [entry for entry in entries if isinstance(entry.get("families"), list)
+                    and "anima" in entry["families"]]
+        if len(selected) != 1 or selected[0].get("class_name") != "Qwen3ForCausalLM":
+            raise ValueError("Add or sync the verified Qwen3-0.6B-Base generation resources for Anima.")
+        components["llm"] = checked_native_resource(root, selected[0]).path
+    if "vae" in missing:
+        vaes = manifest.get("fallback_vaes", [])
+        if not isinstance(vaes, list) or len(vaes) > 64 or any(not isinstance(item, dict) for item in vaes):
+            raise ValueError("Invalid fallback VAE catalog.")
+        entries = ([manifest["fallback_vae"]] if "fallback_vae" in manifest else []) + vaes
+        selected = [entry for entry in entries if isinstance(entry, dict)
+                    and isinstance(entry.get("families"), list) and "qwen-image" in entry["families"]]
+        if len(selected) != 1 or selected[0].get("class_name") != "AutoencoderKLQwenImage":
+            raise ValueError("Add or sync the verified Qwen Image VAE generation resources for Anima.")
+        components["vae"] = checked_native_resource(root, selected[0]).path
     return components
 
 

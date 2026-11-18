@@ -6,6 +6,7 @@ project(
     DESCRIPTION "A local generative-model pipeline runtime"
     LANGUAGES CXX
 )
+include(./cmake/ModuleImports.cmake)
 # File creation is owned by iiFileProvider.
 find_package(iiFileProviderNative 0.8.2 CONFIG REQUIRED HINTS "$ENV{IIFILEPROVIDER_PREFIX}" "$ENV{HOME}/.local/SDK/iiFileProvider")
 link_libraries(iiFileProvider::Native)
@@ -114,7 +115,10 @@ add_library(iiLocalDiffusion SHARED
     src/Generation/NativePose.cpp
     src/Generation/GenerationDefaults.cpp
     src/Generation/NativeModelInspection.cpp
+    src/Generation/NativeVaeInspection.cpp
+    src/Generation/NativeTextEncoderInspection.cpp
     src/Generation/NativeImagePackage.cpp
+    src/Generation/ImagePackageBridge.cpp
     src/ModelManifest/DiffusionModelManifest.cpp
     src/ModelManifest/ModelManifest.cpp
     src/StableDiffusion/StableDiffusionModelManifest.cpp
@@ -373,6 +377,15 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_compile_features(NativeKrea2NamesTests PRIVATE cxx_std_23)
         iild_resource_test(NativeKrea2NamesTests NativeKrea2NamesTests
             "@WORK@/native-krea2-mount-contract")
+        add_executable(NativeAnimaNamesTests tests/NativeAnimaNamesTests.cpp)
+        target_link_libraries(NativeAnimaNamesTests PRIVATE stable-diffusion iiLocalDiffusion)
+        target_compile_features(NativeAnimaNamesTests PRIVATE cxx_std_23)
+        iild_resource_test(NativeAnimaNamesTests NativeAnimaNamesTests
+            "@WORK@/native-anima-names-contract")
+        add_executable(NativeWanNamesTests tests/NativeWanNamesTests.cpp)
+        target_link_libraries(NativeWanNamesTests PRIVATE stable-diffusion iiLocalDiffusion::ModelPackaging)
+        target_compile_features(NativeWanNamesTests PRIVATE cxx_std_23)
+        iild_resource_test(NativeWanNamesTests NativeWanNamesTests "@WORK@/native-wan-names")
         add_executable(NativeLlmConfigTests tests/NativeLlmConfigTests.cpp src/Generation/GenerationDefaults.cpp)
         target_include_directories(NativeLlmConfigTests PRIVATE src)
         target_compile_features(NativeLlmConfigTests PRIVATE cxx_std_23)
@@ -405,6 +418,11 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         iild_resource_test(NativeVaeFallbackTests NativeVaeFallbackTests
             "@WORK@/native-vae-contract"
             "${CMAKE_CURRENT_SOURCE_DIR}/resources/vae")
+        add_executable(NativeVaeInspectionTests tests/NativeVaeInspectionTests.cpp)
+        target_link_libraries(NativeVaeInspectionTests PRIVATE iiLocalDiffusion)
+        target_compile_features(NativeVaeInspectionTests PRIVATE cxx_std_23)
+        iild_resource_test(NativeVaeInspectionTests NativeVaeInspectionTests
+            "@WORK@/native-vae-inspection" "${CMAKE_CURRENT_SOURCE_DIR}/resources/vae")
         add_executable(NativePreparationTests tests/NativePreparationTests.cpp)
         target_link_libraries(NativePreparationTests PRIVATE iiLocalDiffusion)
         iild_resource_test(NativePreparationTests NativePreparationTests "@WORK@/native-preparation-contract")
@@ -429,6 +447,9 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         add_executable(NativeFp8MetalTests tests/NativeFp8MetalTests.cpp)
         target_link_libraries(NativeFp8MetalTests PRIVATE stable-diffusion ggml-metal)
         add_test(NAME NativeFp8MetalTests COMMAND NativeFp8MetalTests)
+        add_executable(NativeInt8MetalTests tests/NativeInt8MetalTests.cpp)
+        target_link_libraries(NativeInt8MetalTests PRIVATE stable-diffusion ggml-metal)
+        add_test(NAME NativeInt8MetalTests COMMAND NativeInt8MetalTests)
         add_executable(NativeLegacyMetalTests tests/NativeLegacyMetalTests.cpp)
         target_link_libraries(NativeLegacyMetalTests PRIVATE stable-diffusion ggml-metal)
         add_test(NAME NativeLegacyMetalStorage COMMAND NativeLegacyMetalTests)
@@ -510,7 +531,8 @@ endif()
 target_compile_options(iiLocalDiffusion PRIVATE ${IILD_WARNING_OPTIONS})
 
 # Packaging is a small, Qt/Torch/Python-independent C++23 module.
-add_library(iiModelPackaging src/ModelPackaging/ModelPackaging.cpp src/ModelPackaging/ModelInspection.cpp)
+add_library(iiModelPackaging src/ModelPackaging/ModelPackaging.cpp src/ModelPackaging/ModelInspection.cpp
+    src/ModelPackaging/ModelTorchCandidate.cpp)
 add_library(iiLocalDiffusion::ModelPackaging ALIAS iiModelPackaging)
 set_target_properties(iiModelPackaging PROPERTIES EXPORT_NAME ModelPackaging CXX_EXTENSIONS OFF WINDOWS_EXPORT_ALL_SYMBOLS ON)
 if(BUILD_SHARED_LIBS)
@@ -535,6 +557,11 @@ target_link_libraries(iiModelPackaging PRIVATE ${IILD_JSON_C_TARGET}
     "$<INSTALL_INTERFACE:iiLocalDiffusion::CryptoRuntime>" iiFileProvider::Native)
 set_target_properties(iiModelPackaging PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(iiLocalDiffusion PRIVATE iiLocalDiffusion::ModelPackaging)
+foreach(iild_inspection_test IN ITEMS NativeResultTests NativeMobileResultTests)
+    if(TARGET ${iild_inspection_test})
+        target_link_libraries(${iild_inspection_test} PRIVATE iiLocalDiffusion::ModelPackaging)
+    endif()
+endforeach()
 target_compile_options(iiModelPackaging PRIVATE ${IILD_WARNING_OPTIONS})
 
 if(IILD_BUILD_TOOLS)
@@ -585,12 +612,18 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/ModelInspectionTests.py"
                 "$<TARGET_FILE:iild-model-package>")
     endif()
+    if(Python3_Interpreter_FOUND AND TARGET stable-diffusion AND NOT CMAKE_CROSSCOMPILING)
+        get_target_property(iild_patch_source stable-diffusion SOURCE_DIR)
+        add_test(NAME NativeIndexPatchTests COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/NativeIndexPatchTests.py" "${iild_patch_source}" "${GIT_EXECUTABLE}")
+    endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND NOT CMAKE_CROSSCOMPILING AND TARGET iild-model-package)
         iild_resource_script_test(iiLocalDiffusion.ModelPackagingComponentInstall
             "${CMAKE_COMMAND}"
                 "-DBUILD_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}"
                 "-DSTAGE_DIRECTORY=@WORK@/packaging-component-test"
                 "-DBIN_DIRECTORY=${CMAKE_INSTALL_BINDIR}"
+                "-DPYTHON_EXECUTABLE=${Python3_EXECUTABLE}"
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/ModelPackagingInstallTests.cmake")
     endif()
     if(UNIX AND Python3_Interpreter_FOUND)
@@ -750,7 +783,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
                 GenerationOptionsTests GenerationOutputTests GenerationSeedTests GenerationPreviewTests InferenceCacheTests InferenceWorkerFailureTests MetadataValidationTests PersistentModelHashTests ModelPreparationCacheTests ForegroundInferenceTests
                 DeforumOptionsTests DeforumRuntimeTests DeforumMediaTests
                 InterpolatorOptionsTests InterpolatorRuntimeTests InterpolatorMediaTests
-                VideoOptionsTests VideoRuntimeTests VideoRoutingPolicyTests VideoInterpolationTests NativeVideoTests LocalGenerationTests StandaloneImageTests NativeImageTests
+                VideoOptionsTests VideoRuntimeTests VideoRoutingPolicyTests VideoInterpolationTests NativeVideoTests WanDirectoryRoutingTests ShardedSymlinkTests LocalGenerationTests StandaloneImageTests NativeImageTests
                 ModelSourceTests RemoteGenerationTests
                 GenericIOTests GenerationCompositionTests GenerationAdapterTests
                 GenerationSchedulerTests GenerationTensorInputsTests EncoderCompatibilityTests
@@ -766,17 +799,28 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
         # The ABI test must load the library from this configuration, not an
         # unrelated or stale binary in the checkout's default build directory.
-        set_tests_properties(NativeVideoTests PROPERTIES
+        set_tests_properties(NativeVideoTests WanDirectoryRoutingTests ShardedSymlinkTests PROPERTIES
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;IILD_NATIVE_LIBRARY=$<TARGET_FILE:iiLocalDiffusion>")
+        if(TARGET iild-model-package)
+            set_property(TEST WanDirectoryRoutingTests APPEND PROPERTY ENVIRONMENT
+                "IILD_MODEL_PACKAGING_TOOL=$<TARGET_FILE:iild-model-package>")
+        endif()
         foreach(model_compatibility_test IN ITEMS
-                CivitaiCatalogTests ModelFamilyTests GenericDiffusersTests ModelConfigDefaultsTests GenericControlIntegrationTests ProvisionedControlPreflightTests DepthPreprocessingTests DepthAnythingProvisionTests DepthPreprocessingRuntimeTests BackendRegistryTests Krea2ContractTests Krea2ProvisionTests Krea2PayloadTests Krea2RuntimeTests Krea2SingleFileRuntimeTests Krea2RegionsTests Krea2OstrisTests Krea2OstrisConditioningRuntimeTests Krea2TextEncoderTests Krea2TextEncoderRuntimeTests Krea2TokenizerTests Krea2TokenizerRuntimeTests MossControlTests MossControlRuntimeTests MossLoadingProgressTests MossSingleFileRuntimeTests MossInt8FormatTests MossConvRotRuntimeTests MossEncoderProvisionTests MossTransformerProvisionTests MossEncoderFallbackTests MossUpstreamRuntimeTests MossRapidTests MossRegionsTests MossRegionsRuntimeTests FluxTokenizerTests FluxT5StreamLoraTests FluxEncoderProvisionTests FluxTextEncoderTests FluxTextEncoderRuntimeTests Flux1SingleFileRuntimeTests FluxControlRuntimeTests Flux2ControlTests Flux2ControlRuntimeTests QwenControlRuntimeTests SD3ControlRuntimeTests
+                CivitaiCatalogTests ModelFamilyTests GenericDiffusersTests ModelConfigDefaultsTests GenericControlIntegrationTests ProvisionedControlPreflightTests DepthPreprocessingTests DepthAnythingProvisionTests DepthPreprocessingRuntimeTests BackendRegistryTests Krea2ContractTests Krea2ProvisionTests Krea2PayloadTests Krea2RuntimeTests Krea2SingleFileRuntimeTests Krea2RegionsTests Krea2OstrisTests Krea2OstrisConditioningRuntimeTests Krea2TextEncoderTests Krea2TextEncoderRuntimeTests Krea2TokenizerTests Krea2TokenizerRuntimeTests MossControlTests MossControlRuntimeTests MossLoadingProgressTests MossSingleFileRuntimeTests MossInt8FormatTests MossConvRotRuntimeTests MossEncoderProvisionTests MossTransformerProvisionTests MossEncoderFallbackTests MossUpstreamRuntimeTests MossRapidTests MossRegionsTests MossRegionsRuntimeTests AnimaEncoderProvisionTests FluxTokenizerTests FluxT5StreamLoraTests FluxEncoderProvisionTests FluxTextEncoderTests FluxTextEncoderRuntimeTests Flux1SingleFileRuntimeTests FluxControlRuntimeTests Flux2ControlTests Flux2ControlRuntimeTests QwenControlRuntimeTests SD3ControlRuntimeTests
                 ComfyUIRuntimeTests GenerationRouterTests RuntimeCompatibilityTests
-                DownloadedModelTests CheckpointConversionTests DiTConversionTests PythonLauncherTests DependencyImportProgressTests ModelMergeTests ModelMergeLoraTests ModelMergeSyntheticTests ModelMergeCommonLayerTests ModelMergeBaseLayoutTests ModelMergeCompatibilityTests UnifiedModelMergeTests UnifiedImageTests ComfyUIImageWorkflowTests
+                DownloadedModelTests CheckpointConversionTests GgufComponentRuntimeTests DiTConversionTests PythonLauncherTests DependencyImportProgressTests ModelMergeTests ModelMergeLoraTests ModelMergeSyntheticTests ModelMergeCommonLayerTests ModelMergeBaseLayoutTests ModelMergeCompatibilityTests UnifiedModelMergeTests UnifiedImageTests ComfyUIImageWorkflowTests
                 LocalImageTests SetupComfyUITests ResourcePathsTests InstallResourcesTests SmokeLayoutTests)
             add_test(NAME ${model_compatibility_test}
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/${model_compatibility_test}.py")
             set_tests_properties(${model_compatibility_test} PROPERTIES
                 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+        endforeach()
+        set_tests_properties(GgufComponentRuntimeTests PROPERTIES SKIP_REGULAR_EXPRESSION "skipped=1")
+        foreach(moss_hires_test IN ITEMS MossHiresMathTests MossHiresRuntimeTests)
+            add_test(NAME ${moss_hires_test} COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/MossHiresRuntimeTests.py" ${moss_hires_test} -v)
+            set_tests_properties(${moss_hires_test} PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
+                SKIP_REGULAR_EXPRESSION "Install (torch|the reference runtime) for synthetic MOSS")
         endforeach()
         # Do not report a green payload audit when the selected Python lacks its runtime.
         set_tests_properties(Krea2PayloadTests PROPERTIES
@@ -882,7 +926,7 @@ install(FILES docs/licenses/DWPose.txt docs/licenses/SwinIR-Apache-2.0.txt docs/
     DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/licenses COMPONENT Runtime)
 install(FILES resources/generation-defaults.json resources/README.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/resources COMPONENT Runtime)
-install(FILES scripts/provision_flux1_text_encoders.py scripts/provision_flux1_schnell.py scripts/provision_flux1_canny.py
+install(FILES scripts/provision_flux1_text_encoders.py scripts/provision_flux1_schnell.py scripts/provision_flux1_canny.py scripts/provision_anima_text_encoder.py
     scripts/provision_krea2.py scripts/provision_depth_anything_v2.py scripts/provision_moss_text_encoder.py
     scripts/provision_moss_transformer.py scripts/provision_moss_control.py
     DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/scripts COMPONENT Runtime)
@@ -983,7 +1027,7 @@ install(
 )
 
 install(
-    FILES src/Generation/NativeUpscaler.hpp src/Generation/NativeUpscalerBridge.hpp src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/ImageModelRouting.hpp src/Generation/NativeExecutionControl.hpp src/Generation/NativeImageBridge.hpp src/Generation/NativeVideo.hpp src/Generation/NativeVideoBridge.hpp src/Generation/ImageParameters.hpp src/Generation/ImageWatermark.hpp src/Generation/NativePose.hpp
+    FILES src/Generation/NativeUpscaler.hpp src/Generation/NativeUpscalerBridge.hpp src/Generation/GenerationIO.hpp src/Generation/NativeDiffusion.hpp src/Generation/NativeVaeInspection.hpp src/Generation/NativeTextEncoderInspection.hpp src/Generation/ImageModelRouting.hpp src/Generation/ImagePackageBridge.hpp src/Generation/NativeExecutionControl.hpp src/Generation/NativeImageBridge.hpp src/Generation/NativeVideo.hpp src/Generation/NativeVideoBridge.hpp src/Generation/ImageParameters.hpp src/Generation/ImageWatermark.hpp src/Generation/NativePose.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Generation
 )
 

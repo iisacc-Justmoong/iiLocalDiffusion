@@ -3,7 +3,9 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import struct
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -14,6 +16,78 @@ import moss_text_encoder
 import moss_tokenizer
 
 AVAILABLE = all(importlib.util.find_spec(name) for name in ('torch', 'diffusers', 'transformers', 'safetensors', 'PIL'))
+
+
+class IndexedMossSourceTests(unittest.TestCase):
+    def test_real_safetensors_shards_are_mapped_without_combining_weights(self):
+        try:
+            import numpy as np
+            from safetensors import safe_open
+            from safetensors.numpy import save_file
+        except ImportError:
+            self.skipTest('Install NumPy and safetensors for the shard reader test')
+        import resource_fixture
+
+        with resource_fixture.TemporaryDirectory(prefix='moss-real-shards-') as temporary:
+            root = Path(temporary)
+            expected = {'first': np.arange(12, dtype=np.float32).reshape(3, 4),
+                        'second': np.arange(8, dtype=np.int8).reshape(2, 4)}
+            mapping = {}
+            for name, value in expected.items():
+                filename = name + '.safetensors'
+                save_file({name: value}, str(root / filename), metadata={'model_version': 'synthetic'})
+                mapping[name] = filename
+            index = root / 'model.SAFETENSORS.Index.JSON'
+            index.write_text(json.dumps({'weight_map': mapping}))
+            before = {path.name: path.read_bytes() for path in root.iterdir()}
+            # Exercise the same safetensors mappings with NumPy, without loading
+            # the model runtime or performing pretrained inference.
+            with patch('safetensors.safe_open', lambda path, **_: safe_open(path, framework='np', device='cpu')):
+                with single.open_checkpoint(index) as source:
+                    self.assertEqual(source.metadata()['model_version'], 'synthetic')
+                    for name, value in expected.items():
+                        self.assertEqual(source.get_slice(name).get_shape(), list(value.shape))
+                        np.testing.assert_array_equal(source.get_tensor(name), value)
+            self.assertEqual(before, {path.name: path.read_bytes() for path in root.iterdir()})
+
+    def test_indexed_source_reads_each_tensor_and_detects_mid_load_change(self):
+        import resource_fixture
+        import contextlib
+
+        with resource_fixture.TemporaryDirectory(prefix='moss-indexed-source-') as temporary:
+            root = Path(temporary)
+            mapping = {}
+            for name, filename, payload in (('first', 'part-a.safetensors', b'abcd'),
+                                             ('second', 'part-b.safetensors', b'efgh')):
+                raw = json.dumps({name: {'dtype': 'U8', 'shape': [4], 'data_offsets': [0, 4]}}).encode()
+                (root / filename).write_bytes(struct.pack('<Q', len(raw)) + raw + payload)
+                mapping[name] = filename
+            index = root / 'model.safetensors.index.json'
+            index.write_text(json.dumps({'weight_map': mapping}))
+
+            @contextlib.contextmanager
+            def fake_open(path, **_):
+                data = Path(path).read_bytes()
+                size, = struct.unpack('<Q', data[:8])
+                header = json.loads(data[8:8 + size])
+                yield SimpleNamespace(get_tensor=lambda name: data[8 + size + header[name]['data_offsets'][0]:
+                                                                    8 + size + header[name]['data_offsets'][1]])
+
+            with patch.dict(sys.modules, {'safetensors': SimpleNamespace(safe_open=fake_open)}), \
+                 patch.dict(os.environ, {'IILD_MODEL_VALIDATION': 'metadata'}):
+                with single.open_checkpoint(index) as source:
+                    self.assertEqual(set(source.keys()), set(mapping))
+                    self.assertEqual(source.get_slice('first').get_shape(), [4])
+                    self.assertEqual(source.get_slice('second').get_dtype(), 'U8')
+                    self.assertEqual(source.get_tensor('first'), b'abcd')
+                    self.assertEqual(source.get_tensor('second'), b'efgh')
+                with self.assertRaisesRegex(RuntimeError, 'changed'):
+                    with single.open_checkpoint(index) as source:
+                        self.assertEqual(source.get_tensor('first'), b'abcd')
+                        shard = root / 'part-b.safetensors'
+                        with shard.open('r+b') as output:
+                            output.seek(-1, 2)
+                            output.write(b'X')
 
 
 @unittest.skipUnless(AVAILABLE, 'Install reference dependencies for MOSS single-file tests')
@@ -447,6 +521,25 @@ class MossSingleFileRuntimeTests(unittest.TestCase):
             self.assertTrue(compute_events)
             self.assertEqual(compute_events[-1][1], compute_events[-1][2])
             torch.testing.assert_close(actual, expected, rtol=3e-6, atol=3e-7)
+            # The same quantized transformer split across two independently
+            # mapped shards must produce the same synthetic output.
+            names = sorted(weights)
+            parts = (names[::2], names[1::2])
+            weight_map = {}
+            for index, part in enumerate(parts, 1):
+                filename = f'moss-{index}.safetensors'
+                save_file({name: weights[name] for name in part}, str(root / filename),
+                          metadata={'iild_merge': json.dumps(history)})
+                weight_map.update({name: filename for name in part})
+            shard_index = root / 'model.safetensors.index.json'
+            shard_index.write_text(json.dumps({'weight_map': weight_map}))
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', RuntimeWarning)
+                sharded = single.load(shard_index, root, torch.float32, storage='cpu-stream')
+            self.assertTrue(sharded._iild_cpu_int8_convrot)
+            with torch.no_grad():
+                sharded_output = sharded(latent, 0.5, text).sample
+            torch.testing.assert_close(sharded_output, actual, rtol=3e-6, atol=3e-7)
             if torch.backends.mps.is_available():
                 loaded.to('mps')
                 with torch.no_grad():

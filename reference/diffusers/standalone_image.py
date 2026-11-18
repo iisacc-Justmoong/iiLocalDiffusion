@@ -14,7 +14,7 @@ from checkpoint_config import inspect_checkpoint
 from downloaded_model import inspect_downloaded_model
 from generation_config import configuration_values, json_object
 from inference_session import is_preparing
-from weight_files import file_sha256, verify_weight_file
+from weight_files import file_sha256, file_signature, verify_weight_file
 from presets import PRESETS
 from resource_paths import OUTPUT_DIRECTORY
 from vae_defaults import pipeline_vae_family, verify_vae_selection
@@ -42,23 +42,68 @@ def build_parser():
 
 
 def resolve_arguments(args):
+    from image_package import current as current_package, verify_source as verify_package_source
+    args.image_package = current_package()
+    verify_package_source(args.image_package)
+    if args.image_package:
+        args.original_model_path = args.image_package['source']
     if not args.model or not Path(args.model).expanduser().is_file():
         raise ValueError("The standalone checkpoint backend requires a local --model-path file.")
     if args.output is not None and args.output_dir is not None:
         raise ValueError("Choose --output or --output-dir, not both.")
-    inspection = inspect_downloaded_model(args.model, args.model_info)
+    original_model = args.model
+    original_signature = file_signature(Path(original_model).expanduser())
+    inspection = inspect_downloaded_model(original_model, args.model_info)
+    if file_signature(Path(original_model).expanduser()) != original_signature:
+        raise RuntimeError("Source checkpoint changed during model inspection.")
+    execution_inspection = inspection
+    args.model_conversion = None
     from backend_registry import PROFILES
     native = (args.engine == "native" or bool(args.components)
               or (args.engine == "auto" and inspection.get("architecture") in PROFILES
                   and inspection.get("architecture") not in ("sd1", "sdxl") and not args.model_config))
+    if inspection.get('format') == 'safetensors-index':
+        if args.engine == 'diffusers':
+            raise ValueError('A standalone Safetensors shard index requires the native engine, not a Diffusers single-file route.')
+        native = True
+    if native and args.engine == "diffusers":
+        raise ValueError("--components are native weight files; select --engine native.")
+    selected = None
+    if inspection.get("format") in ("pytorch", "pytorch-index"):
+        if inspection.get("role") != "checkpoint" or inspection.get("task") != "text-to-image":
+            raise ValueError("Legacy conversion requires a text-to-image checkpoint; inspect the model role and task first.")
+        if native and inspection.get("architecture") not in PROFILES:
+            raise ValueError("No native image backend supports this checkpoint architecture.")
+        if not native:
+            selected, _ = inspect_checkpoint(original_model, args.base_model, args.model_info)
+        if args.print_config or args.validate_only:
+            raise ValueError("Legacy checkpoint conversion is deferred until generation. "
+                             "Use --inspect-model for a metadata-only check.")
+        from checkpoint_conversion import materialize_safetensors, verify_conversion_source
+        conversion = materialize_safetensors(original_model, args.cache_dir / "checkpoint-conversions")
+        if not conversion.get("converted"):
+            raise RuntimeError("Legacy checkpoint conversion did not produce safetensors weights.")
+        if file_signature(Path(original_model).expanduser()) != original_signature:
+            raise RuntimeError("Source checkpoint changed between inspection and conversion.")
+        if inspection.get('format') == 'pytorch-index':
+            indexed = inspection.get('sharded_index', {})
+            paths = [Path(original_model).expanduser(), *map(Path, indexed.get('shards', ()))]
+            signatures = indexed.get('source_signatures', ())
+            if len(paths) != len(signatures) or any(file_signature(path) != tuple(signature)
+                                                    for path, signature in zip(paths, signatures)):
+                raise RuntimeError('PyTorch index or shard changed between inspection and conversion.')
+        verify_conversion_source(conversion)
+        args.model_conversion = conversion
+        args.original_model_path = str(Path(original_model).expanduser().absolute())
+        args.model = conversion["converted_path"]
+        execution_inspection = dict(inspection, format="safetensors")
     if native:
-        if args.engine == "diffusers":
-            raise ValueError("--components are native weight files; select --engine native.")
         from native_image import resolve_arguments as resolve_native
-        return resolve_native(args, inspection)
+        return resolve_native(args, execution_inspection)
     if args.krea2_variant != 'auto' or args.krea2_mu is not None or args.native_sampler != 'auto':
         raise ValueError('Krea 2 / native sampling controls require their matching backend.')
-    selected, inspection = inspect_checkpoint(args.model, args.base_model, args.model_info)
+    if selected is None:
+        selected, inspection = inspect_checkpoint(original_model, args.base_model, args.model_info)
     if "preset" not in getattr(args, "_provided", ()):
         args.preset = selected
         args._provided = set(args._provided) | {"preset"}
@@ -119,7 +164,12 @@ def main(argv=None):
             print(json.dumps(configuration(args), indent=2))
             return 0
         if is_preparing() or (args.output_dir is None and not args.output_was_default):
-            return runner(preset, args)
+            result = runner(preset, args)
+            from checkpoint_conversion import verify_conversion_source
+            verify_conversion_source(getattr(args, "model_conversion", None))
+            from image_package import verify_source as verify_package_source
+            verify_package_source(getattr(args, 'image_package', None))
+            return result
         output = empty_directory(args.output_dir or DEFAULT_OUTPUT_DIRECTORY / uuid.uuid4().hex, defer_creation=True)
         if args.work_dir:
             work = empty_directory(args.work_dir)
@@ -133,6 +183,8 @@ def main(argv=None):
             result = runner(preset, args)
             if result:
                 return result
+            from checkpoint_conversion import verify_conversion_source
+            verify_conversion_source(getattr(args, "model_conversion", None))
             verify_weight_file(args.model_selection.single_file, "model")
             if args.vae_file:
                 verify_weight_file(args.vae_file, "VAE")
@@ -162,6 +214,9 @@ def main(argv=None):
             provider.write_text(stage / "generation.json", json.dumps(manifest, indent=2))
             if output.resolve() != output or output.is_symlink():
                 raise RuntimeError("The output directory was redirected during generation.")
+            verify_conversion_source(getattr(args, "model_conversion", None))
+            from image_package import verify_source as verify_package_source
+            verify_package_source(getattr(args, 'image_package', None))
             # rename cannot replace a nonempty destination; concurrent output is preserved.
             provider.replace(stage, output)
         print(f"Generation: {output / 'generation.json'}")

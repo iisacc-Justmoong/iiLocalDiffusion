@@ -127,9 +127,27 @@ class ConfigurationArgumentParser(argparse.ArgumentParser):
             if not isinstance(value, bool):
                 raise ValueError(f"{action.dest} requires a JSON boolean.")
             return [flag if value else "--no-" + flag.removeprefix("--")]
+        if isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
+            if not isinstance(value, bool):
+                raise ValueError(f"{action.dest} requires a JSON boolean.")
+            if value == action.const:
+                return [flag]
+            if value == action.default:
+                return []
+            raise ValueError(f"{action.dest} cannot be set to {value} by this backend.")
         if action.type is json_object:
             if not isinstance(value, dict):
                 raise ValueError(f"{action.dest} requires a JSON object.")
+            return [flag + "=" + json.dumps(value, allow_nan=False)]
+        if action.dest in ("pipeline_inputs", "tensor_outputs"):
+            if isinstance(value, dict):
+                return [flag + "=" + json.dumps(value, ensure_ascii=False, allow_nan=False)]
+            if isinstance(value, str) and value.startswith("@"):
+                if len(value) == 1:
+                    raise ValueError(f"{action.dest} JSON file path must not be empty.")
+                path = Path(value[1:]).expanduser()
+                return [flag + "=@" + str(path if path.is_absolute() else (root / path).resolve())]
+        if action.dest == "sigmas" and action.nargs is None and isinstance(value, list):
             return [flag + "=" + json.dumps(value, allow_nan=False)]
         if action.nargs is not None:
             if not isinstance(value, list) or not value:
@@ -158,13 +176,19 @@ class ConfigurationArgumentParser(argparse.ArgumentParser):
                 raise ValueError(f"{action.dest} path must not be empty.")
             path = Path(text).expanduser()
             return str(path if path.is_absolute() else (root / path).resolve())
+        if action.dest in ("moss_text_encoder", "moss_rapid_adapter", "flux_clip_encoder", "flux_t5_encoder",
+                           "moss_regions", "krea2_regions"):
+            if not text:
+                raise ValueError(f"{action.dest} path must not be empty.")
+            path = Path(text).expanduser()
+            return str(path if path.is_absolute() else (root / path).resolve())
         if action.dest in ("model", "model_config", "vae", "lora", "latents", "embeddings",
                            "controlnet", "controlnet_config"):
             path = Path(text).expanduser()
             local = (
                 path.is_absolute() or text.startswith((".", "~"))
                 or (root / path).exists()
-                or path.suffix.lower() in (".safetensors", ".safetensor", ".ckpt", ".bin", ".pt")
+                or path.suffix.lower() in (".safetensors", ".safetensor", ".ckpt", ".bin", ".pt", ".pth", ".gguf")
             )
             if text and local:
                 return str(path if path.is_absolute() else (root / path).resolve())
@@ -177,9 +201,13 @@ def configuration_values(args: argparse.Namespace) -> dict[str, Any]:
         from remote_generation import image_configuration
         return image_configuration(args)
     values = {name: getattr(args, name) for name in args._argument_names}
+    if not getattr(args, "_hires_applicable", True) and "hires_fix" not in getattr(args, "_provided", ()):
+        # No still-image HiRes setting was supplied for this animation. Keep
+        # replay neutral instead of serializing an implicit boolean false.
+        values["hires_fix"] = None
     if getattr(args, "_hires_output_size", None) is not None:
         values["width"], values["height"] = args._hires_output_size
-    values["model"] = args.model_selection.source
+    values["model"] = getattr(args, "original_model_path", None) or args.model_selection.source
     values["revision"] = args.model_selection.requested_revision
     if args.config_selection is not None:
         values["model_config"] = args.config_selection.source

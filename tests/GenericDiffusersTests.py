@@ -8,6 +8,7 @@ import json
 import hashlib
 from pathlib import Path
 import subprocess
+import struct
 import sys
 from types import SimpleNamespace
 import unittest
@@ -50,6 +51,50 @@ class FakeImage:
 
 
 class GenericDiffusersTests(unittest.TestCase):
+    def test_json_configuration_preserves_relative_paths_booleans_and_cli_precedence(self):
+        config = self.directory / 'request.json'
+        config.write_text(json.dumps({'model': 'model', 'prompt': 'configured', 'steps': 4,
+            'overwrite': True, 'default_modifiers': False, 'cache_dir': 'cache',
+            'moss_text_encoder': 'encoder.safetensors'}))
+        args = generic.build_parser().parse_args(['--config', str(config), '--steps', '9'])
+        self.assertEqual(Path(args.model), self.model)
+        self.assertEqual(args.prompt, 'configured')
+        self.assertEqual(args.steps, 9)
+        self.assertTrue(args.overwrite)
+        self.assertFalse(args.default_modifiers)
+        self.assertEqual(args.cache_dir, self.directory / 'cache')
+        self.assertEqual(Path(args.moss_text_encoder), self.directory / 'encoder.safetensors')
+
+    def test_json_configuration_accepts_typed_pipeline_inputs_and_sigmas(self):
+        config = self.directory / 'typed-request.json'
+        config.write_text(json.dumps({'model': 'model', 'pipeline_inputs': {'height': 512, 'strength': 0.6},
+            'tensor_outputs': {'latents': {'semantic': 'latent'}}, 'sigmas': [1.0, 0.0]}))
+        args = generic.build_parser().parse_args(['--config', str(config)])
+        self.assertEqual(json.loads(args.pipeline_inputs), {'height': 512, 'strength': 0.6})
+        self.assertEqual(json.loads(args.tensor_outputs), {'latents': {'semantic': 'latent'}})
+        self.assertEqual(args.sigmas, [1.0, 0.0])
+        config.write_text(json.dumps({'model': 'model', 'pipeline_inputs': '@inputs.json'}))
+        args = generic.build_parser().parse_args(['--config', str(config)])
+        self.assertEqual(args.pipeline_inputs, '@' + str(self.directory / 'inputs.json'))
+
+    def test_json_configuration_resolves_missing_gguf_and_pth_as_local_paths(self):
+        config = self.directory / 'local-request.json'
+        for name in ('missing.gguf', 'missing.pth'):
+            with self.subTest(name=name):
+                config.write_text(json.dumps({'model': name}))
+                parsed = generic.build_parser().parse_args(['--config', str(config)])
+                self.assertEqual(parsed.model, str(self.directory / name))
+
+    def test_json_configuration_rejects_unrepresentable_or_invalid_booleans(self):
+        import contextlib
+        import io
+        config = self.directory / 'invalid-request.json'
+        for values in ({'overwrite': 'yes'}, {'local_files_only': False}):
+            with self.subTest(values=values):
+                config.write_text(json.dumps({'model': 'model', **values}))
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    generic.build_parser().parse_args(['--config', str(config)])
+
     def test_moss_loading_progress_uses_the_existing_model_progress_protocol(self):
         import contextlib
         import io
@@ -166,12 +211,277 @@ class GenericDiffusersTests(unittest.TestCase):
         Builtin.from_single_file = Mock(side_effect=lambda *args, **kwargs: Builtin())
         return SimpleNamespace(DiffusionPipeline=Base, FakePipeline=Builtin, pipelines=SimpleNamespace())
 
+    def fake_gguf_diffusers(self):
+        runtime = self.fake_diffusers()
+        class Model: pass
+        class Original: pass
+        class Transformer(Model, Original):
+            def named_parameters(self): return []
+            def named_buffers(self): return []
+        Transformer.from_single_file = Mock(side_effect=lambda *_args, **_kwargs: Transformer())
+        runtime.ModelMixin, runtime.FromOriginalModelMixin, runtime.Transformer = Model, Original, Transformer
+        runtime.GGUFQuantizationConfig = Mock(return_value=object())
+        runtime.FakePipeline.__init__ = lambda self, transformer=None: None
+        return runtime
+
     def test_omission_preserves_pipeline_defaults_without_injecting_prompt_or_seed(self):
         args = self.args()
         self.assertEqual(args.inputs, {})
         self.assertIsNone(args.seed)
         self.assertEqual(args.dtype, "float32")
         self.assertEqual(args.offload, "none")
+
+    def test_dreamscapes_image_count_and_disabled_hires_reach_the_pipeline(self):
+        args = self.args('--num-images', '3', '--no-hires-fix', '--width', '512', '--height', '768')
+        self.assertEqual(args.inputs['num_images_per_prompt'], 3)
+        self.assertEqual((args.inputs['width'], args.inputs['height']), (512, 768))
+        self.assertEqual(generic.configuration(args)['num_images'], 3)
+        self.assertFalse(generic.configuration(args)['hires_fix'])
+        single = self.args('--num-images', '1', '--no-hires-fix')
+        self.assertNotIn('num_images_per_prompt', single.inputs)
+        override = self.args('--pipeline-inputs', '{"num_images_per_prompt":4}', '--num-images', '1')
+        self.assertEqual(override.inputs['num_images_per_prompt'], 1)
+        with self.assertRaisesRegex(ValueError, 'single prompt'):
+            self.args('--pipeline-inputs', '{"prompt":["one","two"]}', '--num-images', '2')
+        def accepts_count(prompt=None, width=None, height=None, num_images_per_prompt=1):
+            pass
+        generic.validate_call_arguments(accepts_count, args.inputs, seed=None)
+        with self.assertRaisesRegex(ValueError, 'num_images_per_prompt'):
+            generic.validate_call_arguments(FakePipeline.__call__, args.inputs, seed=None)
+        for count in ('0', '1001'):
+            with self.subTest(count=count), self.assertRaisesRegex(ValueError, 'num-images'):
+                self.args('--num-images', count, '--no-hires-fix')
+
+    def test_legacy_checkpoint_converts_for_generic_loader_and_retains_original(self):
+        import checkpoint_conversion
+        original = self.directory / 'legacy.safetensors'
+        original.write_bytes(b'PK\x03\x04' + bytes(20))
+        header = json.dumps({'weight': {'dtype': 'F32', 'shape': [1], 'data_offsets': [0, 4]}}).encode()
+        converted = self.directory / 'converted.safetensors'
+        converted.write_bytes(struct.pack('<Q', len(header)) + header + bytes(4))
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(original),
+                      'output': checkpoint_conversion._identity(converted)}
+        tokens = ('--model', str(original), '--model-config', str(self.model),
+                  '--num-images', '2', '--no-hires-fix', '--no-default-modifiers')
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion) as materialize:
+            args = self.args(*tokens)
+            self.assertEqual(args.model, str(converted))
+            self.assertEqual(generic.configuration(args)['model'], str(original))
+            self.assertEqual(args.model_conversion, conversion)
+            self.assertEqual(args.inputs['num_images_per_prompt'], 2)
+            materialize.assert_called_once_with(str(original), args.cache_dir / 'checkpoint-conversions')
+        with patch.object(checkpoint_conversion, 'materialize_safetensors') as materialize:
+            with self.assertRaisesRegex(ValueError, 'inspect-model'):
+                self.args(*tokens, '--print-config')
+            with self.assertRaisesRegex(ValueError, 'model-config'):
+                self.args('--model', str(original), '--model-config', str(self.directory / 'missing'))
+            output = self.directory / 'output'
+            output.mkdir()
+            (output / 'existing.txt').write_text('preserve')
+            with self.assertRaisesRegex(ValueError, 'not empty'):
+                self.args(*tokens)
+            materialize.assert_not_called()
+
+    def test_generic_conversion_rejects_changed_source_or_converted_weights(self):
+        import checkpoint_conversion
+        original = self.directory / 'legacy.ckpt'
+        converted = self.directory / 'converted.safetensors'
+        for changed in ('original', 'converted'):
+            with self.subTest(changed=changed):
+                original.write_bytes(b'PK\x03\x04' + bytes(20))
+                converted.write_bytes(b'converted fixture')
+                conversion = {'converted': True, 'converted_path': str(converted),
+                              'original': checkpoint_conversion._identity(original),
+                              'output': checkpoint_conversion._identity(converted)}
+                def materialize(*_args):
+                    (original if changed == 'original' else converted).write_bytes(b'changed weights')
+                    return conversion
+                with patch.object(checkpoint_conversion, 'materialize_safetensors', side_effect=materialize):
+                    with self.assertRaisesRegex(RuntimeError, '(Source|Converted) checkpoint changed'):
+                        self.args('--model', str(original), '--model-config', str(self.model),
+                                  '--no-hires-fix', '--no-default-modifiers')
+
+    def test_explicit_pytorch_dequantization_reaches_checkpoint_conversion(self):
+        import checkpoint_conversion
+        original = self.directory / 'quantized.pt';original.write_bytes(b'PK\x03\x04' + bytes(20))
+        converted = self.directory / 'converted.safetensors';converted.write_bytes(b'converted fixture')
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(original),
+                      'output': checkpoint_conversion._identity(converted)}
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion) as materialize:
+            args = self.args('--model', str(original), '--model-config', str(self.model),
+                             '--dequantize-pytorch', '--no-default-modifiers')
+        self.assertTrue(generic.configuration(args)['dequantize_pytorch'])
+        materialize.assert_called_once_with(str(original), args.cache_dir / 'checkpoint-conversions',
+                                            quantized_tensors='dequantize')
+
+    def test_explicit_pytorch_dequantization_reaches_directory_component_conversion(self):
+        import checkpoint_conversion
+        import directory_checkpoint_conversion
+        unet = self.model / 'unet';unet.mkdir()
+        source = unet / 'diffusion_pytorch_model.bin';source.write_bytes(b'legacy weights')
+        safe = self.directory / 'converted.safetensors';safe.write_bytes(b'safe weights')
+        record = {'converted': True, 'converted_path': str(safe),
+                  'original': checkpoint_conversion._identity(source),
+                  'output': checkpoint_conversion._identity(safe)}
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=record) as materialize:
+            with directory_checkpoint_conversion.prepare(self.model, self.index, self.directory / 'cache',
+                    self.directory / 'output', None, quantized_tensors='dequantize') as prepared:
+                self.assertEqual((prepared.path / 'unet' / 'diffusion_pytorch_model.safetensors').read_bytes(), b'safe weights')
+        materialize.assert_called_once_with(source, self.directory / 'cache/checkpoint-conversions',
+                                            quantized_tensors='dequantize')
+
+    def test_dequantization_configuration_accepts_boolean_and_cli_override(self):
+        config = self.directory / 'quantized-request.json'
+        config.write_text(json.dumps({'model': str(self.model), 'dequantize_pytorch': True}))
+        parser = generic.build_parser()
+        self.assertTrue(parser.parse_args(['--config', str(config)]).dequantize_pytorch)
+        self.assertFalse(parser.parse_args(['--config', str(config), '--no-dequantize-pytorch']).dequantize_pytorch)
+        self.assertTrue(parser.parse_values({'model': str(self.model), 'dequantize_pytorch': True}).dequantize_pytorch)
+
+    def test_dequantization_mode_separates_retained_pipeline_cache(self):
+        args = self.args('--no-default-modifiers')
+        pipeline = object()
+        keys = []
+        def cached(key, *_args):
+            keys.append(key)
+            return (pipeline, {'identity': {}}, None, None), False
+        with patch.object(generic, 'load_model_index', return_value=({'_class_name': 'StableDiffusionPipeline'}, self.model)), \
+             patch.object(generic, 'cached_pipeline', side_effect=cached), \
+             patch.object(generic, 'cached_placement', return_value=((pipeline, 'none'), False)), \
+             patch.object(generic, 'verify_identity'), patch.object(generic, 'validate_base_model', return_value={}), \
+             patch.object(generic, 'validate_lora_activation'):
+            for enabled in (False, True):
+                args.dequantize_pytorch = enabled
+                generic.prepared_pipeline(args, self.fake_diffusers(), 'float32', 'cpu')
+        self.assertEqual(len(keys), 2)
+        self.assertIsNotNone(keys[0])
+        self.assertNotEqual(keys[0], keys[1])
+
+
+    def test_generic_publication_rechecks_original_legacy_source(self):
+        import checkpoint_conversion
+        original = self.directory / 'legacy.ckpt'
+        original.write_bytes(b'PK\x03\x04' + bytes(20))
+        converted = self.directory / 'converted.safetensors'
+        converted.write_bytes(b'converted fixture')
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(original),
+                      'output': checkpoint_conversion._identity(converted)}
+        args = SimpleNamespace(output_dir=self.directory / 'out', overwrite=False, model_conversion=conversion)
+        def mutate(*_args):
+            original.write_bytes(b'changed during publication')
+            return []
+        with patch.object(generic, 'save_outputs', side_effect=mutate):
+            with self.assertRaisesRegex(RuntimeError, 'Source checkpoint changed'):
+                generic.publish_generation(SimpleNamespace(), SimpleNamespace(), args, self.fake_images, None, {})
+        self.assertFalse((args.output_dir / 'generation.json').exists())
+
+    def test_generic_output_directory_cannot_contain_converted_model_sources(self):
+        import checkpoint_conversion
+        output = self.directory / 'protected-output'
+        output.mkdir()
+        source, shard, converted = (output / 'index.json', output / 'image-0001.png',
+                                    self.directory / 'converted.safetensors')
+        for path in (source, shard, converted): path.write_bytes(b'original weights')
+        conversion = {'original': checkpoint_conversion._identity(source),
+                      'original_shards': [checkpoint_conversion._identity(shard)],
+                      'converted_path': str(converted), 'output': checkpoint_conversion._identity(converted)}
+        args = SimpleNamespace(output_dir=output, overwrite=True, model_conversion=conversion)
+        with patch.object(generic, 'save_outputs') as save:
+            with self.assertRaisesRegex(ValueError, 'model input'):
+                generic.publish_generation(SimpleNamespace(), SimpleNamespace(), args, self.fake_images, None, {})
+            save.assert_not_called()
+        self.assertEqual(source.read_bytes(), b'original weights')
+        self.assertEqual(shard.read_bytes(), b'original weights')
+
+    def test_generic_hires_is_rejected_with_actionable_error(self):
+        with self.assertRaisesRegex(ValueError, 'HiRes.*--no-hires-fix'):
+            self.args('--hires-fix', '--hires-upscaler', 'lanczos', '--hires-strength', '0.35')
+        with self.assertRaisesRegex(ValueError, 'HiRes'):
+            self.args('--no-hires-fix', '--hires-strength', '0.35')
+
+    def test_moss_hires_plans_app_target_and_rejects_invalid_settings(self):
+        import moss_runtime
+        (self.model / 'model_index.json').write_text(json.dumps({'_class_name': 'MOSSImagePipeline',
+                                                                 **moss_runtime.COMPONENTS}))
+        self.provide_stub_moss_encoder()
+        args = self.args('--hires-fix', '--width', '512', '--height', '768', '--steps', '10',
+                         '--num-images', '2', '--hires-upscaler', 'bicubic', '--hires-strength', '0.4',
+                         '--no-default-modifiers')
+        self.assertEqual(args.moss_hires.base_size, (256, 384))
+        self.assertEqual(args.moss_hires.target_size, (512, 768))
+        self.assertEqual(args.moss_hires.strength, .4)
+        self.assertEqual(args.moss_hires.upscaler, 'bicubic')
+        self.assertEqual(generic.configuration(args)['hires']['target_size'], [512, 768])
+        for tokens in (('--width', '30', '--height', '64'),
+                       ('--width', '64', '--height', '64', '--hires-strength', '0'),
+                       ('--width', '64', '--height', '64', '--hires-strength', 'nan'),
+                       ('--width', '64', '--height', '64', '--pipeline-inputs', '{"output_type":"np"}')):
+            with self.subTest(tokens=tokens), self.assertRaisesRegex(ValueError, 'HiRes'):
+                self.args('--hires-fix', '--no-default-modifiers', *tokens)
+
+    def test_moss_hires_runs_base_and_image_refinement_with_requested_dimensions(self):
+        import moss_hires
+        from unittest.mock import Mock
+        class ImageFixture:
+            def __init__(self, size):
+                self.size = size
+            def resize(self, size, resample):
+                return ImageFixture(size)
+        Image = SimpleNamespace(Image=ImageFixture, Resampling=SimpleNamespace(
+            NEAREST=0, BILINEAR=1, BICUBIC=2, LANCZOS=3))
+        first = ImageFixture((32, 32))
+        final = ImageFixture((64, 64))
+        def execute(**values):
+            values['progress_callback'](1, 1)
+            return SimpleNamespace(images=[first])
+        pipeline = Mock(side_effect=execute)
+        plan = moss_hires.Plan((32, 32), (64, 64), .35, 'lanczos')
+        def refine(_pipeline, images, values, _plan, _torch):
+            self.assertEqual(images[0].size, (64, 64))
+            values['progress_callback'](1, 1)
+            return SimpleNamespace(images=[final])
+        with patch.object(moss_hires, 'refine', side_effect=refine):
+            result, report = moss_hires.run(pipeline, {'prompt': 'example', 'width': 64, 'height': 64},
+                                            plan, expected_count=1, Image=Image, torch=None)
+        self.assertIs(result.images[0], final)
+        base = pipeline.call_args.kwargs
+        self.assertEqual((base['width'], base['height']), (32, 32))
+        self.assertEqual(report['completed_passes'], 1)
+        def wrong_size(_pipeline, _images, values, _plan, _torch):
+            values['progress_callback'](1, 1)
+            return SimpleNamespace(images=[first])
+        with patch.object(moss_hires, 'refine', side_effect=wrong_size):
+            with self.assertRaisesRegex(RuntimeError, 'HiRes'):
+                moss_hires.run(pipeline, {}, plan, expected_count=1, Image=Image, torch=None)
+        no_steps = Mock(return_value=SimpleNamespace(images=[first]))
+        with self.assertRaisesRegex(RuntimeError, 'denoising sequence'):
+            moss_hires.run(no_steps, {}, plan, expected_count=1, Image=Image, torch=None)
+
+    def test_moss_hires_does_not_drop_incompatible_settings(self):
+        import moss_hires
+        args = SimpleNamespace(hires_fix=True, hires_upscaler=None, hires_strength=None,
+                               offload='none', generic_controlnet=None, moss_regions=None, moss_rapid=None,
+                               inputs={'prompt': 'scene', 'width': 64, 'height': 64}, tensor_outputs={})
+        for name, value in (('offload', 'model'), ('generic_controlnet', object()),
+                            ('moss_regions', object()), ('moss_rapid', object())):
+            with self.subTest(name=name), patch.object(args, name, value):
+                with self.assertRaisesRegex(ValueError, 'MOSS HiRes'):
+                    moss_hires.resolve(args, 'MOSSImagePipeline')
+        for name in ('initial_image', 'latents', 'prompt_embeds'):
+            with self.subTest(name=name), patch.dict(args.inputs, {name: 'unsupported'}):
+                with self.assertRaisesRegex(ValueError, 'MOSS HiRes'):
+                    moss_hires.resolve(args, 'MOSSImagePipeline')
+
+    def test_requested_image_count_is_checked_before_publication(self):
+        result = SimpleNamespace(images=[FakeImage(), FakeImage()])
+        generic.validate_requested_image_count(result, 2, self.fake_images)
+        with self.assertRaisesRegex(ValueError, 'image count'):
+            generic.validate_requested_image_count(result, 3, self.fake_images)
+        with self.assertRaisesRegex(ValueError, 'image count'):
+            generic.validate_requested_image_count(SimpleNamespace(images=None), 1, self.fake_images)
 
     def test_klein_comfy_vae_rejects_missing_normalization_before_override(self):
         import klein_reference_resize
@@ -977,12 +1287,15 @@ class GenericDiffusersTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "only valid"):
             self.args("--model-config", str(self.model))
 
-    def test_single_file_requires_safetensors_and_complete_local_config(self):
-        for name in ("model.ckpt", "model.gguf"):
-            path = self.directory / name
-            path.write_bytes(b"weights")
-            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "safetensors"):
-                self.args("--model", str(path))
+    def test_single_file_requires_supported_container_and_complete_local_config(self):
+        unsupported = self.directory / 'model.gguf'
+        unsupported.write_bytes(b'GGUF' + bytes(20))
+        with self.assertRaisesRegex(ValueError, 'model-config'):
+            self.args('--model', str(unsupported))
+        legacy = self.directory / 'model.ckpt'
+        legacy.write_bytes(b'PK\x03\x04' + bytes(20))
+        with self.assertRaisesRegex(ValueError, 'model-config'):
+            self.args('--model', str(legacy))
         for name in ("model.safetensors", "model.safetensor", "model.SAFETENSORS"):
             with self.subTest(name=name):
                 path = self.directory / name
@@ -1085,6 +1398,24 @@ class GenericDiffusersTests(unittest.TestCase):
         load_moss.assert_called_once_with(self.model, 'float32', args.vae_selection, unittest.mock.ANY,
                                           progress=generic.report_moss_loading_progress)
 
+    def test_moss_file_vae_receives_the_selected_conversion_cache(self):
+        class MOSSImagePipeline:
+            def __init__(self, vae=None): pass
+            def __call__(self): pass
+        args = self.args()
+        args.vae_selection = SimpleNamespace(source_kind='file', container_kind='pytorch')
+        index = {'_class_name': 'MOSSImagePipeline'}
+        pipeline = MOSSImagePipeline()
+        with patch.object(generic, 'load_model_index', return_value=(index, self.model)), \
+             patch.object(generic, 'validate_components'), \
+             patch.object(generic, 'builtin_pipeline', return_value=MOSSImagePipeline), \
+             patch.object(generic, 'validate_base_model', return_value={}), \
+             patch.object(generic, 'verify_vae_selection'), \
+             patch.object(generic.moss_runtime, 'load', return_value=pipeline) as load_moss:
+            generic.load_pipeline(args, self.fake_diffusers(), 'float32')
+        load_moss.assert_called_once_with(self.model, 'float32', args.vae_selection, unittest.mock.ANY,
+            progress=generic.report_moss_loading_progress, vae_cache_dir=args.cache_dir)
+
     def test_custom_local_component_code_is_not_executed(self):
         directory = self.model / "unet"
         directory.mkdir()
@@ -1145,6 +1476,122 @@ class GenericDiffusersTests(unittest.TestCase):
         self.assertIs(pipeline, instance)
         self.assertEqual(metadata['actual_class'], 'MOSSImagePipeline')
         self.assertEqual(load.call_args.args[0], self.model)
+
+    def test_moss_directory_variant_is_selected_and_forwarded(self):
+        import moss_runtime
+        index = {'_class_name': 'MOSSImagePipeline', **moss_runtime.COMPONENTS}
+        (self.model / 'model_index.json').write_text(json.dumps(index))
+        self.provide_stub_moss_encoder()
+        for name in ('transformer', 'vae', 'tokenizer'):
+            (self.model / name).mkdir()
+        (self.model / 'transformer/diffusion_pytorch_model.fp16.safetensors').write_bytes(b'variant')
+        (self.model / 'vae/diffusion_pytorch_model.safetensors').write_bytes(b'default')
+        (self.model / 'tokenizer/vocab.json').write_text('{}')
+        args = self.args('--no-default-modifiers')
+        self.assertEqual((args.variant, args.variant_selection), ('fp16', 'automatic'))
+        explicit = self.args('--variant', 'fp16', '--no-default-modifiers')
+        self.assertEqual(explicit.variant_selection, 'explicit')
+        runtime = self.fake_diffusers()
+        class MOSSImagePipeline(runtime.DiffusionPipeline):
+            def __call__(self): pass
+        instance = MOSSImagePipeline()
+        with patch.object(moss_runtime, 'pipeline_class', return_value=MOSSImagePipeline), \
+             patch.object(moss_runtime, 'load', return_value=instance) as load:
+            generic.load_pipeline(args, runtime, 'float32')
+        self.assertEqual(load.call_args.kwargs['variant'], 'fp16')
+
+    def test_moss_variant_indexes_are_not_replaced_by_fallback_components(self):
+        import moss_runtime
+        import moss_text_encoder
+        import vae_defaults
+        index = {'_class_name': 'MOSSImagePipeline', **moss_runtime.COMPONENTS}
+        (self.model / 'model_index.json').write_text(json.dumps(index))
+        for name in ('transformer', 'text_encoder', 'vae', 'tokenizer'):
+            (self.model / name).mkdir()
+        (self.model / 'transformer/diffusion_pytorch_model.safetensors').write_bytes(b'default')
+        (self.model / 'text_encoder/model.safetensors.index.fp16.json').write_text('{}')
+        (self.model / 'vae/diffusion_pytorch_model.safetensors.index.fp16.json').write_text('{}')
+        (self.model / 'tokenizer/vocab.json').write_text('{}')
+        with patch.object(moss_text_encoder, 'resource_catalogs', side_effect=AssertionError('encoder fallback')), \
+             patch.object(vae_defaults, 'select_fallback_vae', side_effect=AssertionError('VAE fallback')):
+            args = self.args('--no-default-modifiers')
+        self.assertEqual((args.variant, args.moss_text_encoder_status, args.vae_status), ('fp16', 'model', 'model'))
+
+    def test_krea_and_flux_detect_variant_indexes_before_fallback(self):
+        import flux_text_encoder
+        import krea2_text_encoder
+        encoder = self.model / 'text_encoder';encoder.mkdir()
+        (encoder / 'model.safetensors.index.fp16.json').write_text('{}')
+        args = SimpleNamespace(pipeline_class=None, source_kind='directory', inputs={}, generation_resources=None)
+        krea = {'_class_name': 'Krea2Pipeline', 'text_encoder': ['transformers', 'Qwen3VLModel']}
+        flux = {'_class_name': 'FluxPipeline', 'text_encoder': ['transformers', 'CLIPTextModel']}
+        with patch.object(krea2_text_encoder, 'read_defaults', side_effect=AssertionError('Krea fallback')), \
+             patch.object(flux_text_encoder, 'read_defaults', side_effect=AssertionError('FLUX fallback')):
+            self.assertEqual(krea2_text_encoder.resolve(args, krea, self.model), (None, 'model'))
+            self.assertEqual(flux_text_encoder.resolve_fallback(args, flux, self.model, 'text_encoder'), (None, 'model'))
+
+    def test_overridden_vae_does_not_constrain_automatic_variant(self):
+        self.index['vae'] = ['diffusers', 'AutoencoderKL']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        for name in ('unet', 'vae'):
+            (self.model / name).mkdir()
+        (self.model / 'unet/diffusion_pytorch_model.fp16.safetensors').write_bytes(b'variant')
+        (self.model / 'vae/diffusion_pytorch_model.bf16.bin').write_bytes(b'unused')
+        override = object()
+        with patch.object(generic, 'resolve_vae_selection', return_value=(override, 'explicit')):
+            args = self.args('--no-default-modifiers')
+        self.assertIs(args.vae_selection, override)
+        self.assertEqual((args.variant, args.variant_selection), ('fp16', 'automatic'))
+
+    def test_overridden_encoder_does_not_convert_unused_pickle_weights(self):
+        import checkpoint_conversion
+        self.index['text_encoder'] = ['transformers', 'CLIPTextModel']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        encoder = self.model / 'text_encoder';encoder.mkdir()
+        (encoder / 'pytorch_model.bin').write_bytes(b'unused invalid pickle')
+        args = self.args('--no-default-modifiers')
+        args.text_encoder_selection = object()
+        runtime = self.fake_diffusers()
+        runtime.FakePipeline.__init__ = lambda self, text_encoder=None: None
+        with patch.object(generic.krea2_text_encoder, 'load', return_value=object()), \
+             patch.object(generic.krea2_text_encoder, 'verify_selection'), \
+             patch.object(checkpoint_conversion, 'materialize_safetensors') as convert:
+            generic.load_pipeline(args, runtime, 'float32')
+        convert.assert_not_called()
+        self.assertEqual(runtime.FakePipeline.from_pretrained.call_args.args[0], str(self.model))
+
+    def test_moss_runtime_uses_component_specific_variant_and_rejects_missing_variant(self):
+        import moss_runtime
+        transformer = self.model / 'transformer';transformer.mkdir()
+        encoder = self.model / 'text_encoder';encoder.mkdir()
+        vae = self.model / 'vae';vae.mkdir()
+        (transformer / 'diffusion_pytorch_model.fp16.safetensors').write_bytes(b'variant')
+        (encoder / 'model.safetensors').write_bytes(b'default')
+        (vae / 'diffusion_pytorch_model.fp16.safetensors').write_bytes(b'variant')
+        fake_transformer = SimpleNamespace(config=SimpleNamespace(latent_channels=8))
+        fake_encoder = type('Qwen3_5Model', (), {})()
+        fake_vae = SimpleNamespace(config=SimpleNamespace(patch_size=(2, 2), latent_channels=2),
+                                   bn=SimpleNamespace(num_features=8))
+        components = {'transformer': fake_transformer, 'text encoder': fake_encoder, 'vae': fake_vae}
+        runtime = SimpleNamespace(AutoencoderKLFlux2=object())
+        modules = {'torch': SimpleNamespace(float32='float32'),
+                   'transformers': SimpleNamespace(AutoModel=object(), AutoTokenizer=SimpleNamespace(from_pretrained=Mock())),
+                   'vendor_moss.pipeline': SimpleNamespace(MOSSImageTransformer=object(),
+                       MOSSImagePipeline=lambda **kwargs: SimpleNamespace(**kwargs))}
+        calls = {}
+        def load(_class, _path, role, **kwargs):
+            calls[role] = kwargs
+            return components[role]
+        with patch.dict(sys.modules, modules), patch.object(moss_runtime, 'load_scheduler', return_value=object()), \
+             patch.object(moss_runtime, 'strict_load', side_effect=load) as strict:
+            moss_runtime.load(self.model, 'float32', None, runtime, variant='fp16')
+            self.assertEqual(calls['transformer']['variant'], 'fp16')
+            self.assertNotIn('variant', calls['text encoder'])
+            self.assertEqual(calls['vae']['variant'], 'fp16')
+            strict.reset_mock()
+            with self.assertRaisesRegex(ValueError, 'variant.*bf16'):
+                moss_runtime.load(self.model, 'float32', None, runtime, variant='bf16')
+            strict.assert_not_called()
 
     def test_only_public_installed_diffusers_pipeline_classes_can_be_selected(self):
         diffusers = self.fake_diffusers()
@@ -1239,6 +1686,369 @@ class GenericDiffusersTests(unittest.TestCase):
         self.assertEqual(kwargs["trust_remote_code"], False)
         self.assertEqual(report["actual_class"], "FakePipeline")
         self.assertTrue(report["identity"]["files"][0]["sha256"])
+
+    def test_directory_converts_declared_pytorch_components_in_temporary_overlay(self):
+        import checkpoint_conversion
+        self.index['text_encoder'] = ['transformers', 'CLIPTextModel']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        unet, encoder = self.model / 'unet', self.model / 'text_encoder'
+        unet.mkdir(); encoder.mkdir()
+        single, index, shard = (unet / 'diffusion_pytorch_model.bin',
+                                encoder / 'pytorch_model.bin.index.json', encoder / 'part.bin')
+        single.write_bytes(b'first source'); shard.write_bytes(b'second source')
+        index.write_text(json.dumps({'weight_map': {'weight': shard.name}}))
+        before = {p: p.read_bytes() for p in (single, index, shard)}
+        converted = {}
+        def convert(source, _cache):
+            source = Path(source)
+            result = self.directory / (source.parent.name + '.safetensors')
+            result.write_bytes(b'converted ' + source.parent.name.encode())
+            conversion = {'converted': True, 'converted_path': str(result),
+                          'original': checkpoint_conversion._identity(source),
+                          'output': checkpoint_conversion._identity(result)}
+            if source == index:
+                conversion['original_shards'] = [checkpoint_conversion._identity(shard)]
+            converted[str(source)] = conversion
+            return conversion
+        args = self.args('--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        runtime = self.fake_diffusers()
+        observed = []
+        def load(folder, **kwargs):
+            overlay = Path(folder); observed.append(overlay)
+            self.assertNotEqual(overlay, self.model)
+            self.assertEqual((overlay / 'model_index.json').read_bytes(), (self.model / 'model_index.json').read_bytes())
+            self.assertEqual((overlay / 'unet' / 'diffusion_pytorch_model.safetensors').read_bytes(), b'converted unet')
+            self.assertEqual((overlay / 'text_encoder' / 'model.safetensors').read_bytes(), b'converted text_encoder')
+            self.assertTrue(kwargs['use_safetensors'])
+            return runtime.FakePipeline()
+        runtime.FakePipeline.from_pretrained = Mock(side_effect=load)
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', side_effect=convert):
+            _, report = generic.load_pipeline(args, runtime, 'float32')
+        self.assertEqual(set(converted), {str(single), str(index)})
+        self.assertEqual({p: p.read_bytes() for p in before}, before)
+        self.assertFalse(observed[0].exists())
+        self.assertEqual(generic.configuration(args)['model'], str(self.model))
+        self.assertEqual(len(report['identity']['directory_conversions']), 2)
+        shard.write_bytes(b'changed source')
+        with self.assertRaisesRegex(RuntimeError, 'changed'):
+            generic.verify_identity(report['identity'])
+
+    def test_directory_prefers_existing_safetensors_without_conversion(self):
+        import checkpoint_conversion
+        unet = self.model / 'unet';unet.mkdir()
+        (unet / 'diffusion_pytorch_model.safetensors').write_bytes(b'existing safe weights')
+        (unet / 'diffusion_pytorch_model.bin').write_bytes(b'legacy weights')
+        runtime = self.fake_diffusers()
+        with patch.object(checkpoint_conversion, 'materialize_safetensors') as convert:
+            generic.load_pipeline(self.args('--no-default-modifiers'), runtime, 'float32')
+        convert.assert_not_called()
+        self.assertEqual(runtime.FakePipeline.from_pretrained.call_args.args[0], str(self.model))
+
+    def test_directory_converts_pytorch_disguised_as_safetensors(self):
+        import checkpoint_conversion
+        unet = self.model / 'unet';unet.mkdir()
+        source = unet / 'diffusion_pytorch_model.safetensors'
+        original = b'PK\x03\x04' + bytes(20);source.write_bytes(original)
+        converted = self.directory / 'converted.safetensors';converted.write_bytes(b'safe weights')
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(source),
+                      'output': checkpoint_conversion._identity(converted)}
+        runtime = self.fake_diffusers();seen = []
+        def load(folder, **_kwargs):
+            folder = Path(folder);seen.append(folder)
+            self.assertEqual((folder / 'unet/diffusion_pytorch_model.safetensors').read_bytes(), b'safe weights')
+            return runtime.FakePipeline()
+        runtime.FakePipeline.from_pretrained = Mock(side_effect=load)
+        args = self.args('--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion) as convert:
+            generic.load_pipeline(args, runtime, 'float32')
+        convert.assert_called_once()
+        self.assertEqual(source.read_bytes(), original)
+        self.assertFalse(seen[0].exists())
+
+    def test_directory_converts_standard_component_with_pth_extension(self):
+        import checkpoint_conversion
+        unet = self.model / 'unet';unet.mkdir()
+        source = unet / 'diffusion_pytorch_model.pth';source.write_bytes(b'legacy weights')
+        converted = self.directory / 'converted.safetensors';converted.write_bytes(b'safe weights')
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(source),
+                      'output': checkpoint_conversion._identity(converted)}
+        runtime = self.fake_diffusers();seen = []
+        def load(folder, **_kwargs):
+            folder = Path(folder);seen.append(folder)
+            self.assertEqual((folder / 'unet/diffusion_pytorch_model.safetensors').read_bytes(), b'safe weights')
+            return runtime.FakePipeline()
+        runtime.FakePipeline.from_pretrained = Mock(side_effect=load)
+        args = self.args('--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion) as convert:
+            generic.load_pipeline(args, runtime, 'float32')
+        convert.assert_called_once()
+        self.assertEqual(source.read_bytes(), b'legacy weights')
+        self.assertFalse(seen[0].exists())
+
+    def test_directory_detects_alternate_extension_variant_and_refuses_ambiguous_weights(self):
+        unet = self.model / 'unet';unet.mkdir()
+        (unet / 'diffusion_pytorch_model.fp16.pt').write_bytes(b'weights')
+        args = self.args('--no-default-modifiers')
+        self.assertEqual(args.variant, 'fp16')
+        (unet / 'diffusion_pytorch_model.fp16.pth').write_bytes(b'other weights')
+        with self.assertRaisesRegex(ValueError, '(ambiguous|multiple).*weight'):
+            generic.load_pipeline(args, self.fake_diffusers(), 'float32')
+
+    def test_directory_converts_pytorch_index_disguised_as_safetensors_index(self):
+        import checkpoint_conversion
+        import downloaded_model
+        unet = self.model / 'unet';unet.mkdir()
+        index = unet / 'diffusion_pytorch_model.safetensors.index.json'
+        index.write_text(json.dumps({'weight_map': {'weight': 'piece.bin'}}))
+        shard = unet / 'piece.bin';shard.write_bytes(b'legacy shard')
+        converted = self.directory / 'converted.safetensors';converted.write_bytes(b'safe weights')
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(index),
+                      'original_shards': [checkpoint_conversion._identity(shard)],
+                      'output': checkpoint_conversion._identity(converted)}
+        runtime = self.fake_diffusers();seen = []
+        def load(folder, **_kwargs):
+            folder = Path(folder);seen.append(folder)
+            self.assertEqual((folder / 'unet/diffusion_pytorch_model.safetensors').read_bytes(), b'safe weights')
+            self.assertFalse((folder / 'unet/diffusion_pytorch_model.safetensors.index.json').exists())
+            return runtime.FakePipeline()
+        runtime.FakePipeline.from_pretrained = Mock(side_effect=load)
+        args = self.args('--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        with patch.object(downloaded_model, 'model_container_format', return_value='pytorch-index'), \
+             patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion) as convert:
+            generic.load_pipeline(args, runtime, 'float32')
+        convert.assert_called_once()
+        self.assertEqual(shard.read_bytes(), b'legacy shard')
+        self.assertFalse(seen[0].exists())
+
+    def test_directory_variant_is_converted_and_forwarded_to_loader(self):
+        import checkpoint_conversion
+        unet = self.model / 'unet';unet.mkdir()
+        source = unet / 'diffusion_pytorch_model.fp16.bin'
+        source.write_bytes(b'variant weights')
+        converted = self.directory / 'converted.safetensors';converted.write_bytes(b'safe weights')
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(source),
+                      'output': checkpoint_conversion._identity(converted)}
+        runtime = self.fake_diffusers();observed = []
+        def load(folder, **kwargs):
+            overlay = Path(folder);observed.append(overlay)
+            self.assertEqual(kwargs['variant'], 'fp16')
+            self.assertEqual((overlay / 'unet' / 'diffusion_pytorch_model.fp16.safetensors').read_bytes(), b'safe weights')
+            return runtime.FakePipeline()
+        runtime.FakePipeline.from_pretrained = Mock(side_effect=load)
+        args = self.args('--variant', 'fp16', '--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion):
+            generic.load_pipeline(args, runtime, 'float32')
+        self.assertFalse(observed[0].exists())
+        self.assertEqual(generic.configuration(args)['variant'], 'fp16')
+
+    def test_directory_source_change_during_loading_cleans_overlay(self):
+        import checkpoint_conversion
+        unet = self.model / 'unet';unet.mkdir()
+        source = unet / 'diffusion_pytorch_model.bin';source.write_bytes(b'original weights')
+        converted = self.directory / 'converted.safetensors';converted.write_bytes(b'converted weights')
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(source),
+                      'output': checkpoint_conversion._identity(converted)}
+        runtime = self.fake_diffusers();observed = []
+        def load(folder, **_kwargs):
+            observed.append(Path(folder));source.write_bytes(b'modified weights')
+            return runtime.FakePipeline()
+        runtime.FakePipeline.from_pretrained = Mock(side_effect=load)
+        args = self.args('--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion):
+            with self.assertRaisesRegex(RuntimeError, 'changed'):
+                generic.load_pipeline(args, runtime, 'float32')
+        self.assertFalse(observed[0].exists())
+
+    def test_directory_conversion_refuses_output_or_cache_inside_model(self):
+        unet = self.model / 'unet';unet.mkdir()
+        (unet / 'diffusion_pytorch_model.bin').write_bytes(b'legacy weights')
+        for tokens in (('--cache-dir', str(self.model / 'cache')),
+                       ('--output-dir', str(self.model / 'output'), '--cache-dir', str(self.directory / 'cache')),
+                       ('--output-dir', str(self.directory), '--cache-dir', str(self.directory / 'cache'))):
+            with self.subTest(tokens=tokens):
+                args = self.args(*tokens, '--no-default-modifiers')
+                with self.assertRaisesRegex(ValueError, '(cache|output).*directory'):
+                    generic.load_pipeline(args, self.fake_diffusers(), 'float32')
+
+    def test_directory_variant_validation_and_configuration_are_side_effect_free(self):
+        import checkpoint_conversion
+        unet = self.model / 'unet';unet.mkdir()
+        (unet / 'diffusion_pytorch_model.fp16.bin').write_bytes(b'legacy weights')
+        with patch.object(checkpoint_conversion, 'materialize_safetensors') as convert:
+            args = self.args('--variant', 'fp16', '--print-config', '--no-default-modifiers')
+            self.assertEqual(generic.configuration(args)['variant'], 'fp16')
+            convert.assert_not_called()
+        for variant in ('../fp16', 'bad.name', ''):
+            with self.subTest(variant=variant), self.assertRaisesRegex(ValueError, 'variant'):
+                self.args('--variant', variant)
+
+    def test_directory_selects_only_unambiguous_required_variant(self):
+        unet = self.model / 'unet';unet.mkdir()
+        variant = unet / 'diffusion_pytorch_model.fp16.bin'
+        variant.write_bytes(b'legacy weights')
+        args = self.args('--no-default-modifiers')
+        self.assertEqual((args.variant, generic.configuration(args)['variant']), ('fp16', 'fp16'))
+        self.assertEqual(generic.configuration(args)['variant_selection'], 'automatic')
+        (unet / 'diffusion_pytorch_model.safetensors').write_bytes(b'default safe')
+        args = self.args('--no-default-modifiers')
+        self.assertIsNone(args.variant)
+        self.assertEqual(generic.configuration(args)['variant_selection'], 'default')
+
+    def test_directory_does_not_guess_between_variant_choices(self):
+        unet = self.model / 'unet';unet.mkdir()
+        for name in ('fp16', 'bf16'):
+            (unet / f'diffusion_pytorch_model.{name}.bin').write_bytes(b'weights')
+        with self.assertRaisesRegex(ValueError, 'variant.*(bf16|fp16)'):
+            self.args('--no-default-modifiers')
+        args = self.args('--variant', 'fp16', '--no-default-modifiers')
+        self.assertEqual(args.variant, 'fp16')
+        self.assertEqual(generic.configuration(args)['variant_selection'], 'explicit')
+
+    def test_directory_rejects_incompatible_required_component_variants(self):
+        self.index['text_encoder'] = ['transformers', 'CLIPTextModel']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        unet, encoder = self.model / 'unet', self.model / 'text_encoder'
+        unet.mkdir();encoder.mkdir()
+        (unet / 'diffusion_pytorch_model.bin.index.fp16.json').write_text('{}')
+        (encoder / 'model.bf16.safetensors').write_bytes(b'weights')
+        with self.assertRaisesRegex(ValueError, 'variant.*(unet|text_encoder)'):
+            self.args('--no-default-modifiers')
+
+    def test_directory_auto_selects_a_safe_sharded_variant(self):
+        unet = self.model / 'unet';unet.mkdir()
+        (unet / 'diffusion_pytorch_model.safetensors.index.fp16.json').write_text('{}')
+        for number in (1, 2):
+            (unet / f'diffusion_pytorch_model.fp16-{number:05d}-of-00002.safetensors').write_bytes(b'shard')
+        args = self.args('--no-default-modifiers')
+        self.assertEqual(args.variant, 'fp16')
+
+    def test_directory_auto_selects_pytorch_shard_index_without_guessing_shard_names(self):
+        unet = self.model / 'unet';unet.mkdir()
+        (unet / 'diffusion_pytorch_model.bin.index.fp16.json').write_text('{}')
+        for number in (1, 2):
+            (unet / f'diffusion_pytorch_model.fp16-{number:05d}-of-00002.bin').write_bytes(b'shard')
+        self.assertEqual(self.args('--no-default-modifiers').variant, 'fp16')
+
+    def test_existing_safe_symlinked_component_needs_no_overlay(self):
+        other = self.directory / 'unet-target';other.mkdir()
+        (other / 'diffusion_pytorch_model.safetensors').write_bytes(b'safe weights')
+        try:
+            (self.model / 'unet').symlink_to(other, target_is_directory=True)
+        except OSError:
+            self.skipTest('Directory symlinks are unavailable on this platform')
+        runtime = self.fake_diffusers()
+        generic.load_pipeline(self.args('--no-default-modifiers'), runtime, 'float32')
+        self.assertEqual(runtime.FakePipeline.from_pretrained.call_args.args[0], str(self.model))
+
+    def test_symlinked_legacy_component_is_converted_without_changing_its_target(self):
+        import checkpoint_conversion
+        other = self.directory / 'unet-target';other.mkdir()
+        source = other / 'diffusion_pytorch_model.bin';source.write_bytes(b'legacy weights')
+        try:
+            (self.model / 'unet').symlink_to(other, target_is_directory=True)
+        except OSError:
+            self.skipTest('Directory symlinks are unavailable on this platform')
+        converted = self.directory / 'converted.safetensors';converted.write_bytes(b'safe weights')
+        logical = self.model / 'unet' / source.name
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(logical),
+                      'output': checkpoint_conversion._identity(converted)}
+        runtime = self.fake_diffusers();observed = []
+        def load(folder, **_kwargs):
+            overlay = Path(folder);observed.append(overlay)
+            self.assertEqual((overlay / 'unet' / 'diffusion_pytorch_model.safetensors').read_bytes(), b'safe weights')
+            return runtime.FakePipeline()
+        runtime.FakePipeline.from_pretrained = Mock(side_effect=load)
+        args = self.args('--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion):
+            _, report = generic.load_pipeline(args, runtime, 'float32')
+        self.assertEqual(source.read_bytes(), b'legacy weights')
+        self.assertFalse(observed[0].exists())
+        (other / 'added-config.json').write_text('{}')
+        with self.assertRaisesRegex(RuntimeError, '(changed|directory)'):
+            generic.verify_identity(report['identity'])
+
+    def test_cyclic_directory_symlink_is_rejected_before_conversion(self):
+        import checkpoint_conversion
+        unet = self.model / 'unet';unet.mkdir()
+        (unet / 'diffusion_pytorch_model.bin').write_bytes(b'legacy weights')
+        try:
+            (self.model / 'cycle').symlink_to(self.model, target_is_directory=True)
+        except OSError:
+            self.skipTest('Directory symlinks are unavailable on this platform')
+        args = self.args('--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        with patch.object(checkpoint_conversion, 'materialize_safetensors') as convert:
+            with self.assertRaisesRegex(ValueError, '(cycle|cyclic|circular)'):
+                generic.load_pipeline(args, self.fake_diffusers(), 'float32')
+            convert.assert_not_called()
+
+    def test_symlinked_component_cannot_contain_the_cache_or_output(self):
+        import checkpoint_conversion
+        other = self.directory / 'shared-unet';other.mkdir()
+        (other / 'diffusion_pytorch_model.bin').write_bytes(b'legacy weights')
+        try:
+            (self.model / 'unet').symlink_to(other, target_is_directory=True)
+        except OSError:
+            self.skipTest('Directory symlinks are unavailable on this platform')
+        for tokens in (('--cache-dir', str(other / 'cache')),
+                       ('--cache-dir', str(self.directory / 'cache'), '--output-dir', str(other / 'output'))):
+            with self.subTest(tokens=tokens):
+                args = self.args(*tokens, '--no-default-modifiers')
+                with patch.object(checkpoint_conversion, 'materialize_safetensors') as convert:
+                    with self.assertRaisesRegex(ValueError, '(cache|output).*directory'):
+                        generic.load_pipeline(args, self.fake_diffusers(), 'float32')
+                    convert.assert_not_called()
+
+    def test_changed_directory_invalidates_retained_pipeline(self):
+        import inference_session
+        args = self.args('--no-default-modifiers')
+        cached = (object(), {'identity': {'directory_conversions': []}}, Mock(), None)
+        with inference_session.InferenceSession() as session:
+            session.value = object()
+            with patch.object(generic, 'cached_pipeline', return_value=(cached, True)), \
+                 patch.object(generic, 'verify_identity', side_effect=RuntimeError('source changed')):
+                with self.assertRaisesRegex(RuntimeError, 'source changed'):
+                    generic.prepared_pipeline(args, self.fake_diffusers(), 'float32', 'cpu')
+            self.assertIsNone(session.value)
+
+    def test_changed_directory_at_publication_invalidates_retained_pipeline(self):
+        import directory_checkpoint_conversion
+        import inference_session
+        args = SimpleNamespace(output_dir=self.directory / 'output', overwrite=False,
+                               model_directory_sources={'directories': [], 'files': []})
+        with inference_session.InferenceSession() as session:
+            session.value = object()
+            with patch.object(directory_checkpoint_conversion, 'verify_source_snapshot',
+                              side_effect=RuntimeError('source changed')):
+                with self.assertRaisesRegex(RuntimeError, 'source changed'):
+                    generic.publish_generation(SimpleNamespace(), SimpleNamespace(), args, self.fake_images, None, {})
+            self.assertIsNone(session.value)
+
+    def test_directory_overlay_copies_if_symlinks_are_unavailable(self):
+        import checkpoint_conversion
+        import directory_checkpoint_conversion
+        unet = self.model / 'unet';unet.mkdir()
+        source = unet / 'diffusion_pytorch_model.bin';source.write_bytes(b'legacy weights')
+        converted = self.directory / 'converted.safetensors';converted.write_bytes(b'safe weights')
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(source),
+                      'output': checkpoint_conversion._identity(converted)}
+        original = source.stat()
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion), \
+             patch.object(directory_checkpoint_conversion.os, 'symlink', side_effect=OSError('unavailable')):
+            with directory_checkpoint_conversion.prepare(self.model, self.index, self.directory / 'cache',
+                    self.directory / 'output', None) as prepared:
+                target = prepared.path / 'unet' / 'diffusion_pytorch_model.safetensors'
+                self.assertFalse(target.is_symlink())
+                self.assertEqual(target.read_bytes(), b'safe weights')
+        after = source.stat()
+        self.assertEqual((original.st_ino, original.st_size, original.st_mtime_ns, original.st_ctime_ns),
+                         (after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns))
 
     def test_flux_single_file_repairs_embedded_t5_before_returning_pipeline(self):
         diffusers = self.fake_diffusers()
@@ -1337,6 +2147,605 @@ class GenericDiffusersTests(unittest.TestCase):
         (self.model / "pytorch_model.bin").write_bytes(b"unsafe fixture")
         with self.assertRaisesRegex(ValueError, "pickle"):
             generic.load_pipeline(args, diffusers, "dtype")
+
+    def test_single_file_configuration_converts_declared_legacy_components(self):
+        import checkpoint_conversion
+        self.index['text_encoder'] = ['transformers', 'CLIPTextModel']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        encoder = self.model / 'text_encoder';encoder.mkdir()
+        source = encoder / 'pytorch_model.bin';source.write_bytes(b'legacy weights')
+        converted = self.directory / 'encoder.safetensors';converted.write_bytes(b'safe weights')
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(source),
+                      'output': checkpoint_conversion._identity(converted)}
+        main = self.directory / 'checkpoint.safetensors';main.write_bytes(b'safe fixture')
+        args = self.args('--model', str(main), '--model-config', str(self.model),
+                         '--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        runtime = self.fake_diffusers();seen = []
+        def load(_checkpoint, **kwargs):
+            folder = Path(kwargs['config']);seen.append(folder)
+            self.assertNotEqual(folder, self.model)
+            self.assertEqual((folder / 'text_encoder/model.safetensors').read_bytes(), b'safe weights')
+            self.assertEqual((folder / 'text_encoder/diffusion_pytorch_model.safetensors').read_bytes(), b'safe weights')
+            self.assertFalse((folder / 'text_encoder/pytorch_model.bin').exists())
+            return runtime.FakePipeline()
+        runtime.FakePipeline.from_single_file = Mock(side_effect=load)
+        with patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion):
+            _, report = generic.load_pipeline(args, runtime, 'float32')
+        self.assertFalse(seen[0].exists())
+        self.assertEqual(source.read_bytes(), b'legacy weights')
+        self.assertEqual(len(report['identity']['directory_conversions']), 1)
+        generic.verify_identity(report['identity'])
+
+    def test_gguf_transformer_uses_builtin_component_and_verified_alias(self):
+        root = self.model / 'transformer';root.mkdir()
+        (root / 'config.json').write_text('{}')
+        self.index['transformer'] = ['diffusers', 'TestTransformer']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        source = self.directory / 'weights.data';source.write_bytes(b'GGUF' + bytes(64))
+        args = self.args('--model', str(source), '--model-config', str(self.model),
+                         '--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        self.assertTrue(args.single_file_component_only)
+        runtime = self.fake_diffusers()
+        class Model: pass
+        class Original: pass
+        class TestTransformer(Model, Original):
+            @staticmethod
+            def named_parameters(): return []
+            @staticmethod
+            def named_buffers(): return []
+        transformer = TestTransformer()
+        def load(path, **kwargs):
+            self.assertEqual(Path(path).suffix, '.gguf')
+            self.assertEqual(Path(path).read_bytes(), source.read_bytes())
+            self.assertEqual(kwargs['subfolder'], 'transformer')
+            self.assertTrue(kwargs['local_files_only'])
+            self.assertTrue(kwargs['low_cpu_mem_usage'])
+            return transformer
+        TestTransformer.from_single_file = Mock(side_effect=load)
+        runtime.ModelMixin, runtime.FromOriginalModelMixin, runtime.TestTransformer = Model, Original, TestTransformer
+        runtime.GGUFQuantizationConfig = Mock(return_value=object())
+        runtime.FakePipeline.__init__ = lambda self, transformer=None: None
+        pipeline, report = generic.load_pipeline(args, runtime, 'dtype')
+        self.assertIs(pipeline.__class__, runtime.FakePipeline)
+        self.assertIs(runtime.FakePipeline.from_pretrained.call_args.kwargs['transformer'], transformer)
+        runtime.FakePipeline.from_single_file.assert_not_called()
+        runtime.GGUFQuantizationConfig.assert_called_once_with(compute_dtype='dtype')
+        self.assertEqual(report['single_file_loading']['format'], 'gguf')
+        self.assertEqual(report['single_file_loading']['component'], 'transformer')
+        self.assertEqual(source.read_bytes(), b'GGUF' + bytes(64))
+
+    def test_pipeline_loads_explicit_standalone_vae_file_with_its_configuration(self):
+        self.index['vae'] = ['diffusers', 'AutoencoderKL']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        folder = self.model / 'vae';folder.mkdir()
+        (folder / 'config.json').write_text(json.dumps({'_class_name': 'AutoencoderKL'}))
+        source = self.directory / 'external-vae.data'
+        header = json.dumps({'decoder.weight': {'dtype': 'U8', 'shape': [1], 'data_offsets': [0, 1]}}).encode()
+        header += b' ' * (-len(header) % 8)
+        source.write_bytes(struct.pack('<Q', len(header)) + header + b'x')
+        args = self.args('--vae', str(source), '--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        runtime = self.fake_diffusers()
+        runtime.FakePipeline.__init__ = lambda self, vae=None: None
+        vae = SimpleNamespace(named_parameters=lambda: [], named_buffers=lambda: [])
+        seen = []
+        def load(directory, **_kwargs):
+            seen.append(Path(directory))
+            self.assertEqual((Path(directory) / 'diffusion_pytorch_model.safetensors').read_bytes(), source.read_bytes())
+            return vae, {}
+        runtime.AutoencoderKL = SimpleNamespace(from_pretrained=Mock(side_effect=load))
+        generic.load_pipeline(args, runtime, 'float32')
+        self.assertIs(runtime.FakePipeline.from_pretrained.call_args.kwargs['vae'], vae)
+        self.assertFalse(seen[0].exists())
+        self.assertTrue(source.exists())
+
+    def test_pytorch_vae_conversion_cache_cannot_overlap_output(self):
+        self.index['vae'] = ['diffusers', 'AutoencoderKL']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        folder = self.model / 'vae';folder.mkdir()
+        (folder / 'config.json').write_text(json.dumps({'_class_name': 'AutoencoderKL'}))
+        source = self.directory / 'external-vae.pt';source.write_bytes(b'PK\x03\x04synthetic weights')
+        cache = self.directory / 'cache'
+        args = self.args('--vae', str(source), '--cache-dir', str(cache),
+                         '--output-dir', str(cache / 'vae-checkpoint-conversions' / 'output'), '--no-default-modifiers')
+        runtime = self.fake_diffusers()
+        runtime.FakePipeline.__init__ = lambda self, vae=None: None
+        with patch('checkpoint_conversion.materialize_safetensors') as convert:
+            with self.assertRaisesRegex(ValueError, 'output.*conversion cache'):
+                generic.load_pipeline(args, runtime, 'float32')
+            convert.assert_not_called()
+        self.assertEqual(source.read_bytes(), b'PK\x03\x04synthetic weights')
+
+    def test_pipeline_loads_converted_pytorch_vae_and_preserves_source(self):
+        self.index['vae'] = ['diffusers', 'AutoencoderKL']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        folder = self.model / 'vae';folder.mkdir()
+        (folder / 'config.json').write_text(json.dumps({'_class_name': 'AutoencoderKL'}))
+        source = self.directory / 'external-vae.pt';source.write_bytes(b'PK\x03\x04synthetic weights')
+        safe = self.directory / 'converted.safetensors'
+        header = json.dumps({'decoder.weight': {'dtype': 'U8', 'shape': [1], 'data_offsets': [0, 1]}}).encode()
+        header += b' ' * (-len(header) % 8)
+        safe.write_bytes(struct.pack('<Q', len(header)) + header + b'x')
+        args = self.args('--vae', str(source), '--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        runtime = self.fake_diffusers()
+        runtime.FakePipeline.__init__ = lambda self, vae=None: setattr(self, 'vae', vae)
+        runtime.FakePipeline.from_pretrained.side_effect = lambda *_args, **kwargs: runtime.FakePipeline(vae=kwargs['vae'])
+        vae = SimpleNamespace(named_parameters=lambda: [], named_buffers=lambda: [])
+        def load(directory, **_kwargs):
+            self.assertEqual((Path(directory) / 'diffusion_pytorch_model.safetensors').read_bytes(), safe.read_bytes())
+            return vae, {}
+        runtime.AutoencoderKL = SimpleNamespace(from_pretrained=Mock(side_effect=load))
+        conversion = {'converted': True, 'converted_path': str(safe), 'cache_hit': False,
+                      'manifest_path': 'conversion.json', 'manifest': {
+                          'conversion_policy': {'quantized_tensors': 'dequantize-float32-v1'},
+                          'quantized_tensors': {'count': 1}}}
+        with patch('checkpoint_conversion.materialize_safetensors', return_value=conversion) as convert, \
+             patch('checkpoint_conversion.verify_conversion_source') as verify:
+            _, report = generic.load_pipeline(args, runtime, 'float32')
+        convert.assert_called_once_with(str(source), args.cache_dir / 'vae-checkpoint-conversions',
+                                        quantized_tensors='dequantize')
+        self.assertGreaterEqual(verify.call_count, 2)
+        self.assertIs(runtime.FakePipeline.from_pretrained.call_args.kwargs['vae'], vae)
+        self.assertEqual(report['vae_conversion']['quantized_tensors']['count'], 1)
+        self.assertEqual(source.read_bytes(), b'PK\x03\x04synthetic weights')
+
+    def test_pytorch_vae_print_config_never_starts_conversion(self):
+        self.index['vae'] = ['diffusers', 'AutoencoderKL']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        folder = self.model / 'vae';folder.mkdir()
+        (folder / 'config.json').write_text(json.dumps({'_class_name': 'AutoencoderKL'}))
+        source = self.directory / 'external-vae.pt';source.write_bytes(b'PK\x03\x04synthetic weights')
+        with patch('checkpoint_conversion.materialize_safetensors') as convert:
+            args = self.args('--vae', str(source), '--cache-dir', str(self.directory / 'cache'),
+                             '--print-config', '--no-default-modifiers')
+            report = generic.configuration(args)
+            self.assertEqual(report['vae']['selection']['container_kind'], 'pytorch')
+            convert.assert_not_called()
+        self.assertFalse(args.cache_dir.exists())
+
+    def test_pytorch_vae_conversion_cache_resolves_symlinks_before_overlap_check(self):
+        self.index['vae'] = ['diffusers', 'AutoencoderKL']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        folder = self.model / 'vae';folder.mkdir()
+        (folder / 'config.json').write_text(json.dumps({'_class_name': 'AutoencoderKL'}))
+        source = self.directory / 'external-vae.pt';source.write_bytes(b'PK\x03\x04synthetic weights')
+        cache, output = self.directory / 'cache', self.directory / 'output'
+        cache.mkdir();output.mkdir()
+        try:
+            (cache / 'vae-checkpoint-conversions').symlink_to(output, target_is_directory=True)
+        except OSError:
+            self.skipTest('Directory symlinks are unavailable')
+        args = self.args('--vae', str(source), '--cache-dir', str(cache), '--no-default-modifiers')
+        runtime = self.fake_diffusers()
+        runtime.FakePipeline.__init__ = lambda self, vae=None: None
+        with patch('checkpoint_conversion.materialize_safetensors') as convert:
+            with self.assertRaisesRegex(ValueError, 'output.*conversion cache'):
+                generic.load_pipeline(args, runtime, 'float32')
+            convert.assert_not_called()
+
+    def test_directory_gguf_component_is_injected_and_verified(self):
+        self.index['transformer'] = ['diffusers', 'Transformer']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        component = self.model / 'transformer';component.mkdir()
+        (component / 'config.json').write_text('{}')
+        source = component / 'diffusion_pytorch_model.bin';source.write_bytes(b'GGUF' + bytes(64))
+        args = self.args('--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        self.assertEqual(generic.configuration(args)['directory_gguf_components']['transformer']['path'], str(source))
+        runtime = self.fake_gguf_diffusers()
+        pipeline, report = generic.load_pipeline(args, runtime, 'float32')
+        self.assertIs(pipeline.__class__, runtime.FakePipeline)
+        self.assertIsInstance(runtime.FakePipeline.from_pretrained.call_args.kwargs['transformer'], runtime.Transformer)
+        self.assertEqual(report['directory_gguf_loading']['transformer']['format'], 'gguf')
+        alias = Path(runtime.Transformer.from_single_file.call_args.args[0])
+        self.assertEqual(alias.suffix, '.gguf')
+        self.assertFalse(alias.exists())
+        self.assertEqual(source.read_bytes(), b'GGUF' + bytes(64))
+        source.write_bytes(b'GGUF changed')
+        with self.assertRaisesRegex(RuntimeError, 'changed'):
+            generic.verify_identity(report['identity'])
+
+    def test_directory_gguf_selection_honors_standard_weights_and_explicit_variant(self):
+        self.index['transformer'] = ['diffusers', 'Transformer']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        component = self.model / 'transformer';component.mkdir()
+        (component / 'config.json').write_text('{}')
+        alternate = component / 'other.gguf';alternate.write_bytes(b'GGUF' + bytes(64))
+        standard = component / 'diffusion_pytorch_model.safetensors';standard.write_bytes(b'safe weights')
+        args = self.args('--no-default-modifiers')
+        runtime = self.fake_gguf_diffusers()
+        generic.load_pipeline(args, runtime, 'float32')
+        runtime.Transformer.from_single_file.assert_not_called()
+        self.assertNotIn('transformer', runtime.FakePipeline.from_pretrained.call_args.kwargs)
+        selected = component / 'diffusion_pytorch_model.q4.gguf';selected.write_bytes(b'GGUF' + bytes(72))
+        args = self.args('--variant', 'q4', '--no-default-modifiers')
+        runtime = self.fake_gguf_diffusers()
+        _, report = generic.load_pipeline(args, runtime, 'float32')
+        self.assertEqual(Path(runtime.Transformer.from_single_file.call_args.args[0]).resolve(), selected.resolve())
+        self.assertEqual(standard.read_bytes(), b'safe weights')
+        standard.unlink()
+        with self.assertRaisesRegex(ValueError, '[Aa]mbiguous.*GGUF'):
+            self.args('--no-default-modifiers')
+        args = self.args('--variant', 'q4', '--no-default-modifiers')
+        runtime = self.fake_gguf_diffusers()
+        _, report = generic.load_pipeline(args, runtime, 'float32')
+        self.assertEqual(Path(runtime.Transformer.from_single_file.call_args.args[0]).resolve(), selected.resolve())
+        self.assertEqual(report['directory_gguf_loading']['transformer']['format'], 'gguf')
+        self.assertEqual(alternate.read_bytes(), b'GGUF' + bytes(64))
+
+    def test_gguf_component_discovers_its_parent_pipeline_configuration(self):
+        self.index['transformer'] = ['diffusers', 'Transformer']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        component = self.model / 'transformer';component.mkdir()
+        (component / 'config.json').write_text('{}')
+        source = component / 'model.gguf';source.write_bytes(b'GGUF' + bytes(64))
+        args = self.args('--model', str(source), '--no-default-modifiers')
+        self.assertEqual(Path(args.model_config), self.model)
+        self.assertEqual(args.model_config_status, 'adjacent')
+        runtime = self.fake_gguf_diffusers()
+        _, report = generic.load_pipeline(args, runtime, 'float32')
+        self.assertEqual(report['single_file_loading']['component'], 'transformer')
+        self.assertIsInstance(runtime.FakePipeline.from_pretrained.call_args.kwargs['transformer'], runtime.Transformer)
+        other = self.directory / 'explicit-config';other.mkdir()
+        (other / 'model_index.json').write_text(json.dumps(self.index))
+        (other / 'transformer').mkdir();(other / 'transformer/config.json').write_text('{}')
+        explicit = self.args('--model', str(source), '--model-config', str(other), '--no-default-modifiers')
+        self.assertEqual(Path(explicit.model_config), other)
+        self.assertEqual(explicit.model_config_status, 'explicit')
+
+    def test_gguf_disguised_as_canonical_safetensors_is_selected_by_content(self):
+        self.index['transformer'] = ['diffusers', 'Transformer']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        component = self.model / 'transformer';component.mkdir()
+        (component / 'config.json').write_text('{}')
+        source = component / 'diffusion_pytorch_model.safetensors';source.write_bytes(b'GGUF' + bytes(64))
+        args = self.args('--no-default-modifiers')
+        runtime = self.fake_gguf_diffusers()
+        _, report = generic.load_pipeline(args, runtime, 'float32')
+        self.assertEqual(report['directory_gguf_loading']['transformer']['format'], 'gguf')
+        self.assertEqual(Path(runtime.Transformer.from_single_file.call_args.args[0]).suffix, '.gguf')
+        self.assertEqual(source.read_bytes(), b'GGUF' + bytes(64))
+
+    def test_directory_gguf_with_nonstandard_filename_is_detected_by_content(self):
+        self.index['transformer'] = ['diffusers', 'Transformer']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        component = self.model / 'transformer';component.mkdir()
+        (component / 'config.json').write_text('{}')
+        source = component / 'artist-export.weights';source.write_bytes(b'GGUF' + bytes(64))
+        args = self.args('--no-default-modifiers')
+        runtime = self.fake_gguf_diffusers()
+        _, report = generic.load_pipeline(args, runtime, 'float32')
+        self.assertEqual(report['directory_gguf_loading']['transformer']['format'], 'gguf')
+        self.assertEqual(args.directory_gguf_components['transformer'].path, str(source))
+
+    def test_directory_gguf_rejects_invalid_or_changed_content_before_loading(self):
+        self.index['transformer'] = ['diffusers', 'Transformer']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        component = self.model / 'transformer';component.mkdir()
+        (component / 'config.json').write_text('{}')
+        source = component / 'broken.gguf';source.write_bytes(b'not gguf')
+        with self.assertRaisesRegex(ValueError, 'invalid or changed'):
+            self.args('--no-default-modifiers')
+        source.write_bytes(b'GGUF' + bytes(64))
+        args = self.args('--no-default-modifiers')
+        source.write_bytes(b'GGUF modified')
+        runtime = self.fake_gguf_diffusers()
+        with self.assertRaisesRegex(RuntimeError, 'changed'):
+            generic.load_pipeline(args, runtime, 'float32')
+        runtime.Transformer.from_single_file.assert_not_called()
+
+    def test_gguf_component_refuses_ambiguous_missing_and_meta_models(self):
+        import gguf_component
+        class Model: pass
+        class Original: pass
+        class Candidate(Model, Original):
+            from_single_file = Mock()
+        class Pipeline:
+            def __init__(self, transformer=None, unet=None): pass
+        runtime = SimpleNamespace(ModelMixin=Model, FromOriginalModelMixin=Original, Candidate=Candidate)
+        declaration = ['diffusers', 'Candidate']
+        with self.assertRaisesRegex(ValueError, 'exactly one'):
+            gguf_component.select({'transformer': declaration, 'unet': declaration}, Pipeline, runtime, self.model)
+        with self.assertRaisesRegex(ValueError, 'config.json'):
+            gguf_component.select({'transformer': declaration}, Pipeline, runtime, self.model)
+        (self.model / 'transformer').mkdir()
+        (self.model / 'transformer/config.json').write_text('{}')
+        selection = gguf_component.select({'transformer': declaration}, Pipeline, runtime, self.model)
+        source = self.directory / 'model.gguf';source.write_bytes(b'GGUF fixture')
+        from weight_files import LocalWeightFile, cached_model_sha256
+        weight = LocalWeightFile(str(source), str(source.resolve()), cached_model_sha256(source), source.stat().st_size)
+        model = Candidate()
+        model.named_parameters = lambda: [('weight', SimpleNamespace(is_meta=True))]
+        model.named_buffers = lambda: []
+        Candidate.from_single_file = Mock(return_value=model)
+        runtime.GGUFQuantizationConfig = Mock(return_value=object())
+        with self.assertRaisesRegex(RuntimeError, 'meta device'):
+            gguf_component.load(selection, weight, self.model, self.directory / 'cache', 'dtype', runtime)
+
+    def test_gguf_flux_component_does_not_treat_gguf_as_embedded_vae_or_encoder(self):
+        self.index.update({'_class_name': 'FluxPipeline', 'vae': ['diffusers', 'AutoencoderKL'],
+                           'text_encoder': ['transformers', 'CLIPTextModel'],
+                           'text_encoder_2': ['transformers', 'T5EncoderModel']})
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        for name in ('vae', 'text_encoder', 'text_encoder_2'):
+            folder = self.model / name;folder.mkdir()
+            (folder / 'model.safetensors').write_bytes(b'existing component')
+        source = self.directory / 'transformer.gguf';source.write_bytes(b'GGUF' + bytes(64))
+        with patch.object(generic.flux_tokenizer, 'resolve', return_value=({}, {})):
+            args = self.args('--model', str(source), '--model-config', str(self.model), '--no-default-modifiers')
+        self.assertTrue(args.single_file_component_only)
+        self.assertEqual(args.vae_status, 'model')
+        self.assertEqual(args.flux_text_encoder_status, {'text_encoder': 'model', 'text_encoder_2': 'model'})
+
+    def test_generic_single_file_accepts_safe_shard_index_via_verified_merge(self):
+        import checkpoint_conversion
+        import downloaded_model
+        source = self.directory / 'checkpoint.safetensors.index.json';source.write_text('{}')
+        merged = self.directory / 'merged.safetensors';merged.write_bytes(b'safe fixture')
+        conversion = {'converted': True, 'converted_path': str(merged),
+                      'original': checkpoint_conversion._identity(source),
+                      'output': checkpoint_conversion._identity(merged), 'original_shards': []}
+        with patch.object(downloaded_model, 'model_container_format',
+                          side_effect=lambda path: 'safetensors-index' if Path(path) == source else 'safetensors'), \
+             patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion) as merge:
+            args = self.args('--model', str(source), '--model-config', str(self.model),
+                             '--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+            self.assertEqual(args.model, str(merged))
+            self.assertEqual(args.original_model_path, str(source))
+            self.assertEqual(generic.configuration(args)['model'], str(source))
+            merge.assert_called_once()
+            runtime = self.fake_diffusers()
+            generic.load_pipeline(args, runtime, 'float32')
+            self.assertEqual(Path(runtime.FakePipeline.from_single_file.call_args.args[0]).read_bytes(), b'safe fixture')
+            merge.reset_mock()
+            with self.assertRaisesRegex(ValueError, 'deferred'):
+                self.args('--model', str(source), '--model-config', str(self.model), '--print-config',
+                          '--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+            merge.assert_not_called()
+        self.assertEqual(source.read_text(), '{}')
+
+    def test_single_file_configuration_accepts_component_variant(self):
+        import downloaded_model
+        self.index['text_encoder'] = ['transformers', 'CLIPTextModel']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        encoder = self.model / 'text_encoder';encoder.mkdir()
+        (encoder / 'model.safetensors').write_bytes(b'default')
+        (encoder / 'model.fp16.safetensors').write_bytes(b'fp16')
+        main = self.directory / 'checkpoint.safetensors';main.write_bytes(b'safe fixture')
+        with patch.object(downloaded_model, 'model_container_format', return_value='safetensors'):
+            args = self.args('--model', str(main), '--model-config', str(self.model), '--variant', 'fp16',
+                             '--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+            runtime = self.fake_diffusers()
+            def load(_checkpoint, **kwargs):
+                self.assertNotIn('variant', kwargs)
+                folder = Path(kwargs['config'])
+                self.assertEqual((folder / 'text_encoder/model.safetensors').read_bytes(), b'fp16')
+                return runtime.FakePipeline()
+            runtime.FakePipeline.from_single_file = Mock(side_effect=load)
+            generic.load_pipeline(args, runtime, 'float32')
+        self.assertEqual((encoder / 'model.safetensors').read_bytes(), b'default')
+
+    def test_single_file_diffusers_shards_are_merged_only_when_a_fallback_needs_them(self):
+        import checkpoint_conversion
+        import directory_checkpoint_conversion as directory
+        import downloaded_model
+        unet = self.model / 'unet';unet.mkdir()
+        source = unet / 'diffusion_pytorch_model.safetensors.index.fp16.json'
+        source.write_text('{}')
+        converted = self.directory / 'merged.safetensors';converted.write_bytes(b'merged shards')
+        conversion = {'converted': True, 'converted_path': str(converted),
+                      'original': checkpoint_conversion._identity(source),
+                      'output': checkpoint_conversion._identity(converted)}
+        with patch.object(downloaded_model, 'model_container_format', return_value='safetensors-index'), \
+             patch.object(checkpoint_conversion, 'materialize_safetensors', return_value=conversion) as materialize:
+            with directory.prepare(self.model, self.index, self.directory / 'cache', self.directory / 'output',
+                    'fp16', strip_legacy=True, merge_diffusers_components={'unet'}) as prepared:
+                self.assertEqual((prepared.path / 'unet/diffusion_pytorch_model.safetensors').read_bytes(),
+                                 b'merged shards')
+                self.assertFalse((prepared.path / 'unet/diffusion_pytorch_model.safetensors.index.fp16.json').exists())
+            materialize.assert_called_once_with(source, self.directory / 'cache/checkpoint-conversions')
+            with directory.prepare(self.model, self.index, self.directory / 'no-merge-cache',
+                    self.directory / 'no-merge-output', 'fp16', strip_legacy=True) as prepared:
+                self.assertEqual(prepared.path, self.model)
+        self.assertEqual(source.read_text(), '{}')
+
+    def test_single_file_fallback_components_exclude_checkpoint_aware_models(self):
+        class Model: pass
+        class FromOriginal: pass
+        class Auxiliary(Model): pass
+        class Embedded(Model, FromOriginal): pass
+        runtime = SimpleNamespace(ModelMixin=Model, FromOriginalModelMixin=FromOriginal,
+                                  Auxiliary=Auxiliary, Embedded=Embedded)
+        index = {'aux': ['diffusers', 'Auxiliary'], 'embedded': ['diffusers', 'Embedded'],
+                 'encoder': ['transformers', 'Auxiliary'], 'missing': ['diffusers', 'Missing']}
+        self.assertEqual(generic.single_file_diffusers_fallback_components(runtime, index), {'aux'})
+
+    def test_single_file_transformer_markers_preserve_sources_and_selected_variant(self):
+        import directory_checkpoint_conversion as directory
+        import downloaded_model
+        import image_package
+        index = {'_class_name': 'FakePipeline', 'text_encoder': ['transformers', 'CLIPTextModel']}
+        for kind in ('default', 'variant', 'sharded-variant'):
+            with self.subTest(kind=kind):
+                root = self.directory / kind
+                encoder = root / 'text_encoder';encoder.mkdir(parents=True)
+                (encoder / 'model.safetensors').write_bytes(b'default weights')
+                variant = None
+                if kind == 'variant':
+                    variant = 'fp16'
+                    (encoder / 'model.fp16.safetensors').write_bytes(b'variant weights')
+                elif kind == 'sharded-variant':
+                    variant = 'fp16'
+                    (encoder / 'model.safetensors.index.fp16.json').write_text('{}')
+                    (encoder / 'model.fp16-00001-of-00002.safetensors').write_bytes(b'variant shard')
+                before = {item.name: item.read_bytes() for item in encoder.iterdir()}
+                def container(path):
+                    return 'safetensors-index' if str(path).endswith('.json') else 'safetensors'
+                report = {'shards': [{'relative_path': 'model.fp16-00001-of-00002.safetensors'}]}
+                with patch.object(downloaded_model, 'model_container_format', side_effect=container), \
+                     patch.object(image_package, 'inspect_sharded_index', return_value=report):
+                    with directory.prepare(root, index, self.directory / (kind + '-cache'),
+                            self.directory / (kind + '-output'), variant, strip_legacy=True,
+                            transformer_markers=True) as prepared:
+                        folder = prepared.path / 'text_encoder'
+                        expected = {'default': b'default weights', 'variant': b'variant weights',
+                                    'sharded-variant': b'variant shard'}[kind]
+                        self.assertEqual((folder / 'diffusion_pytorch_model.safetensors').read_bytes(), expected)
+                        if kind == 'variant':
+                            self.assertEqual((folder / 'model.safetensors').read_bytes(), expected)
+                        elif kind == 'sharded-variant':
+                            self.assertFalse((folder / 'model.safetensors').exists())
+                            self.assertTrue((folder / 'model.safetensors.index.json').is_file())
+                        with directory.prepare(root, index, self.directory / (kind + '-excluded-cache'),
+                                self.directory / (kind + '-excluded-output'), variant, {'text_encoder'},
+                                strip_legacy=True, transformer_markers=True) as excluded:
+                            self.assertEqual(excluded.path, root)
+                self.assertEqual({item.name: item.read_bytes() for item in encoder.iterdir()}, before)
+
+    def test_single_file_configuration_hides_unused_overridden_pickle(self):
+        import checkpoint_conversion
+        self.index['text_encoder'] = ['transformers', 'CLIPTextModel']
+        (self.model / 'model_index.json').write_text(json.dumps(self.index))
+        encoder = self.model / 'text_encoder';encoder.mkdir()
+        source = encoder / 'pytorch_model.bin';source.write_bytes(b'unused invalid pickle')
+        main = self.directory / 'checkpoint.safetensors';main.write_bytes(b'safe fixture')
+        args = self.args('--model', str(main), '--model-config', str(self.model),
+                         '--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        args.text_encoder_selection = object()
+        runtime = self.fake_diffusers();runtime.FakePipeline.__init__ = lambda self, text_encoder=None: None
+        seen = []
+        def load(_checkpoint, **kwargs):
+            folder = Path(kwargs['config']);seen.append(folder)
+            self.assertFalse((folder / 'text_encoder/pytorch_model.bin').exists())
+            self.assertIsNotNone(kwargs['text_encoder'])
+            return runtime.FakePipeline()
+        runtime.FakePipeline.from_single_file = Mock(side_effect=load)
+        with patch.object(generic.krea2_text_encoder, 'load', return_value=object()), \
+             patch.object(generic.krea2_text_encoder, 'verify_selection'), \
+             patch.object(checkpoint_conversion, 'materialize_safetensors') as convert:
+            _, report = generic.load_pipeline(args, runtime, 'float32')
+        convert.assert_not_called()
+        self.assertFalse(seen[0].exists())
+        self.assertEqual(source.read_bytes(), b'unused invalid pickle')
+        self.assertIn('directory_sources', report['identity'])
+
+    def test_single_file_moss_keeps_primary_transformer_out_of_auxiliary_conversion(self):
+        import checkpoint_conversion
+        import moss_runtime
+        index = {'_class_name': 'MOSSImagePipeline', **moss_runtime.COMPONENTS}
+        (self.model / 'model_index.json').write_text(json.dumps(index))
+        self.provide_stub_moss_encoder()
+        for name in ('transformer', 'vae', 'tokenizer'):
+            (self.model / name).mkdir()
+        legacy = self.model / 'transformer/diffusion_pytorch_model.bin'
+        legacy.write_bytes(b'unused invalid pickle')
+        (self.model / 'vae/diffusion_pytorch_model.safetensors').write_bytes(b'fixture')
+        (self.model / 'tokenizer/vocab.json').write_text('{}')
+        main = self.directory / 'checkpoint.safetensors';main.write_bytes(b'safe fixture')
+        with patch.object(generic, 'resolve_vae_selection', return_value=(None, 'model')):
+            args = self.args('--model', str(main), '--model-config', str(self.model),
+                             '--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        runtime = self.fake_diffusers()
+        class MOSSImagePipeline(runtime.DiffusionPipeline):
+            def __init__(self): self.transformer = SimpleNamespace(_iild_single_file_loading={})
+            def __call__(self): pass
+        instance = MOSSImagePipeline();seen = []
+        def load(folder, _dtype, _vae, _diffusers, **kwargs):
+            folder = Path(folder);seen.append(folder)
+            self.assertFalse((folder / 'transformer/diffusion_pytorch_model.bin').exists())
+            self.assertEqual(kwargs['transformer_file'], str(main))
+            return instance
+        with patch.object(moss_runtime, 'pipeline_class', return_value=MOSSImagePipeline), \
+             patch.object(moss_runtime, 'load', side_effect=load), \
+             patch.object(checkpoint_conversion, 'materialize_safetensors') as convert:
+            loaded, _ = generic.load_pipeline(args, runtime, 'float32')
+        self.assertIs(loaded, instance)
+        self.assertFalse(seen[0].exists())
+        self.assertEqual(legacy.read_bytes(), b'unused invalid pickle')
+        convert.assert_not_called()
+
+    def test_single_file_primary_inside_config_is_not_treated_as_unknown_pickle(self):
+        header = b'{"tensor":{"dtype":"U8","shape":[1],"data_offsets":[0,1]}}'
+        main = self.model / 'checkpoint.bin'
+        original = struct.pack('<Q', len(header)) + header + b'x'
+        main.write_bytes(original)
+        args = self.args('--model', str(main), '--model-config', str(self.model),
+                         '--cache-dir', str(self.directory / 'cache'), '--no-default-modifiers')
+        runtime = self.fake_diffusers();seen = []
+        def load(checkpoint, **kwargs):
+            folder = Path(kwargs['config']);seen.append(folder)
+            self.assertEqual(Path(checkpoint).read_bytes(), original)
+            self.assertFalse((folder / 'checkpoint.bin').exists())
+            return runtime.FakePipeline()
+        runtime.FakePipeline.from_single_file = Mock(side_effect=load)
+        generic.load_pipeline(args, runtime, 'float32')
+        self.assertFalse(seen[0].exists())
+        self.assertEqual(main.read_bytes(), original)
+
+    def test_renamed_safetensors_reach_the_safe_single_file_loader(self):
+        header = b'{"tensor":{"dtype":"U8","shape":[1],"data_offsets":[0,1]}}'
+        source_bytes = struct.pack('<Q', len(header)) + header + b'x'
+        for suffix in ('.bin', '.data', '.gguf', '.safetensor'):
+            with self.subTest(suffix=suffix):
+                path = self.directory / ('checkpoint' + suffix)
+                path.write_bytes(source_bytes)
+                args = self.args('--model', str(path), '--model-config', str(self.model),
+                                 '--cache-dir', str(self.directory / 'cache'))
+                diffusers = self.fake_diffusers()
+                observed = []
+                def load(alias, **kwargs):
+                    alias = Path(alias)
+                    self.assertEqual(alias.suffix, '.safetensors')
+                    self.assertEqual(alias.resolve(), path.resolve())
+                    self.assertEqual(alias.read_bytes(), source_bytes)
+                    observed.append(alias)
+                    return diffusers.FakePipeline()
+                diffusers.FakePipeline.from_single_file = Mock(side_effect=load)
+                _, report = generic.load_pipeline(args, diffusers, 'dtype')
+                self.assertEqual(report['identity']['single_file']['path'], str(path))
+                self.assertEqual(path.read_bytes(), source_bytes)
+                self.assertEqual(len(observed), 1)
+                self.assertFalse(observed[0].exists())
+
+    def test_single_file_recognizes_gguf_content_and_rejects_onnx(self):
+        header = b'{"tensor":{"dtype":"U8","shape":[1],"data_offsets":[0,1]}}'
+        path = self.directory / 'fake.safetensors'
+        path.write_bytes(b'GGUF' + bytes(20))
+        args = self.args('--model', str(path), '--model-config', str(self.model))
+        self.assertTrue(args.single_file_component_only)
+        path = self.directory / 'disguised.onnx'
+        path.write_bytes(struct.pack('<Q', len(header)) + header + b'x')
+        with self.assertRaisesRegex(ValueError, 'safetensors'):
+            self.args('--model', str(path), '--model-config', str(self.model))
+
+    def test_disguised_pytorch_is_only_sent_through_safe_conversion(self):
+        import checkpoint_conversion
+        for name in ('unsafe.safetensors', 'pickle.bin'):
+            with self.subTest(name=name):
+                path = self.directory / name
+                path.write_bytes(b'PK\x03\x04' + bytes(20))
+                with patch.object(checkpoint_conversion, 'materialize_safetensors',
+                                  side_effect=ValueError('unsafe pickle retry is disabled')) as materialize:
+                    with self.assertRaisesRegex(ValueError, 'unsafe pickle retry is disabled'):
+                        self.args('--model', str(path), '--model-config', str(self.model))
+                    materialize.assert_called_once()
+
+    def test_renamed_single_file_change_during_load_is_rejected_and_alias_is_removed(self):
+        header = b'{"tensor":{"dtype":"U8","shape":[1],"data_offsets":[0,1]}}'
+        path = self.directory / 'source.bin'
+        path.write_bytes(struct.pack('<Q', len(header)) + header + b'x')
+        args = self.args('--model', str(path), '--model-config', str(self.model),
+                         '--cache-dir', str(self.directory / 'cache'))
+        diffusers = self.fake_diffusers()
+        seen = []
+        def change_source(alias, **kwargs):
+            seen.append(Path(alias))
+            path.write_bytes(path.read_bytes()[:-1] + b'y')
+            return diffusers.FakePipeline()
+        diffusers.FakePipeline.from_single_file = Mock(side_effect=change_source)
+        with self.assertRaisesRegex(RuntimeError, 'changed'):
+            generic.load_pipeline(args, diffusers, 'dtype')
+        self.assertEqual(len(seen), 1)
+        self.assertFalse(seen[0].exists())
 
     def test_model_identity_detects_replacement_with_equal_byte_size(self):
         path = self.model / "weights.safetensors"

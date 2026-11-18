@@ -10,9 +10,9 @@
   },
   "source": {
     "path": "docs/native-image-generation.md",
-    "sha256": "b52924bdd7aebbc8a244347e7065b8d235c61fbb8086bcf0da098fb9d48b2105",
-    "bytes": 65600,
-    "line_count": 490,
+    "sha256": "ea63e77b8e1f418e003f64c518763a6a8c9ea6822be8fcecf53adcb197da00b7",
+    "bytes": 68429,
+    "line_count": 502,
     "encoding": "utf-8",
     "language": "ko"
   },
@@ -170,1674 +170,1702 @@
       "id": "b000021",
       "kind": "paragraph",
       "start_line": 53,
-      "end_line": 63,
-      "raw": "Anima 패키지의 주 모델과 텍스트 인코더, Qwen Image VAE는 원본 텐서 이름과\n패키지 매핑을 기준으로 식별한다. 주 모델이 별도 네임스페이스에 있으면 함께 준비한다.\n명시적 구성 요소가 내장 구성 요소보다 우선하며, 준비된 파일은 사용자 지정 작업\n디렉터리에만 무결성을 검사해 생성한다. 취소와 모호한 구성은 추론 전에 처리하고\n원본은 수정하지 않는다. 헤더 식별과 준비는 실제 생성 성공을 보장하지 않는다.\n`prepareNativeImagePackage`는 구성 요소별 SHA-256을 검사하고 200ms 간격으로 준비\n진행률을 전달하며, 구성 요소별 명시적 경로와 취소·일시 정지를 존중한다.\n`generateNativeImageWithResidentPackage`는 빠른 생성의 기존 해상도·Hires·CFG 기본값을\n변경하지 않고 준비된 구성 요소를 네이티브 컨텍스트에 전달한다. 작업 디렉터리의\n여유 공간은 추출이 필요한 구성 요소의 크기만큼 필요하다. 가중치 캐시를 포함한\n작업 디렉터리의 수명과 정리는 호출자가 관리한다.\n"
+      "end_line": 71,
+      "raw": "Anima 패키지의 주 모델과 텍스트 인코더, Qwen Image VAE는 원본 텐서 이름과\n패키지 매핑을 기준으로 식별한다. 주 모델이 별도 네임스페이스에 있으면 함께 준비한다.\n명시적 구성 요소가 내장 구성 요소보다 우선하며, 준비된 파일은 사용자 지정 작업\n디렉터리에만 무결성을 검사해 생성한다. 취소와 모호한 구성은 추론 전에 처리하고\n원본은 수정하지 않는다. 헤더 식별과 준비는 실제 생성 성공을 보장하지 않는다.\n인덱스로 분할된 Anima 주 모델과 인코더는 전체 그룹을 복원하여 전달한다. 새 패키지의\n그룹 표기와 기존 패키지의 체크섬 검증된 내장 인덱스를 사용하며 복원 시 각 텐서와\n샤드 해시를 확인한다. MOSS 분할 구성 요소도 같은 인덱스로 식별·복원되지만\n실행에는 별도의 호환 백엔드가 필요하다. 메인 모델과 중복 제거된 샤드도 인덱스에\n포함해 복구한다. 관련 검사는 합성 텐서와 테스트 엔진을 쓴다.\n공통 Python 워커도 패키지의 원본 인덱스 경로로 Anima 변환기와 누락된 인코더·VAE를\n준비하고 `--components` 또는 `--vae`에 명시된 사용자 선택은 유지한다. 생성 기록에는\n원본 패키지와 준비된 변환기를 함께 기록하며, 원본 식별자가 바뀌면 게시 전에 중단한다.\n`prepareNativeImagePackage`는 구성 요소별 SHA-256을 검사하고 200ms 간격으로 준비\n진행률을 전달하며, 구성 요소별 명시적 경로와 취소·일시 정지를 존중한다.\n`generateNativeImageWithResidentPackage`는 빠른 생성의 기존 해상도·Hires·CFG 기본값을\n변경하지 않고 준비된 구성 요소를 네이티브 컨텍스트에 전달한다. 작업 디렉터리의\n여유 공간은 추출이 필요한 구성 요소의 크기만큼 필요하다. 가중치 캐시를 포함한\n작업 디렉터리의 수명과 정리는 호출자가 관리한다.\n"
     },
     {
       "id": "b000022",
       "kind": "blank",
-      "start_line": 64,
-      "end_line": 64,
+      "start_line": 72,
+      "end_line": 72,
       "raw": "\n"
     },
     {
       "id": "b000023",
       "kind": "paragraph",
-      "start_line": 65,
-      "end_line": 73,
+      "start_line": 73,
+      "end_line": 81,
       "raw": "네이티브 이미지 경로는 파일명 대신 제한된 크기의 safetensors 헤더와 텐서 형상으로\n명백한 비호환 입력을 검사한다. MOSS Image 변환기는 현재 네이티브 엔진에서 지원하지\n않으므로 SD 버전 판별 오류 대신 실제 모델 계열과 필요한 구성 요소를 보고한다.\nINT8 Comfy 양자화가 확인되면 이 네이티브 엔진이 아닌 호환 양자화 경로가 필요함을\n알린다. 자동 라우터의 별도 MOSS Diffusers 경로는 검증된 INT8 ConvRot을 처리한다.\n독립 LoRA·VAE·ControlNet과 잘린 헤더 또는 파일 범위를 벗어나는\n텐서도 해당 입력의 문제로 반환한다. 판별할 수 없는 다른 계열은 기존 엔진에 전달하여\n새 아키텍처의 지원을 임의로 차단하지 않는다. 헤더가 64 MiB 검사 예산을 초과하지만\n선언된 길이가 파일 범위 안에 있으면 손상으로 판정하지 않고 엔진에 판별을 위임한다.\n"
     },
     {
       "id": "b000024",
       "kind": "blank",
-      "start_line": 74,
-      "end_line": 74,
+      "start_line": 82,
+      "end_line": 82,
       "raw": "\n"
     },
     {
       "id": "b000025",
       "kind": "paragraph",
-      "start_line": 75,
-      "end_line": 78,
+      "start_line": 83,
+      "end_line": 86,
       "raw": "빠른 생성의 파라미터 기본값 조회도 같은 입력 검사를 먼저 수행한다. 명백히 비호환이거나\n읽을 수 없는 모델은 VAE 엔진에 넘기지 않고 공통 기본값을 유지하며, 실제 생성 요청에서는\n구체적인 입력·호환성 오류를 반환한다. `NativeResultTests`와 모바일 대역은 이 기본값\n조회가 비호환 모델에 대해 VAE 판독을 호출하지 않는지 검사한다.\n"
     },
     {
       "id": "b000026",
-      "kind": "blank",
-      "start_line": 79,
-      "end_line": 79,
-      "raw": "\n"
-    },
-    {
-      "id": "b000027",
-      "kind": "paragraph",
-      "start_line": 80,
-      "end_line": 84,
-      "raw": "병합 메타데이터가 합성 어댑터 매핑을 기록한 경우 그 개수는 출처가 주장하는 사실로만\n보고한다. 이는 파일 손상이나 생성 실패의 직접 원인으로 단정하지 않으며, 모델 품질 또는\n호환성의 증명이 아니다. 원본 가중치는 수정하지 않는다. 헤더 검사 결과도 텐서 전체의\n무결성이나 실제 생성 성공을 보증하지 않는다. `NativeDiffusionTests`는 접두어별 MOSS,\n양자화, 병합 기록, 잘린 데이터, 구성 요소와 유사하지만 다른 텐서 구조를 검사한다.\n"
-    },
-    {
-      "id": "b000028",
-      "kind": "blank",
-      "start_line": 85,
-      "end_line": 85,
-      "raw": "\n"
-    },
-    {
-      "id": "b000029",
-      "kind": "paragraph",
-      "start_line": 86,
-      "end_line": 86,
-      "raw": "`NativeGenerationRequest.width/height`는 최종 출력 크기이다. 기존 생성 진입점과 V1 C 브리지는 각 변을 절반으로 나눈 값을 1차 생성에 전달한다. 예를 들어 1024×1024 요청은 512×512 생성 → Lanczos 확대 → VAE 재인코딩 → 강도 0.35의 재확산 → 1024×1024 디코딩으로 실행한다. 고정 stable-diffusion.cpp의 내장 Hires 기능을 사용하므로 별도 모델·패키지·네트워크가 필요하지 않다. 기본 보정 요청 스텝은 `max(1, floor(steps * 0.35))`이며 실제 샘플러 콜백이 실행 스텝을 보고한다. 로딩만 하는 `prepareNativeImageModel`은 두 생성 단계를 실행하지 않는다.\n"
-    },
-    {
-      "id": "b000030",
       "kind": "blank",
       "start_line": 87,
       "end_line": 87,
       "raw": "\n"
     },
     {
-      "id": "b000031",
+      "id": "b000027",
       "kind": "paragraph",
       "start_line": 88,
-      "end_line": 88,
-      "raw": "구성요소별 로딩을 지원하는 `generateNativeImageWithComponents`와 V2 C 브리지는 `hires`를 명시적으로 받으며 기본은 단일 패스이다. CLIP·T5·LLM·VAE 경로, CFG와 내장 guidance를 개별 지정한다. 모델별 자동 판별, 분리 가중치, 출력 명세와 사용법은 [백엔드 라우팅](backend-routing.md)에 정리되어 있다.\n"
-    },
-    {
-      "id": "b000032",
-      "kind": "blank",
-      "start_line": 89,
-      "end_line": 89,
-      "raw": "\n"
-    },
-    {
-      "id": "b000033",
-      "kind": "paragraph",
-      "start_line": 90,
-      "end_line": 90,
-      "raw": "각 단계의 내부 캔버스는 엔진의 모델 배수에 맞게 올림된다. 따라서 1024×1368 요청의 1차 입력은 512×684이고 UNet 캔버스는 512×704이다. 최종 캔버스 1024×1408을 Hires로 완성한 후 상하 20픽셀씩 제거하여 정확히 1024×1368을 반환한다. 최소 64픽셀 요청 등에서는 내부 정렬 때문에 1차 캔버스가 수학적인 절반보다 클 수 있다. VAE 메모리 정책은 최종 캔버스를 기준으로 정한다. 최종 잘라내기 자체에는 추가 보간이 없다. 잘못된 크기·채널·개수·빈 결과, 보정 실패·취소·제한 시간 초과는 완성 이미지로 반환하지 않는다.\n"
-    },
-    {
-      "id": "b000034",
-      "kind": "blank",
-      "start_line": 91,
-      "end_line": 91,
-      "raw": "\n"
-    },
-    {
-      "id": "b000035",
-      "kind": "paragraph",
-      "start_line": 92,
       "end_line": 92,
-      "raw": "SDXL 내장 VAE의 `using Conv2D scale 0.031`은 엔진 경고이다. 경고만으로 생성 실패를 판정하거나 결과 검증 오류를 이 문구로 덮어쓰지 않는다. 실패는 해당 작업의 구체적인 사유와 실제 ERROR 수준의 엔진 기록을 제공하며, 크기 불일치는 예상·반환 크기를 표시한다. `IILD_NATIVE_DIAGNOSTICS=1`에서는 경고도 계속 진단 로그에 남는다.\n"
+      "raw": "병합 메타데이터가 합성 어댑터 매핑을 기록한 경우 그 개수는 출처가 주장하는 사실로만\n보고한다. 이는 파일 손상이나 생성 실패의 직접 원인으로 단정하지 않으며, 모델 품질 또는\n호환성의 증명이 아니다. 원본 가중치는 수정하지 않는다. 헤더 검사 결과도 텐서 전체의\n무결성이나 실제 생성 성공을 보증하지 않는다. `NativeDiffusionTests`는 접두어별 MOSS,\n양자화, 병합 기록, 잘린 데이터, 구성 요소와 유사하지만 다른 텐서 구조를 검사한다.\n"
     },
     {
-      "id": "b000036",
+      "id": "b000028",
       "kind": "blank",
       "start_line": 93,
       "end_line": 93,
       "raw": "\n"
     },
     {
-      "id": "b000037",
+      "id": "b000029",
       "kind": "paragraph",
       "start_line": 94,
       "end_line": 94,
-      "raw": "`NativeResultTests`는 실제 SDK 어댑터를 제어 가능한 upstream C API fixture와 연결한다. 네 가지 비정사각형 기본 비율·정사각형·양축 올림의 정확한 RGB 픽셀과 행 간격, 경고 뒤 성공, 실패 사유, 잘못된 크기·채널·개수·빈 출력 거부, 결과 메모리 및 콜백 정리를 검사한다. 실제 모델 추론은 별도 실기 검증으로 수행한다.\n"
+      "raw": "`NativeGenerationRequest.width/height`는 최종 출력 크기이다. 기존 생성 진입점과 V1 C 브리지는 각 변을 절반으로 나눈 값을 1차 생성에 전달한다. 예를 들어 1024×1024 요청은 512×512 생성 → Lanczos 확대 → VAE 재인코딩 → 강도 0.35의 재확산 → 1024×1024 디코딩으로 실행한다. 고정 stable-diffusion.cpp의 내장 Hires 기능을 사용하므로 별도 모델·패키지·네트워크가 필요하지 않다. 기본 보정 요청 스텝은 `max(1, floor(steps * 0.35))`이며 실제 샘플러 콜백이 실행 스텝을 보고한다. 로딩만 하는 `prepareNativeImageModel`은 두 생성 단계를 실행하지 않는다.\n"
     },
     {
-      "id": "b000038",
+      "id": "b000030",
       "kind": "blank",
       "start_line": 95,
       "end_line": 95,
       "raw": "\n"
     },
     {
-      "id": "b000039",
-      "kind": "heading",
+      "id": "b000031",
+      "kind": "paragraph",
       "start_line": 96,
       "end_line": 96,
-      "raw": "### iOS VAE 렌더링\n",
-      "level": 3,
-      "title": "iOS VAE 렌더링"
+      "raw": "구성요소별 로딩을 지원하는 `generateNativeImageWithComponents`의 C++ `NativeModelComponents`와 `NativeAdvancedControls`는 Hires가 기본으로 켜져 있으며 `hires=false`로 단일 패스를 선택한다. V2/V3 C 브리지는 ABI를 유지하므로 호출자가 `hires=1` 또는 `hires=0`을 명시한다. Python 네이티브 워커는 별도 업스케일러가 없어도 기본 활성값을 브리지에 전달하고 `--no-hires-fix`를 보존한다. CLIP·T5·LLM·VAE 경로, CFG와 내장 guidance를 개별 지정한다. 모델별 자동 판별, 분리 가중치, 출력 명세와 사용법은 [백엔드 라우팅](backend-routing.md)에 정리되어 있다.\n"
     },
     {
-      "id": "b000040",
+      "id": "b000032",
       "kind": "blank",
       "start_line": 97,
       "end_line": 97,
       "raw": "\n"
     },
     {
-      "id": "b000041",
+      "id": "b000033",
       "kind": "paragraph",
       "start_line": 98,
       "end_line": 98,
-      "raw": "iOS 빌드는 고정 엔진의 모듈 배치 기능에 `backend=\"vae=cpu\"`를 전달한다. VAE 연산과 가중치는 CPU에 두고 디노이저는 기존 자동 선택으로 Metal을 사용한다. VAE 타일 분할, 선택한 내장 또는 계열별 폴백 VAE, 스텝·출력 해상도·취소 계약은 유지한다. macOS의 모듈 배치는 변경하지 않는다. 별도 호출 인자나 새 라이브러리가 필요하지 않으며, CPU 디코딩은 기기에 따라 렌더 시간을 늘릴 수 있다.\n"
+      "raw": "정지 이미지 출력의 각 축은 64~4096픽셀의 8픽셀 배수로 요청할 수 있다. 이는 입력 검증 범위이며 모든 모델과 기기에서 해당 크기의 메모리를 확보할 수 있다는 보장은 아니다. ControlNet·IP-Adapter 입력의 별도 크기 제한은 그대로 적용한다.\n"
     },
     {
-      "id": "b000042",
+      "id": "b000034",
       "kind": "blank",
       "start_line": 99,
       "end_line": 99,
       "raw": "\n"
     },
     {
-      "id": "b000043",
+      "id": "b000035",
       "kind": "paragraph",
       "start_line": 100,
       "end_line": 100,
-      "raw": "명시적 백엔드는 upstream의 자동 메모리 배치를 비활성화하므로 `params_backend=\"te=disk,diffusion=disk,vae=cpu\"`도 함께 지정한다. 텍스트 인코더와 디노이저의 가중치는 기존 mmap 파일에서 필요한 구간을 읽고 GPU 예산에 따라 회수·재적재할 수 있게 한다. 이를 생략하면 이전 구간의 GPU 가중치가 회수 불가능한 상태로 누적되어 디노이징 중 메모리 예산을 초과할 수 있다. 디스크 배치는 가중치를 재양자화하거나 새 파일에 쓰는 기능이 아니며 기존 Q8 사본 선택 계약과 독립적이다.\n"
+      "raw": "각 단계의 내부 캔버스는 엔진의 모델 배수에 맞게 올림된다. 따라서 1024×1368 요청의 1차 입력은 512×684이고 UNet 캔버스는 512×704이다. 최종 캔버스 1024×1408을 Hires로 완성한 후 상하 20픽셀씩 제거하여 정확히 1024×1368을 반환한다. 최소 64픽셀 요청 등에서는 내부 정렬 때문에 1차 캔버스가 수학적인 절반보다 클 수 있다. VAE 메모리 정책은 최종 캔버스를 기준으로 정한다. 최종 잘라내기 자체에는 추가 보간이 없다. 잘못된 크기·채널·개수·빈 결과, 보정 실패·취소·제한 시간 초과는 완성 이미지로 반환하지 않는다.\n"
     },
     {
-      "id": "b000044",
+      "id": "b000036",
       "kind": "blank",
       "start_line": 101,
       "end_line": 101,
       "raw": "\n"
     },
     {
-      "id": "b000045",
+      "id": "b000037",
       "kind": "paragraph",
       "start_line": 102,
       "end_line": 102,
-      "raw": "iOS에서는 GPU와 CPU가 메모리를 공유하므로 GPU 예산을 Metal 권장 작업 세트의 60% 이하로 제한한다. 앱의 남은 메모리에서도 최소 1.5GiB 또는 40% 중 큰 값을 남긴다. 두 제약 중 작은 값을 256MiB 단위로 내리며, 실제 남은 메모리가 0이면 계속 로딩을 거부한다. 관측된 iPhone 15 Pro Max의 자원 값에서는 3GiB가 된다. 이는 기기 모델명이나 고정 3GiB 상한에 의존하지 않으며 더 큰 자원을 가진 기기에서는 예산도 증가한다. 엔진의 구간 분할·가중치 회수가 이 예산을 따르고 이미지 크기·스텝·정밀도는 바꾸지 않는다. `NativeCachePolicyTests`는 관측된 기기 값·낮은 메모리·0 응답·상위 용량을 검사하고, `NativeMobileResultTests`는 이 예산이 실제 C API에 전달되는지 검사한다. 진단 로그의 정책 이름은 `ios-cpu-vae-headroom`이다.\n"
+      "raw": "SDXL 내장 VAE의 `using Conv2D scale 0.031`은 엔진 경고이다. 경고만으로 생성 실패를 판정하거나 결과 검증 오류를 이 문구로 덮어쓰지 않는다. 실패는 해당 작업의 구체적인 사유와 실제 ERROR 수준의 엔진 기록을 제공하며, 크기 불일치는 예상·반환 크기를 표시한다. `IILD_NATIVE_DIAGNOSTICS=1`에서는 경고도 계속 진단 로그에 남는다.\n"
     },
     {
-      "id": "b000046",
+      "id": "b000038",
       "kind": "blank",
       "start_line": 103,
       "end_line": 103,
       "raw": "\n"
     },
     {
-      "id": "b000047",
+      "id": "b000039",
       "kind": "paragraph",
       "start_line": 104,
       "end_line": 104,
-      "raw": "이는 iPhone에서 관측된 VAE 디코딩 중 Metal 명령 버퍼 실패와 GPU 복구의 영향을 피하기 위한 실행 배치다. `command buffer ... status 5`는 Metal의 실패 상태이며, 그 숫자만으로 메모리 부족이나 GPU 타임아웃을 판정하지 않는다. VAE 이전의 Metal 실패나 시스템 전체 GPU 장애에 대한 재시도 기능은 아니다. 실패한 네이티브 컨텍스트는 기존 정책대로 폐기한다.\n"
+      "raw": "`NativeResultTests`는 실제 SDK 어댑터를 제어 가능한 upstream C API fixture와 연결한다. 네 가지 비정사각형 기본 비율·정사각형·양축 올림의 정확한 RGB 픽셀과 행 간격, 경고 뒤 성공, 실패 사유, 잘못된 크기·채널·개수·빈 출력 거부, 결과 메모리 및 콜백 정리를 검사한다. 실제 모델 추론은 별도 실기 검증으로 수행한다.\n"
     },
     {
-      "id": "b000048",
+      "id": "b000040",
       "kind": "blank",
       "start_line": 105,
       "end_line": 105,
       "raw": "\n"
     },
     {
-      "id": "b000049",
-      "kind": "paragraph",
+      "id": "b000041",
+      "kind": "heading",
       "start_line": 106,
       "end_line": 106,
-      "raw": "`NativeMobileResultTests`는 실제 어댑터를 iOS 정책으로 별도 컴파일하여 CPU VAE 배치·가중치 배치·타일링 및 모든 출력·취소·캐시·계열별 VAE 회귀를 검사한다. `NativeResultTests`는 데스크톱 자동 배치를 함께 검사한다. `NativeVaeFallbackTests <작업 폴더> <resources/vae> --decode-portrait`는 공식 SDXL VAE와 실제 CPU 엔진으로 1024×1856 타일 디코딩을 수행하고 완전한 유한 RGB 출력을 검사한다. 앱과 같은 엔진 초기값(타일 중첩 0.5)을 사용하며, 최대 메모리는 `/usr/bin/time -l` 등 해당 운영체제의 프로세스 측정 도구로 함께 확인할 수 있다. 합성 잠재값을 사용하는 이 검사는 실제 iPhone의 전체 모델 생성 검증과 구분한다.\n"
+      "raw": "### iOS VAE 렌더링\n",
+      "level": 3,
+      "title": "iOS VAE 렌더링"
     },
     {
-      "id": "b000050",
+      "id": "b000042",
       "kind": "blank",
       "start_line": 107,
       "end_line": 107,
       "raw": "\n"
     },
     {
-      "id": "b000051",
+      "id": "b000043",
       "kind": "paragraph",
       "start_line": 108,
       "end_line": 108,
-      "raw": "근거: [고정 엔진의 모듈별 백엔드 배치](https://github.com/leejet/stable-diffusion.cpp/blob/d04e8950c1ec8d30248cbe996682b3182fb1adf6/docs/backend.md), [Apple 명령 버퍼 상태](https://developer.apple.com/documentation/metal/mtlcommandbuffer/status?language=objc).\n"
+      "raw": "iOS 빌드는 고정 엔진의 모듈 배치 기능에 `backend=\"vae=cpu\"`를 전달한다. VAE 연산과 가중치는 CPU에 두고 디노이저는 기존 자동 선택으로 Metal을 사용한다. VAE 타일 분할, 선택한 내장 또는 계열별 폴백 VAE, 스텝·출력 해상도·취소 계약은 유지한다. macOS의 모듈 배치는 변경하지 않는다. 별도 호출 인자나 새 라이브러리가 필요하지 않으며, CPU 디코딩은 기기에 따라 렌더 시간을 늘릴 수 있다.\n"
     },
     {
-      "id": "b000052",
+      "id": "b000044",
       "kind": "blank",
       "start_line": 109,
       "end_line": 109,
       "raw": "\n"
     },
     {
-      "id": "b000053",
-      "kind": "heading",
+      "id": "b000045",
+      "kind": "paragraph",
       "start_line": 110,
       "end_line": 110,
-      "raw": "## VAE 마운트 검증과 자동 최적화\n",
-      "level": 2,
-      "title": "VAE 마운트 검증과 자동 최적화"
+      "raw": "명시적 백엔드는 upstream의 자동 메모리 배치를 비활성화하므로 `params_backend=\"te=disk,diffusion=disk,vae=cpu\"`도 함께 지정한다. 텍스트 인코더와 디노이저의 가중치는 기존 mmap 파일에서 필요한 구간을 읽고 GPU 예산에 따라 회수·재적재할 수 있게 한다. 이를 생략하면 이전 구간의 GPU 가중치가 회수 불가능한 상태로 누적되어 디노이징 중 메모리 예산을 초과할 수 있다. 디스크 배치는 가중치를 재양자화하거나 새 파일에 쓰는 기능이 아니며 기존 Q8 사본 선택 계약과 독립적이다.\n"
     },
     {
-      "id": "b000054",
+      "id": "b000046",
       "kind": "blank",
       "start_line": 111,
       "end_line": 111,
       "raw": "\n"
     },
     {
-      "id": "b000055",
+      "id": "b000047",
       "kind": "paragraph",
       "start_line": 112,
       "end_line": 112,
-      "raw": "네이티브 SDXL·Qwen Image RGB·FLUX.1·FLUX.2는 VAE 접두어 한 개만으로 마운트를 승인하지 않는다. 실제 엔진의 인코더·디코더 파라미터 전체와 파일의 텐서 이름·크기를 비교한다. 정상 내장 VAE는 유지하며, 누락·불완전·형상 불일치는 같은 모델 계열의 해시 검증된 기본 VAE로 교체한다. 다른 잠재 공간의 VAE로 대체하지 않는다. 검사는 가중치를 적재하지 않는 메타데이터 검사이며 파일 정체성이 바뀔 때 다시 수행한다. `NativeVaeFallbackTests`는 정상 전체 구조, 단일 텐서, 누락된 디코더, 잘못된 텐서 크기, 두 접두어와 네 계열을 검사한다.\n"
+      "raw": "iOS에서는 GPU와 CPU가 메모리를 공유하므로 GPU 예산을 Metal 권장 작업 세트의 60% 이하로 제한한다. 앱의 남은 메모리에서도 최소 1.5GiB 또는 40% 중 큰 값을 남긴다. 두 제약 중 작은 값을 256MiB 단위로 내리며, 실제 남은 메모리가 0이면 계속 로딩을 거부한다. 관측된 iPhone 15 Pro Max의 자원 값에서는 3GiB가 된다. 이는 기기 모델명이나 고정 3GiB 상한에 의존하지 않으며 더 큰 자원을 가진 기기에서는 예산도 증가한다. 엔진의 구간 분할·가중치 회수가 이 예산을 따르고 이미지 크기·스텝·정밀도는 바꾸지 않는다. `NativeCachePolicyTests`는 관측된 기기 값·낮은 메모리·0 응답·상위 용량을 검사하고, `NativeMobileResultTests`는 이 예산이 실제 C API에 전달되는지 검사한다. 진단 로그의 정책 이름은 `ios-cpu-vae-headroom`이다.\n"
     },
     {
-      "id": "b000056",
+      "id": "b000048",
       "kind": "blank",
       "start_line": 113,
       "end_line": 113,
       "raw": "\n"
     },
     {
-      "id": "b000057",
+      "id": "b000049",
       "kind": "paragraph",
       "start_line": 114,
       "end_line": 114,
-      "raw": "`NativeVaePolicy.hpp`의 `adaptive-sdxl-v1` 정책은 SDXL 작업 예산의 1/3 이내에서 16~64 잠재 픽셀 타일을 고른다. 32×32에서 측정한 약 480 MiB 작업 공간을 512 MiB로 올림하고 면적 비례로 보수적으로 추산한다. 3 GiB 예산에서는 40×40, 2.25 GiB에서는 32×32이며 중첩 0.5를 유지한다. 작은 캔버스 전체가 들어가면 타일을 분할하지 않아 지역별 정규화와 attention 차이를 피한다. 이 추산은 전체 프로세스 RSS 한도나 iPhone에서의 측정값이 아니다. Qwen·FLUX 등에는 측정하지 않은 SDXL 메모리 모델을 적용하지 않는다.\n"
+      "raw": "이는 iPhone에서 관측된 VAE 디코딩 중 Metal 명령 버퍼 실패와 GPU 복구의 영향을 피하기 위한 실행 배치다. `command buffer ... status 5`는 Metal의 실패 상태이며, 그 숫자만으로 메모리 부족이나 GPU 타임아웃을 판정하지 않는다. VAE 이전의 Metal 실패나 시스템 전체 GPU 장애에 대한 재시도 기능은 아니다. 실패한 네이티브 컨텍스트는 기존 정책대로 폐기한다.\n"
     },
     {
-      "id": "b000058",
+      "id": "b000050",
       "kind": "blank",
       "start_line": 115,
       "end_line": 115,
       "raw": "\n"
     },
     {
-      "id": "b000059",
+      "id": "b000051",
       "kind": "paragraph",
       "start_line": 116,
       "end_line": 116,
-      "raw": "SDXL의 Conv2D는 외부 VAE 파일이 float32여도 내부에서 fp16 활성값을 사용한다. 내장·외부 경로 모두 1/32 입력 스케일과 역스케일로 오버플로를 완화한다. 이 값은 SDXL 잠재 스케일 0.13025를 바꾸는 값이 아니다. VAE 입력의 NaN/Inf는 디노이징 오류로 즉시 중단하고, 출력의 NaN/Inf는 RGB 클램프 이전에 오류로 반환한다. 흰색·검은색·균일한 정상 이미지는 내용만으로 거부하지 않는다. `NativeVaeSafetyTests`와 `NativeVaePolicyTests`, 실제 어댑터 대역 테스트가 이 계약을 검사한다.\n"
+      "raw": "`NativeMobileResultTests`는 실제 어댑터를 iOS 정책으로 별도 컴파일하여 CPU VAE 배치·가중치 배치·타일링 및 모든 출력·취소·캐시·계열별 VAE 회귀를 검사한다. `NativeResultTests`는 데스크톱 자동 배치를 함께 검사한다. `NativeVaeFallbackTests <작업 폴더> <resources/vae> --decode-portrait`는 공식 SDXL VAE와 실제 CPU 엔진으로 1024×1856 타일 디코딩을 수행하고 완전한 유한 RGB 출력을 검사한다. 앱과 같은 엔진 초기값(타일 중첩 0.5)을 사용하며, 최대 메모리는 `/usr/bin/time -l` 등 해당 운영체제의 프로세스 측정 도구로 함께 확인할 수 있다. 합성 잠재값을 사용하는 이 검사는 실제 iPhone의 전체 모델 생성 검증과 구분한다.\n"
     },
     {
-      "id": "b000060",
+      "id": "b000052",
       "kind": "blank",
       "start_line": 117,
       "end_line": 117,
       "raw": "\n"
     },
     {
-      "id": "b000061",
+      "id": "b000053",
       "kind": "paragraph",
       "start_line": 118,
       "end_line": 118,
-      "raw": "추가 모델이나 런타임 의존성을 도입하지 않고 고정 stable-diffusion.cpp와 기존 오프라인 Diffusers 검증 환경을 사용한다. float16 SDXL의 활성값 문제는 [SDXL VAE fp16 수정 모델의 원 저자 설명](https://huggingface.co/madebyollin/sdxl-vae-fp16-fix)에 근거하며, 정상 내장 가중치를 이 다른 모델로 일괄 교체하지 않는다.\n"
+      "raw": "근거: [고정 엔진의 모듈별 백엔드 배치](https://github.com/leejet/stable-diffusion.cpp/blob/d04e8950c1ec8d30248cbe996682b3182fb1adf6/docs/backend.md), [Apple 명령 버퍼 상태](https://developer.apple.com/documentation/metal/mtlcommandbuffer/status?language=objc).\n"
     },
     {
-      "id": "b000062",
+      "id": "b000054",
       "kind": "blank",
       "start_line": 119,
       "end_line": 119,
       "raw": "\n"
     },
     {
-      "id": "b000063",
-      "kind": "paragraph",
+      "id": "b000055",
+      "kind": "heading",
       "start_line": 120,
       "end_line": 120,
-      "raw": "다음 검사는 실제 체크포인트의 내장 VAE 가중치를 독립적인 float32 Diffusers 디코더에 적재하고 동일한 합성 잠재값의 네이티브 RGB를 비교한다. 생성 모델의 인물 형태나 프롬프트 품질을 검증하는 테스트와는 구분한다.\n"
+      "raw": "## VAE 마운트 검증과 자동 최적화\n",
+      "level": 2,
+      "title": "VAE 마운트 검증과 자동 최적화"
     },
     {
-      "id": "b000064",
+      "id": "b000056",
       "kind": "blank",
       "start_line": 121,
       "end_line": 121,
       "raw": "\n"
     },
     {
-      "id": "b000065",
-      "kind": "fenced_code",
+      "id": "b000057",
+      "kind": "paragraph",
       "start_line": 122,
+      "end_line": 122,
+      "raw": "네이티브 SDXL·Qwen Image RGB·FLUX.1·FLUX.2는 VAE 접두어 한 개만으로 마운트를 승인하지 않는다. 실제 엔진의 인코더·디코더 파라미터 전체와 파일의 텐서 이름·크기를 비교한다. 정상 내장 VAE는 유지하며, 누락·불완전·형상 불일치는 같은 모델 계열의 해시 검증된 기본 VAE로 교체한다. 다른 잠재 공간의 VAE로 대체하지 않는다. 검사는 가중치를 적재하지 않는 메타데이터 검사이며 파일 정체성이 바뀔 때 다시 수행한다. `NativeVaeFallbackTests`는 정상 전체 구조, 단일 텐서, 누락된 디코더, 잘못된 텐서 크기, 두 접두어와 네 계열을 검사한다.\n"
+    },
+    {
+      "id": "b000058",
+      "kind": "blank",
+      "start_line": 123,
+      "end_line": 123,
+      "raw": "\n"
+    },
+    {
+      "id": "b000059",
+      "kind": "paragraph",
+      "start_line": 124,
+      "end_line": 124,
+      "raw": "`NativeVaePolicy.hpp`의 `adaptive-sdxl-v1` 정책은 SDXL 작업 예산의 1/3 이내에서 16~64 잠재 픽셀 타일을 고른다. 32×32에서 측정한 약 480 MiB 작업 공간을 512 MiB로 올림하고 면적 비례로 보수적으로 추산한다. 3 GiB 예산에서는 40×40, 2.25 GiB에서는 32×32이며 중첩 0.5를 유지한다. 작은 캔버스 전체가 들어가면 타일을 분할하지 않아 지역별 정규화와 attention 차이를 피한다. 이 추산은 전체 프로세스 RSS 한도나 iPhone에서의 측정값이 아니다. Qwen·FLUX 등에는 측정하지 않은 SDXL 메모리 모델을 적용하지 않는다.\n"
+    },
+    {
+      "id": "b000060",
+      "kind": "blank",
+      "start_line": 125,
+      "end_line": 125,
+      "raw": "\n"
+    },
+    {
+      "id": "b000061",
+      "kind": "paragraph",
+      "start_line": 126,
+      "end_line": 126,
+      "raw": "타일을 사용하는 SDXL 이미지에서는 고해상도 보정 또는 이미지 입력을 인코딩할 때도 이 크기를 상한으로 사용한다. 기반 엔진은 기본적으로 인코딩 타일의 양쪽 변을 디코딩 타일의 두 배로 늘리므로, 그대로 두면 작업 면적이 네 배가 되어 위의 예산 추정이 어긋난다. 디코딩 타일과 겹침은 그대로 두며 다른 모델 계열과 직접 엔진을 사용하는 호출자의 기본값은 바꾸지 않는다. 더 작은 인코딩 타일은 메모리 요구를 줄이는 대신 경계 부근의 결과와 처리 시간에 영향을 줄 수 있고, 모든 메모리 부족이나 다른 엔진 오류의 해결을 보장하지는 않는다. 실패 시 엔진이 보고한 메모리 배치 경고는 확정 원인이 아닌 추가 맥락으로 오류 메시지에 보존한다. `NativeVaeSafetyTests`는 모의 VAE의 실제 인코딩 타일 크기와 기존 기본값을, `NativeResultTests`는 어댑터 인자와 경고 전달을 검사한다. 1024×1368 요청이 정렬된 1024×1408 캔버스에서도 잠재 타일 64의 인코딩 입력이 각 변 512픽셀 이내이고 전체 잠재 결과를 생성하는지 검사한다. 이 검사는 학습된 모델을 불러오거나 실제 이미지 생성을 수행하지 않는다.\n"
+    },
+    {
+      "id": "b000062",
+      "kind": "blank",
+      "start_line": 127,
+      "end_line": 127,
+      "raw": "\n"
+    },
+    {
+      "id": "b000063",
+      "kind": "paragraph",
+      "start_line": 128,
       "end_line": 128,
+      "raw": "SDXL의 Conv2D는 외부 VAE 파일이 float32여도 내부에서 fp16 활성값을 사용한다. 내장·외부 경로 모두 1/32 입력 스케일과 역스케일로 오버플로를 완화한다. 이 값은 SDXL 잠재 스케일 0.13025를 바꾸는 값이 아니다. VAE 입력의 NaN/Inf는 디노이징 오류로 즉시 중단하고, 출력의 NaN/Inf는 RGB 클램프 이전에 오류로 반환한다. 흰색·검은색·균일한 정상 이미지는 내용만으로 거부하지 않는다. `NativeVaeSafetyTests`와 `NativeVaePolicyTests`, 실제 어댑터 대역 테스트가 이 계약을 검사한다.\n"
+    },
+    {
+      "id": "b000064",
+      "kind": "blank",
+      "start_line": 129,
+      "end_line": 129,
+      "raw": "\n"
+    },
+    {
+      "id": "b000065",
+      "kind": "paragraph",
+      "start_line": 130,
+      "end_line": 130,
+      "raw": "추가 모델이나 런타임 의존성을 도입하지 않고 고정 stable-diffusion.cpp와 기존 오프라인 Diffusers 검증 환경을 사용한다. float16 SDXL의 활성값 문제는 [SDXL VAE fp16 수정 모델의 원 저자 설명](https://huggingface.co/madebyollin/sdxl-vae-fp16-fix)에 근거하며, 정상 내장 가중치를 이 다른 모델로 일괄 교체하지 않는다.\n"
+    },
+    {
+      "id": "b000066",
+      "kind": "blank",
+      "start_line": 131,
+      "end_line": 131,
+      "raw": "\n"
+    },
+    {
+      "id": "b000067",
+      "kind": "paragraph",
+      "start_line": 132,
+      "end_line": 132,
+      "raw": "다음 검사는 실제 체크포인트의 내장 VAE 가중치를 독립적인 float32 Diffusers 디코더에 적재하고 동일한 합성 잠재값의 네이티브 RGB를 비교한다. 생성 모델의 인물 형태나 프롬프트 품질을 검증하는 테스트와는 구분한다.\n"
+    },
+    {
+      "id": "b000068",
+      "kind": "blank",
+      "start_line": 133,
+      "end_line": 133,
+      "raw": "\n"
+    },
+    {
+      "id": "b000069",
+      "kind": "fenced_code",
+      "start_line": 134,
+      "end_line": 140,
       "raw": "```sh\ncmake --build build --target NativeVaeDecodeProbe\nreference/diffusers/.venv/bin/python tests/NativeVaeParitySmoke.py \\\n  --model /absolute/path/redLilyIllu_v10.safetensors \\\n  --probe build/NativeVaeDecodeProbe --output-dir resources/vae-parity \\\n  --tiles 0 32 40 48 64\n```\n",
       "language": "sh",
       "code": "cmake --build build --target NativeVaeDecodeProbe\nreference/diffusers/.venv/bin/python tests/NativeVaeParitySmoke.py \\\n  --model /absolute/path/redLilyIllu_v10.safetensors \\\n  --probe build/NativeVaeDecodeProbe --output-dir resources/vae-parity \\\n  --tiles 0 32 40 48 64\n",
       "closed": true
     },
     {
-      "id": "b000066",
-      "kind": "paragraph",
-      "start_line": 129,
-      "end_line": 129,
-      "raw": "검증을 마치면 필요한 결과를 보관한 뒤 이 실행이 만든 임시 리소스를 정리한다.\n"
-    },
-    {
-      "id": "b000067",
-      "kind": "blank",
-      "start_line": 130,
-      "end_line": 130,
-      "raw": "\n"
-    },
-    {
-      "id": "b000068",
-      "kind": "heading",
-      "start_line": 131,
-      "end_line": 131,
-      "raw": "## 실행 계약\n",
-      "level": 2,
-      "title": "실행 계약"
-    },
-    {
-      "id": "b000069",
-      "kind": "blank",
-      "start_line": 132,
-      "end_line": 132,
-      "raw": "\n"
-    },
-    {
       "id": "b000070",
-      "kind": "paragraph",
-      "start_line": 133,
-      "end_line": 133,
-      "raw": "`Generation/NativeDiffusion.hpp`는 같은 프로세스에서 로컬 체크포인트를 읽고 RGB 바이트를 반환한다. 모델 다운로드·기기 연결·동기화·출력 저장은 수행하지 않는다. 소비 앱이 작업 스레드에서 호출하고 결과를 자신의 저장소에 게시한다. 기존 데스크톱 Python worker는 별도로 유지한다.\n"
-    },
-    {
-      "id": "b000071",
-      "kind": "blank",
-      "start_line": 134,
-      "end_line": 134,
-      "raw": "\n"
-    },
-    {
-      "id": "b000072",
-      "kind": "paragraph",
-      "start_line": 135,
-      "end_line": 135,
-      "raw": "Krea2 분리형 denoiser는 접두사가 없는 원본/ComfyUI 텐서 이름과 `diffusion_model.`, `model.diffusion_model.`, `transformer.` 이름을 지원한다. 로더가 메모리 내 이름만 정규화하며 원본 체크포인트를 다시 쓰지 않는다. 텍스트 인코더와 VAE의 내장 이름 공간은 보존한다. 공식 Qwen3-VL 원본의 `model.language_model.` 텍스트 타워도 `model.`로 메모리 내 정규화한다. 부족한 Qwen3-VL-4B와 Wan2.1 VAE는 `generation-defaults.json`의 `fallback_llms`/`fallback_vaes`에서 연결한다. 선택된 외부 구성요소는 전체 필요 텐서의 크기와 Qwen4B의 2560차원·36층 규격을 확인한 뒤 마운트한다. 명시한 경로는 기본 리소스보다 우선하며, 내장 인코더가 부분적으로 존재하면 기본 인코더로 덮어쓰지 않는다. 필수 구성요소 연결은 `defaultModifiers=false`에서도 유지한다. Python native worker와 프로세스 내 C++ 경로가 같은 리소스 카탈로그를 사용한다.\n"
-    },
-    {
-      "id": "b000073",
-      "kind": "blank",
-      "start_line": 136,
-      "end_line": 136,
-      "raw": "\n"
-    },
-    {
-      "id": "b000074",
-      "kind": "paragraph",
-      "start_line": 137,
-      "end_line": 137,
-      "raw": "`NativeKrea2NamesTests`는 분리형/완전형 이름과 잘못된 백업 이름 공간을, `NativeLlmConfigTests`는 누락·중복·잘못된 아키텍처·경로 이탈을 검사한다. `NativeVaeFallbackTests`와 `NativeVaeConfigTests`는 Wan의 실제 텐서·정규화 규격을 검사한다. 실제 모델 검증은 `NativeComponentMountIntegration <checkpoint> <resource-directory> <resource-output-directory>`로 원본 모델의 resident 준비와 캐시를 재사용한 128×128·1스텝 RGB 생성을 확인한다. 기본 CTest에 포함하지 않으며, 모델의 품질이나 기본 해상도에서의 생성 속도를 보증하지 않는다.\n"
-    },
-    {
-      "id": "b000075",
-      "kind": "blank",
-      "start_line": 138,
-      "end_line": 138,
-      "raw": "\n"
-    },
-    {
-      "id": "b000076",
-      "kind": "paragraph",
-      "start_line": 139,
-      "end_line": 139,
-      "raw": "`IILD_ENABLE_NATIVE_DIFFUSION=ON`은 stable-diffusion.cpp의 `d04e8950c1ec8d30248cbe996682b3182fb1adf6` 및 해당 ggml 커밋을 빌드한다. iOS의 새 구성에서는 기본 ON이다. 체크포인트/토크나이저/텐서 실행을 직접 구현하는 대신 이 라이브러리의 C API를 사용한다. upstream은 활발히 변경되므로 커밋을 고정했다. 두 프로젝트는 MIT이고 고지문을 SDK에 설치한다. 서버·Web UI·WebP/WebM 및 RPC는 제외한다. Apple은 내장 Metal 코드를 사용하고 나머지 환경은 CPU를 사용한다.\n"
-    },
-    {
-      "id": "b000077",
-      "kind": "blank",
-      "start_line": 140,
-      "end_line": 140,
-      "raw": "\n"
-    },
-    {
-      "id": "b000078",
       "kind": "paragraph",
       "start_line": 141,
       "end_line": 141,
-      "raw": "한 번에 한 이미지를 실행하고 라이브러리의 전역 콜백 때문에 네이티브 호출을 직렬화한다. 모델 원본을 mmap으로 읽고 지원되는 실행 경로에서 다음 구간 프리페치를 사용한다. macOS에서는 Metal 권장 작업 세트에서 256 MiB를 제외한 값과 현재 사용 가능 메모리에서 여유 공간을 뺀 값 중 작은 값을 256 MiB 단위로 내림하여 관리 GPU 예산으로 사용한다. macOS의 여유 공간은 최소 768 MiB 또는 사용 가능 메모리의 1/6이며, iOS는 앞 절의 CPU VAE 메모리 여유 정책을 적용한다. iOS는 프로세스의 남은 한도, macOS는 현재 free+inactive 페이지를 조회한다. 전체 CPU 코어를 사용하며 Apple 작업 스레드는 생성 중 USER_INITIATED 우선순위로 실행하고 이전 우선순위를 복원한다. 이 예산은 전체 앱 메모리 상한이나 특정 iPhone에서 임의의 SDXL 모델이 실행된다는 보장이 아니다. 메모리 한계와 지원 체크포인트는 실제 기기로 별도 검증해야 한다. Diffusers 디렉터리는 현재 네이티브 API의 입력이 아니다.\n"
+      "raw": "검증을 마치면 필요한 결과를 보관한 뒤 이 실행이 만든 임시 리소스를 정리한다.\n"
     },
     {
-      "id": "b000079",
+      "id": "b000071",
       "kind": "blank",
       "start_line": 142,
       "end_line": 142,
       "raw": "\n"
     },
     {
-      "id": "b000080",
-      "kind": "paragraph",
+      "id": "b000072",
+      "kind": "heading",
       "start_line": 143,
       "end_line": 143,
-      "raw": "취소는 호출 전·엔진 대기·텐서 로딩 사이·연산 구간 사이에서 확인한다. 취소되거나 결과가 손상되면 RGB를 반환하지 않는다. 프로세스 수명보다 짧은 호출자 데이터는 콜백이 끝날 때까지 유지해야 한다. `NativeDiffusionTests`는 취소·잘못된 크기·제한 시간 값·누락/잘못된 모델 거부를 검사하며 실제 모델 추론 증거는 아니다.\n"
+      "raw": "## 실행 계약\n",
+      "level": 2,
+      "title": "실행 계약"
     },
     {
-      "id": "b000081",
+      "id": "b000073",
       "kind": "blank",
       "start_line": 144,
       "end_line": 144,
       "raw": "\n"
     },
     {
-      "id": "b000082",
+      "id": "b000074",
       "kind": "paragraph",
       "start_line": 145,
       "end_line": 145,
-      "raw": "공식 근거: [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp), [고정 C API](https://github.com/leejet/stable-diffusion.cpp/blob/d04e8950c1ec8d30248cbe996682b3182fb1adf6/include/stable-diffusion.h), [MIT 라이선스](https://github.com/leejet/stable-diffusion.cpp/blob/d04e8950c1ec8d30248cbe996682b3182fb1adf6/LICENSE).\n"
+      "raw": "`Generation/NativeDiffusion.hpp`는 같은 프로세스에서 로컬 체크포인트를 읽고 RGB 바이트를 반환한다. 모델 다운로드·기기 연결·동기화·출력 저장은 수행하지 않는다. 소비 앱이 작업 스레드에서 호출하고 결과를 자신의 저장소에 게시한다. 기존 데스크톱 Python worker는 별도로 유지한다.\n"
     },
     {
-      "id": "b000083",
+      "id": "b000075",
       "kind": "blank",
       "start_line": 146,
       "end_line": 146,
       "raw": "\n"
     },
     {
-      "id": "b000084",
+      "id": "b000076",
       "kind": "paragraph",
       "start_line": 147,
       "end_line": 147,
-      "raw": "2026-09-10: macOS와 iOS arm64 네이티브 빌드, 네이티브 기능 ON/OFF 계약 검사, Dreamscapes 설치 소비자 빌드를 검증했다. 실제 macOS 소비자에서 `redLilyIllu_v10.safetensors`의 512×512·20스텝 결과를 로컬 컨테이너에 게시하고 PNG를 검사했다. iOS는 빌드·번들까지이며 연결된 iPhone에서의 모델 적재·생성·메모리 한계는 아직 검증하지 않았다. `Product/Dreamscapes/build/society-local-generation/REPORT.md`에 실행 증거를 기록했다.\n"
+      "raw": "Krea2 분리형 denoiser는 접두사가 없는 원본/ComfyUI 텐서 이름과 `diffusion_model.`, `model.diffusion_model.`, `transformer.` 이름을 지원한다. 로더가 메모리 내 이름만 정규화하며 원본 체크포인트를 다시 쓰지 않는다. 텍스트 인코더와 VAE의 내장 이름 공간은 보존한다. 공식 Qwen3-VL 원본의 `model.language_model.` 텍스트 타워도 `model.`로 메모리 내 정규화한다. 부족한 Qwen3-VL-4B와 Wan2.1 VAE는 `generation-defaults.json`의 `fallback_llms`/`fallback_vaes`에서 연결한다. 선택된 외부 구성요소는 전체 필요 텐서의 크기와 Qwen4B의 2560차원·36층 규격을 확인한 뒤 마운트한다. 명시한 경로는 기본 리소스보다 우선하며, 내장 인코더가 부분적으로 존재하면 기본 인코더로 덮어쓰지 않는다. 필수 구성요소 연결은 `defaultModifiers=false`에서도 유지한다. Python native worker와 프로세스 내 C++ 경로가 같은 리소스 카탈로그를 사용한다.\n"
     },
     {
-      "id": "b000085",
+      "id": "b000077",
       "kind": "blank",
       "start_line": 148,
       "end_line": 148,
       "raw": "\n"
     },
     {
-      "id": "b000086",
+      "id": "b000078",
       "kind": "paragraph",
       "start_line": 149,
       "end_line": 149,
-      "raw": "2026-09-11: `generateNativeImageWithProgress`는 Loading/Encoding/Denoising/Decoding을 구분한다. 기존 두 정수 콜백에는 실제 Denoising 이벤트만 전달한다. `cmake/patches/native-progress-cancellation.patch`는 고정 upstream에 단계 콜백과 중단 검사를 추가하며, 텐서 로딩 및 연산 구간 사이에서 취소를 확인한다. SDK 구성은 패치 적용 가능 여부를 검사하고 FetchContent 소스 경로 override에도 적용한다. 원본/패치의 충돌은 구성 오류이다.\n"
+      "raw": "`NativeKrea2NamesTests`는 분리형/완전형 이름과 잘못된 백업 이름 공간을, `NativeLlmConfigTests`는 누락·중복·잘못된 아키텍처·경로 이탈을 검사한다. `NativeVaeFallbackTests`와 `NativeVaeConfigTests`는 Wan의 실제 텐서·정규화 규격을 검사한다. 실제 모델 검증은 `NativeComponentMountIntegration <checkpoint> <resource-directory> <resource-output-directory>`로 원본 모델의 resident 준비와 캐시를 재사용한 128×128·1스텝 RGB 생성을 확인한다. 기본 CTest에 포함하지 않으며, 모델의 품질이나 기본 해상도에서의 생성 속도를 보증하지 않는다.\n"
     },
     {
-      "id": "b000087",
+      "id": "b000079",
       "kind": "blank",
       "start_line": 150,
       "end_line": 150,
       "raw": "\n"
     },
     {
-      "id": "b000088",
+      "id": "b000080",
       "kind": "paragraph",
       "start_line": 151,
       "end_line": 151,
-      "raw": "`timeoutMilliseconds`는 기본 900000(15분), 양수이며 엔진 대기까지 포함한다. 취소 가능한 timed mutex로 전역 콜백 사용을 직렬화한다. 제한 시간 초과는 오류, 사용자 취소는 cancelled로 반환한다. 진행 중인 단일 파일 읽기·GPU 연산을 강제로 죽이지는 않는다. `IILD_NATIVE_DIAGNOSTICS=1`은 기기 진단용 upstream 로그를 stderr에 출력한다. 모델 경로 등 실행 정보가 포함될 수 있어 기본은 꺼져 있다.\n"
+      "raw": "`IILD_ENABLE_NATIVE_DIFFUSION=ON`은 stable-diffusion.cpp의 `d04e8950c1ec8d30248cbe996682b3182fb1adf6` 및 해당 ggml 커밋을 빌드한다. iOS의 새 구성에서는 기본 ON이다. 체크포인트/토크나이저/텐서 실행을 직접 구현하는 대신 이 라이브러리의 C API를 사용한다. upstream은 활발히 변경되므로 커밋을 고정했다. 두 프로젝트는 MIT이고 고지문을 SDK에 설치한다. 서버·Web UI·WebP/WebM 및 RPC는 제외한다. Apple은 내장 Metal 코드를 사용하고 나머지 환경은 CPU를 사용한다.\n"
     },
     {
-      "id": "b000089",
+      "id": "b000081",
       "kind": "blank",
       "start_line": 152,
       "end_line": 152,
       "raw": "\n"
     },
     {
-      "id": "b000090",
+      "id": "b000082",
       "kind": "paragraph",
       "start_line": 153,
       "end_line": 153,
-      "raw": "취소 시 텍스트 인코더가 빈 텐서를 단언하는 upstream 경로를 피하기 위해, 로딩 스레드를 모두 join한 뒤 호출 스레드에서 스택을 해제한다. SDK 경계가 이를 cancelled 또는 제한 시간 오류로 변환한다. 컨텍스트 초기화 도중 해제도 보장한다. `IILD_NATIVE_TEST_MODEL=<absolute checkpoint> NativeDiffusionTests <absolute scratch directory>`는 실제 모델의 로딩·노이즈 제거 진입 취소 및 제한 시간을 검사한다.\n"
+      "raw": "한 번에 한 이미지를 실행하고 라이브러리의 전역 콜백 때문에 네이티브 호출을 직렬화한다. 모델 원본을 mmap으로 읽고 지원되는 실행 경로에서 다음 구간 프리페치를 사용한다. macOS에서는 Metal 권장 작업 세트에서 256 MiB를 제외한 값과 현재 사용 가능 메모리에서 여유 공간을 뺀 값 중 작은 값을 256 MiB 단위로 내림하여 관리 GPU 예산으로 사용한다. macOS의 여유 공간은 최소 768 MiB 또는 사용 가능 메모리의 1/6이며, iOS는 앞 절의 CPU VAE 메모리 여유 정책을 적용한다. iOS는 프로세스의 남은 한도, macOS는 현재 free+inactive 페이지를 조회한다. 전체 CPU 코어를 사용하며 Apple 작업 스레드는 생성 중 USER_INITIATED 우선순위로 실행하고 이전 우선순위를 복원한다. 이 예산은 전체 앱 메모리 상한이나 특정 iPhone에서 임의의 SDXL 모델이 실행된다는 보장이 아니다. 메모리 한계와 지원 체크포인트는 실제 기기로 별도 검증해야 한다. Diffusers 디렉터리는 현재 네이티브 API의 입력이 아니다.\n"
     },
     {
-      "id": "b000091",
+      "id": "b000083",
       "kind": "blank",
       "start_line": 154,
       "end_line": 154,
       "raw": "\n"
     },
     {
-      "id": "b000092",
+      "id": "b000084",
       "kind": "paragraph",
       "start_line": 155,
       "end_line": 155,
-      "raw": "2026-09-11 최종 실기기 검증: iPhone 15 Pro Max의 동일 체크포인트, 512×512·20스텝 로컬 생성이 294.647초에 완료되고 이미지 표시·Society 파일 저장을 확인했다. 로딩 중 취소는 시작 3초 뒤 요청하여 3.162초에 종료되었다. 네이티브 SDK 79/79 CTest와 OFF 빌드의 계약 검사도 통과했다. 이는 검증한 모델·기기 조합의 관측 결과이다.\n"
+      "raw": "취소는 호출 전·엔진 대기·텐서 로딩 사이·연산 구간 사이에서 확인한다. 취소되거나 결과가 손상되면 RGB를 반환하지 않는다. 프로세스 수명보다 짧은 호출자 데이터는 콜백이 끝날 때까지 유지해야 한다. `NativeDiffusionTests`는 취소·잘못된 크기·제한 시간 값·누락/잘못된 모델 거부를 검사하며 실제 모델 추론 증거는 아니다.\n"
     },
     {
-      "id": "b000093",
+      "id": "b000085",
       "kind": "blank",
       "start_line": 156,
       "end_line": 156,
       "raw": "\n"
     },
     {
-      "id": "b000094",
-      "kind": "heading",
+      "id": "b000086",
+      "kind": "paragraph",
       "start_line": 157,
       "end_line": 157,
-      "raw": "## 디스크 및 메모리 캐시\n",
-      "level": 2,
-      "title": "디스크 및 메모리 캐시"
+      "raw": "공식 근거: [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp), [고정 C API](https://github.com/leejet/stable-diffusion.cpp/blob/d04e8950c1ec8d30248cbe996682b3182fb1adf6/include/stable-diffusion.h), [MIT 라이선스](https://github.com/leejet/stable-diffusion.cpp/blob/d04e8950c1ec8d30248cbe996682b3182fb1adf6/LICENSE).\n"
     },
     {
-      "id": "b000095",
+      "id": "b000087",
       "kind": "blank",
       "start_line": 158,
       "end_line": 158,
       "raw": "\n"
     },
     {
-      "id": "b000096",
+      "id": "b000088",
       "kind": "paragraph",
       "start_line": 159,
       "end_line": 159,
-      "raw": "기본 SDK 요청은 원본 체크포인트를 직접 읽는다. `q8CacheDirectory`에 절대 경로를 지정하면 기존 upstream 스트리밍 변환기로 Q8_0 GGUF 사본을 준비하며 VAE는 F16으로 유지한다. Dreamscapes iOS QuickGenerate는 이 경로를 기본으로 사용한다. Society App Group의 원본은 보존하며 네트워크 다운로드나 원본 덮어쓰기는 없다. 첫 변환에는 추가 시간과 디스크 공간이 필요하고, 이후에는 검증된 사본을 재사용한다. Q8은 같은 seed에서도 원본 정밀도와 픽셀이 달라질 수 있다.\n"
+      "raw": "2026-09-10: macOS와 iOS arm64 네이티브 빌드, 네이티브 기능 ON/OFF 계약 검사, Dreamscapes 설치 소비자 빌드를 검증했다. 실제 macOS 소비자에서 `redLilyIllu_v10.safetensors`의 512×512·20스텝 결과를 로컬 컨테이너에 게시하고 PNG를 검사했다. iOS는 빌드·번들까지이며 연결된 iPhone에서의 모델 적재·생성·메모리 한계는 아직 검증하지 않았다. `Product/Dreamscapes/build/society-local-generation/REPORT.md`에 실행 증거를 기록했다.\n"
     },
     {
-      "id": "b000097",
+      "id": "b000089",
       "kind": "blank",
       "start_line": 160,
       "end_line": 160,
       "raw": "\n"
     },
     {
-      "id": "b000098",
+      "id": "b000090",
       "kind": "paragraph",
       "start_line": 161,
       "end_line": 161,
-      "raw": "캐시 키에는 고정 변환기/규칙 버전과 원본 식별자가 들어간다. 별도 manifest의 전체 원본 식별자, 출력 크기·전체 파일 내용의 FNV-1a 지문과 GGUF 헤더를 확인한다. 크기·mtime·POSIX inode/ctime이 달라지면 전체 내용의 지문을 다시 계산한다. 이 파일 상태가 같으면 최대 128개 파일의 지문을 재사용해 취소·일시 정지 전에 매번 대형 가중치를 읽지 않는다. 권한·시각·iOS 데이터 보호 속성이나 동일 내용의 파일 교체는 결과를 폐기하는 근거가 아니며, 실제 바이트가 달라지면 같은 크기와 mtime을 유지했더라도 검출한다. 이 지문은 인증용 서명을 대신하지 않는다. 원본이 없거나 변경된 경우 이전 캐시를 선택하지 않는다. 고유 임시 디렉터리에서 변환 후 원본을 재확인하고 파일과 manifest를 원자적으로 게시한다. 취소·실패 시 임시 파일을 제거하며 불완전한 manifest는 재변환한다. 모델별 캐시는 앱 CacheLocation 아래에 있고 OS가 공간 압박 시 삭제할 수 있다. 이전 원본 버전의 캐시는 새로운 요청에 사용되지 않는다. `NativeCachePolicyTests`는 메타데이터 변경과 동일 내용 파일의 교체 허용, mtime을 보존한 내용 변경 검출을 검사한다. 진단 모드에서는 재계산한 파일 상태와 내용 지문을 함께 기록한다.\n"
+      "raw": "2026-09-11: `generateNativeImageWithProgress`는 Loading/Encoding/Denoising/Decoding을 구분한다. 기존 두 정수 콜백에는 실제 Denoising 이벤트만 전달한다. `cmake/patches/native-progress-cancellation.patch`는 고정 upstream에 단계 콜백과 중단 검사를 추가하며, 텐서 로딩 및 연산 구간 사이에서 취소를 확인한다. SDK 구성은 패치 적용 가능 여부를 검사하고 FetchContent 소스 경로 override에도 적용한다. 원본/패치의 충돌은 구성 오류이다.\n"
     },
     {
-      "id": "b000099",
+      "id": "b000091",
       "kind": "blank",
       "start_line": 162,
       "end_line": 162,
       "raw": "\n"
     },
     {
-      "id": "b000100",
+      "id": "b000092",
       "kind": "paragraph",
       "start_line": 163,
       "end_line": 163,
-      "raw": "SDK는 성공한 최근 모델 하나의 컨텍스트·파일 매핑·백엔드가 유지하는 가중치와 실행 계획을 다음 생성에 재사용한다. 경로·크기·수정 시각과 POSIX 파일 식별자·변경 시각이 바뀌면 교체한다. 모델 전체를 매 요청 해시하지 않으며, 생성 중 파일 교체가 감지되면 결과를 폐기한다. 취소·시간 초과·실패는 부분 컨텍스트를 폐기한다. 서로 다른 요청은 기존 전역 엔진 잠금으로 직렬 실행한다.\n"
+      "raw": "`timeoutMilliseconds`는 기본 900000(15분), 양수이며 엔진 대기까지 포함한다. 취소 가능한 timed mutex로 전역 콜백 사용을 직렬화한다. 제한 시간 초과는 오류, 사용자 취소는 cancelled로 반환한다. 진행 중인 단일 파일 읽기·GPU 연산을 강제로 죽이지는 않는다. `IILD_NATIVE_DIAGNOSTICS=1`은 기기 진단용 upstream 로그를 stderr에 출력한다. 모델 경로 등 실행 정보가 포함될 수 있어 기본은 꺼져 있다.\n"
     },
     {
-      "id": "b000101",
+      "id": "b000093",
       "kind": "blank",
       "start_line": 164,
       "end_line": 164,
       "raw": "\n"
     },
     {
-      "id": "b000102",
+      "id": "b000094",
       "kind": "paragraph",
       "start_line": 165,
       "end_line": 165,
-      "raw": "`releaseNativeDiffusionCache()`는 명시적인 사용자 해제 또는 앱 런타임 종료 전용이다. 유휴 컨텍스트와 익명 메모리 원본 풀은 즉시 해제하며 실행 중이라면 현재 요청 종료 때 해제한다. 백그라운드 진입, 대기, UIKit 메모리 경고에는 호출하지 않는다. Resident 경로는 모델 원본을 런타임 수명 동안 유지하며, GPU 구간별 재배치는 이 메모리에서 수행한다. OS의 압축·스왑은 허용하지만 물리 RAM 고정이나 OS 강제 종료 후 복원은 보장하지 않는다. 상세 계약은 [runtime residency](resident-worker-performance.md)에 있다.\n"
+      "raw": "취소 시 텍스트 인코더가 빈 텐서를 단언하는 upstream 경로를 피하기 위해, 로딩 스레드를 모두 join한 뒤 호출 스레드에서 스택을 해제한다. SDK 경계가 이를 cancelled 또는 제한 시간 오류로 변환한다. 컨텍스트 초기화 도중 해제도 보장한다. `IILD_NATIVE_TEST_MODEL=<absolute checkpoint> NativeDiffusionTests <absolute scratch directory>`는 실제 모델의 로딩·노이즈 제거 진입 취소 및 제한 시간을 검사한다.\n"
     },
     {
-      "id": "b000103",
+      "id": "b000095",
       "kind": "blank",
       "start_line": 166,
       "end_line": 166,
       "raw": "\n"
     },
     {
-      "id": "b000104",
+      "id": "b000096",
       "kind": "paragraph",
       "start_line": 167,
       "end_line": 167,
-      "raw": "`native-mapped-upload.patch`는 dtype이 같은 mmap 텐서를 백엔드에 바로 전달하여 구간마다 대형 임시 CPU 버퍼를 할당·초기화·복사하지 않도록 한다. dtype 변환과 비매핑 입력은 기존 경로를 유지한다. 이 업로드 최적화 자체는 텐서 값을 바꾸지 않는다. 별도 Q8 준비 옵션 외 스텝·해상도·샘플러·VAE 타일 설정을 변경하거나 근사 스텝 캐시를 추가하지 않는다. 기존 MIT stable-diffusion.cpp/ggml 및 시스템 Metal/Foundation/pthread 외 새 의존성은 없다.\n"
+      "raw": "2026-09-11 최종 실기기 검증: iPhone 15 Pro Max의 동일 체크포인트, 512×512·20스텝 로컬 생성이 294.647초에 완료되고 이미지 표시·Society 파일 저장을 확인했다. 로딩 중 취소는 시작 3초 뒤 요청하여 3.162초에 종료되었다. 네이티브 SDK 79/79 CTest와 OFF 빌드의 계약 검사도 통과했다. 이는 검증한 모델·기기 조합의 관측 결과이다.\n"
     },
     {
-      "id": "b000105",
+      "id": "b000097",
       "kind": "blank",
       "start_line": 168,
       "end_line": 168,
       "raw": "\n"
     },
     {
-      "id": "b000106",
-      "kind": "paragraph",
+      "id": "b000098",
+      "kind": "heading",
       "start_line": 169,
       "end_line": 169,
-      "raw": "결과의 `modelCacheHit`, `memoryBudgetBytes`, `threads`, `modelLoadMilliseconds`, `generationMilliseconds`로 재사용과 실행 시간을 관측한다. load는 컨텍스트 준비, generation은 인코딩·샘플링·디코딩을 포함하며 파일 게시 시간은 앱 job 시각으로 별도 측정한다. 이 필드 추가 후 소비 앱도 재빌드해야 한다.\n"
+      "raw": "## 디스크 및 메모리 캐시\n",
+      "level": 2,
+      "title": "디스크 및 메모리 캐시"
     },
     {
-      "id": "b000107",
+      "id": "b000099",
       "kind": "blank",
       "start_line": 170,
       "end_line": 170,
       "raw": "\n"
     },
     {
-      "id": "b000108",
+      "id": "b000100",
       "kind": "paragraph",
       "start_line": 171,
       "end_line": 171,
-      "raw": "`NativeCachePolicyTests`는 메모리 여유·낮은 메모리와 동일 크기/mtime 파일 교체의 캐시 무효화를 검사한다. `NativeCacheIntegration <checkpoint>`는 실제 모델의 512×512·1스텝으로 균일색이 아닌 출력, 동일 seed의 첫 생성/캐시 재사용/해제 후 재생성 RGB 일치, 콜백 내부 해제의 비블로킹 동작과 다음 생성의 캐시 미적중을 검사한다. 실제 취소·제한 시간은 `IILD_NATIVE_TEST_MODEL`을 지정한 `NativeDiffusionTests`가 별도로 검사한다. 실제 모델이 필요한 수동 통합 실행이며 기본 CTest 숫자에 포함하지 않는다. 연결 iPhone 검증 증거는 Dreamscapes `build/quickgenerate-acceleration/REPORT.md`에 별도 기록한다.\n"
+      "raw": "기본 SDK 요청은 원본 체크포인트를 직접 읽는다. `q8CacheDirectory`에 절대 경로를 지정하면 기존 upstream 스트리밍 변환기로 Q8_0 GGUF 사본을 준비하며 VAE는 F16으로 유지한다. Dreamscapes iOS QuickGenerate는 이 경로를 기본으로 사용한다. Society App Group의 원본은 보존하며 네트워크 다운로드나 원본 덮어쓰기는 없다. 첫 변환에는 추가 시간과 디스크 공간이 필요하고, 이후에는 검증된 사본을 재사용한다. Q8은 같은 seed에서도 원본 정밀도와 픽셀이 달라질 수 있다.\n"
     },
     {
-      "id": "b000109",
+      "id": "b000101",
       "kind": "blank",
       "start_line": 172,
-      "end_line": 173,
-      "raw": "\n\n"
+      "end_line": 172,
+      "raw": "\n"
     },
     {
-      "id": "b000110",
+      "id": "b000102",
       "kind": "paragraph",
+      "start_line": 173,
+      "end_line": 173,
+      "raw": "캐시 키에는 고정 변환기/규칙 버전과 원본 식별자가 들어간다. 별도 manifest의 전체 원본 식별자, 출력 크기·전체 파일 내용의 FNV-1a 지문과 GGUF 헤더를 확인한다. 크기·mtime·POSIX inode/ctime이 달라지면 전체 내용의 지문을 다시 계산한다. 이 파일 상태가 같으면 최대 128개 파일의 지문을 재사용해 취소·일시 정지 전에 매번 대형 가중치를 읽지 않는다. 권한·시각·iOS 데이터 보호 속성이나 동일 내용의 파일 교체는 결과를 폐기하는 근거가 아니며, 실제 바이트가 달라지면 같은 크기와 mtime을 유지했더라도 검출한다. 이 지문은 인증용 서명을 대신하지 않는다. 원본이 없거나 변경된 경우 이전 캐시를 선택하지 않는다. 고유 임시 디렉터리에서 변환 후 원본을 재확인하고 파일과 manifest를 원자적으로 게시한다. 취소·실패 시 임시 파일을 제거하며 불완전한 manifest는 재변환한다. 모델별 캐시는 앱 CacheLocation 아래에 있고 OS가 공간 압박 시 삭제할 수 있다. 이전 원본 버전의 캐시는 새로운 요청에 사용되지 않는다. `NativeCachePolicyTests`는 메타데이터 변경과 동일 내용 파일의 교체 허용, mtime을 보존한 내용 변경 검출을 검사한다. 진단 모드에서는 재계산한 파일 상태와 내용 지문을 함께 기록한다.\n"
+    },
+    {
+      "id": "b000103",
+      "kind": "blank",
       "start_line": 174,
       "end_line": 174,
-      "raw": "버전 0.6.0은 Q8 요청·준비 단계·성능 필드를 포함하므로 ABI를 구분한다(SOVERSION 0.6). 이전 소비자는 기존 설치 이름을 유지하며 새 API를 사용할 앱은 0.6 헤더·라이브러리로 재빌드한다. iOS 소비자는 큰 체크포인트를 mmap하려면 Extended Virtual Addressing capability가 필요하다. Increased Memory Limit도 지원 기기의 한도를 늘릴 수 있지만, 런타임은 항상 실제 사용 가능 메모리를 조회한다. capability가 없거나 지원되지 않는 기기는 더 낮은 예산과 파일 읽기 경로를 사용한다.\n"
+      "raw": "\n"
     },
     {
-      "id": "b000111",
-      "kind": "blank",
+      "id": "b000104",
+      "kind": "paragraph",
       "start_line": 175,
-      "end_line": 176,
-      "raw": "\n\n"
+      "end_line": 175,
+      "raw": "SDK는 성공한 최근 모델 하나의 컨텍스트·파일 매핑·백엔드가 유지하는 가중치와 실행 계획을 다음 생성에 재사용한다. 경로·크기·수정 시각과 POSIX 파일 식별자·변경 시각이 바뀌면 교체한다. 모델 전체를 매 요청 해시하지 않으며, 생성 중 파일 교체가 감지되면 결과를 폐기한다. 취소·시간 초과·실패는 부분 컨텍스트를 폐기한다. 서로 다른 요청은 기존 전역 엔진 잠금으로 직렬 실행한다.\n"
     },
     {
-      "id": "b000112",
+      "id": "b000105",
+      "kind": "blank",
+      "start_line": 176,
+      "end_line": 176,
+      "raw": "\n"
+    },
+    {
+      "id": "b000106",
       "kind": "paragraph",
       "start_line": 177,
       "end_line": 177,
-      "raw": "`native-tensor-wakeup.patch`는 적재 진행률의 200ms 고정 폴링 대기를 작업 스레드 완료 알림으로 바꾼다. 긴 작업의 진행 갱신 빈도는 제한하지만 적재가 끝나면 즉시 진행한다. 수백 번의 짧은 구간 적재마다 200ms를 기다리지 않으며 취소 검사 전에 모든 읽기 스레드를 join하는 계약을 유지한다.\n"
+      "raw": "`releaseNativeDiffusionCache()`는 명시적인 사용자 해제 또는 앱 런타임 종료 전용이다. 유휴 컨텍스트와 익명 메모리 원본 풀은 즉시 해제하며 실행 중이라면 현재 요청 종료 때 해제한다. 백그라운드 진입, 대기, UIKit 메모리 경고에는 호출하지 않는다. Resident 경로는 모델 원본을 런타임 수명 동안 유지하며, GPU 구간별 재배치는 이 메모리에서 수행한다. OS의 압축·스왑은 허용하지만 물리 RAM 고정이나 OS 강제 종료 후 복원은 보장하지 않는다. 상세 계약은 [runtime residency](resident-worker-performance.md)에 있다.\n"
     },
     {
-      "id": "b000113",
+      "id": "b000107",
       "kind": "blank",
       "start_line": 178,
       "end_line": 178,
       "raw": "\n"
     },
     {
-      "id": "b000114",
+      "id": "b000108",
       "kind": "paragraph",
       "start_line": 179,
       "end_line": 179,
-      "raw": "Apple의 upstream 코어 조회는 perflevel0만 반환하므로 A17 Pro에서 2개만 선택한다. SDK는 Apple에서 `hardware_concurrency()`도 반영하여 6개 CPU 코어를 작업에 제공한다. 실제 모델 통합 테스트의 선택적 두 번째 인수는 기존 RGB 기준 파일을 생성하거나 비교하여 최적화 전후 결과 일치까지 검사한다.\n"
+      "raw": "`native-mapped-upload.patch`는 dtype이 같은 mmap 텐서를 백엔드에 바로 전달하여 구간마다 대형 임시 CPU 버퍼를 할당·초기화·복사하지 않도록 한다. dtype 변환과 비매핑 입력은 기존 경로를 유지한다. 이 업로드 최적화 자체는 텐서 값을 바꾸지 않는다. 별도 Q8 준비 옵션 외 스텝·해상도·샘플러·VAE 타일 설정을 변경하거나 근사 스텝 캐시를 추가하지 않는다. 기존 MIT stable-diffusion.cpp/ggml 및 시스템 Metal/Foundation/pthread 외 새 의존성은 없다.\n"
     },
     {
-      "id": "b000115",
+      "id": "b000109",
       "kind": "blank",
       "start_line": 180,
       "end_line": 180,
       "raw": "\n"
     },
     {
-      "id": "b000116",
+      "id": "b000110",
       "kind": "paragraph",
       "start_line": 181,
       "end_line": 181,
-      "raw": "사용 가능 메모리가 0이라는 실제 iOS 응답은 미지원/알 수 없음과 구분하여 로딩을 거부한다. 종료 시 캐시는 나중에 초기화된 GPU 백엔드의 정적 소멸자보다 먼저 해제한다. 실제 모델 통합 테스트는 마지막 성공 컨텍스트를 유지한 채 종료하여 이 소멸 순서를 검사한다. `IILD_NATIVE_DIAGNOSTICS=1`은 캐시 해제와 모델 식별자 변경도 기록하며, 소비 앱의 메모리 경고 로그와 함께 캐시 미적중 원인을 구분할 수 있다.\n"
+      "raw": "결과의 `modelCacheHit`, `memoryBudgetBytes`, `threads`, `modelLoadMilliseconds`, `generationMilliseconds`로 재사용과 실행 시간을 관측한다. load는 컨텍스트 준비, generation은 인코딩·샘플링·디코딩을 포함하며 파일 게시 시간은 앱 job 시각으로 별도 측정한다. 이 필드 추가 후 소비 앱도 재빌드해야 한다.\n"
     },
     {
-      "id": "b000117",
+      "id": "b000111",
       "kind": "blank",
       "start_line": 182,
       "end_line": 182,
       "raw": "\n"
     },
     {
-      "id": "b000118",
+      "id": "b000112",
       "kind": "paragraph",
       "start_line": 183,
       "end_line": 183,
-      "raw": "`IILD_NATIVE_DIAGNOSTICS=1`과 `IILD_NATIVE_MAX_MEMORY_MIB=2048`을 함께 지정하면 새 컨텍스트의 관리 GPU 예산을 더 낮게 제한해 파일 페이지 캐시와의 경합을 비교할 수 있다. 실제 기기의 안전 예산을 초과할 수 없으며 512 MiB 미만·잘못된 입력은 무시한다. 기존 메모리 캐시에는 소급 적용하지 않으므로 별도 프로세스로 비교한다. 기본 실행에서는 이 진단 제한을 적용하지 않는다.\n"
+      "raw": "`NativeCachePolicyTests`는 메모리 여유·낮은 메모리와 동일 크기/mtime 파일 교체의 캐시 무효화를 검사한다. `NativeCacheIntegration <checkpoint>`는 실제 모델의 512×512·1스텝으로 균일색이 아닌 출력, 동일 seed의 첫 생성/캐시 재사용/해제 후 재생성 RGB 일치, 콜백 내부 해제의 비블로킹 동작과 다음 생성의 캐시 미적중을 검사한다. 실제 취소·제한 시간은 `IILD_NATIVE_TEST_MODEL`을 지정한 `NativeDiffusionTests`가 별도로 검사한다. 실제 모델이 필요한 수동 통합 실행이며 기본 CTest 숫자에 포함하지 않는다. 연결 iPhone 검증 증거는 Dreamscapes `build/quickgenerate-acceleration/REPORT.md`에 별도 기록한다.\n"
     },
     {
-      "id": "b000119",
+      "id": "b000113",
       "kind": "blank",
       "start_line": 184,
-      "end_line": 184,
-      "raw": "\n"
-    },
-    {
-      "id": "b000120",
-      "kind": "paragraph",
-      "start_line": 185,
       "end_line": 185,
-      "raw": "`native-metal-shared-upload.patch`는 공유 Metal 버퍼를 식별하는 작은 ggml 보조 함수를 제공한다. `native-mapped-upload.patch`의 같은 dtype 경로에서 공유 버퍼의 서로 다른 텐서 memcpy만 병렬 실행한다. GPU 전용 버퍼와 다른 백엔드는 기존 직렬 업로드를 유지한다. `NativeMetalSharedUpload`는 6개 작업자의 24개 텐서 쓰기·읽기 일치를, `NativeMetalPrivateBuffer`는 전용 GPU 버퍼가 병렬 경로에서 제외됨을 검사한다.\n"
+      "raw": "\n\n"
     },
     {
-      "id": "b000121",
-      "kind": "blank",
+      "id": "b000114",
+      "kind": "paragraph",
       "start_line": 186,
       "end_line": 186,
-      "raw": "\n"
+      "raw": "버전 0.6.0은 Q8 요청·준비 단계·성능 필드를 포함하므로 ABI를 구분한다(SOVERSION 0.6). 이전 소비자는 기존 설치 이름을 유지하며 새 API를 사용할 앱은 0.6 헤더·라이브러리로 재빌드한다. iOS 소비자는 큰 체크포인트를 mmap하려면 Extended Virtual Addressing capability가 필요하다. Increased Memory Limit도 지원 기기의 한도를 늘릴 수 있지만, 런타임은 항상 실제 사용 가능 메모리를 조회한다. capability가 없거나 지원되지 않는 기기는 더 낮은 예산과 파일 읽기 경로를 사용한다.\n"
     },
     {
-      "id": "b000122",
-      "kind": "paragraph",
-      "start_line": 187,
-      "end_line": 187,
-      "raw": "Q8 준비는 `Preparing` 단계이며 텐서 진행률을 denoising 스텝으로 표시하지 않는다. `native-conversion-cancellation.patch`는 변환 작업자의 텐서 전후에 중단을 검사하고 기존 실패 알림과 join 경로로 안전하게 종료한다. 요청 제한 시간에는 변환도 포함한다. `q8CacheUsed`, `diskCacheHit`, `modelBytes`, `preparationMilliseconds`로 첫 변환과 디스크 재사용을 구분하며 `modelCacheHit`는 메모리 컨텍스트 재사용만 의미한다. `NativeDiskCacheTests`는 캐시 적중, 손상, 원본 교체, 취소·실패 및 원자적 게시를 검사한다. 실제 변환 취소는 `IILD_NATIVE_TEST_MODEL` 계약에 포함하고, `IILD_NATIVE_Q8_CACHE=<absolute build/cache>`로 실제 모델 통합 검증의 Q8 경로를 선택한다. lazy GPU 백엔드는 첫 추론 중 초기화되므로 프로세스 종료 캐시 해제 등록은 첫 성공 추론 이후에 한다.\n"
-    },
-    {
-      "id": "b000123",
+      "id": "b000115",
       "kind": "blank",
-      "start_line": 188,
+      "start_line": 187,
       "end_line": 188,
-      "raw": "\n"
+      "raw": "\n\n"
     },
     {
-      "id": "b000124",
+      "id": "b000116",
       "kind": "paragraph",
       "start_line": 189,
       "end_line": 189,
-      "raw": "Q8 변환은 읽기 전용 mmap을 사용하고, 작업자들의 예약된 출력 바이트를 256 MiB로 제한한다(한 텐서가 더 크면 그 텐서만 처리). 이는 변환 전체 RSS 한도가 아니며 원본 페이지·float 변환 임시 버퍼·GGML 출력의 추가 메모리를 확보하기 위한 제한이다. 기존 1 GiB 출력 예약은 모바일에서 이 추가 메모리와 경합한다. mmap 실패 시 upstream 파일 읽기 경로를 유지한다.\n"
+      "raw": "`native-tensor-wakeup.patch`는 적재 진행률의 200ms 고정 폴링 대기를 작업 스레드 완료 알림으로 바꾼다. 긴 작업의 진행 갱신 빈도는 제한하지만 적재가 끝나면 즉시 진행한다. 수백 번의 짧은 구간 적재마다 200ms를 기다리지 않으며 취소 검사 전에 모든 읽기 스레드를 join하는 계약을 유지한다.\n"
     },
     {
-      "id": "b000125",
+      "id": "b000117",
       "kind": "blank",
       "start_line": 190,
       "end_line": 190,
       "raw": "\n"
     },
     {
-      "id": "b000126",
+      "id": "b000118",
       "kind": "paragraph",
       "start_line": 191,
       "end_line": 191,
-      "raw": "`native-thread-safe-logging.patch`는 병렬 변환의 공유 정적 로그 버퍼를 호출별 버퍼로 바꾼다. ggml의 이미 포맷된 메시지는 `%s` 인수로 전달한다. `NativeLoggingTests`는 8개 작업자의 16000개 긴 로그가 서로 섞이지 않는지 검사한다. 변환 중 예외도 GGML 임시 컨텍스트를 RAII로 해제한다.\n"
+      "raw": "Apple의 upstream 코어 조회는 perflevel0만 반환하므로 A17 Pro에서 2개만 선택한다. SDK는 Apple에서 `hardware_concurrency()`도 반영하여 6개 CPU 코어를 작업에 제공한다. 실제 모델 통합 테스트의 선택적 두 번째 인수는 기존 RGB 기준 파일을 생성하거나 비교하여 최적화 전후 결과 일치까지 검사한다.\n"
     },
     {
-      "id": "b000127",
+      "id": "b000119",
       "kind": "blank",
       "start_line": 192,
       "end_line": 192,
       "raw": "\n"
     },
     {
-      "id": "b000128",
+      "id": "b000120",
       "kind": "paragraph",
       "start_line": 193,
       "end_line": 193,
-      "raw": "`NativePreparationTests`는 약 1 MiB의 유효 safetensors 행렬 fixture를 생성하고 실제 upstream Q8 변환의 서로 다른 텐서 진행 시점에서 세 번 취소한다. 학습된 이미지 모델이나 GPU 추론 없이 작업자 join·부분 파일 제거·원본 보존·준비 시간 계측을 기본 CTest에서 검증한다.\n"
+      "raw": "사용 가능 메모리가 0이라는 실제 iOS 응답은 미지원/알 수 없음과 구분하여 로딩을 거부한다. 종료 시 캐시는 나중에 초기화된 GPU 백엔드의 정적 소멸자보다 먼저 해제한다. 실제 모델 통합 테스트는 마지막 성공 컨텍스트를 유지한 채 종료하여 이 소멸 순서를 검사한다. `IILD_NATIVE_DIAGNOSTICS=1`은 캐시 해제와 모델 식별자 변경도 기록하며, 소비 앱의 메모리 경고 로그와 함께 캐시 미적중 원인을 구분할 수 있다.\n"
     },
     {
-      "id": "b000129",
+      "id": "b000121",
       "kind": "blank",
       "start_line": 194,
       "end_line": 194,
       "raw": "\n"
     },
     {
-      "id": "b000130",
+      "id": "b000122",
       "kind": "paragraph",
       "start_line": 195,
       "end_line": 195,
-      "raw": "정확한 RGB 재현을 검사할 때는 진단용 메모리 예산을 고정한다. 실제 Mac Q8 검사에서 서로 다른 3.75/5 GiB 예산의 출력은 달랐고, 2 GiB로 고정한 첫 생성·메모리 재사용·해제 후 재생성은 RGB가 모두 일치했다. 실행 계획의 메모리 분할이 바뀌는 조건에서 픽셀 단위 재현을 보장하지 않는다.\n"
+      "raw": "`IILD_NATIVE_DIAGNOSTICS=1`과 `IILD_NATIVE_MAX_MEMORY_MIB=2048`을 함께 지정하면 새 컨텍스트의 관리 GPU 예산을 더 낮게 제한해 파일 페이지 캐시와의 경합을 비교할 수 있다. 실제 기기의 안전 예산을 초과할 수 없으며 512 MiB 미만·잘못된 입력은 무시한다. 기존 메모리 캐시에는 소급 적용하지 않으므로 별도 프로세스로 비교한다. 기본 실행에서는 이 진단 제한을 적용하지 않는다.\n"
     },
     {
-      "id": "b000131",
+      "id": "b000123",
       "kind": "blank",
       "start_line": 196,
       "end_line": 196,
       "raw": "\n"
     },
     {
-      "id": "b000132",
+      "id": "b000124",
       "kind": "paragraph",
       "start_line": 197,
       "end_line": 197,
-      "raw": "Qwen Image RGB·SDXL·FLUX.1·FLUX.2·Anima·Z-Image 체크포인트에 VAE가 없거나 내장 구조가 맞지 않으면 SDK가 호환 VAE를 자동 연결한다. 기존 함수에 새 인자를 전달할 필요가 없으며 `defaultModifiers=false`에서도 유지한다. `auto-mount-v2`는 입력 파일의 텐서 메타데이터로 모델과 VAE 계열을 판별하고 정상 내장 VAE를 보존한다. 외부 VAE의 설정과 전체 텐서를 컨텍스트 생성 전에 검증하며 설정 변경도 캐시를 무효화한다. SD1/2/SD3는 정상 내장 VAE를 사용할 수 있고, 누락 시 해당 리소스가 없다는 오류를 반환한다. 지원 범위 밖 모델은 검사 완료와 구별하며 임의의 VAE를 주입하지 않는다. [VAE 기본값과 패키지 계약](generation-defaults.md#vae-자동-폴백)을 참고한다.\n"
+      "raw": "`native-metal-shared-upload.patch`는 공유 Metal 버퍼를 식별하는 작은 ggml 보조 함수를 제공한다. `native-mapped-upload.patch`의 같은 dtype 경로에서 공유 버퍼의 서로 다른 텐서 memcpy만 병렬 실행한다. GPU 전용 버퍼와 다른 백엔드는 기존 직렬 업로드를 유지한다. `NativeMetalSharedUpload`는 6개 작업자의 24개 텐서 쓰기·읽기 일치를, `NativeMetalPrivateBuffer`는 전용 GPU 버퍼가 병렬 경로에서 제외됨을 검사한다.\n"
     },
     {
-      "id": "b000133",
+      "id": "b000125",
       "kind": "blank",
       "start_line": 198,
       "end_line": 198,
       "raw": "\n"
     },
     {
-      "id": "b000134",
-      "kind": "heading",
+      "id": "b000126",
+      "kind": "paragraph",
       "start_line": 199,
       "end_line": 199,
-      "raw": "## 실행 일시 정지\n",
-      "level": 2,
-      "title": "실행 일시 정지"
+      "raw": "Q8 준비는 `Preparing` 단계이며 텐서 진행률을 denoising 스텝으로 표시하지 않는다. `native-conversion-cancellation.patch`는 변환 작업자의 텐서 전후에 중단을 검사하고 기존 실패 알림과 join 경로로 안전하게 종료한다. 요청 제한 시간에는 변환도 포함한다. `q8CacheUsed`, `diskCacheHit`, `modelBytes`, `preparationMilliseconds`로 첫 변환과 디스크 재사용을 구분하며 `modelCacheHit`는 메모리 컨텍스트 재사용만 의미한다. `NativeDiskCacheTests`는 캐시 적중, 손상, 원본 교체, 취소·실패 및 원자적 게시를 검사한다. 실제 변환 취소는 `IILD_NATIVE_TEST_MODEL` 계약에 포함하고, `IILD_NATIVE_Q8_CACHE=<absolute build/cache>`로 실제 모델 통합 검증의 Q8 경로를 선택한다. lazy GPU 백엔드는 첫 추론 중 초기화되므로 프로세스 종료 캐시 해제 등록은 첫 성공 추론 이후에 한다.\n"
     },
     {
-      "id": "b000135",
+      "id": "b000127",
       "kind": "blank",
       "start_line": 200,
       "end_line": 200,
       "raw": "\n"
     },
     {
-      "id": "b000136",
+      "id": "b000128",
       "kind": "paragraph",
       "start_line": 201,
       "end_line": 201,
-      "raw": "`generateNativeImageWithExecutionControl()`은 선택적인 `NativeExecutionControl`을 통해 동일한 네이티브 요청을 일시 정지하고 재개한다. 기존 요청/결과 구조체와 함수 ABI는 유지하며 별도 진입점과 설치 헤더를 추가했다. 실행 제어는 Qt/UIKit을 참조하지 않는다.\n"
+      "raw": "Q8 변환은 읽기 전용 mmap을 사용하고, 작업자들의 예약된 출력 바이트를 256 MiB로 제한한다(한 텐서가 더 크면 그 텐서만 처리). 이는 변환 전체 RSS 한도가 아니며 원본 페이지·float 변환 임시 버퍼·GGML 출력의 추가 메모리를 확보하기 위한 제한이다. 기존 1 GiB 출력 예약은 모바일에서 이 추가 메모리와 경합한다. mmap 실패 시 upstream 파일 읽기 경로를 유지한다.\n"
     },
     {
-      "id": "b000137",
+      "id": "b000129",
       "kind": "blank",
       "start_line": 202,
       "end_line": 202,
       "raw": "\n"
     },
     {
-      "id": "b000138",
+      "id": "b000130",
       "kind": "paragraph",
       "start_line": 203,
       "end_line": 203,
-      "raw": "소비자는 OS 실행 권한을 잃기 전에 `setPaused(true)`, 복귀하면 `setPaused(false)`를 호출한다. 엔진의 기존 텐서 적재·연산 구간 경계에서 조건 변수로 대기하므로 이미 제출한 GPU 호출이 반환되기까지는 시간이 필요하다. latent·모델 컨텍스트·seed를 유지하며 작업을 재시작하지 않는다. 정지 시간은 추론 제한 시간에서 제외하고, 여러 적재 스레드가 동시에 기다려도 한 번만 계산한다. 정지 중에도 기존 취소 토큰을 확인하므로 취소/소비자 파괴가 대기에 갇히지 않는다. OS의 프로세스 종료나 메모리 회수 이후 복원은 제공하지 않는다.\n"
+      "raw": "`native-thread-safe-logging.patch`는 병렬 변환의 공유 정적 로그 버퍼를 호출별 버퍼로 바꾼다. ggml의 이미 포맷된 메시지는 `%s` 인수로 전달한다. `NativeLoggingTests`는 8개 작업자의 16000개 긴 로그가 서로 섞이지 않는지 검사한다. 변환 중 예외도 GGML 임시 컨텍스트를 RAII로 해제한다.\n"
     },
     {
-      "id": "b000139",
+      "id": "b000131",
       "kind": "blank",
       "start_line": 204,
       "end_line": 204,
       "raw": "\n"
     },
     {
-      "id": "b000140",
+      "id": "b000132",
       "kind": "paragraph",
       "start_line": 205,
+      "end_line": 205,
+      "raw": "`NativePreparationTests`는 약 1 MiB의 유효 safetensors 행렬 fixture를 생성하고 실제 upstream Q8 변환의 서로 다른 텐서 진행 시점에서 세 번 취소한다. 학습된 이미지 모델이나 GPU 추론 없이 작업자 join·부분 파일 제거·원본 보존·준비 시간 계측을 기본 CTest에서 검증한다.\n"
+    },
+    {
+      "id": "b000133",
+      "kind": "blank",
+      "start_line": 206,
       "end_line": 206,
-      "raw": "`NativeResultTests`는 실제 어댑터와 제어된 C API로 연산 경계 대기, 제한 시간보다 긴 정지 후 같은 요청 완료, 정지 중 취소와 자원 해제를 검증한다. 백그라운드 GPU 실행 허용 여부와 앱의 OS 작업 등록은 소비자가 담당한다.\n<a id=\"anima-desktop-worker-bridge\"></a>\n"
+      "raw": "\n"
+    },
+    {
+      "id": "b000134",
+      "kind": "paragraph",
+      "start_line": 207,
+      "end_line": 207,
+      "raw": "정확한 RGB 재현을 검사할 때는 진단용 메모리 예산을 고정한다. 실제 Mac Q8 검사에서 서로 다른 3.75/5 GiB 예산의 출력은 달랐고, 2 GiB로 고정한 첫 생성·메모리 재사용·해제 후 재생성은 RGB가 모두 일치했다. 실행 계획의 메모리 분할이 바뀌는 조건에서 픽셀 단위 재현을 보장하지 않는다.\n"
+    },
+    {
+      "id": "b000135",
+      "kind": "blank",
+      "start_line": 208,
+      "end_line": 208,
+      "raw": "\n"
+    },
+    {
+      "id": "b000136",
+      "kind": "paragraph",
+      "start_line": 209,
+      "end_line": 209,
+      "raw": "Qwen Image RGB·SDXL·FLUX.1·FLUX.2·Anima·Z-Image 체크포인트에 VAE가 없거나 내장 구조가 맞지 않으면 SDK가 호환 VAE를 자동 연결한다. 기존 함수에 새 인자를 전달할 필요가 없으며 `defaultModifiers=false`에서도 유지한다. `auto-mount-v2`는 입력 파일의 텐서 메타데이터로 모델과 VAE 계열을 판별하고 정상 내장 VAE를 보존한다. 외부 VAE의 설정과 전체 텐서를 컨텍스트 생성 전에 검증하며 설정 변경도 캐시를 무효화한다. SD1/2/SD3는 정상 내장 VAE를 사용할 수 있고, 누락 시 해당 리소스가 없다는 오류를 반환한다. 지원 범위 밖 모델은 검사 완료와 구별하며 임의의 VAE를 주입하지 않는다. [VAE 기본값과 패키지 계약](generation-defaults.md#vae-자동-폴백)을 참고한다.\n"
+    },
+    {
+      "id": "b000137",
+      "kind": "blank",
+      "start_line": 210,
+      "end_line": 210,
+      "raw": "\n"
+    },
+    {
+      "id": "b000138",
+      "kind": "heading",
+      "start_line": 211,
+      "end_line": 211,
+      "raw": "## 실행 일시 정지\n",
+      "level": 2,
+      "title": "실행 일시 정지"
+    },
+    {
+      "id": "b000139",
+      "kind": "blank",
+      "start_line": 212,
+      "end_line": 212,
+      "raw": "\n"
+    },
+    {
+      "id": "b000140",
+      "kind": "paragraph",
+      "start_line": 213,
+      "end_line": 213,
+      "raw": "`generateNativeImageWithExecutionControl()`은 선택적인 `NativeExecutionControl`을 통해 동일한 네이티브 요청을 일시 정지하고 재개한다. 기존 요청/결과 구조체와 함수 ABI는 유지하며 별도 진입점과 설치 헤더를 추가했다. 실행 제어는 Qt/UIKit을 참조하지 않는다.\n"
     },
     {
       "id": "b000141",
       "kind": "blank",
-      "start_line": 207,
-      "end_line": 207,
+      "start_line": 214,
+      "end_line": 214,
       "raw": "\n"
     },
     {
       "id": "b000142",
-      "kind": "heading",
-      "start_line": 208,
-      "end_line": 208,
-      "raw": "# Anima 데스크톱 작업자 브리지\n",
-      "level": 1,
-      "title": "Anima 데스크톱 작업자 브리지"
+      "kind": "paragraph",
+      "start_line": 215,
+      "end_line": 215,
+      "raw": "소비자는 OS 실행 권한을 잃기 전에 `setPaused(true)`, 복귀하면 `setPaused(false)`를 호출한다. 엔진의 기존 텐서 적재·연산 구간 경계에서 조건 변수로 대기하므로 이미 제출한 GPU 호출이 반환되기까지는 시간이 필요하다. latent·모델 컨텍스트·seed를 유지하며 작업을 재시작하지 않는다. 정지 시간은 추론 제한 시간에서 제외하고, 여러 적재 스레드가 동시에 기다려도 한 번만 계산한다. 정지 중에도 기존 취소 토큰을 확인하므로 취소/소비자 파괴가 대기에 갇히지 않는다. OS의 프로세스 종료나 메모리 회수 이후 복원은 제공하지 않는다.\n"
     },
     {
       "id": "b000143",
       "kind": "blank",
-      "start_line": 209,
-      "end_line": 209,
+      "start_line": 216,
+      "end_line": 216,
       "raw": "\n"
     },
     {
       "id": "b000144",
       "kind": "paragraph",
-      "start_line": 210,
-      "end_line": 210,
-      "raw": "`NativeImageBridge.hpp`는 SDK Python 작업자를 위한 버전 지정 C 요청/결과 경계를 노출한다. `iild_native_generate_v1`는 기존 네이티브 생성기와 캐시를 감싸며, RGB 저장소와 JSON 진단 정보는 `iild_native_free_v1`를 호출할 때까지 라이브러리가 소유한다. C++ 예외는 이 경계를 넘지 않고, 호환되지 않는 요청 크기는 거부하며, 진행 콜백에서 취소를 요청할 수 있다. `prepareNativeImageModel`은 프롬프트 인코딩·샘플링·PNG 생성 없이 동일한 검증된 컨텍스트를 유지하며, 첫 생성에서는 텐서를 지연 배치한다. 기존 요청/결과 구조체와 생성 진입점은 ABI를 유지한다. 새로운 외부 의존성은 필요하지 않다. C 브리지의 `timeout_milliseconds` 기본값은 0이다. 대형 이미지를 디코딩하는 데스크톱 작업은 15분을 넘을 수 있기 때문이다. 0은 C++ API의 최대 정수 예산에 대응하며, 양수 제한은 명시적으로 유지하고 취소 동작은 바꾸지 않는다. 브리지 테스트는 단위 테스트에서 15분을 기다리지 않고, 제한이 0인 경우와 짧은 양수 마감 시간을 설정한 경우에 동일한 지연 연산을 비교한다.\n"
+      "start_line": 217,
+      "end_line": 218,
+      "raw": "`NativeResultTests`는 실제 어댑터와 제어된 C API로 연산 경계 대기, 제한 시간보다 긴 정지 후 같은 요청 완료, 정지 중 취소와 자원 해제를 검증한다. 백그라운드 GPU 실행 허용 여부와 앱의 OS 작업 등록은 소비자가 담당한다.\n<a id=\"anima-desktop-worker-bridge\"></a>\n"
     },
     {
       "id": "b000145",
-      "kind": "blank",
-      "start_line": 211,
-      "end_line": 211,
-      "raw": "\n"
-    },
-    {
-      "id": "b000146",
-      "kind": "paragraph",
-      "start_line": 212,
-      "end_line": 212,
-      "raw": "`NativeResultTests`는 준비 단계에서 샘플링하지 않는지, 10회의 연속 브리지 호출이 준비된 컨텍스트를 재사용하는지, RGB 크기와 네거티브 프롬프트가 보존되는지, 취소 시 실행을 정리하는지, 잘못된 ABI 크기에 오류를 반환하는지 검증한다. `NativeImageTests`는 텐서에 따른 라우팅, 미지원 옵션, 누락된 구성요소, 포그라운드 명령 뒤에 이어지는 10개의 순서 있는 작업자 요청, 출처와 전체 성공 또는 전체 실패 방식의 배치 게시를 검사한다. `DownloadedModelTests`는 오해를 유발하는 파일명으로 된 완전한 Anima 모델과 디노이저 전용 Anima 모델, 실제 VAE 전용 파일을 다룬다.\n"
-    },
-    {
-      "id": "b000147",
-      "kind": "blank",
-      "start_line": 213,
-      "end_line": 213,
-      "raw": "\n"
-    },
-    {
-      "id": "b000148",
-      "kind": "html",
-      "start_line": 214,
-      "end_line": 214,
-      "raw": "<a id=\"explicit-cpu-execution-for-background-tasks\"></a>\n"
-    },
-    {
-      "id": "b000149",
-      "kind": "blank",
-      "start_line": 215,
-      "end_line": 215,
-      "raw": "\n"
-    },
-    {
-      "id": "b000150",
-      "kind": "heading",
-      "start_line": 216,
-      "end_line": 216,
-      "raw": "## 백그라운드 작업에 대한 명시적 CPU 실행\n",
-      "level": 2,
-      "title": "백그라운드 작업에 대한 명시적 CPU 실행"
-    },
-    {
-      "id": "b000151",
-      "kind": "blank",
-      "start_line": 217,
-      "end_line": 217,
-      "raw": "\n"
-    },
-    {
-      "id": "b000152",
-      "kind": "paragraph",
-      "start_line": 218,
-      "end_line": 218,
-      "raw": "`generateNativeImageWithBackend(request, NativeComputeBackend::Cpu, cancelled, progress, control)`는 모든 연산 모듈과 해당 매개변수 저장소를 CPU에 배치한다. `Automatic` 옵션은 기존 플랫폼 배치를 유지한다. 이 진입점은 기존 요청/결과/옵션의 레이아웃을 변경하거나 OS 실행 시간을 부여하지 않는다. 소비자는 적절한 백그라운드 작업을 확보하고 취소·만료 처리에 협조해야 한다. CPU 배치는 모델 로딩 전에 고정하므로, CPU 전용 OS 실행 권한 아래에서 GPU 연산을 제출하지 않는다. 메모리 내 모델 식별자에는 선택한 백엔드가 포함되며, 이를 변경하면 호환되지 않는 상주 상태를 제거한다. 디스크 모델 캐시의 바이트는 백엔드와 무관하므로 계속 공유한다.\n"
-    },
-    {
-      "id": "b000153",
       "kind": "blank",
       "start_line": 219,
       "end_line": 219,
       "raw": "\n"
     },
     {
-      "id": "b000154",
-      "kind": "paragraph",
+      "id": "b000146",
+      "kind": "heading",
       "start_line": 220,
       "end_line": 220,
-      "raw": "`NativeResultTests`와 `NativeMobileResultTests`는 제어된 상위 공급 측 C API 결과를 사용하여 제품 어댑터를 컴파일한다. 전체 CPU 연산/매개변수 선택, 준비된 CPU 상태의 재사용, 자동/CPU 전환 시 상주 상태 제거를 검증한다. 런타임 성능과 OS 백그라운드 실행 권한은 별도의 기기 실행으로 검증해야 한다.\n"
+      "raw": "# Anima 데스크톱 작업자 브리지\n",
+      "level": 1,
+      "title": "Anima 데스크톱 작업자 브리지"
+    },
+    {
+      "id": "b000147",
+      "kind": "blank",
+      "start_line": 221,
+      "end_line": 221,
+      "raw": "\n"
+    },
+    {
+      "id": "b000148",
+      "kind": "paragraph",
+      "start_line": 222,
+      "end_line": 222,
+      "raw": "`NativeImageBridge.hpp`는 SDK Python 작업자를 위한 버전 지정 C 요청/결과 경계를 노출한다. `iild_native_generate_v1`는 기존 네이티브 생성기와 캐시를 감싸며, RGB 저장소와 JSON 진단 정보는 `iild_native_free_v1`를 호출할 때까지 라이브러리가 소유한다. C++ 예외는 이 경계를 넘지 않고, 호환되지 않는 요청 크기는 거부하며, 진행 콜백에서 취소를 요청할 수 있다. `prepareNativeImageModel`은 프롬프트 인코딩·샘플링·PNG 생성 없이 동일한 검증된 컨텍스트를 유지하며, 첫 생성에서는 텐서를 지연 배치한다. 기존 요청/결과 구조체와 생성 진입점은 ABI를 유지한다. 새로운 외부 의존성은 필요하지 않다. C 브리지의 `timeout_milliseconds` 기본값은 0이다. 대형 이미지를 디코딩하는 데스크톱 작업은 15분을 넘을 수 있기 때문이다. 0은 C++ API의 최대 정수 예산에 대응하며, 양수 제한은 명시적으로 유지하고 취소 동작은 바꾸지 않는다. 브리지 테스트는 단위 테스트에서 15분을 기다리지 않고, 제한이 0인 경우와 짧은 양수 마감 시간을 설정한 경우에 동일한 지연 연산을 비교한다.\n"
+    },
+    {
+      "id": "b000149",
+      "kind": "blank",
+      "start_line": 223,
+      "end_line": 223,
+      "raw": "\n"
+    },
+    {
+      "id": "b000150",
+      "kind": "paragraph",
+      "start_line": 224,
+      "end_line": 224,
+      "raw": "`NativeResultTests`는 준비 단계에서 샘플링하지 않는지, 10회의 연속 브리지 호출이 준비된 컨텍스트를 재사용하는지, RGB 크기와 네거티브 프롬프트가 보존되는지, 취소 시 실행을 정리하는지, 잘못된 ABI 크기에 오류를 반환하는지 검증한다. `NativeImageTests`는 텐서에 따른 라우팅, 미지원 옵션, 누락된 구성요소, 포그라운드 명령 뒤에 이어지는 10개의 순서 있는 작업자 요청, 출처와 전체 성공 또는 전체 실패 방식의 배치 게시를 검사한다. `DownloadedModelTests`는 오해를 유발하는 파일명으로 된 완전한 Anima 모델과 디노이저 전용 Anima 모델, 실제 VAE 전용 파일을 다룬다.\n"
+    },
+    {
+      "id": "b000151",
+      "kind": "blank",
+      "start_line": 225,
+      "end_line": 225,
+      "raw": "\n"
+    },
+    {
+      "id": "b000152",
+      "kind": "html",
+      "start_line": 226,
+      "end_line": 226,
+      "raw": "<a id=\"explicit-cpu-execution-for-background-tasks\"></a>\n"
+    },
+    {
+      "id": "b000153",
+      "kind": "blank",
+      "start_line": 227,
+      "end_line": 227,
+      "raw": "\n"
+    },
+    {
+      "id": "b000154",
+      "kind": "heading",
+      "start_line": 228,
+      "end_line": 228,
+      "raw": "## 백그라운드 작업에 대한 명시적 CPU 실행\n",
+      "level": 2,
+      "title": "백그라운드 작업에 대한 명시적 CPU 실행"
     },
     {
       "id": "b000155",
       "kind": "blank",
-      "start_line": 221,
-      "end_line": 222,
-      "raw": "\n\n"
+      "start_line": 229,
+      "end_line": 229,
+      "raw": "\n"
     },
     {
       "id": "b000156",
-      "kind": "html",
-      "start_line": 223,
-      "end_line": 223,
-      "raw": "<a id=\"shared-model-storage-061\"></a>\n"
+      "kind": "paragraph",
+      "start_line": 230,
+      "end_line": 230,
+      "raw": "`generateNativeImageWithBackend(request, NativeComputeBackend::Cpu, cancelled, progress, control)`는 모든 연산 모듈과 해당 매개변수 저장소를 CPU에 배치한다. `Automatic` 옵션은 기존 플랫폼 배치를 유지한다. 이 진입점은 기존 요청/결과/옵션의 레이아웃을 변경하거나 OS 실행 시간을 부여하지 않는다. 소비자는 적절한 백그라운드 작업을 확보하고 취소·만료 처리에 협조해야 한다. CPU 배치는 모델 로딩 전에 고정하므로, CPU 전용 OS 실행 권한 아래에서 GPU 연산을 제출하지 않는다. 메모리 내 모델 식별자에는 선택한 백엔드가 포함되며, 이를 변경하면 호환되지 않는 상주 상태를 제거한다. 디스크 모델 캐시의 바이트는 백엔드와 무관하므로 계속 공유한다.\n"
     },
     {
       "id": "b000157",
       "kind": "blank",
-      "start_line": 224,
-      "end_line": 224,
+      "start_line": 231,
+      "end_line": 231,
       "raw": "\n"
     },
     {
       "id": "b000158",
-      "kind": "heading",
-      "start_line": 225,
-      "end_line": 225,
-      "raw": "## 공유 모델 스토리지(0.6.1)\n",
-      "level": 2,
-      "title": "공유 모델 스토리지(0.6.1)"
+      "kind": "paragraph",
+      "start_line": 232,
+      "end_line": 232,
+      "raw": "`NativeResultTests`와 `NativeMobileResultTests`는 제어된 상위 공급 측 C API 결과를 사용하여 제품 어댑터를 컴파일한다. 전체 CPU 연산/매개변수 선택, 준비된 CPU 상태의 재사용, 자동/CPU 전환 시 상주 상태 제거를 검증한다. 런타임 성능과 OS 백그라운드 실행 권한은 별도의 기기 실행으로 검증해야 한다.\n"
     },
     {
       "id": "b000159",
       "kind": "blank",
-      "start_line": 226,
-      "end_line": 226,
-      "raw": "\n"
+      "start_line": 233,
+      "end_line": 234,
+      "raw": "\n\n"
     },
     {
       "id": "b000160",
-      "kind": "paragraph",
-      "start_line": 227,
-      "end_line": 227,
-      "raw": "애플리케이션은 모든 가중치를 저장소 소유자의 컨테이너에 보관할 수 있다. 절대 리소스 디렉터리를 `NativeGenerationOptions::resourceDirectory`에 전달하고 `generateNativeImageWithOptions(request, options, backend, ...)` 오버로드를 사용하여 명시적인 CPU 백그라운드 배치를 유지한다. 이 동작은 전역 환경 변수를 변경하거나 리소스를 애플리케이션에 복사하지 않는다. 선택적인 스타일 리소스가 설치되지 않았다면 `defaultModifiers`를 비활성화한다. 유효한 내장 VAE는 계속 사용할 수 있다. 필수 외부 VAE는 명시적으로 제공한 리소스 디렉터리에서 계속 선택하고 검증한다. 리소스가 누락되어도 다른 애플리케이션의 패키지로 전환하지 않는다.\n"
+      "kind": "html",
+      "start_line": 235,
+      "end_line": 235,
+      "raw": "<a id=\"shared-model-storage-061\"></a>\n"
     },
     {
       "id": "b000161",
-      "kind": "blank",
-      "start_line": 228,
-      "end_line": 228,
-      "raw": "\n"
-    },
-    {
-      "id": "b000162",
-      "kind": "paragraph",
-      "start_line": 229,
-      "end_line": 229,
-      "raw": "`NativeDiffusionTests`는 명시적인 CPU 배치가 패키지 기본값을 요구하지 않으면서 호출자 옵션·취소·잘못된 모델 거부를 유지하는지 검사한다. 기존 API와 구조체 레이아웃은 변경하지 않는다.\n"
-    },
-    {
-      "id": "b000163",
-      "kind": "blank",
-      "start_line": 230,
-      "end_line": 230,
-      "raw": "\n"
-    },
-    {
-      "id": "b000164",
-      "kind": "heading",
-      "start_line": 231,
-      "end_line": 231,
-      "raw": "### CPU 작업 내부의 진행과 정지\n",
-      "level": 3,
-      "title": "CPU 작업 내부의 진행과 정지"
-    },
-    {
-      "id": "b000165",
-      "kind": "blank",
-      "start_line": 232,
-      "end_line": 232,
-      "raw": "\n"
-    },
-    {
-      "id": "b000166",
-      "kind": "paragraph",
-      "start_line": 233,
-      "end_line": 233,
-      "raw": "명시적 CPU backend는 upstream `sd_set_backend_eval_callback`으로 16개 노드마다 실제 연산 완료를 관측한다. `NativeGenerationStage::Computing`의 step은 완료된 그래프 배치의 누적 수이며 total=0은 전체 수가 아직 알려지지 않았음을 뜻한다. 기존 enum 값과 요청·결과 구조의 ABI는 유지한다. 소비자는 이 이벤트를 진행 보고와 비활동 제한 시간에 사용하되 denoising 스텝으로 표시하지 않는다. 이 경계에서 pause/cancel을 검사하고 작업 종료 시 전역 콜백을 제거한다. timer 기반의 가짜 진행 보고는 사용하지 않는다. NativeResultTests와 NativeMobileResultTests는 두 CPU 실행의 진행·캐시 재사용·콜백 해제를 검사한다.\n"
-    },
-    {
-      "id": "b000167",
-      "kind": "blank",
-      "start_line": 234,
-      "end_line": 234,
-      "raw": "\n"
-    },
-    {
-      "id": "b000168",
-      "kind": "heading",
-      "start_line": 235,
-      "end_line": 235,
-      "raw": "## 메모리 상주 모델 로딩\n",
-      "level": 2,
-      "title": "메모리 상주 모델 로딩"
-    },
-    {
-      "id": "b000169",
       "kind": "blank",
       "start_line": 236,
       "end_line": 236,
       "raw": "\n"
     },
     {
-      "id": "b000170",
-      "kind": "paragraph",
+      "id": "b000162",
+      "kind": "heading",
       "start_line": 237,
       "end_line": 237,
-      "raw": "`generateNativeImageWithResidentWeights()`는 Society 호스트용 진입점이다. Dreamscapes의 macOS/iOS/Android 생성 큐는 기본적으로 이 API를 사용한다. 대형 체크포인트를 사전에 해시하느라 같은 볼륨을 한 번 더 읽지 않도록 파일 메타데이터로 캐시 정체성을 판별하고, 큐가 모델 로딩 단계에 진입하면 원본 파일을 한 번 순차적으로 읽어 프로세스의 익명 메모리 버퍼로 전부 복사한다. 이후 텐서 로더는 그 버퍼만 참조한다. 복사가 끝나면 원본 파일 핸들을 닫으며 추론 중 원본 모델 파일을 다시 읽지 않는다. 이 경로는 Society 드라이브의 Q8 디스크 캐시를 생성·이전·참조하지 않는다. 익명 메모리는 OS가 메모리 압박에 따라 압축하거나 스왑할 수 있지만, 앱은 스왑 파일 위치나 정책을 강제하지 않는다. 스왑 공간이 부족하거나 OS 메모리 압박이 심하면 앱이 종료될 수 있으며, 대형 모델의 적재 가능성을 보장하지 않는다. 원본이 외장 볼륨에만 있다면 최초 RAM 적재 전송은 그 볼륨을 읽어야 하며, 이는 물리적으로 피할 수 없다.\n"
+      "raw": "## 공유 모델 스토리지(0.6.1)\n",
+      "level": 2,
+      "title": "공유 모델 스토리지(0.6.1)"
     },
     {
-      "id": "b000171",
+      "id": "b000163",
       "kind": "blank",
       "start_line": 238,
       "end_line": 238,
       "raw": "\n"
     },
     {
-      "id": "b000172",
+      "id": "b000164",
       "kind": "paragraph",
       "start_line": 239,
       "end_line": 239,
-      "raw": "이 모드는 Q8 디스크 캐시를 거부하고 ZIP 가중치 및 아카이브 `.iildmodel`의 디스크 추출, 익명 메모리 할당/읽기 실패 때 디스크 스트리밍으로 폴백하지 않는다. 아카이브 모델은 먼저 압축을 푼 디렉터리로 준비해야 한다. 일반 경로의 GPU 배치 메모리 예산이 낮아도 상주 모드의 적재를 사전 차단하지 않으며, 익명 메모리 할당/페이지 적재를 실제 시도한 뒤 실패를 반환한다. 익명 메모리는 OS가 압축하거나 스왑할 수 있고 앱은 별도 스왑 파일이나 외장 볼륨을 생성·지정하지 않는다. 일반 진입점의 기존 메모리 거부 정책은 유지된다. 대용량 모델은 전체 원본과 실행 중 필요한 가중치·작업 버퍼가 함께 메모리 압박을 일으킬 수 있으므로, OS 스왑에 의존하는 경우 생성 성능이 크게 낮아질 수 있다. 실제 대형 체크포인트 실행은 이 메모리 영향과 스왑 여유를 별도로 측정해야 한다.\n"
+      "raw": "애플리케이션은 모든 가중치를 저장소 소유자의 컨테이너에 보관할 수 있다. 절대 리소스 디렉터리를 `NativeGenerationOptions::resourceDirectory`에 전달하고 `generateNativeImageWithOptions(request, options, backend, ...)` 오버로드를 사용하여 명시적인 CPU 백그라운드 배치를 유지한다. 이 동작은 전역 환경 변수를 변경하거나 리소스를 애플리케이션에 복사하지 않는다. 선택적인 스타일 리소스가 설치되지 않았다면 `defaultModifiers`를 비활성화한다. 유효한 내장 VAE는 계속 사용할 수 있다. 필수 외부 VAE는 명시적으로 제공한 리소스 디렉터리에서 계속 선택하고 검증한다. 리소스가 누락되어도 다른 애플리케이션의 패키지로 전환하지 않는다.\n"
     },
     {
-      "id": "b000173",
+      "id": "b000165",
       "kind": "blank",
       "start_line": 240,
       "end_line": 240,
       "raw": "\n"
     },
     {
-      "id": "b000174",
+      "id": "b000166",
       "kind": "paragraph",
       "start_line": 241,
       "end_line": 241,
-      "raw": "`NativeBulkReadTests`는 resident 버퍼가 원본 파일 절단 및 삭제 이후에도 완전한 데이터를 제공하는지, `NativeResultTests`는 진입점의 플래그 전달과 Q8 디스크 캐시의 사전 거부를 검사한다.\n"
+      "raw": "`NativeDiffusionTests`는 명시적인 CPU 배치가 패키지 기본값을 요구하지 않으면서 호출자 옵션·취소·잘못된 모델 거부를 유지하는지 검사한다. 기존 API와 구조체 레이아웃은 변경하지 않는다.\n"
     },
     {
-      "id": "b000175",
+      "id": "b000167",
       "kind": "blank",
       "start_line": 242,
       "end_line": 242,
       "raw": "\n"
     },
     {
-      "id": "b000176",
+      "id": "b000168",
       "kind": "heading",
       "start_line": 243,
       "end_line": 243,
-      "raw": "## 실제 latent 기반 라이브 프리뷰\n",
-      "level": 2,
-      "title": "실제 latent 기반 라이브 프리뷰"
+      "raw": "### CPU 작업 내부의 진행과 정지\n",
+      "level": 3,
+      "title": "CPU 작업 내부의 진행과 정지"
     },
     {
-      "id": "b000177",
+      "id": "b000169",
       "kind": "blank",
       "start_line": 244,
       "end_line": 244,
       "raw": "\n"
     },
     {
-      "id": "b000178",
+      "id": "b000170",
       "kind": "paragraph",
       "start_line": 245,
       "end_line": 245,
-      "raw": "`generateNativeImageWithPreview`는 기존 요청·결과 구조와 함수 ABI를 유지하는 별도 진입점이다. 선택적 `NativePreviewCallback`은 실제 denoised latent의 RGB 투영을 전달하며 `PREVIEW_PROJ`를 사용해 매 단계 VAE 디코딩과 추가 모델 로딩을 피한다. 샘플링 데이터·난수·최종 이미지에는 영향을 주지 않는다. RGB를 소유하는 `NativeGenerationPreview`에는 최대 512×512 크기, 요청 전체의 sequence와 현재 pass의 step/total이 포함된다. Hires의 첫 단계에서도 sequence는 증가한다. 콜백은 작업 스레드에서 호출되며 엔진 전역 콜백은 실행 잠금 안에서 등록·해제한다.\n"
+      "raw": "명시적 CPU backend는 upstream `sd_set_backend_eval_callback`으로 16개 노드마다 실제 연산 완료를 관측한다. `NativeGenerationStage::Computing`의 step은 완료된 그래프 배치의 누적 수이며 total=0은 전체 수가 아직 알려지지 않았음을 뜻한다. 기존 enum 값과 요청·결과 구조의 ABI는 유지한다. 소비자는 이 이벤트를 진행 보고와 비활동 제한 시간에 사용하되 denoising 스텝으로 표시하지 않는다. 이 경계에서 pause/cancel을 검사하고 작업 종료 시 전역 콜백을 제거한다. timer 기반의 가짜 진행 보고는 사용하지 않는다. NativeResultTests와 NativeMobileResultTests는 두 CPU 실행의 진행·캐시 재사용·콜백 해제를 검사한다.\n"
     },
     {
-      "id": "b000179",
+      "id": "b000171",
       "kind": "blank",
       "start_line": 246,
       "end_line": 246,
       "raw": "\n"
     },
     {
-      "id": "b000180",
-      "kind": "paragraph",
+      "id": "b000172",
+      "kind": "heading",
       "start_line": 247,
       "end_line": 247,
-      "raw": "C 경계 `iild_native_generate_with_preview_v1`의 RGB 버퍼는 콜백이 반환할 때까지만 유효하다. Python worker는 이를 복사해 원자적 PNG와 `IILD_PREVIEW` 이벤트를 발행하며, prepare-only 호출은 프리뷰와 이미지를 만들지 않는다. 모델에 대응하는 엔진 투영이 없으면 프리뷰를 지어내지 않는다. 기존 Diffusers VAE 프리뷰 경로는 유지한다. `NativeResultTests`와 `NativeMobileResultTests`는 기본/보정 pass의 실제 테스트 픽셀·콜백 수명과 CPU/GPU 선택을 검사한다. `NativeImageTests`는 프리뷰 파일과 단계 리셋을 검사한다.\n"
+      "raw": "## 메모리 상주 모델 로딩\n",
+      "level": 2,
+      "title": "메모리 상주 모델 로딩"
     },
     {
-      "id": "b000181",
+      "id": "b000173",
       "kind": "blank",
       "start_line": 248,
       "end_line": 248,
       "raw": "\n"
     },
     {
-      "id": "b000182",
+      "id": "b000174",
       "kind": "paragraph",
       "start_line": 249,
       "end_line": 249,
-      "raw": "데스크톱 worker에 `IILD_WORKER_PROGRESS=1`을 전달하면 최초 체크포인트 전체 해시 읽기가 `IILD_MODEL_PROGRESS`로 실제 읽은 바이트 수를 보고한다. 해시 캐시 적중 시 재읽기나 가상의 진행 이벤트를 만들지 않는다. `InferenceCacheTests`가 이 계약을 검증한다.\n"
+      "raw": "`generateNativeImageWithResidentWeights()`는 Society 호스트용 진입점이다. Dreamscapes의 macOS/iOS/Android 생성 큐는 기본적으로 이 API를 사용한다. 대형 체크포인트를 사전에 해시하느라 같은 볼륨을 한 번 더 읽지 않도록 파일 메타데이터로 캐시 정체성을 판별하고, 큐가 모델 로딩 단계에 진입하면 원본 파일을 한 번 순차적으로 읽어 프로세스의 익명 메모리 버퍼로 전부 복사한다. 이후 텐서 로더는 그 버퍼만 참조한다. 복사가 끝나면 원본 파일 핸들을 닫으며 추론 중 원본 모델 파일을 다시 읽지 않는다. 이 경로는 Society 드라이브의 Q8 디스크 캐시를 생성·이전·참조하지 않는다. 익명 메모리는 OS가 메모리 압박에 따라 압축하거나 스왑할 수 있지만, 앱은 스왑 파일 위치나 정책을 강제하지 않는다. 스왑 공간이 부족하거나 OS 메모리 압박이 심하면 앱이 종료될 수 있으며, 대형 모델의 적재 가능성을 보장하지 않는다. 원본이 외장 볼륨에만 있다면 최초 RAM 적재 전송은 그 볼륨을 읽어야 하며, 이는 물리적으로 피할 수 없다.\n"
+    },
+    {
+      "id": "b000175",
+      "kind": "blank",
+      "start_line": 250,
+      "end_line": 250,
+      "raw": "\n"
+    },
+    {
+      "id": "b000176",
+      "kind": "paragraph",
+      "start_line": 251,
+      "end_line": 251,
+      "raw": "이 모드는 Q8 디스크 캐시를 거부하고 ZIP 가중치 및 아카이브 `.iildmodel`의 디스크 추출, 익명 메모리 할당/읽기 실패 때 디스크 스트리밍으로 폴백하지 않는다. 아카이브 모델은 먼저 압축을 푼 디렉터리로 준비해야 한다. 일반 경로의 GPU 배치 메모리 예산이 낮아도 상주 모드의 적재를 사전 차단하지 않으며, 익명 메모리 할당/페이지 적재를 실제 시도한 뒤 실패를 반환한다. 익명 메모리는 OS가 압축하거나 스왑할 수 있고 앱은 별도 스왑 파일이나 외장 볼륨을 생성·지정하지 않는다. 일반 진입점의 기존 메모리 거부 정책은 유지된다. 대용량 모델은 전체 원본과 실행 중 필요한 가중치·작업 버퍼가 함께 메모리 압박을 일으킬 수 있으므로, OS 스왑에 의존하는 경우 생성 성능이 크게 낮아질 수 있다. 실제 대형 체크포인트 실행은 이 메모리 영향과 스왑 여유를 별도로 측정해야 한다.\n"
+    },
+    {
+      "id": "b000177",
+      "kind": "blank",
+      "start_line": 252,
+      "end_line": 252,
+      "raw": "\n"
+    },
+    {
+      "id": "b000178",
+      "kind": "paragraph",
+      "start_line": 253,
+      "end_line": 253,
+      "raw": "`NativeBulkReadTests`는 resident 버퍼가 원본 파일 절단 및 삭제 이후에도 완전한 데이터를 제공하는지, `NativeResultTests`는 진입점의 플래그 전달과 Q8 디스크 캐시의 사전 거부를 검사한다.\n"
+    },
+    {
+      "id": "b000179",
+      "kind": "blank",
+      "start_line": 254,
+      "end_line": 254,
+      "raw": "\n"
+    },
+    {
+      "id": "b000180",
+      "kind": "heading",
+      "start_line": 255,
+      "end_line": 255,
+      "raw": "## 실제 latent 기반 라이브 프리뷰\n",
+      "level": 2,
+      "title": "실제 latent 기반 라이브 프리뷰"
+    },
+    {
+      "id": "b000181",
+      "kind": "blank",
+      "start_line": 256,
+      "end_line": 256,
+      "raw": "\n"
+    },
+    {
+      "id": "b000182",
+      "kind": "paragraph",
+      "start_line": 257,
+      "end_line": 257,
+      "raw": "`generateNativeImageWithPreview`는 기존 요청·결과 구조와 함수 ABI를 유지하는 별도 진입점이다. 선택적 `NativePreviewCallback`은 실제 denoised latent의 RGB 투영을 전달하며 `PREVIEW_PROJ`를 사용해 매 단계 VAE 디코딩과 추가 모델 로딩을 피한다. 샘플링 데이터·난수·최종 이미지에는 영향을 주지 않는다. RGB를 소유하는 `NativeGenerationPreview`에는 최대 512×512 크기, 요청 전체의 sequence와 현재 pass의 step/total이 포함된다. Hires의 첫 단계에서도 sequence는 증가한다. 콜백은 작업 스레드에서 호출되며 엔진 전역 콜백은 실행 잠금 안에서 등록·해제한다.\n"
     },
     {
       "id": "b000183",
       "kind": "blank",
-      "start_line": 250,
-      "end_line": 251,
-      "raw": "\n\n"
+      "start_line": 258,
+      "end_line": 258,
+      "raw": "\n"
     },
     {
       "id": "b000184",
-      "kind": "heading",
-      "start_line": 252,
-      "end_line": 252,
-      "raw": "## Krea2 img2img와 자동 샘플링\n",
-      "level": 2,
-      "title": "Krea2 img2img와 자동 샘플링"
+      "kind": "paragraph",
+      "start_line": 259,
+      "end_line": 259,
+      "raw": "C 경계 `iild_native_generate_with_preview_v1`의 RGB 버퍼는 콜백이 반환할 때까지만 유효하다. Python worker는 이를 복사해 원자적 PNG와 `IILD_PREVIEW` 이벤트를 발행하며, prepare-only 호출은 프리뷰와 이미지를 만들지 않는다. 모델에 대응하는 엔진 투영이 없으면 프리뷰를 지어내지 않는다. 기존 Diffusers VAE 프리뷰 경로는 유지한다. `NativeResultTests`와 `NativeMobileResultTests`는 기본/보정 pass의 실제 테스트 픽셀·콜백 수명과 CPU/GPU 선택을 검사한다. `NativeImageTests`는 프리뷰 파일과 단계 리셋을 검사한다.\n"
     },
     {
       "id": "b000185",
       "kind": "blank",
-      "start_line": 253,
-      "end_line": 253,
+      "start_line": 260,
+      "end_line": 260,
       "raw": "\n"
     },
     {
       "id": "b000186",
       "kind": "paragraph",
-      "start_line": 254,
-      "end_line": 254,
-      "raw": "단일 Krea2 참조 이미지는 `init_image`로만 전달한다. 일반 Krea2 체크포인트에서 참조 토큰을 동시에 주입하면 upstream의 `krea2_ostris_edit` 프리셋이 활성화되므로, 학습 방식이 확인되지 않은 베이스 체크포인트에는 이 경로를 사용하지 않는다. Krea2의 여러 입력 이미지는 현재 거부하며, 다른 검증된 편집 모델의 순서 있는 참조 계약은 유지한다.\n"
+      "start_line": 261,
+      "end_line": 261,
+      "raw": "데스크톱 worker에 `IILD_WORKER_PROGRESS=1`을 전달하면 최초 체크포인트 전체 해시 읽기가 `IILD_MODEL_PROGRESS`로 실제 읽은 바이트 수를 보고한다. 해시 캐시 적중 시 재읽기나 가상의 진행 이벤트를 만들지 않는다. `InferenceCacheTests`가 이 계약을 검증한다.\n"
     },
     {
       "id": "b000187",
       "kind": "blank",
-      "start_line": 255,
-      "end_line": 255,
-      "raw": "\n"
+      "start_line": 262,
+      "end_line": 263,
+      "raw": "\n\n"
     },
     {
       "id": "b000188",
-      "kind": "paragraph",
-      "start_line": 256,
-      "end_line": 256,
-      "raw": "네이티브 자동 스케줄은 Python worker와 동일하게 Euler, 해상도 기반 `mu = .5 + (W/16 * H/16 - 256) * .65/6144`, 지수 이동 sigma 및 마지막 0을 사용한다. W/H는 64px 정렬된 내부 추론 크기이며, 요청된 최종 출력 크기와 중앙 크롭 계약은 유지한다. 명시적 sigma, 샘플러 및 고급 스케줄러 선택은 보존한다.\n"
-    },
-    {
-      "id": "b000189",
-      "kind": "blank",
-      "start_line": 257,
-      "end_line": 257,
-      "raw": "\n"
-    },
-    {
-      "id": "b000190",
-      "kind": "paragraph",
-      "start_line": 258,
-      "end_line": 258,
-      "raw": "`nativeImageParameterDefaults(modelPath)`는 가중치를 적재하지 않고 텐서 메타데이터를 검사한다. 일반 Krea2의 빠른 요청에는 Raw 품질 기본값 52 steps와 native CFG 7을 반환한다. CFG는 제품 설정으로 7을 사용하며, 단계 수는 [Krea 공식 추론 설정](https://github.com/krea-ai/krea-2/blob/main/README.md)을 기준으로 한다. 파일명으로 Raw/Turbo 학습 변형을 추정하지 않는다. 고급 요청은 사용자가 제출한 steps/CFG를 유지한다.\n"
-    },
-    {
-      "id": "b000191",
-      "kind": "blank",
-      "start_line": 259,
-      "end_line": 259,
-      "raw": "\n"
-    },
-    {
-      "id": "b000192",
-      "kind": "paragraph",
-      "start_line": 260,
-      "end_line": 260,
-      "raw": "Krea2 분류는 메타데이터 검사와 적재된 런타임의 `sd_get_model_family` 양쪽에 적용한다. 런타임이 `other`를 반환하면 img2img 전용 분기와 자동 스케줄이 우회되므로, `NativeRefinerSamplingTests`는 실제 엔진 소스를 컴파일하여 두 분류가 일치하는지 가중치 없이 검사한다.\n"
-    },
-    {
-      "id": "b000193",
-      "kind": "blank",
-      "start_line": 261,
-      "end_line": 261,
-      "raw": "\n"
-    },
-    {
-      "id": "b000194",
-      "kind": "paragraph",
-      "start_line": 262,
-      "end_line": 262,
-      "raw": "`NativeResultTests`와 `NativeMobileResultTests`는 Krea2 입력의 중복 편집 조건 방지와 해상도별 sigma 전달, 기존 편집 모델의 다중 참조 유지, 다른 모델로 기본값이 유출되지 않는지를 검사한다. 실제 체크포인트 검증에는 `NativeVaeRoundTripProbe`로 RGB→VAE→RGB를 분리하고 `NativeImg2ImgSmoke`로 인코더·확산·디코더 전체를 실행한다. 두 도구는 interleaved RGB 파일을 사용하며, 자동 CTest에 대형 모델 실행을 추가하지 않는다. 전체 추론 도구의 마지막 선택 인자 `prompt.txt`는 UTF-8 원래 프롬프트를 그대로 읽는다. 입력 RGB 크기와 출력 크기를 별도로 지정하여 원본 첨부의 네이티브 리사이즈 경로도 검증할 수 있다.\n"
-    },
-    {
-      "id": "b000195",
-      "kind": "blank",
-      "start_line": 263,
-      "end_line": 263,
-      "raw": "\n"
-    },
-    {
-      "id": "b000196",
       "kind": "heading",
       "start_line": 264,
       "end_line": 264,
-      "raw": "## 업스케일러 호환성 계약\n",
+      "raw": "## Krea2 img2img와 자동 샘플링\n",
       "level": 2,
-      "title": "업스케일러 호환성 계약"
+      "title": "Krea2 img2img와 자동 샘플링"
     },
     {
-      "id": "b000197",
+      "id": "b000189",
       "kind": "blank",
       "start_line": 265,
       "end_line": 265,
       "raw": "\n"
     },
     {
-      "id": "b000198",
+      "id": "b000190",
       "kind": "paragraph",
       "start_line": 266,
+      "end_line": 266,
+      "raw": "단일 Krea2 참조 이미지는 `init_image`로만 전달한다. 일반 Krea2 체크포인트에서 참조 토큰을 동시에 주입하면 upstream의 `krea2_ostris_edit` 프리셋이 활성화되므로, 학습 방식이 확인되지 않은 베이스 체크포인트에는 이 경로를 사용하지 않는다. Krea2의 여러 입력 이미지는 현재 거부하며, 다른 검증된 편집 모델의 순서 있는 참조 계약은 유지한다.\n"
+    },
+    {
+      "id": "b000191",
+      "kind": "blank",
+      "start_line": 267,
+      "end_line": 267,
+      "raw": "\n"
+    },
+    {
+      "id": "b000192",
+      "kind": "paragraph",
+      "start_line": 268,
+      "end_line": 268,
+      "raw": "네이티브 자동 스케줄은 Python worker와 동일하게 Euler, 해상도 기반 `mu = .5 + (W/16 * H/16 - 256) * .65/6144`, 지수 이동 sigma 및 마지막 0을 사용한다. W/H는 64px 정렬된 내부 추론 크기이며, 요청된 최종 출력 크기와 중앙 크롭 계약은 유지한다. 명시적 sigma, 샘플러 및 고급 스케줄러 선택은 보존한다.\n"
+    },
+    {
+      "id": "b000193",
+      "kind": "blank",
+      "start_line": 269,
+      "end_line": 269,
+      "raw": "\n"
+    },
+    {
+      "id": "b000194",
+      "kind": "paragraph",
+      "start_line": 270,
+      "end_line": 270,
+      "raw": "`nativeImageParameterDefaults(modelPath)`는 가중치를 적재하지 않고 텐서 메타데이터를 검사한다. 일반 Krea2의 빠른 요청에는 Raw 품질 기본값 52 steps와 native CFG 7을 반환한다. CFG는 제품 설정으로 7을 사용하며, 단계 수는 [Krea 공식 추론 설정](https://github.com/krea-ai/krea-2/blob/main/README.md)을 기준으로 한다. 파일명으로 Raw/Turbo 학습 변형을 추정하지 않는다. 고급 요청은 사용자가 제출한 steps/CFG를 유지한다.\n"
+    },
+    {
+      "id": "b000195",
+      "kind": "blank",
+      "start_line": 271,
       "end_line": 271,
-      "raw": "`Generation/NativeUpscaler.hpp`의 `Upscaler`와 호출별 세션을 통해 이미지\n확대 구현을 인자로 전달한다. 내장 최근접·양선형·바이큐빅·Lanczos3 필터,\n명시적으로 지정한 ESRGAN/RRDB·SRVGG·SwinIR 모델과 애플리케이션의 교체\n가능한 구현이 같은 계약을 사용한다. 입력은 소유된 8비트 인터리브 이미지이며\n너비·높이·채널과 바이트 수를 검증한다. 픽셀 필터는 1·3·4채널을 처리하고\n모델 기반 제공자는 RGB만 받는다. 미지원 모델이나 옵션은 다른 방식으로 묵시적 대체하지 않는다.\n"
+      "raw": "\n"
+    },
+    {
+      "id": "b000196",
+      "kind": "paragraph",
+      "start_line": 272,
+      "end_line": 272,
+      "raw": "Krea2 분류는 메타데이터 검사와 적재된 런타임의 `sd_get_model_family` 양쪽에 적용한다. 런타임이 `other`를 반환하면 img2img 전용 분기와 자동 스케줄이 우회되므로, `NativeRefinerSamplingTests`는 실제 엔진 소스를 컴파일하여 두 분류가 일치하는지 가중치 없이 검사한다.\n"
+    },
+    {
+      "id": "b000197",
+      "kind": "blank",
+      "start_line": 273,
+      "end_line": 273,
+      "raw": "\n"
+    },
+    {
+      "id": "b000198",
+      "kind": "paragraph",
+      "start_line": 274,
+      "end_line": 274,
+      "raw": "`NativeResultTests`와 `NativeMobileResultTests`는 Krea2 입력의 중복 편집 조건 방지와 해상도별 sigma 전달, 기존 편집 모델의 다중 참조 유지, 다른 모델로 기본값이 유출되지 않는지를 검사한다. 실제 체크포인트 검증에는 `NativeVaeRoundTripProbe`로 RGB→VAE→RGB를 분리하고 `NativeImg2ImgSmoke`로 인코더·확산·디코더 전체를 실행한다. 두 도구는 interleaved RGB 파일을 사용하며, 자동 CTest에 대형 모델 실행을 추가하지 않는다. 전체 추론 도구의 마지막 선택 인자 `prompt.txt`는 UTF-8 원래 프롬프트를 그대로 읽는다. 입력 RGB 크기와 출력 크기를 별도로 지정하여 원본 첨부의 네이티브 리사이즈 경로도 검증할 수 있다.\n"
     },
     {
       "id": "b000199",
       "kind": "blank",
-      "start_line": 272,
-      "end_line": 272,
+      "start_line": 275,
+      "end_line": 275,
       "raw": "\n"
     },
     {
       "id": "b000200",
-      "kind": "paragraph",
-      "start_line": 273,
-      "end_line": 286,
-      "raw": "호출자는 배율 또는 최종 치수, 반복 횟수, 출력 바이트 상한을 지정한다.\n배율을 생략하거나 0으로 지정하면 세션의 기본값을 사용한다. 보간은 2배,\n모델 기반 제공자는 선택된 모델의 고유 배율이며 실제 배율을 결과에 기록한다.\nESRGAN 구현의 모델 경로·CPU/자동 선택·타일 크기·스레드 수는 업스케일러\n생성 시 지정한다. 모델은 요청된 시점에만 로드하고 세션 종료 시 반환하며,\n모델 고유 배율과 요청 치수가 다르면 실패한다. RRDB는 `.safetensors`와\n`.gguf`를, SRVGG·SwinIR 제공자는 `.safetensors`를 받는다. 단계별 진행 콜백과 취소는 호출자의 명시적\n요청에 따라 동작하며 외부 엔진의 단일 계산 호출 중에는 그 호출이 반환된\n뒤 취소를 반영한다. 결과에는 실제 실행한 단계와 치수를 기록한다.\nPython에서도 같은 네이티브 경계를 통해 호출하고 다른 업스케일러 객체를\n전달할 수 있다. 보간·SRVGG·SwinIR CPU 제공자와 외부 제공자 계약은 네이티브\n확산 엔진을 빼고 빌드해도 사용할 수 있다. GPU 제공자와 RRDB 모델 제공자는 네이티브 확산\n엔진이 필요하다. 후처리 외에도 아래의 별도 Hires 진입점에 제공자를 지정할 수\n있다. 기존 생성 기본값과 기존 Hires 모델 선택은 그대로 유지된다.\n"
+      "kind": "heading",
+      "start_line": 276,
+      "end_line": 276,
+      "raw": "## 업스케일러 호환성 계약\n",
+      "level": 2,
+      "title": "업스케일러 호환성 계약"
     },
     {
       "id": "b000201",
       "kind": "blank",
-      "start_line": 287,
-      "end_line": 287,
+      "start_line": 277,
+      "end_line": 277,
       "raw": "\n"
     },
     {
       "id": "b000202",
-      "kind": "heading",
-      "start_line": 288,
-      "end_line": 288,
-      "raw": "### 호출 예시\n",
-      "level": 3,
-      "title": "호출 예시"
+      "kind": "paragraph",
+      "start_line": 278,
+      "end_line": 283,
+      "raw": "`Generation/NativeUpscaler.hpp`의 `Upscaler`와 호출별 세션을 통해 이미지\n확대 구현을 인자로 전달한다. 내장 최근접·양선형·바이큐빅·Lanczos3 필터,\n명시적으로 지정한 ESRGAN/RRDB·SRVGG·SwinIR 모델과 애플리케이션의 교체\n가능한 구현이 같은 계약을 사용한다. 입력은 소유된 8비트 인터리브 이미지이며\n너비·높이·채널과 바이트 수를 검증한다. 픽셀 필터는 1·3·4채널을 처리하고\n모델 기반 제공자는 RGB만 받는다. 미지원 모델이나 옵션은 다른 방식으로 묵시적 대체하지 않는다.\n"
     },
     {
       "id": "b000203",
       "kind": "blank",
-      "start_line": 289,
-      "end_line": 289,
+      "start_line": 284,
+      "end_line": 284,
       "raw": "\n"
     },
     {
       "id": "b000204",
       "kind": "paragraph",
-      "start_line": 290,
-      "end_line": 291,
-      "raw": "다음 예시는 생성 결과를 호출자가 지정한 업스케일러에 넘긴다. 생성된\n`rgb`를 소유권 이동하므로 생성 API의 모델과 샘플링 기본값은 변경되지 않는다.\n"
+      "start_line": 285,
+      "end_line": 298,
+      "raw": "호출자는 배율 또는 최종 치수, 반복 횟수, 출력 바이트 상한을 지정한다.\n배율을 생략하거나 0으로 지정하면 세션의 기본값을 사용한다. 보간은 2배,\n모델 기반 제공자는 선택된 모델의 고유 배율이며 실제 배율을 결과에 기록한다.\nESRGAN 구현의 모델 경로·CPU/자동 선택·타일 크기·스레드 수는 업스케일러\n생성 시 지정한다. 모델은 요청된 시점에만 로드하고 세션 종료 시 반환하며,\n모델 고유 배율과 요청 치수가 다르면 실패한다. RRDB는 `.safetensors`와\n`.gguf`를, SRVGG·SwinIR 제공자는 `.safetensors`를 받는다. 단계별 진행 콜백과 취소는 호출자의 명시적\n요청에 따라 동작하며 외부 엔진의 단일 계산 호출 중에는 그 호출이 반환된\n뒤 취소를 반영한다. 결과에는 실제 실행한 단계와 치수를 기록한다.\nPython에서도 같은 네이티브 경계를 통해 호출하고 다른 업스케일러 객체를\n전달할 수 있다. 보간·SRVGG·SwinIR CPU 제공자와 외부 제공자 계약은 네이티브\n확산 엔진을 빼고 빌드해도 사용할 수 있다. GPU 제공자와 RRDB 모델 제공자는 네이티브 확산\n엔진이 필요하다. 후처리 외에도 아래의 별도 Hires 진입점에 제공자를 지정할 수\n있다. 기존 생성 기본값과 기존 Hires 모델 선택은 그대로 유지된다.\n"
     },
     {
       "id": "b000205",
       "kind": "blank",
-      "start_line": 292,
-      "end_line": 292,
+      "start_line": 299,
+      "end_line": 299,
       "raw": "\n"
     },
     {
       "id": "b000206",
+      "kind": "heading",
+      "start_line": 300,
+      "end_line": 300,
+      "raw": "### 호출 예시\n",
+      "level": 3,
+      "title": "호출 예시"
+    },
+    {
+      "id": "b000207",
+      "kind": "blank",
+      "start_line": 301,
+      "end_line": 301,
+      "raw": "\n"
+    },
+    {
+      "id": "b000208",
+      "kind": "paragraph",
+      "start_line": 302,
+      "end_line": 303,
+      "raw": "다음 예시는 생성 결과를 호출자가 지정한 업스케일러에 넘긴다. 생성된\n`rgb`를 소유권 이동하므로 생성 API의 모델과 샘플링 기본값은 변경되지 않는다.\n"
+    },
+    {
+      "id": "b000209",
+      "kind": "blank",
+      "start_line": 304,
+      "end_line": 304,
+      "raw": "\n"
+    },
+    {
+      "id": "b000210",
       "kind": "fenced_code",
-      "start_line": 293,
-      "end_line": 307,
+      "start_line": 305,
+      "end_line": 319,
       "raw": "```cpp\n#include <Generation/NativeDiffusion.hpp>\n#include <Generation/NativeUpscaler.hpp>\n\nusing namespace iiLocalDiffusion;\n// generated는 성공한 generateNative... 호출의 NativeGenerationResult이다.\nauto upscaler = makeEsrganUpscaler({\"/models/upscaler.safetensors\",\n                                    UpscaleDevice::Cpu, 256, 4});\nUpscaleOptions options;\noptions.scale = 4;                   // 선택한 모델의 고유 배율\noptions.passes = 1;\noptions.maxOutputBytes = 512ULL * 1024 * 1024;\nauto execution = upscaleGeneratedImage(std::move(generated), *upscaler, options);\n// execution.image, execution.passes, execution.details를 사용한다.\n```\n",
       "language": "cpp",
       "code": "#include <Generation/NativeDiffusion.hpp>\n#include <Generation/NativeUpscaler.hpp>\n\nusing namespace iiLocalDiffusion;\n// generated는 성공한 generateNative... 호출의 NativeGenerationResult이다.\nauto upscaler = makeEsrganUpscaler({\"/models/upscaler.safetensors\",\n                                    UpscaleDevice::Cpu, 256, 4});\nUpscaleOptions options;\noptions.scale = 4;                   // 선택한 모델의 고유 배율\noptions.passes = 1;\noptions.maxOutputBytes = 512ULL * 1024 * 1024;\nauto execution = upscaleGeneratedImage(std::move(generated), *upscaler, options);\n// execution.image, execution.passes, execution.details를 사용한다.\n",
       "closed": true
     },
     {
-      "id": "b000207",
+      "id": "b000211",
       "kind": "blank",
-      "start_line": 308,
-      "end_line": 308,
+      "start_line": 320,
+      "end_line": 320,
       "raw": "\n"
     },
     {
-      "id": "b000208",
+      "id": "b000212",
       "kind": "paragraph",
-      "start_line": 309,
-      "end_line": 317,
+      "start_line": 321,
+      "end_line": 329,
       "raw": "`makeInterpolationUpscaler(UpscaleFilter::Lanczos3)` 등은 별도 모델 없이\n사용한다. 임의 크기는 `targetWidth`와 `targetHeight`를 함께 지정하며,\n명시 치수는 한 번의 패스에서만 사용할 수 있다. 각 축은 원본보다 작을 수\n없다. 배율은 각 패스에 적용되고 정수 픽셀로 반올림된다. 자동 배율은\n모델을 연 뒤 첫 연산 전에 한도를 검사한다. 출력 바이트 상한은\n각 출력 이미지에 대한 제한이며 입력·중간 버퍼·모델·GPU 메모리를 포함하는\n전체 프로세스 메모리 상한은 아니다. 외부 Python 제공자는 전달받은 한도를\n자체 연산 전에 준수해야 하며, 공통 함수는 반환 결과도 검증한다. 4채널\n보간은 비프리멀티플라이 RGBA 각 채널을 독립적으로 처리한다.\n"
     },
     {
-      "id": "b000209",
+      "id": "b000213",
       "kind": "blank",
-      "start_line": 318,
-      "end_line": 318,
+      "start_line": 330,
+      "end_line": 330,
       "raw": "\n"
     },
     {
-      "id": "b000210",
+      "id": "b000214",
       "kind": "fenced_code",
-      "start_line": 319,
-      "end_line": 326,
+      "start_line": 331,
+      "end_line": 338,
       "raw": "```python\nfrom native_upscaler import Image, NativeUpscaler, Options, upscale_image\n\n# pixels는 호출자가 소유한 RGB8 바이트이다.\nsource = Image(width, height, 3, pixels)\nupscaler = NativeUpscaler(\"lanczos3\")\nimage, report = upscale_image(source, upscaler, Options(scale=2, passes=1))\n```\n",
       "language": "python",
       "code": "from native_upscaler import Image, NativeUpscaler, Options, upscale_image\n\n# pixels는 호출자가 소유한 RGB8 바이트이다.\nsource = Image(width, height, 3, pixels)\nupscaler = NativeUpscaler(\"lanczos3\")\nimage, report = upscale_image(source, upscaler, Options(scale=2, passes=1))\n",
       "closed": true
     },
     {
-      "id": "b000211",
-      "kind": "blank",
-      "start_line": 327,
-      "end_line": 327,
-      "raw": "\n"
-    },
-    {
-      "id": "b000212",
-      "kind": "paragraph",
-      "start_line": 328,
-      "end_line": 341,
-      "raw": "Python 모듈은 설치된 `share/iiLocalDiffusion/reference/diffusers`에서 가져올\n수 있다. 모델 기반 호출은 `NativeUpscaler(\"esrgan\", model=path, device=\"cpu\",\ntile_size=256, threads=4)`를 사용한다. 타일 `0`은 타일링을 끈다. 이 백엔드의\n타일 겹침은 현재 25%로 고정이다. 자동 장치 선택은 특정 GPU에서 실행되었다는\n증거가 아니다. SRVGG와 SwinIR은 `NativeUpscaler(\"srvgg\", model=path,\ndevice=\"cpu\")`, `NativeUpscaler(\"swinir\", model=path, device=\"cpu\")`로\n선택한다. `\"model\"`은 텐서 이름으로 두 구조를 판별한다. 이름이나 확장자가\n같다고 임의의 모델 구조가 호환되는 것은 아니다. 가중치 다운로드, 변환, ONNX\n실행은 하지 않는다. 다른 구조는 애플리케이션이 별도의 `Upscaler`와\n`UpscalerSession`을 제공해 연결한다. 세션의 `defaultScale()`을 재정의하면\n호출자가 배율을 생략할 때 그 값을 사용한다. Python에서도 `upscale(image,\noptions, progress=...)`를 구현한 객체를 직접 전달할 수 있으며 제공자 전용\n설정은 그 객체에 변경 없이 전달된다. Python 제공자는 자동 배율을 사용한\n경우 실제 값을 결과 보고서의 `applied_scale`에 포함해야 한다. 내장 제공자는 모르는 설정을 거부한다.\n"
-    },
-    {
-      "id": "b000213",
-      "kind": "blank",
-      "start_line": 342,
-      "end_line": 342,
-      "raw": "\n"
-    },
-    {
-      "id": "b000214",
-      "kind": "paragraph",
-      "start_line": 343,
-      "end_line": 345,
-      "raw": "예를 들어 Metal이 준비된 Apple 빌드에서는\n`NativeUpscaler(\"swinir\", model=path, device=\"metal\", tile_size=256)`을 전달한다.\n같은 설정 객체를 `hires_upscaler`로 지정하면 Hires에도 적용된다.\n"
-    },
-    {
       "id": "b000215",
       "kind": "blank",
-      "start_line": 346,
-      "end_line": 346,
+      "start_line": 339,
+      "end_line": 339,
       "raw": "\n"
     },
     {
       "id": "b000216",
       "kind": "paragraph",
-      "start_line": 347,
-      "end_line": 356,
-      "raw": "세션은 성공·오류·취소 시 파괴된다. 콜백은 완료된 패스마다 실행되고 `false`\n또는 Python `False`를 반환하면 이후 작업을 취소한다. C++ `std::stop_token`도\n지원한다. 모델 로드, 공유 엔진 잠금 대기 또는 외부 엔진 단일 계산은 도중에\n강제로 중단하지 못하며 반환 직후 취소를 확인한다. 독립 업스케일의 진행\n콜백은 엔진 잠금 밖에서 호출한다. Hires 제공자의 `open`·`process`는 생성\n엔진의 잠금 안에서 호출되므로 그 안에서 이미지 생성을 재진입하지 않아야 하며,\n재진입 요청은 오류로 거부된다. 합성 가중치를 이용한 테스트는 이 연결을 확인하지만 특정 공개\n모델의 품질, 모든 가중치 변형 또는 실제 제품 사용을 보증하지 않는다.\n엔진 계열의 공개 업스케일 경계는 [stable-diffusion.cpp 문서](https://github.com/leejet/stable-diffusion.cpp/blob/master/examples/server/api.md)를 참고할 수 있으며,\n실제 지원 범위는 이 프로젝트에 고정된 엔진 버전을 기준으로 한다.\n"
+      "start_line": 340,
+      "end_line": 353,
+      "raw": "Python 모듈은 설치된 `share/iiLocalDiffusion/reference/diffusers`에서 가져올\n수 있다. 모델 기반 호출은 `NativeUpscaler(\"esrgan\", model=path, device=\"cpu\",\ntile_size=256, threads=4)`를 사용한다. 타일 `0`은 타일링을 끈다. 이 백엔드의\n타일 겹침은 현재 25%로 고정이다. 자동 장치 선택은 특정 GPU에서 실행되었다는\n증거가 아니다. SRVGG와 SwinIR은 `NativeUpscaler(\"srvgg\", model=path,\ndevice=\"cpu\")`, `NativeUpscaler(\"swinir\", model=path, device=\"cpu\")`로\n선택한다. `\"model\"`은 텐서 이름으로 두 구조를 판별한다. 이름이나 확장자가\n같다고 임의의 모델 구조가 호환되는 것은 아니다. 가중치 다운로드, 변환, ONNX\n실행은 하지 않는다. 다른 구조는 애플리케이션이 별도의 `Upscaler`와\n`UpscalerSession`을 제공해 연결한다. 세션의 `defaultScale()`을 재정의하면\n호출자가 배율을 생략할 때 그 값을 사용한다. Python에서도 `upscale(image,\noptions, progress=...)`를 구현한 객체를 직접 전달할 수 있으며 제공자 전용\n설정은 그 객체에 변경 없이 전달된다. Python 제공자는 자동 배율을 사용한\n경우 실제 값을 결과 보고서의 `applied_scale`에 포함해야 한다. 내장 제공자는 모르는 설정을 거부한다.\n"
     },
     {
       "id": "b000217",
       "kind": "blank",
-      "start_line": 357,
-      "end_line": 357,
+      "start_line": 354,
+      "end_line": 354,
       "raw": "\n"
     },
     {
       "id": "b000218",
-      "kind": "html",
-      "start_line": 358,
-      "end_line": 358,
-      "raw": "<a id=\"hires-provider\"></a>\n"
+      "kind": "paragraph",
+      "start_line": 355,
+      "end_line": 357,
+      "raw": "예를 들어 Metal이 준비된 Apple 빌드에서는\n`NativeUpscaler(\"swinir\", model=path, device=\"metal\", tile_size=256)`을 전달한다.\n같은 설정 객체를 `hires_upscaler`로 지정하면 Hires에도 적용된다.\n"
     },
     {
       "id": "b000219",
       "kind": "blank",
-      "start_line": 359,
-      "end_line": 359,
+      "start_line": 358,
+      "end_line": 358,
       "raw": "\n"
     },
     {
       "id": "b000220",
+      "kind": "paragraph",
+      "start_line": 359,
+      "end_line": 368,
+      "raw": "세션은 성공·오류·취소 시 파괴된다. 콜백은 완료된 패스마다 실행되고 `false`\n또는 Python `False`를 반환하면 이후 작업을 취소한다. C++ `std::stop_token`도\n지원한다. 모델 로드, 공유 엔진 잠금 대기 또는 외부 엔진 단일 계산은 도중에\n강제로 중단하지 못하며 반환 직후 취소를 확인한다. 독립 업스케일의 진행\n콜백은 엔진 잠금 밖에서 호출한다. Hires 제공자의 `open`·`process`는 생성\n엔진의 잠금 안에서 호출되므로 그 안에서 이미지 생성을 재진입하지 않아야 하며,\n재진입 요청은 오류로 거부된다. 합성 가중치를 이용한 테스트는 이 연결을 확인하지만 특정 공개\n모델의 품질, 모든 가중치 변형 또는 실제 제품 사용을 보증하지 않는다.\n엔진 계열의 공개 업스케일 경계는 [stable-diffusion.cpp 문서](https://github.com/leejet/stable-diffusion.cpp/blob/master/examples/server/api.md)를 참고할 수 있으며,\n실제 지원 범위는 이 프로젝트에 고정된 엔진 버전을 기준으로 한다.\n"
+    },
+    {
+      "id": "b000221",
+      "kind": "blank",
+      "start_line": 369,
+      "end_line": 369,
+      "raw": "\n"
+    },
+    {
+      "id": "b000222",
+      "kind": "html",
+      "start_line": 370,
+      "end_line": 370,
+      "raw": "<a id=\"hires-provider\"></a>\n"
+    },
+    {
+      "id": "b000223",
+      "kind": "blank",
+      "start_line": 371,
+      "end_line": 371,
+      "raw": "\n"
+    },
+    {
+      "id": "b000224",
       "kind": "heading",
-      "start_line": 360,
-      "end_line": 360,
+      "start_line": 372,
+      "end_line": 372,
       "raw": "### Hires 제공자 연결\n",
       "level": 3,
       "title": "Hires 제공자 연결"
     },
     {
-      "id": "b000221",
+      "id": "b000225",
       "kind": "blank",
-      "start_line": 361,
-      "end_line": 361,
+      "start_line": 373,
+      "end_line": 373,
       "raw": "\n"
     },
     {
-      "id": "b000222",
+      "id": "b000226",
       "kind": "paragraph",
-      "start_line": 362,
-      "end_line": 367,
+      "start_line": 374,
+      "end_line": 379,
       "raw": "`generateNativeAdvancedImageWithUpscaler`는 `NativeAdvancedControls::hires`가\n활성화된 요청에서 제공자와 `UpscaleOptions`를 받아 VAE 디코딩과 Hires\n재인코딩 사이에 실행한다. 제공자의 결과 크기가 Hires 캔버스와 다르면\nLanczos3으로 한 번 재샘플링한다. `NativeHiresUpscalerReport`는 실제 제공자,\n모델 설정, 패스별 치수·배율, 최종 캔버스와 재샘플링 여부를 담는다.\n실패·취소 시 중간 이미지는 성공 결과가 아니며 콜백과 세션은 해제된다.\n"
     },
     {
-      "id": "b000223",
+      "id": "b000227",
       "kind": "blank",
-      "start_line": 368,
-      "end_line": 368,
+      "start_line": 380,
+      "end_line": 380,
       "raw": "\n"
     },
     {
-      "id": "b000224",
+      "id": "b000228",
       "kind": "fenced_code",
-      "start_line": 369,
-      "end_line": 382,
+      "start_line": 381,
+      "end_line": 394,
       "raw": "```cpp\nNativeAdvancedControls advanced;\nadvanced.hires = true;\nNativeModelUpscalerOptions modelOptions;\nmodelOptions.model = modelPath; // SRVGG 또는 SwinIR .safetensors\nmodelOptions.device = UpscaleDevice::Cpu;\nmodelOptions.threads = 4;\nauto provider = makeNativeModelUpscaler(modelOptions);\nUpscaleOptions upscaleOptions; // 배율 0: 모델 고유 배율\nNativeHiresUpscalerReport hiresReport;\nauto result = generateNativeAdvancedImageWithUpscaler(\n    request, generationOptions, components, advanced, *provider, upscaleOptions,\n    NativeComputeBackend::Cpu, cancelled, &hiresReport);\n```\n",
       "language": "cpp",
       "code": "NativeAdvancedControls advanced;\nadvanced.hires = true;\nNativeModelUpscalerOptions modelOptions;\nmodelOptions.model = modelPath; // SRVGG 또는 SwinIR .safetensors\nmodelOptions.device = UpscaleDevice::Cpu;\nmodelOptions.threads = 4;\nauto provider = makeNativeModelUpscaler(modelOptions);\nUpscaleOptions upscaleOptions; // 배율 0: 모델 고유 배율\nNativeHiresUpscalerReport hiresReport;\nauto result = generateNativeAdvancedImageWithUpscaler(\n    request, generationOptions, components, advanced, *provider, upscaleOptions,\n    NativeComputeBackend::Cpu, cancelled, &hiresReport);\n",
       "closed": true
     },
     {
-      "id": "b000225",
-      "kind": "blank",
-      "start_line": 383,
-      "end_line": 383,
-      "raw": "\n"
-    },
-    {
-      "id": "b000226",
-      "kind": "paragraph",
-      "start_line": 384,
-      "end_line": 390,
-      "raw": "제공자 계약이 RGB8이므로 이 진입점은 중간 VAE 출력을 RGB8로 변환한 다음\n재인코딩한다. 기존의 float 내부 Hires 경로와 수치가 동일하다고 가정해서는\n안 된다. Hires 취소 토큰이나 기존 취소 플래그는 CPU 모델의 계산 경계에서\n확인한다. 외부 제공자는 전달받은 `stop_token`을 직접 준수해야 한다. 기존\n4배 ESRGAN Hires 경로도 남아 있다. C++에서는 위 진입점과 샘플링 설정 및\n메모리 상주 가중치를 유지하는 `generateNativeResidentImageWithUpscaler`를\n사용할 수 있다.\n"
-    },
-    {
-      "id": "b000227",
-      "kind": "blank",
-      "start_line": 391,
-      "end_line": 391,
-      "raw": "\n"
-    },
-    {
-      "id": "b000228",
-      "kind": "paragraph",
-      "start_line": 392,
-      "end_line": 395,
-      "raw": "`iild_native_generate_hires_v1`은 V3 생성 요청과 V3 업스케일러 설정을 결합하고\n실제 제공자·모델 설정·배율·패스·재샘플링 결과를 `hires_upscaler` 메타데이터로\n반환한다. 생성 준비와 실제 생성은 별도 호출이며, Hires가 꺼진 요청에 제공자를\n지정하면 오류가 발생한다. Python의 컴포넌트 인식 생성 경로에서도 같은 기능을 쓴다.\n"
-    },
-    {
       "id": "b000229",
       "kind": "blank",
-      "start_line": 396,
-      "end_line": 396,
+      "start_line": 395,
+      "end_line": 395,
       "raw": "\n"
     },
     {
       "id": "b000230",
-      "kind": "fenced_code",
-      "start_line": 397,
-      "end_line": 407,
-      "raw": "```python\nfrom native_image import NativeEngine\nfrom native_upscaler import NativeUpscaler, Options\n\nupscaler = NativeUpscaler(\"swinir\", model=\"/models/upscaler.safetensors\", device=\"cpu\", threads=4)\n# args는 기존 컴포넌트 인식 생성 요청이며 native_v2가 True여야 한다.\nimage, metadata = NativeEngine().image(\n    args, seed=42, hires_upscaler=upscaler, hires_options=Options(),\n    hires_denoise_strength=0.35)\nprint(metadata[\"hires_upscaler\"])\n```\n",
-      "language": "python",
-      "code": "from native_image import NativeEngine\nfrom native_upscaler import NativeUpscaler, Options\n\nupscaler = NativeUpscaler(\"swinir\", model=\"/models/upscaler.safetensors\", device=\"cpu\", threads=4)\n# args는 기존 컴포넌트 인식 생성 요청이며 native_v2가 True여야 한다.\nimage, metadata = NativeEngine().image(\n    args, seed=42, hires_upscaler=upscaler, hires_options=Options(),\n    hires_denoise_strength=0.35)\nprint(metadata[\"hires_upscaler\"])\n",
-      "closed": true
+      "kind": "paragraph",
+      "start_line": 396,
+      "end_line": 402,
+      "raw": "제공자 계약이 RGB8이므로 이 진입점은 중간 VAE 출력을 RGB8로 변환한 다음\n재인코딩한다. 기존의 float 내부 Hires 경로와 수치가 동일하다고 가정해서는\n안 된다. Hires 취소 토큰이나 기존 취소 플래그는 CPU 모델의 계산 경계에서\n확인한다. 외부 제공자는 전달받은 `stop_token`을 직접 준수해야 한다. 기존\n4배 ESRGAN Hires 경로도 남아 있다. C++에서는 위 진입점과 샘플링 설정 및\n메모리 상주 가중치를 유지하는 `generateNativeResidentImageWithUpscaler`를\n사용할 수 있다.\n"
     },
     {
       "id": "b000231",
+      "kind": "blank",
+      "start_line": 403,
+      "end_line": 403,
+      "raw": "\n"
+    },
+    {
+      "id": "b000232",
+      "kind": "paragraph",
+      "start_line": 404,
+      "end_line": 407,
+      "raw": "`iild_native_generate_hires_v1`은 V3 생성 요청과 V3 업스케일러 설정을 결합하고\n실제 제공자·모델 설정·배율·패스·재샘플링 결과를 `hires_upscaler` 메타데이터로\n반환한다. 생성 준비와 실제 생성은 별도 호출이며, Hires가 꺼진 요청에 제공자를\n지정하면 오류가 발생한다. Python의 컴포넌트 인식 생성 경로에서도 같은 기능을 쓴다.\n"
+    },
+    {
+      "id": "b000233",
       "kind": "blank",
       "start_line": 408,
       "end_line": 408,
       "raw": "\n"
     },
     {
-      "id": "b000232",
-      "kind": "paragraph",
-      "start_line": 409,
-      "end_line": 413,
-      "raw": "Python Hires는 `NativeUpscaler` 제공자를 받으며 기존의 독립 업스케일 함수는\n호출자 정의 Python 제공자도 받는다. 컴포넌트 인식 생성 경로가 아닌 기존 V1 생성\n요청과 통합 모델 다단계 요청에서는 Python Hires 제공자 주입을 지원하지 않는다.\n기존 V1 기본값은 유지한다. 별도의 Diffusers Python Hires 함수도 제공자를\n받으며 그 범위는 [Hires Fix](hires-fix.md#hires-provider-injection)에 적혀 있다.\n"
-    },
-    {
-      "id": "b000233",
-      "kind": "blank",
-      "start_line": 414,
-      "end_line": 414,
-      "raw": "\n"
-    },
-    {
       "id": "b000234",
-      "kind": "heading",
-      "start_line": 415,
-      "end_line": 415,
-      "raw": "### 모델 형식과 한계\n",
-      "level": 3,
-      "title": "모델 형식과 한계"
+      "kind": "fenced_code",
+      "start_line": 409,
+      "end_line": 419,
+      "raw": "```python\nfrom native_image import NativeEngine\nfrom native_upscaler import NativeUpscaler, Options\n\nupscaler = NativeUpscaler(\"swinir\", model=\"/models/upscaler.safetensors\", device=\"cpu\", threads=4)\n# args는 기존 컴포넌트 인식 생성 요청이며 native_v2가 True여야 한다.\nimage, metadata = NativeEngine().image(\n    args, seed=42, hires_upscaler=upscaler, hires_options=Options(),\n    hires_denoise_strength=0.35)\nprint(metadata[\"hires_upscaler\"])\n```\n",
+      "language": "python",
+      "code": "from native_image import NativeEngine\nfrom native_upscaler import NativeUpscaler, Options\n\nupscaler = NativeUpscaler(\"swinir\", model=\"/models/upscaler.safetensors\", device=\"cpu\", threads=4)\n# args는 기존 컴포넌트 인식 생성 요청이며 native_v2가 True여야 한다.\nimage, metadata = NativeEngine().image(\n    args, seed=42, hires_upscaler=upscaler, hires_options=Options(),\n    hires_denoise_strength=0.35)\nprint(metadata[\"hires_upscaler\"])\n",
+      "closed": true
     },
     {
       "id": "b000235",
       "kind": "blank",
-      "start_line": 416,
-      "end_line": 416,
+      "start_line": 420,
+      "end_line": 420,
       "raw": "\n"
     },
     {
       "id": "b000236",
       "kind": "paragraph",
-      "start_line": 417,
-      "end_line": 421,
-      "raw": "`NativeModelUpscalerOptions`의 `architecture`는 `Automatic`, `SRVGG`,\n`SwinIR` 중 하나이다. 자동 판별은 가중치의 텐서 이름을 사용하며, 인식한 미지원\n구조와 누락 텐서·비연속 블록·비유한 값은 오류로 거부한다. SRVGG는 RGB\n합성곱, PReLU/ReLU/기울기 0.1 LeakyReLU, 픽셀 셔플과 최근접 잔차를\n지원한다. 기본 활성화는 PReLU이며 다른 활성화는 명시적으로 선택한다.\n"
+      "start_line": 421,
+      "end_line": 425,
+      "raw": "Python Hires는 `NativeUpscaler` 제공자를 받으며 기존의 독립 업스케일 함수는\n호출자 정의 Python 제공자도 받는다. 컴포넌트 인식 생성 경로가 아닌 기존 V1 생성\n요청과 통합 모델 다단계 요청에서는 Python Hires 제공자 주입을 지원하지 않는다.\n기존 V1 기본값은 유지한다. 별도의 Diffusers Python Hires 함수도 제공자를\n받으며 그 범위는 [Hires Fix](hires-fix.md#hires-provider-injection)에 적혀 있다.\n"
     },
     {
       "id": "b000237",
       "kind": "blank",
-      "start_line": 422,
-      "end_line": 422,
+      "start_line": 426,
+      "end_line": 426,
       "raw": "\n"
     },
     {
       "id": "b000238",
-      "kind": "paragraph",
-      "start_line": 423,
-      "end_line": 438,
-      "raw": "SwinIR은 RGB 초해상도를 대상으로 윈도·이동 윈도 어텐션, 상대 위치 편향,\nMLP, 1-conv/3-conv 잔차, pixelshuffledirect, pixelshuffle, nearest+conv\n출력 헤드를 구현한다. 기본 이미지 범위는 1, QK 스케일은 헤드 차원에 따른\n기본값이며 `swinIRImageRange`, `swinIRQkScale`로 명시적으로 바꿀 수 있다.\n이 값은 가중치만으로 판별할 수 없으므로 모델 설정과 일치시켜야 한다.\n일반적인 교대 이동 윈도 구성을 전제로 하며, 가중치에 기록되지 않은 비표준\n이동 설정은 지원하지 않는다. 저장된 상대 위치 인덱스는 표준 인덱스와 편향\n테이블에 일치하는지 검사하며, 이동 윈도 마스크는 입력 크기에 맞게 다시 계산한다.\n절대 위치 임베딩, 다운샘플 블록과 다른 텐서 형식은 거부한다. 입력의 reflect\npadding 조건이 맞지 않으면 오류를 반환한다.\n두 모델 모두 F32·F16·BF16 `.safetensors`를 F32 연산으로 실행한다.\n`Automatic`은 CPU를 유지한다. `Cpu`, `Metal`, `DirectX`, `Vulkan`을 명시해\n선택할 수 있으며 선택한 GPU를 사용할 수 없거나 필요한 연산을 제공하지 않으면\n오류로 종료한다. GPU를 요청했을 때 CPU로 조용히 대체하지 않는다.\nC 경계의 `iild_upscale_request_v1.cpu` 값은 기존 0(자동)·1(CPU)을 유지하며\nSRVGG·SwinIR에 대해 2(Metal)·3(DirectX)·4(Vulkan)를 추가로 받는다.\n"
+      "kind": "heading",
+      "start_line": 427,
+      "end_line": 427,
+      "raw": "### 모델 형식과 한계\n",
+      "level": 3,
+      "title": "모델 형식과 한계"
     },
     {
       "id": "b000239",
       "kind": "blank",
-      "start_line": 439,
-      "end_line": 439,
+      "start_line": 428,
+      "end_line": 428,
       "raw": "\n"
     },
     {
       "id": "b000240",
       "kind": "paragraph",
-      "start_line": 440,
-      "end_line": 446,
-      "raw": "GPU 모드에서는 합성곱과 SwinIR의 선형 투영을 선택한 GPU에 제출한다.\n활성화·정규화·어텐션·픽셀 셔플과 CPU/GPU 사이의 데이터 변환은 CPU에서\n실행하는 혼합 방식이다. 가중치는 해당 업스케일 세션의 GPU 메모리에 한 번씩\n올리고 세션 종료 시 해제한다. `details`에는 `actual_device`, `gpu_adapter`,\n`execution`, `gpu_convolutions`, `gpu_projections`가 기록된다. GPU 연산이 진행 중인\n동안에는 그 연산이 반환된 뒤 취소를 반영한다. 가속은 장치와 작업 크기에 따라\n달라지며 속도 향상을 보장하지 않는다.\n"
+      "start_line": 429,
+      "end_line": 433,
+      "raw": "`NativeModelUpscalerOptions`의 `architecture`는 `Automatic`, `SRVGG`,\n`SwinIR` 중 하나이다. 자동 판별은 가중치의 텐서 이름을 사용하며, 인식한 미지원\n구조와 누락 텐서·비연속 블록·비유한 값은 오류로 거부한다. SRVGG는 RGB\n합성곱, PReLU/ReLU/기울기 0.1 LeakyReLU, 픽셀 셔플과 최근접 잔차를\n지원한다. 기본 활성화는 PReLU이며 다른 활성화는 명시적으로 선택한다.\n"
     },
     {
       "id": "b000241",
       "kind": "blank",
-      "start_line": 447,
-      "end_line": 447,
+      "start_line": 434,
+      "end_line": 434,
       "raw": "\n"
     },
     {
       "id": "b000242",
       "kind": "paragraph",
-      "start_line": 448,
-      "end_line": 453,
-      "raw": "`tileSize`는 입력 픽셀 단위의 타일 중심 크기이며 `0`은 전체 이미지 처리이다.\n각 타일은 모델의 수용 영역을 포함하도록 자동 확장되고 SwinIR은 윈도 경계에\n맞춰 정렬된다. 결과 보고서의 `tile_halo`와 `tile_alignment`는 적용한 값을\n보여준다. 중심 영역만 결과에 복사하므로 인접 타일을 단순히 이어 붙이지 않는다.\n모델이 깊거나 이미지가 작으면 확장된 타일이 전체 이미지에 가까워질 수 있다.\n전체 입력과 최종 출력도 메모리에 유지되며 `maxWorkingBytes`를 충족해야 한다.\n"
+      "start_line": 435,
+      "end_line": 450,
+      "raw": "SwinIR은 RGB 초해상도를 대상으로 윈도·이동 윈도 어텐션, 상대 위치 편향,\nMLP, 1-conv/3-conv 잔차, pixelshuffledirect, pixelshuffle, nearest+conv\n출력 헤드를 구현한다. 기본 이미지 범위는 1, QK 스케일은 헤드 차원에 따른\n기본값이며 `swinIRImageRange`, `swinIRQkScale`로 명시적으로 바꿀 수 있다.\n이 값은 가중치만으로 판별할 수 없으므로 모델 설정과 일치시켜야 한다.\n일반적인 교대 이동 윈도 구성을 전제로 하며, 가중치에 기록되지 않은 비표준\n이동 설정은 지원하지 않는다. 저장된 상대 위치 인덱스는 표준 인덱스와 편향\n테이블에 일치하는지 검사하며, 이동 윈도 마스크는 입력 크기에 맞게 다시 계산한다.\n절대 위치 임베딩, 다운샘플 블록과 다른 텐서 형식은 거부한다. 입력의 reflect\npadding 조건이 맞지 않으면 오류를 반환한다.\n두 모델 모두 F32·F16·BF16 `.safetensors`를 F32 연산으로 실행한다.\n`Automatic`은 CPU를 유지한다. `Cpu`, `Metal`, `DirectX`, `Vulkan`을 명시해\n선택할 수 있으며 선택한 GPU를 사용할 수 없거나 필요한 연산을 제공하지 않으면\n오류로 종료한다. GPU를 요청했을 때 CPU로 조용히 대체하지 않는다.\nC 경계의 `iild_upscale_request_v1.cpu` 값은 기존 0(자동)·1(CPU)을 유지하며\nSRVGG·SwinIR에 대해 2(Metal)·3(DirectX)·4(Vulkan)를 추가로 받는다.\n"
     },
     {
       "id": "b000243",
       "kind": "blank",
-      "start_line": 454,
-      "end_line": 454,
+      "start_line": 451,
+      "end_line": 451,
       "raw": "\n"
     },
     {
       "id": "b000244",
       "kind": "paragraph",
-      "start_line": 455,
-      "end_line": 463,
-      "raw": "Metal은 네이티브 확산 엔진이 활성화된 Apple 빌드에서 사용할 수 있다. Vulkan은\n타깃 Vulkan SDK와 셰이더 도구를 준비하고 `IILD_MODEL_GPU_VULKAN=ON`으로 빌드한다.\nWindows DirectX 12는 해당 타깃의 네이티브 Dawn CMake 패키지를 `Dawn_DIR` 등으로\n제공하고 `IILD_MODEL_GPU_DIRECTX=ON`으로 빌드한다. 이 경로는 Dawn의 네이티브\nD3D12 하드웨어 장치를 선택하며 브라우저나 소프트웨어 어댑터를 사용하지 않는다. 다른 iiSDK 모듈에 대한\n링크 의존성은 추가하지 않는다. 현재 각 백엔드의 첫 번째 GPU를 사용한다.\nDawn의 고정된 ggml 백엔드는 세션별 가중치·작업 버퍼를 반환한 뒤에도 공유\n레지스트리와 논리 장치를 프로세스 수명 동안 유지한다. 실제 어댑터의 상세 이름은\n이 백엔드에서 항상 보고되지 않는다.\n"
+      "start_line": 452,
+      "end_line": 458,
+      "raw": "GPU 모드에서는 합성곱과 SwinIR의 선형 투영을 선택한 GPU에 제출한다.\n활성화·정규화·어텐션·픽셀 셔플과 CPU/GPU 사이의 데이터 변환은 CPU에서\n실행하는 혼합 방식이다. 가중치는 해당 업스케일 세션의 GPU 메모리에 한 번씩\n올리고 세션 종료 시 해제한다. `details`에는 `actual_device`, `gpu_adapter`,\n`execution`, `gpu_convolutions`, `gpu_projections`가 기록된다. GPU 연산이 진행 중인\n동안에는 그 연산이 반환된 뒤 취소를 반영한다. 가속은 장치와 작업 크기에 따라\n달라지며 속도 향상을 보장하지 않는다.\n"
     },
     {
       "id": "b000245",
       "kind": "blank",
-      "start_line": 464,
-      "end_line": 464,
+      "start_line": 459,
+      "end_line": 459,
       "raw": "\n"
     },
     {
       "id": "b000246",
+      "kind": "paragraph",
+      "start_line": 460,
+      "end_line": 465,
+      "raw": "`tileSize`는 입력 픽셀 단위의 타일 중심 크기이며 `0`은 전체 이미지 처리이다.\n각 타일은 모델의 수용 영역을 포함하도록 자동 확장되고 SwinIR은 윈도 경계에\n맞춰 정렬된다. 결과 보고서의 `tile_halo`와 `tile_alignment`는 적용한 값을\n보여준다. 중심 영역만 결과에 복사하므로 인접 타일을 단순히 이어 붙이지 않는다.\n모델이 깊거나 이미지가 작으면 확장된 타일이 전체 이미지에 가까워질 수 있다.\n전체 입력과 최종 출력도 메모리에 유지되며 `maxWorkingBytes`를 충족해야 한다.\n"
+    },
+    {
+      "id": "b000247",
+      "kind": "blank",
+      "start_line": 466,
+      "end_line": 466,
+      "raw": "\n"
+    },
+    {
+      "id": "b000248",
+      "kind": "paragraph",
+      "start_line": 467,
+      "end_line": 475,
+      "raw": "Metal은 네이티브 확산 엔진이 활성화된 Apple 빌드에서 사용할 수 있다. Vulkan은\n타깃 Vulkan SDK와 셰이더 도구를 준비하고 `IILD_MODEL_GPU_VULKAN=ON`으로 빌드한다.\nWindows DirectX 12는 해당 타깃의 네이티브 Dawn CMake 패키지를 `Dawn_DIR` 등으로\n제공하고 `IILD_MODEL_GPU_DIRECTX=ON`으로 빌드한다. 이 경로는 Dawn의 네이티브\nD3D12 하드웨어 장치를 선택하며 브라우저나 소프트웨어 어댑터를 사용하지 않는다. 다른 iiSDK 모듈에 대한\n링크 의존성은 추가하지 않는다. 현재 각 백엔드의 첫 번째 GPU를 사용한다.\nDawn의 고정된 ggml 백엔드는 세션별 가중치·작업 버퍼를 반환한 뒤에도 공유\n레지스트리와 논리 장치를 프로세스 수명 동안 유지한다. 실제 어댑터의 상세 이름은\n이 백엔드에서 항상 보고되지 않는다.\n"
+    },
+    {
+      "id": "b000249",
+      "kind": "blank",
+      "start_line": 476,
+      "end_line": 476,
+      "raw": "\n"
+    },
+    {
+      "id": "b000250",
       "kind": "fenced_code",
-      "start_line": 465,
-      "end_line": 469,
+      "start_line": 477,
+      "end_line": 481,
       "raw": "```sh\ncmake -S . -B build -DIILD_ENABLE_NATIVE_DIFFUSION=ON -DIILD_MODEL_GPU_VULKAN=ON\n# Windows: provide the target-native Dawn package instead of enabling Vulkan.\ncmake -S . -B build -DIILD_ENABLE_NATIVE_DIFFUSION=ON -DIILD_MODEL_GPU_DIRECTX=ON -DDawn_DIR=/path/to/Dawn\n```\n",
       "language": "sh",
       "code": "cmake -S . -B build -DIILD_ENABLE_NATIVE_DIFFUSION=ON -DIILD_MODEL_GPU_VULKAN=ON\n# Windows: provide the target-native Dawn package instead of enabling Vulkan.\ncmake -S . -B build -DIILD_ENABLE_NATIVE_DIFFUSION=ON -DIILD_MODEL_GPU_DIRECTX=ON -DDawn_DIR=/path/to/Dawn\n",
       "closed": true
     },
     {
-      "id": "b000247",
-      "kind": "blank",
-      "start_line": 470,
-      "end_line": 470,
-      "raw": "\n"
-    },
-    {
-      "id": "b000248",
-      "kind": "paragraph",
-      "start_line": 471,
-      "end_line": 477,
-      "raw": "`threads`는 호출 스레드를 포함한 세션의 CPU 작업자 수이며, 추가 작업자는\n명시적으로 요청했을 때만 생성되어 세션 종료 시 반환된다. `maxWeightBytes`는\n입력 파일과 디코딩된 가중치 각각의 상한이다. `maxWorkingBytes`는 각 중간\n텐서의 상한이며 프로세스 전체 메모리 상한은 아니다. Python 생성자에서는\n`max_weight_bytes`, `max_working_bytes`, `srvgg_activation`,\n`swinir_image_range`, `swinir_qk_scale`로 지정한다. 실제 이미지 범위와 각\n블록의 QK 스케일은 결과의 `details`에 기록된다.\n"
-    },
-    {
-      "id": "b000249",
-      "kind": "blank",
-      "start_line": 478,
-      "end_line": 478,
-      "raw": "\n"
-    },
-    {
-      "id": "b000250",
-      "kind": "paragraph",
-      "start_line": 479,
-      "end_line": 484,
-      "raw": "합성 F32·F16·BF16 가중치로 SRVGG의 합성곱·활성화·셔플·잔차와 SwinIR의\n정규화·어텐션·위치 편향·이동 윈도·MLP·출력 헤드를 검증한다. 이 검사는\n공개 학습 가중치의 실제 품질·성능을 검증하지 않는다. 모델 구조는\n[SwinIR 원본](https://github.com/JingyunLiang/SwinIR/tree/6545850fbf8df298df73d81f3e8cba638787c8bd)과\n[Real-ESRGAN 원본](https://github.com/xinntao/Real-ESRGAN/tree/a4abfb2979a7bbff3f69f58f58ae324608821e27)을\n참고했다. 가중치 라이선스는 모델별로 확인해야 한다.\n"
-    },
-    {
       "id": "b000251",
       "kind": "blank",
-      "start_line": 485,
-      "end_line": 485,
+      "start_line": 482,
+      "end_line": 482,
       "raw": "\n"
     },
     {
       "id": "b000252",
       "kind": "paragraph",
-      "start_line": 486,
+      "start_line": 483,
+      "end_line": 489,
+      "raw": "`threads`는 호출 스레드를 포함한 세션의 CPU 작업자 수이며, 추가 작업자는\n명시적으로 요청했을 때만 생성되어 세션 종료 시 반환된다. `maxWeightBytes`는\n입력 파일과 디코딩된 가중치 각각의 상한이다. `maxWorkingBytes`는 각 중간\n텐서의 상한이며 프로세스 전체 메모리 상한은 아니다. Python 생성자에서는\n`max_weight_bytes`, `max_working_bytes`, `srvgg_activation`,\n`swinir_image_range`, `swinir_qk_scale`로 지정한다. 실제 이미지 범위와 각\n블록의 QK 스케일은 결과의 `details`에 기록된다.\n"
+    },
+    {
+      "id": "b000253",
+      "kind": "blank",
+      "start_line": 490,
       "end_line": 490,
+      "raw": "\n"
+    },
+    {
+      "id": "b000254",
+      "kind": "paragraph",
+      "start_line": 491,
+      "end_line": 496,
+      "raw": "합성 F32·F16·BF16 가중치로 SRVGG의 합성곱·활성화·셔플·잔차와 SwinIR의\n정규화·어텐션·위치 편향·이동 윈도·MLP·출력 헤드를 검증한다. 이 검사는\n공개 학습 가중치의 실제 품질·성능을 검증하지 않는다. 모델 구조는\n[SwinIR 원본](https://github.com/JingyunLiang/SwinIR/tree/6545850fbf8df298df73d81f3e8cba638787c8bd)과\n[Real-ESRGAN 원본](https://github.com/xinntao/Real-ESRGAN/tree/a4abfb2979a7bbff3f69f58f58ae324608821e27)을\n참고했다. 가중치 라이선스는 모델별로 확인해야 한다.\n"
+    },
+    {
+      "id": "b000255",
+      "kind": "blank",
+      "start_line": 497,
+      "end_line": 497,
+      "raw": "\n"
+    },
+    {
+      "id": "b000256",
+      "kind": "paragraph",
+      "start_line": 498,
+      "end_line": 502,
       "raw": "`NativeModelGpuTests`는 합성 가중치의 CPU 결과와 실제 선택한 GPU 결과를 비교하고\nGPU 연산 횟수와 타일링을 확인한다. Vulkan 또는 DirectX를 빌드하면 해당 장치용\n테스트도 등록되며 실제 실행에는 그 GPU가 필요하다. `NativeDawnRegistryTests`는\n네이티브 Dawn의 반복·동시 세션에서 행렬곱과 합성곱을 확인한다. 한 운영체제의\n성공 결과가 다른 운영체제나 GPU의 실행 성공을 뜻하지 않는다.\n"
     }
   ],
@@ -1859,132 +1887,132 @@
       "start_line": 51
     },
     {
-      "block_id": "b000039",
+      "block_id": "b000041",
       "parent_id": "b000019",
       "level": 3,
       "title": "iOS VAE 렌더링",
       "anchor": "ios-vae-렌더링",
-      "start_line": 96
+      "start_line": 106
     },
     {
-      "block_id": "b000053",
+      "block_id": "b000055",
       "parent_id": "b000001",
       "level": 2,
       "title": "VAE 마운트 검증과 자동 최적화",
       "anchor": "vae-마운트-검증과-자동-최적화",
-      "start_line": 110
+      "start_line": 120
     },
     {
-      "block_id": "b000068",
+      "block_id": "b000072",
       "parent_id": "b000001",
       "level": 2,
       "title": "실행 계약",
       "anchor": "실행-계약",
-      "start_line": 131
+      "start_line": 143
     },
     {
-      "block_id": "b000094",
+      "block_id": "b000098",
       "parent_id": "b000001",
       "level": 2,
       "title": "디스크 및 메모리 캐시",
       "anchor": "디스크-및-메모리-캐시",
-      "start_line": 157
+      "start_line": 169
     },
     {
-      "block_id": "b000134",
+      "block_id": "b000138",
       "parent_id": "b000001",
       "level": 2,
       "title": "실행 일시 정지",
       "anchor": "실행-일시-정지",
-      "start_line": 199
+      "start_line": 211
     },
     {
-      "block_id": "b000142",
+      "block_id": "b000146",
       "parent_id": null,
       "level": 1,
       "title": "Anima 데스크톱 작업자 브리지",
       "anchor": "anima-데스크톱-작업자-브리지",
-      "start_line": 208
+      "start_line": 220
     },
     {
-      "block_id": "b000150",
-      "parent_id": "b000142",
+      "block_id": "b000154",
+      "parent_id": "b000146",
       "level": 2,
       "title": "백그라운드 작업에 대한 명시적 CPU 실행",
       "anchor": "백그라운드-작업에-대한-명시적-cpu-실행",
-      "start_line": 216
+      "start_line": 228
     },
     {
-      "block_id": "b000158",
-      "parent_id": "b000142",
+      "block_id": "b000162",
+      "parent_id": "b000146",
       "level": 2,
       "title": "공유 모델 스토리지(0.6.1)",
       "anchor": "공유-모델-스토리지061",
-      "start_line": 225
-    },
-    {
-      "block_id": "b000164",
-      "parent_id": "b000158",
-      "level": 3,
-      "title": "CPU 작업 내부의 진행과 정지",
-      "anchor": "cpu-작업-내부의-진행과-정지",
-      "start_line": 231
+      "start_line": 237
     },
     {
       "block_id": "b000168",
-      "parent_id": "b000142",
-      "level": 2,
-      "title": "메모리 상주 모델 로딩",
-      "anchor": "메모리-상주-모델-로딩",
-      "start_line": 235
-    },
-    {
-      "block_id": "b000176",
-      "parent_id": "b000142",
-      "level": 2,
-      "title": "실제 latent 기반 라이브 프리뷰",
-      "anchor": "실제-latent-기반-라이브-프리뷰",
+      "parent_id": "b000162",
+      "level": 3,
+      "title": "CPU 작업 내부의 진행과 정지",
+      "anchor": "cpu-작업-내부의-진행과-정지",
       "start_line": 243
     },
     {
-      "block_id": "b000184",
-      "parent_id": "b000142",
+      "block_id": "b000172",
+      "parent_id": "b000146",
+      "level": 2,
+      "title": "메모리 상주 모델 로딩",
+      "anchor": "메모리-상주-모델-로딩",
+      "start_line": 247
+    },
+    {
+      "block_id": "b000180",
+      "parent_id": "b000146",
+      "level": 2,
+      "title": "실제 latent 기반 라이브 프리뷰",
+      "anchor": "실제-latent-기반-라이브-프리뷰",
+      "start_line": 255
+    },
+    {
+      "block_id": "b000188",
+      "parent_id": "b000146",
       "level": 2,
       "title": "Krea2 img2img와 자동 샘플링",
       "anchor": "krea2-img2img와-자동-샘플링",
-      "start_line": 252
-    },
-    {
-      "block_id": "b000196",
-      "parent_id": "b000142",
-      "level": 2,
-      "title": "업스케일러 호환성 계약",
-      "anchor": "업스케일러-호환성-계약",
       "start_line": 264
     },
     {
-      "block_id": "b000202",
-      "parent_id": "b000196",
+      "block_id": "b000200",
+      "parent_id": "b000146",
+      "level": 2,
+      "title": "업스케일러 호환성 계약",
+      "anchor": "업스케일러-호환성-계약",
+      "start_line": 276
+    },
+    {
+      "block_id": "b000206",
+      "parent_id": "b000200",
       "level": 3,
       "title": "호출 예시",
       "anchor": "호출-예시",
-      "start_line": 288
+      "start_line": 300
     },
     {
-      "block_id": "b000220",
-      "parent_id": "b000196",
+      "block_id": "b000224",
+      "parent_id": "b000200",
       "level": 3,
       "title": "Hires 제공자 연결",
       "anchor": "hires-제공자-연결",
-      "start_line": 360
+      "start_line": 372
     },
     {
-      "block_id": "b000234",
-      "parent_id": "b000196",
+      "block_id": "b000238",
+      "parent_id": "b000200",
       "level": 3,
       "title": "모델 형식과 한계",
       "anchor": "모델-형식과-한계",
-      "start_line": 415
+      "start_line": 427
     }
   ],
   "indexes": {
@@ -2040,364 +2068,364 @@
       },
       {
         "block_id": "b000023",
-        "line": 72,
+        "line": 80,
         "text": "새 아키텍처의 지원을 임의로 차단하지 않는다. 헤더가 64 MiB 검사 예산을 초과하지만",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
         "block_id": "b000027",
-        "line": 82,
+        "line": 90,
         "text": "호환성의 증명이 아니다. 원본 가중치는 수정하지 않는다. 헤더 검사 결과도 텐서 전체의",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
         "block_id": "b000027",
-        "line": 83,
+        "line": 91,
         "text": "무결성이나 실제 생성 성공을 보증하지 않는다. `NativeDiffusionTests`는 접두어별 MOSS,",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
         "block_id": "b000029",
-        "line": 86,
+        "line": 94,
         "text": "`NativeGenerationRequest.width/height`는 최종 출력 크기이다. 기존 생성 진입점과 V1 C 브리지는 각 변을 절반으로 나눈 값을 1차 생성에 전달한다. 예를 들어 1024×1024 요청은 512×512 생성 → Lanczos 확대 → VAE 재인코딩 → 강도 0.35의 재확산 → 1024×1024 디코딩으로 실행한다. 고정 stable-diffusion.cpp의 내장 Hires 기능을 사용하므로 별도 모델·패키지·네트워크가 필요하지 않다. 기본 보정 요청 스텝은 `max(1, floor(steps * 0.35))`이며 실제 샘플러 콜백이 실행 스텝을 보고한다. 로딩만 하는 `prepareNativeImageModel`은 두 생성 단계를 실행하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000033",
-        "line": 90,
+        "block_id": "b000035",
+        "line": 100,
         "text": "각 단계의 내부 캔버스는 엔진의 모델 배수에 맞게 올림된다. 따라서 1024×1368 요청의 1차 입력은 512×684이고 UNet 캔버스는 512×704이다. 최종 캔버스 1024×1408을 Hires로 완성한 후 상하 20픽셀씩 제거하여 정확히 1024×1368을 반환한다. 최소 64픽셀 요청 등에서는 내부 정렬 때문에 1차 캔버스가 수학적인 절반보다 클 수 있다. VAE 메모리 정책은 최종 캔버스를 기준으로 정한다. 최종 잘라내기 자체에는 추가 보간이 없다. 잘못된 크기·채널·개수·빈 결과, 보정 실패·취소·제한 시간 초과는 완성 이미지로 반환하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000041",
-        "line": 98,
+        "block_id": "b000043",
+        "line": 108,
         "text": "iOS 빌드는 고정 엔진의 모듈 배치 기능에 `backend=\"vae=cpu\"`를 전달한다. VAE 연산과 가중치는 CPU에 두고 디노이저는 기존 자동 선택으로 Metal을 사용한다. VAE 타일 분할, 선택한 내장 또는 계열별 폴백 VAE, 스텝·출력 해상도·취소 계약은 유지한다. macOS의 모듈 배치는 변경하지 않는다. 별도 호출 인자나 새 라이브러리가 필요하지 않으며, CPU 디코딩은 기기에 따라 렌더 시간을 늘릴 수 있다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000047",
-        "line": 104,
+        "block_id": "b000049",
+        "line": 114,
         "text": "이는 iPhone에서 관측된 VAE 디코딩 중 Metal 명령 버퍼 실패와 GPU 복구의 영향을 피하기 위한 실행 배치다. `command buffer ... status 5`는 Metal의 실패 상태이며, 그 숫자만으로 메모리 부족이나 GPU 타임아웃을 판정하지 않는다. VAE 이전의 Metal 실패나 시스템 전체 GPU 장애에 대한 재시도 기능은 아니다. 실패한 네이티브 컨텍스트는 기존 정책대로 폐기한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000055",
-        "line": 112,
+        "block_id": "b000057",
+        "line": 122,
         "text": "네이티브 SDXL·Qwen Image RGB·FLUX.1·FLUX.2는 VAE 접두어 한 개만으로 마운트를 승인하지 않는다. 실제 엔진의 인코더·디코더 파라미터 전체와 파일의 텐서 이름·크기를 비교한다. 정상 내장 VAE는 유지하며, 누락·불완전·형상 불일치는 같은 모델 계열의 해시 검증된 기본 VAE로 교체한다. 다른 잠재 공간의 VAE로 대체하지 않는다. 검사는 가중치를 적재하지 않는 메타데이터 검사이며 파일 정체성이 바뀔 때 다시 수행한다. `NativeVaeFallbackTests`는 정상 전체 구조, 단일 텐서, 누락된 디코더, 잘못된 텐서 크기, 두 접두어와 네 계열을 검사한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000057",
-        "line": 114,
+        "block_id": "b000059",
+        "line": 124,
         "text": "`NativeVaePolicy.hpp`의 `adaptive-sdxl-v1` 정책은 SDXL 작업 예산의 1/3 이내에서 16~64 잠재 픽셀 타일을 고른다. 32×32에서 측정한 약 480 MiB 작업 공간을 512 MiB로 올림하고 면적 비례로 보수적으로 추산한다. 3 GiB 예산에서는 40×40, 2.25 GiB에서는 32×32이며 중첩 0.5를 유지한다. 작은 캔버스 전체가 들어가면 타일을 분할하지 않아 지역별 정규화와 attention 차이를 피한다. 이 추산은 전체 프로세스 RSS 한도나 iPhone에서의 측정값이 아니다. Qwen·FLUX 등에는 측정하지 않은 SDXL 메모리 모델을 적용하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000059",
-        "line": 116,
+        "block_id": "b000063",
+        "line": 128,
         "text": "SDXL의 Conv2D는 외부 VAE 파일이 float32여도 내부에서 fp16 활성값을 사용한다. 내장·외부 경로 모두 1/32 입력 스케일과 역스케일로 오버플로를 완화한다. 이 값은 SDXL 잠재 스케일 0.13025를 바꾸는 값이 아니다. VAE 입력의 NaN/Inf는 디노이징 오류로 즉시 중단하고, 출력의 NaN/Inf는 RGB 클램프 이전에 오류로 반환한다. 흰색·검은색·균일한 정상 이미지는 내용만으로 거부하지 않는다. `NativeVaeSafetyTests`와 `NativeVaePolicyTests`, 실제 어댑터 대역 테스트가 이 계약을 검사한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000061",
-        "line": 118,
+        "block_id": "b000065",
+        "line": 130,
         "text": "추가 모델이나 런타임 의존성을 도입하지 않고 고정 stable-diffusion.cpp와 기존 오프라인 Diffusers 검증 환경을 사용한다. float16 SDXL의 활성값 문제는 [SDXL VAE fp16 수정 모델의 원 저자 설명](https://huggingface.co/madebyollin/sdxl-vae-fp16-fix)에 근거하며, 정상 내장 가중치를 이 다른 모델로 일괄 교체하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000070",
-        "line": 133,
+        "block_id": "b000074",
+        "line": 145,
         "text": "`Generation/NativeDiffusion.hpp`는 같은 프로세스에서 로컬 체크포인트를 읽고 RGB 바이트를 반환한다. 모델 다운로드·기기 연결·동기화·출력 저장은 수행하지 않는다. 소비 앱이 작업 스레드에서 호출하고 결과를 자신의 저장소에 게시한다. 기존 데스크톱 Python worker는 별도로 유지한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000072",
-        "line": 135,
+        "block_id": "b000076",
+        "line": 147,
         "text": "Krea2 분리형 denoiser는 접두사가 없는 원본/ComfyUI 텐서 이름과 `diffusion_model.`, `model.diffusion_model.`, `transformer.` 이름을 지원한다. 로더가 메모리 내 이름만 정규화하며 원본 체크포인트를 다시 쓰지 않는다. 텍스트 인코더와 VAE의 내장 이름 공간은 보존한다. 공식 Qwen3-VL 원본의 `model.language_model.` 텍스트 타워도 `model.`로 메모리 내 정규화한다. 부족한 Qwen3-VL-4B와 Wan2.1 VAE는 `generation-defaults.json`의 `fallback_llms`/`fallback_vaes`에서 연결한다. 선택된 외부 구성요소는 전체 필요 텐서의 크기와 Qwen4B의 2560차원·36층 규격을 확인한 뒤 마운트한다. 명시한 경로는 기본 리소스보다 우선하며, 내장 인코더가 부분적으로 존재하면 기본 인코더로 덮어쓰지 않는다. 필수 구성요소 연결은 `defaultModifiers=false`에서도 유지한다. Python native worker와 프로세스 내 C++ 경로가 같은 리소스 카탈로그를 사용한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000074",
-        "line": 137,
+        "block_id": "b000078",
+        "line": 149,
         "text": "`NativeKrea2NamesTests`는 분리형/완전형 이름과 잘못된 백업 이름 공간을, `NativeLlmConfigTests`는 누락·중복·잘못된 아키텍처·경로 이탈을 검사한다. `NativeVaeFallbackTests`와 `NativeVaeConfigTests`는 Wan의 실제 텐서·정규화 규격을 검사한다. 실제 모델 검증은 `NativeComponentMountIntegration <checkpoint> <resource-directory> <resource-output-directory>`로 원본 모델의 resident 준비와 캐시를 재사용한 128×128·1스텝 RGB 생성을 확인한다. 기본 CTest에 포함하지 않으며, 모델의 품질이나 기본 해상도에서의 생성 속도를 보증하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000078",
-        "line": 141,
+        "block_id": "b000082",
+        "line": 153,
         "text": "한 번에 한 이미지를 실행하고 라이브러리의 전역 콜백 때문에 네이티브 호출을 직렬화한다. 모델 원본을 mmap으로 읽고 지원되는 실행 경로에서 다음 구간 프리페치를 사용한다. macOS에서는 Metal 권장 작업 세트에서 256 MiB를 제외한 값과 현재 사용 가능 메모리에서 여유 공간을 뺀 값 중 작은 값을 256 MiB 단위로 내림하여 관리 GPU 예산으로 사용한다. macOS의 여유 공간은 최소 768 MiB 또는 사용 가능 메모리의 1/6이며, iOS는 앞 절의 CPU VAE 메모리 여유 정책을 적용한다. iOS는 프로세스의 남은 한도, macOS는 현재 free+inactive 페이지를 조회한다. 전체 CPU 코어를 사용하며 Apple 작업 스레드는 생성 중 USER_INITIATED 우선순위로 실행하고 이전 우선순위를 복원한다. 이 예산은 전체 앱 메모리 상한이나 특정 iPhone에서 임의의 SDXL 모델이 실행된다는 보장이 아니다. 메모리 한계와 지원 체크포인트는 실제 기기로 별도 검증해야 한다. Diffusers 디렉터리는 현재 네이티브 API의 입력이 아니다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000080",
-        "line": 143,
+        "block_id": "b000084",
+        "line": 155,
         "text": "취소는 호출 전·엔진 대기·텐서 로딩 사이·연산 구간 사이에서 확인한다. 취소되거나 결과가 손상되면 RGB를 반환하지 않는다. 프로세스 수명보다 짧은 호출자 데이터는 콜백이 끝날 때까지 유지해야 한다. `NativeDiffusionTests`는 취소·잘못된 크기·제한 시간 값·누락/잘못된 모델 거부를 검사하며 실제 모델 추론 증거는 아니다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000098",
-        "line": 161,
+        "block_id": "b000102",
+        "line": 173,
         "text": "캐시 키에는 고정 변환기/규칙 버전과 원본 식별자가 들어간다. 별도 manifest의 전체 원본 식별자, 출력 크기·전체 파일 내용의 FNV-1a 지문과 GGUF 헤더를 확인한다. 크기·mtime·POSIX inode/ctime이 달라지면 전체 내용의 지문을 다시 계산한다. 이 파일 상태가 같으면 최대 128개 파일의 지문을 재사용해 취소·일시 정지 전에 매번 대형 가중치를 읽지 않는다. 권한·시각·iOS 데이터 보호 속성이나 동일 내용의 파일 교체는 결과를 폐기하는 근거가 아니며, 실제 바이트가 달라지면 같은 크기와 mtime을 유지했더라도 검출한다. 이 지문은 인증용 서명을 대신하지 않는다. 원본이 없거나 변경된 경우 이전 캐시를 선택하지 않는다. 고유 임시 디렉터리에서 변환 후 원본을 재확인하고 파일과 manifest를 원자적으로 게시한다. 취소·실패 시 임시 파일을 제거하며 불완전한 manifest는 재변환한다. 모델별 캐시는 앱 CacheLocation 아래에 있고 OS가 공간 압박 시 삭제할 수 있다. 이전 원본 버전의 캐시는 새로운 요청에 사용되지 않는다. `NativeCachePolicyTests`는 메타데이터 변경과 동일 내용 파일의 교체 허용, mtime을 보존한 내용 변경 검출을 검사한다. 진단 모드에서는 재계산한 파일 상태와 내용 지문을 함께 기록한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000102",
-        "line": 165,
+        "block_id": "b000106",
+        "line": 177,
         "text": "`releaseNativeDiffusionCache()`는 명시적인 사용자 해제 또는 앱 런타임 종료 전용이다. 유휴 컨텍스트와 익명 메모리 원본 풀은 즉시 해제하며 실행 중이라면 현재 요청 종료 때 해제한다. 백그라운드 진입, 대기, UIKit 메모리 경고에는 호출하지 않는다. Resident 경로는 모델 원본을 런타임 수명 동안 유지하며, GPU 구간별 재배치는 이 메모리에서 수행한다. OS의 압축·스왑은 허용하지만 물리 RAM 고정이나 OS 강제 종료 후 복원은 보장하지 않는다. 상세 계약은 [runtime residency](resident-worker-performance.md)에 있다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000104",
-        "line": 167,
+        "block_id": "b000108",
+        "line": 179,
         "text": "`native-mapped-upload.patch`는 dtype이 같은 mmap 텐서를 백엔드에 바로 전달하여 구간마다 대형 임시 CPU 버퍼를 할당·초기화·복사하지 않도록 한다. dtype 변환과 비매핑 입력은 기존 경로를 유지한다. 이 업로드 최적화 자체는 텐서 값을 바꾸지 않는다. 별도 Q8 준비 옵션 외 스텝·해상도·샘플러·VAE 타일 설정을 변경하거나 근사 스텝 캐시를 추가하지 않는다. 기존 MIT stable-diffusion.cpp/ggml 및 시스템 Metal/Foundation/pthread 외 새 의존성은 없다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000106",
-        "line": 169,
+        "block_id": "b000110",
+        "line": 181,
         "text": "결과의 `modelCacheHit`, `memoryBudgetBytes`, `threads`, `modelLoadMilliseconds`, `generationMilliseconds`로 재사용과 실행 시간을 관측한다. load는 컨텍스트 준비, generation은 인코딩·샘플링·디코딩을 포함하며 파일 게시 시간은 앱 job 시각으로 별도 측정한다. 이 필드 추가 후 소비 앱도 재빌드해야 한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000108",
-        "line": 171,
+        "block_id": "b000112",
+        "line": 183,
         "text": "`NativeCachePolicyTests`는 메모리 여유·낮은 메모리와 동일 크기/mtime 파일 교체의 캐시 무효화를 검사한다. `NativeCacheIntegration <checkpoint>`는 실제 모델의 512×512·1스텝으로 균일색이 아닌 출력, 동일 seed의 첫 생성/캐시 재사용/해제 후 재생성 RGB 일치, 콜백 내부 해제의 비블로킹 동작과 다음 생성의 캐시 미적중을 검사한다. 실제 취소·제한 시간은 `IILD_NATIVE_TEST_MODEL`을 지정한 `NativeDiffusionTests`가 별도로 검사한다. 실제 모델이 필요한 수동 통합 실행이며 기본 CTest 숫자에 포함하지 않는다. 연결 iPhone 검증 증거는 Dreamscapes `build/quickgenerate-acceleration/REPORT.md`에 별도 기록한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000118",
-        "line": 183,
+        "block_id": "b000122",
+        "line": 195,
         "text": "`IILD_NATIVE_DIAGNOSTICS=1`과 `IILD_NATIVE_MAX_MEMORY_MIB=2048`을 함께 지정하면 새 컨텍스트의 관리 GPU 예산을 더 낮게 제한해 파일 페이지 캐시와의 경합을 비교할 수 있다. 실제 기기의 안전 예산을 초과할 수 없으며 512 MiB 미만·잘못된 입력은 무시한다. 기존 메모리 캐시에는 소급 적용하지 않으므로 별도 프로세스로 비교한다. 기본 실행에서는 이 진단 제한을 적용하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000122",
-        "line": 187,
+        "block_id": "b000126",
+        "line": 199,
         "text": "Q8 준비는 `Preparing` 단계이며 텐서 진행률을 denoising 스텝으로 표시하지 않는다. `native-conversion-cancellation.patch`는 변환 작업자의 텐서 전후에 중단을 검사하고 기존 실패 알림과 join 경로로 안전하게 종료한다. 요청 제한 시간에는 변환도 포함한다. `q8CacheUsed`, `diskCacheHit`, `modelBytes`, `preparationMilliseconds`로 첫 변환과 디스크 재사용을 구분하며 `modelCacheHit`는 메모리 컨텍스트 재사용만 의미한다. `NativeDiskCacheTests`는 캐시 적중, 손상, 원본 교체, 취소·실패 및 원자적 게시를 검사한다. 실제 변환 취소는 `IILD_NATIVE_TEST_MODEL` 계약에 포함하고, `IILD_NATIVE_Q8_CACHE=<absolute build/cache>`로 실제 모델 통합 검증의 Q8 경로를 선택한다. lazy GPU 백엔드는 첫 추론 중 초기화되므로 프로세스 종료 캐시 해제 등록은 첫 성공 추론 이후에 한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000130",
-        "line": 195,
+        "block_id": "b000134",
+        "line": 207,
         "text": "정확한 RGB 재현을 검사할 때는 진단용 메모리 예산을 고정한다. 실제 Mac Q8 검사에서 서로 다른 3.75/5 GiB 예산의 출력은 달랐고, 2 GiB로 고정한 첫 생성·메모리 재사용·해제 후 재생성은 RGB가 모두 일치했다. 실행 계획의 메모리 분할이 바뀌는 조건에서 픽셀 단위 재현을 보장하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000132",
-        "line": 197,
+        "block_id": "b000136",
+        "line": 209,
         "text": "Qwen Image RGB·SDXL·FLUX.1·FLUX.2·Anima·Z-Image 체크포인트에 VAE가 없거나 내장 구조가 맞지 않으면 SDK가 호환 VAE를 자동 연결한다. 기존 함수에 새 인자를 전달할 필요가 없으며 `defaultModifiers=false`에서도 유지한다. `auto-mount-v2`는 입력 파일의 텐서 메타데이터로 모델과 VAE 계열을 판별하고 정상 내장 VAE를 보존한다. 외부 VAE의 설정과 전체 텐서를 컨텍스트 생성 전에 검증하며 설정 변경도 캐시를 무효화한다. SD1/2/SD3는 정상 내장 VAE를 사용할 수 있고, 누락 시 해당 리소스가 없다는 오류를 반환한다. 지원 범위 밖 모델은 검사 완료와 구별하며 임의의 VAE를 주입하지 않는다. [VAE 기본값과 패키지 계약](generation-defaults.md#vae-자동-폴백)을 참고한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000136",
-        "line": 201,
+        "block_id": "b000140",
+        "line": 213,
         "text": "`generateNativeImageWithExecutionControl()`은 선택적인 `NativeExecutionControl`을 통해 동일한 네이티브 요청을 일시 정지하고 재개한다. 기존 요청/결과 구조체와 함수 ABI는 유지하며 별도 진입점과 설치 헤더를 추가했다. 실행 제어는 Qt/UIKit을 참조하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000138",
-        "line": 203,
+        "block_id": "b000142",
+        "line": 215,
         "text": "소비자는 OS 실행 권한을 잃기 전에 `setPaused(true)`, 복귀하면 `setPaused(false)`를 호출한다. 엔진의 기존 텐서 적재·연산 구간 경계에서 조건 변수로 대기하므로 이미 제출한 GPU 호출이 반환되기까지는 시간이 필요하다. latent·모델 컨텍스트·seed를 유지하며 작업을 재시작하지 않는다. 정지 시간은 추론 제한 시간에서 제외하고, 여러 적재 스레드가 동시에 기다려도 한 번만 계산한다. 정지 중에도 기존 취소 토큰을 확인하므로 취소/소비자 파괴가 대기에 갇히지 않는다. OS의 프로세스 종료나 메모리 회수 이후 복원은 제공하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000152",
-        "line": 218,
+        "block_id": "b000156",
+        "line": 230,
         "text": "`generateNativeImageWithBackend(request, NativeComputeBackend::Cpu, cancelled, progress, control)`는 모든 연산 모듈과 해당 매개변수 저장소를 CPU에 배치한다. `Automatic` 옵션은 기존 플랫폼 배치를 유지한다. 이 진입점은 기존 요청/결과/옵션의 레이아웃을 변경하거나 OS 실행 시간을 부여하지 않는다. 소비자는 적절한 백그라운드 작업을 확보하고 취소·만료 처리에 협조해야 한다. CPU 배치는 모델 로딩 전에 고정하므로, CPU 전용 OS 실행 권한 아래에서 GPU 연산을 제출하지 않는다. 메모리 내 모델 식별자에는 선택한 백엔드가 포함되며, 이를 변경하면 호환되지 않는 상주 상태를 제거한다. 디스크 모델 캐시의 바이트는 백엔드와 무관하므로 계속 공유한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000154",
-        "line": 220,
+        "block_id": "b000158",
+        "line": 232,
         "text": "`NativeResultTests`와 `NativeMobileResultTests`는 제어된 상위 공급 측 C API 결과를 사용하여 제품 어댑터를 컴파일한다. 전체 CPU 연산/매개변수 선택, 준비된 CPU 상태의 재사용, 자동/CPU 전환 시 상주 상태 제거를 검증한다. 런타임 성능과 OS 백그라운드 실행 권한은 별도의 기기 실행으로 검증해야 한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000160",
-        "line": 227,
+        "block_id": "b000164",
+        "line": 239,
         "text": "애플리케이션은 모든 가중치를 저장소 소유자의 컨테이너에 보관할 수 있다. 절대 리소스 디렉터리를 `NativeGenerationOptions::resourceDirectory`에 전달하고 `generateNativeImageWithOptions(request, options, backend, ...)` 오버로드를 사용하여 명시적인 CPU 백그라운드 배치를 유지한다. 이 동작은 전역 환경 변수를 변경하거나 리소스를 애플리케이션에 복사하지 않는다. 선택적인 스타일 리소스가 설치되지 않았다면 `defaultModifiers`를 비활성화한다. 유효한 내장 VAE는 계속 사용할 수 있다. 필수 외부 VAE는 명시적으로 제공한 리소스 디렉터리에서 계속 선택하고 검증한다. 리소스가 누락되어도 다른 애플리케이션의 패키지로 전환하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000162",
-        "line": 229,
+        "block_id": "b000166",
+        "line": 241,
         "text": "`NativeDiffusionTests`는 명시적인 CPU 배치가 패키지 기본값을 요구하지 않으면서 호출자 옵션·취소·잘못된 모델 거부를 유지하는지 검사한다. 기존 API와 구조체 레이아웃은 변경하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000166",
-        "line": 233,
+        "block_id": "b000170",
+        "line": 245,
         "text": "명시적 CPU backend는 upstream `sd_set_backend_eval_callback`으로 16개 노드마다 실제 연산 완료를 관측한다. `NativeGenerationStage::Computing`의 step은 완료된 그래프 배치의 누적 수이며 total=0은 전체 수가 아직 알려지지 않았음을 뜻한다. 기존 enum 값과 요청·결과 구조의 ABI는 유지한다. 소비자는 이 이벤트를 진행 보고와 비활동 제한 시간에 사용하되 denoising 스텝으로 표시하지 않는다. 이 경계에서 pause/cancel을 검사하고 작업 종료 시 전역 콜백을 제거한다. timer 기반의 가짜 진행 보고는 사용하지 않는다. NativeResultTests와 NativeMobileResultTests는 두 CPU 실행의 진행·캐시 재사용·콜백 해제를 검사한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000170",
-        "line": 237,
+        "block_id": "b000174",
+        "line": 249,
         "text": "`generateNativeImageWithResidentWeights()`는 Society 호스트용 진입점이다. Dreamscapes의 macOS/iOS/Android 생성 큐는 기본적으로 이 API를 사용한다. 대형 체크포인트를 사전에 해시하느라 같은 볼륨을 한 번 더 읽지 않도록 파일 메타데이터로 캐시 정체성을 판별하고, 큐가 모델 로딩 단계에 진입하면 원본 파일을 한 번 순차적으로 읽어 프로세스의 익명 메모리 버퍼로 전부 복사한다. 이후 텐서 로더는 그 버퍼만 참조한다. 복사가 끝나면 원본 파일 핸들을 닫으며 추론 중 원본 모델 파일을 다시 읽지 않는다. 이 경로는 Society 드라이브의 Q8 디스크 캐시를 생성·이전·참조하지 않는다. 익명 메모리는 OS가 메모리 압박에 따라 압축하거나 스왑할 수 있지만, 앱은 스왑 파일 위치나 정책을 강제하지 않는다. 스왑 공간이 부족하거나 OS 메모리 압박이 심하면 앱이 종료될 수 있으며, 대형 모델의 적재 가능성을 보장하지 않는다. 원본이 외장 볼륨에만 있다면 최초 RAM 적재 전송은 그 볼륨을 읽어야 하며, 이는 물리적으로 피할 수 없다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000172",
-        "line": 239,
+        "block_id": "b000176",
+        "line": 251,
         "text": "이 모드는 Q8 디스크 캐시를 거부하고 ZIP 가중치 및 아카이브 `.iildmodel`의 디스크 추출, 익명 메모리 할당/읽기 실패 때 디스크 스트리밍으로 폴백하지 않는다. 아카이브 모델은 먼저 압축을 푼 디렉터리로 준비해야 한다. 일반 경로의 GPU 배치 메모리 예산이 낮아도 상주 모드의 적재를 사전 차단하지 않으며, 익명 메모리 할당/페이지 적재를 실제 시도한 뒤 실패를 반환한다. 익명 메모리는 OS가 압축하거나 스왑할 수 있고 앱은 별도 스왑 파일이나 외장 볼륨을 생성·지정하지 않는다. 일반 진입점의 기존 메모리 거부 정책은 유지된다. 대용량 모델은 전체 원본과 실행 중 필요한 가중치·작업 버퍼가 함께 메모리 압박을 일으킬 수 있으므로, OS 스왑에 의존하는 경우 생성 성능이 크게 낮아질 수 있다. 실제 대형 체크포인트 실행은 이 메모리 영향과 스왑 여유를 별도로 측정해야 한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000186",
-        "line": 254,
+        "block_id": "b000190",
+        "line": 266,
         "text": "단일 Krea2 참조 이미지는 `init_image`로만 전달한다. 일반 Krea2 체크포인트에서 참조 토큰을 동시에 주입하면 upstream의 `krea2_ostris_edit` 프리셋이 활성화되므로, 학습 방식이 확인되지 않은 베이스 체크포인트에는 이 경로를 사용하지 않는다. Krea2의 여러 입력 이미지는 현재 거부하며, 다른 검증된 편집 모델의 순서 있는 참조 계약은 유지한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000190",
-        "line": 258,
+        "block_id": "b000194",
+        "line": 270,
         "text": "`nativeImageParameterDefaults(modelPath)`는 가중치를 적재하지 않고 텐서 메타데이터를 검사한다. 일반 Krea2의 빠른 요청에는 Raw 품질 기본값 52 steps와 native CFG 7을 반환한다. CFG는 제품 설정으로 7을 사용하며, 단계 수는 [Krea 공식 추론 설정](https://github.com/krea-ai/krea-2/blob/main/README.md)을 기준으로 한다. 파일명으로 Raw/Turbo 학습 변형을 추정하지 않는다. 고급 요청은 사용자가 제출한 steps/CFG를 유지한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000194",
-        "line": 262,
+        "block_id": "b000198",
+        "line": 274,
         "text": "`NativeResultTests`와 `NativeMobileResultTests`는 Krea2 입력의 중복 편집 조건 방지와 해상도별 sigma 전달, 기존 편집 모델의 다중 참조 유지, 다른 모델로 기본값이 유출되지 않는지를 검사한다. 실제 체크포인트 검증에는 `NativeVaeRoundTripProbe`로 RGB→VAE→RGB를 분리하고 `NativeImg2ImgSmoke`로 인코더·확산·디코더 전체를 실행한다. 두 도구는 interleaved RGB 파일을 사용하며, 자동 CTest에 대형 모델 실행을 추가하지 않는다. 전체 추론 도구의 마지막 선택 인자 `prompt.txt`는 UTF-8 원래 프롬프트를 그대로 읽는다. 입력 RGB 크기와 출력 크기를 별도로 지정하여 원본 첨부의 네이티브 리사이즈 경로도 검증할 수 있다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000198",
-        "line": 271,
+        "block_id": "b000202",
+        "line": 283,
         "text": "모델 기반 제공자는 RGB만 받는다. 미지원 모델이나 옵션은 다른 방식으로 묵시적 대체하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000212",
-        "line": 336,
+        "block_id": "b000216",
+        "line": 348,
         "text": "실행은 하지 않는다. 다른 구조는 애플리케이션이 별도의 `Upscaler`와",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000212",
-        "line": 341,
+        "block_id": "b000216",
+        "line": 353,
         "text": "경우 실제 값을 결과 보고서의 `applied_scale`에 포함해야 한다. 내장 제공자는 모르는 설정을 거부한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000216",
-        "line": 354,
+        "block_id": "b000220",
+        "line": 366,
         "text": "모델의 품질, 모든 가중치 변형 또는 실제 제품 사용을 보증하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000226",
-        "line": 387,
+        "block_id": "b000230",
+        "line": 399,
         "text": "확인한다. 외부 제공자는 전달받은 `stop_token`을 직접 준수해야 한다. 기존",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000232",
-        "line": 411,
+        "block_id": "b000236",
+        "line": 423,
         "text": "요청과 통합 모델 다단계 요청에서는 Python Hires 제공자 주입을 지원하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000238",
-        "line": 429,
+        "block_id": "b000242",
+        "line": 441,
         "text": "이동 설정은 지원하지 않는다. 저장된 상대 위치 인덱스는 표준 인덱스와 편향",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000238",
-        "line": 436,
+        "block_id": "b000242",
+        "line": 448,
         "text": "오류로 종료한다. GPU를 요청했을 때 CPU로 조용히 대체하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000240",
-        "line": 446,
+        "block_id": "b000244",
+        "line": 458,
         "text": "달라지며 속도 향상을 보장하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000242",
-        "line": 453,
+        "block_id": "b000246",
+        "line": 465,
         "text": "전체 입력과 최종 출력도 메모리에 유지되며 `maxWorkingBytes`를 충족해야 한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000244",
-        "line": 459,
+        "block_id": "b000248",
+        "line": 471,
         "text": "D3D12 하드웨어 장치를 선택하며 브라우저나 소프트웨어 어댑터를 사용하지 않는다. 다른 iiSDK 모듈에 대한",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000244",
-        "line": 460,
+        "block_id": "b000248",
+        "line": 472,
         "text": "링크 의존성은 추가하지 않는다. 현재 각 백엔드의 첫 번째 GPU를 사용한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000250",
-        "line": 481,
+        "block_id": "b000254",
+        "line": 493,
         "text": "공개 학습 가중치의 실제 품질·성능을 검증하지 않는다. 모델 구조는",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000250",
-        "line": 484,
+        "block_id": "b000254",
+        "line": 496,
         "text": "참고했다. 가중치 라이선스는 모델별로 확인해야 한다.",
         "basis": "lexical_match",
         "context": "paragraph"
       },
       {
-        "block_id": "b000252",
-        "line": 490,
+        "block_id": "b000256",
+        "line": 502,
         "text": "성공 결과가 다른 운영체제나 GPU의 실행 성공을 뜻하지 않는다.",
         "basis": "lexical_match",
         "context": "paragraph"
@@ -2405,12 +2433,12 @@
     ],
     "commands": [
       {
-        "block_id": "b000065",
+        "block_id": "b000069",
         "language": "sh",
         "code": "cmake --build build --target NativeVaeDecodeProbe\nreference/diffusers/.venv/bin/python tests/NativeVaeParitySmoke.py \\\n  --model /absolute/path/redLilyIllu_v10.safetensors \\\n  --probe build/NativeVaeDecodeProbe --output-dir resources/vae-parity \\\n  --tiles 0 32 40 48 64\n"
       },
       {
-        "block_id": "b000246",
+        "block_id": "b000250",
         "language": "sh",
         "code": "cmake -S . -B build -DIILD_ENABLE_NATIVE_DIFFUSION=ON -DIILD_MODEL_GPU_VULKAN=ON\n# Windows: provide the target-native Dawn package instead of enabling Vulkan.\ncmake -S . -B build -DIILD_ENABLE_NATIVE_DIFFUSION=ON -DIILD_MODEL_GPU_DIRECTX=ON -DDawn_DIR=/path/to/Dawn\n"
       }
@@ -2428,105 +2456,105 @@
         "label": "백엔드 라우팅",
         "target": "backend-routing.md",
         "kind": "relative",
-        "line": 88
+        "line": 96
       },
       {
-        "block_id": "b000051",
+        "block_id": "b000053",
         "label": "고정 엔진의 모듈별 백엔드 배치",
         "target": "https://github.com/leejet/stable-diffusion.cpp/blob/d04e8950c1ec8d30248cbe996682b3182fb1adf6/docs/backend.md",
-        "kind": "external",
-        "line": 108
-      },
-      {
-        "block_id": "b000051",
-        "label": "Apple 명령 버퍼 상태",
-        "target": "https://developer.apple.com/documentation/metal/mtlcommandbuffer/status?language=objc",
-        "kind": "external",
-        "line": 108
-      },
-      {
-        "block_id": "b000061",
-        "label": "SDXL VAE fp16 수정 모델의 원 저자 설명",
-        "target": "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix",
         "kind": "external",
         "line": 118
       },
       {
-        "block_id": "b000082",
+        "block_id": "b000053",
+        "label": "Apple 명령 버퍼 상태",
+        "target": "https://developer.apple.com/documentation/metal/mtlcommandbuffer/status?language=objc",
+        "kind": "external",
+        "line": 118
+      },
+      {
+        "block_id": "b000065",
+        "label": "SDXL VAE fp16 수정 모델의 원 저자 설명",
+        "target": "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix",
+        "kind": "external",
+        "line": 130
+      },
+      {
+        "block_id": "b000086",
         "label": "stable-diffusion.cpp",
         "target": "https://github.com/leejet/stable-diffusion.cpp",
         "kind": "external",
-        "line": 145
+        "line": 157
       },
       {
-        "block_id": "b000082",
+        "block_id": "b000086",
         "label": "고정 C API",
         "target": "https://github.com/leejet/stable-diffusion.cpp/blob/d04e8950c1ec8d30248cbe996682b3182fb1adf6/include/stable-diffusion.h",
         "kind": "external",
-        "line": 145
+        "line": 157
       },
       {
-        "block_id": "b000082",
+        "block_id": "b000086",
         "label": "MIT 라이선스",
         "target": "https://github.com/leejet/stable-diffusion.cpp/blob/d04e8950c1ec8d30248cbe996682b3182fb1adf6/LICENSE",
         "kind": "external",
-        "line": 145
+        "line": 157
       },
       {
-        "block_id": "b000102",
+        "block_id": "b000106",
         "label": "runtime residency",
         "target": "resident-worker-performance.md",
         "kind": "relative",
-        "line": 165
+        "line": 177
       },
       {
-        "block_id": "b000132",
+        "block_id": "b000136",
         "label": "VAE 기본값과 패키지 계약",
         "target": "generation-defaults.md#vae-자동-폴백",
         "kind": "relative",
-        "line": 197
+        "line": 209
       },
       {
-        "block_id": "b000190",
+        "block_id": "b000194",
         "label": "Krea 공식 추론 설정",
         "target": "https://github.com/krea-ai/krea-2/blob/main/README.md",
         "kind": "external",
-        "line": 258
+        "line": 270
       },
       {
-        "block_id": "b000216",
+        "block_id": "b000220",
         "label": "stable-diffusion.cpp 문서",
         "target": "https://github.com/leejet/stable-diffusion.cpp/blob/master/examples/server/api.md",
         "kind": "external",
-        "line": 355
+        "line": 367
       },
       {
-        "block_id": "b000232",
+        "block_id": "b000236",
         "label": "Hires Fix",
         "target": "hires-fix.md#hires-provider-injection",
         "kind": "relative",
-        "line": 413
+        "line": 425
       },
       {
-        "block_id": "b000250",
+        "block_id": "b000254",
         "label": "SwinIR 원본",
         "target": "https://github.com/JingyunLiang/SwinIR/tree/6545850fbf8df298df73d81f3e8cba638787c8bd",
         "kind": "external",
-        "line": 482
+        "line": 494
       },
       {
-        "block_id": "b000250",
+        "block_id": "b000254",
         "label": "Real-ESRGAN 원본",
         "target": "https://github.com/xinntao/Real-ESRGAN/tree/a4abfb2979a7bbff3f69f58f58ae324608821e27",
         "kind": "external",
-        "line": 483
+        "line": 495
       }
     ],
     "tables": []
   },
   "provenance": {
     "generator": "workspace-docs",
-    "version": "1.0.0",
+    "version": "1.0.0+manual-sync",
     "profile": "lossless-blocks-v1",
     "derived": true
   }

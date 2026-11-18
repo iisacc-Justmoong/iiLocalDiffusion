@@ -21,6 +21,15 @@ HIRES_OPTION_NAMES = (
 )
 
 
+def hires_enabled(value: Any) -> bool:
+    """An absent value uses the enabled default; only a boolean may override it."""
+    if value is None:
+        return True
+    if not isinstance(value, bool):
+        raise ValueError("HiRes Fix must be a boolean.")
+    return value
+
+
 def add_hires_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--hires-fix", action=argparse.BooleanOptionalAction, default=True,
                         help="Generate at half size and refine to --width/--height (default for still images)")
@@ -153,9 +162,8 @@ def resolve_hires_stage_sizes(width: int, height: int, passes: int, *, scale: fl
 
 def resolve_hires_options(preset: PipelinePreset, args: argparse.Namespace) -> None:
     """Validate options and record target dimensions without changing their replayable inputs."""
-    args.hires_fix = getattr(args, "hires_fix", True)
-    if getattr(args, "animation_mode", "none") != "none" and "hires_fix" not in getattr(args, "_provided", ()):
-        args.hires_fix = False
+    args.hires_fix = hires_enabled(getattr(args, "hires_fix", None))
+    args._hires_applicable = getattr(args, "animation_mode", "none") == "none"
     for name in HIRES_OPTION_NAMES:
         if not hasattr(args, name):
             setattr(args, name, None)
@@ -164,6 +172,10 @@ def resolve_hires_options(preset: PipelinePreset, args: argparse.Namespace) -> N
     args.hires_stage_sizes = None
     args.hires_target_mode = False
     args.hires_base_width, args.hires_base_height = args.width, args.height
+    if not args._hires_applicable:
+        if any(getattr(args, name) is not None for name in HIRES_OPTION_NAMES):
+            raise SystemExit("HiRes refinement options are not applicable to animation.")
+        return
     if not args.hires_fix:
         provided = [name for name in HIRES_OPTION_NAMES if getattr(args, name) is not None]
         if provided:
@@ -274,7 +286,7 @@ def base_request(preset: PipelinePreset, args: argparse.Namespace) -> argparse.N
 
 def hires_request(preset: PipelinePreset, args: argparse.Namespace, pass_index: int = 0) -> argparse.Namespace:
     """Copy shared settings for the indexed refinement, keeping the base request unchanged."""
-    if not getattr(args, "hires_fix", False):
+    if not getattr(args, "_hires_applicable", True) or not getattr(args, "hires_fix", False):
         raise ValueError("A second-pass request requires --hires-fix.")
     if getattr(args, "hires_target_width", None) is None or getattr(args, "hires_target_height", None) is None:
         raise ValueError("Resolve --hires-fix options before constructing the second-pass request.")

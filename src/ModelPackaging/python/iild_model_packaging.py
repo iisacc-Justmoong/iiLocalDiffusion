@@ -13,7 +13,7 @@ class ModelPackagingError(RuntimeError):
 
 
 def _run(operation, root, selected, output, excluded, executable, *, repair_nonfinite=False, assignments=None,
-         asset_role=None, asset_path=None):
+         asset_role=None, asset_path=None, tensor_names=()):
     paths = [os.fspath(path) for path in selected]
     if not paths and operation in ("scan", "create"):
         raise ValueError("At least one model must be selected")
@@ -25,6 +25,8 @@ def _run(operation, root, selected, output, excluded, executable, *, repair_nonf
         command.extend(("--select", path))
     for path in excluded:
         command.extend(("--exclude", os.fspath(path)))
+    for name in tensor_names:
+        command.extend(("--tensor", name))
     for path, choice in (assignments or {}).items():
         if not isinstance(choice, dict) or any(key not in ("role", "position") for key in choice):
             raise ValueError("Assignments must map each path to role and/or position")
@@ -73,9 +75,44 @@ def materialize_package_asset(model, cache, *, role=None, relative_source=None, 
     return _run("materialize", model, (), cache, (), executable, asset_role=role, asset_path=relative_source)
 
 
+def detect_container(model, *, executable=None):
+    """Probe a container prefix; this does not validate or execute weights."""
+    return _run("probe", model, (), None, (), executable)
+
+
 def inspect_weights(model, *, executable=None):
     """Count non-finite floating point weights without modifying the model."""
     return _run("weight-health", model, (), None, (), executable)
+
+
+def inspect_sharded_index(model, *, executable=None):
+    """Validate an ordinary Safetensors index and its exact shard mappings."""
+    return _run("inspect-index", model, (), None, (), executable)
+
+
+def inspect_pytorch_index(model, *, executable=None):
+    """Inspect a PyTorch index and shard identities without loading pickle."""
+    return _run("inspect-pytorch-index", model, (), None, (), executable)
+
+
+def inspect_wan_directory(directory, *, executable=None):
+    """Resolve unambiguous local Wan text-to-video components without loading weights."""
+    return _run("inspect-wan-directory", directory, (), None, (), executable)
+
+
+def contains_tensors(model, names, *, executable=None):
+    """Check exact tensor names without reading weights or claiming compatibility."""
+    if isinstance(names, (str, bytes)):
+        raise ValueError("Tensor names must be an iterable of names")
+    names = tuple(names)
+    if not names or any(not isinstance(name, str) or not name for name in names):
+        raise ValueError("Supply one or more nonempty tensor names")
+    return _run("contains-tensors", model, (), None, (), executable, tensor_names=names)
+
+
+def find_tensor_names(model, names, *, executable=None):
+    """Return the requested tensor names found in a validated model header."""
+    return contains_tensors(model, names, executable=executable)['matches']
 
 
 def repair_standalone_weights(model, output, *, executable=None):

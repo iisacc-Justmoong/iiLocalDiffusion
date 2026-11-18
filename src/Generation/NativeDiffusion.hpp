@@ -21,7 +21,7 @@ struct NativeGenerationRequest {
     std::filesystem::path modelPath;
     std::string prompt;
     // Final output size. Legacy entry points use half size followed by Hires;
-    // the component-aware entry point makes Hires an explicit option.
+    // component-aware callers can explicitly disable Hires.
     int width = 512;
     int height = 512;
     int steps = 20;
@@ -120,7 +120,7 @@ struct NativeModelComponents {
     std::filesystem::path clipL, clipG, t5xxl, llm, vae;
     float guidanceScale = 1.0f;
     float distilledGuidance = 3.5f;
-    bool hires = false;
+    bool hires = true;
     NativePrediction prediction = NativePrediction::Automatic;
 };
 // Prepares recognized embedded image components in a caller-owned cache. The
@@ -150,7 +150,7 @@ struct NativeAdvancedControls {
     int clipSkip = 0; // Model default, not an unconditional first-layer skip.
     float eta = 0;
     bool seamlessTiling = false;
-    bool hires = false;
+    bool hires = true;
     float denoiseStrength = 0.25f;
     std::string upscaler = "lanczos";
     std::vector<NativeReferenceImage> references;

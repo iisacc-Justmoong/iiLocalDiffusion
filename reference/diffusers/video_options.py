@@ -46,8 +46,14 @@ def build_parser():
     parser.add_argument("--print-config", action="store_true")
     parser.add_argument("--list-camera-motions", action="store_true")
     from model_sources import add_model_arguments
-    add_model_arguments(parser, local_help="Local LTX Diffusers directory or native video checkpoint/package")
-    parser.add_argument("--text-encoder", type=Path, help="Optional GGUF text encoder for a native video checkpoint")
+    add_model_arguments(parser, local_help="Local LTX or Wan text-to-video Diffusers directory, or native video checkpoint/package")
+    parser.add_argument("--text-encoder", type=Path, help="Optional local text encoder for a native video checkpoint")
+    parser.add_argument("--video-vae", type=Path, help="Optional local VAE for a native video checkpoint")
+    parser.add_argument("--high-noise-model", type=Path, help="Optional Wan high-noise expert checkpoint")
+    parser.add_argument("--vision-encoder", type=Path, help="Optional Wan image-conditioning encoder")
+    parser.add_argument("--moe-boundary", type=float, help="Optional high/low-noise expert switch point, 0..1")
+    parser.add_argument("--high-noise-steps", type=int, help="Optional high-noise sampling steps")
+    parser.add_argument("--high-noise-guidance", type=float, help="Optional high-noise text guidance")
     parser.add_argument("--revision", help=argparse.SUPPRESS)
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
     parser.add_argument("--local-files-only", action=argparse.BooleanOptionalAction, default=True,
@@ -238,12 +244,39 @@ def resolve_options(args):
         _number(getattr(args, name), name, 0, 1)
     if args.device == "cpu" and args.offload in ("model", "sequential"):
         raise ValueError("RAM offload requires a GPU execution device.")
-    from model_sources import resolve_model_input
+    from model_sources import local_model_path, resolve_model_input
+    from downloaded_model import is_supported_model_container, model_container_format
+    legacy_sources = {}
+    def native_video_container(path):
+        if is_supported_model_container(path):
+            return True
+        if path.is_file() and path.suffix.casefold() != '.onnx':
+            try:
+                container = model_container_format(path)
+            except (OSError, ValueError):
+                return False
+            if container == 'safetensors-index':
+                from native_image import native_weight
+                native_weight(path, 'native video model')
+                return True
+            if container in ('pytorch', 'pytorch-index'):
+                from image_package import inspect_pytorch_index, probe_model_container
+                from weight_files import file_signature
+                if probe_model_container(path) != container:
+                    return False
+                index = inspect_pytorch_index(path) if container == 'pytorch-index' else None
+                inputs = [path, *(path.parent / shard['relative_path'] for shard in index['shards'])] if index else [path]
+                snapshots = [(str(item), file_signature(item)) for item in inputs]
+                if index and inspect_pytorch_index(path) != index:
+                    raise RuntimeError('PyTorch video index or shard changed during inspection.')
+                legacy_sources[str(path)] = snapshots
+                return True
+        return False
     args.model_input = resolve_model_input(args)
     if args.model_input.kind == "local":
         model = Path(args.model_input.location)
-        if not model.is_dir() and not (model.is_file() and model.suffix.lower() in (".safetensors", ".safetensor", ".gguf")):
-            raise ValueError(f"--model must be a local LTX directory or native video checkpoint: {args.model}")
+        if not model.is_dir() and not native_video_container(model):
+            raise ValueError(f"--model must be a local video model directory or native video checkpoint: {args.model}")
         args.model = str(model)
     elif args.model_input.family != "ltx":
         raise ValueError("Remote video requires --model-family ltx and an endpoint/provider serving LTX weights.")
@@ -253,9 +286,27 @@ def resolve_options(args):
         raise ValueError("Video generation requires local model files; --no-local-files-only is unsupported.")
     args.cache_dir = args.cache_dir.expanduser().resolve()
     if args.text_encoder is not None:
-        args.text_encoder = args.text_encoder.expanduser().resolve(strict=True)
-        if not args.text_encoder.is_file() or args.text_encoder.suffix.lower() not in (".gguf", ".safetensors", ".safetensor"):
+        args.text_encoder = local_model_path(args.text_encoder)
+        if not native_video_container(args.text_encoder):
             raise ValueError("The native video text encoder must be a local GGUF or safetensors file.")
+    component_paths = ("video_vae", "high_noise_model", "vision_encoder")
+    expert_controls = ("moe_boundary", "high_noise_steps", "high_noise_guidance")
+    if any(getattr(args, key) is not None for key in (*component_paths, *expert_controls)):
+        if args.model_input.kind != "local" or not Path(args.model).is_file():
+            raise ValueError("Additional native video components require a local native model file.")
+    for name in component_paths:
+        value = getattr(args, name)
+        if value is not None:
+            path = local_model_path(value)
+            if not native_video_container(path):
+                raise ValueError(f"{name} must be a local GGUF or safetensors file or validated shard index.")
+            setattr(args, name, path)
+    args._native_legacy_sources = legacy_sources
+    # The expert may be embedded in a model package. The native SDK validates
+    # its presence and ambiguity before starting the engine.
+    if args.moe_boundary is not None: _number(args.moe_boundary, "moe_boundary", 0, 1)
+    if args.high_noise_steps is not None: _integer(args.high_noise_steps, "high_noise_steps", 1, 1000)
+    if args.high_noise_guidance is not None: _number(args.high_noise_guidance, "high_noise_guidance", 0, 100)
     for name in ("storyboard", "first_frame", "last_frame"):
         if getattr(args, name) is not None:
             setattr(args, name, getattr(args, name).expanduser().resolve())
@@ -272,10 +323,23 @@ def resolve_options(args):
     targets = [path.resolve() for path in output_targets(args.output)]
     inputs = [condition["image"] for shot in args.shots for condition in shot["conditions"]]
     inputs.extend(path for path in (args.config, args.storyboard) if path is not None)
+    if args.model_input.kind == "local":
+        weights = [Path(path) for path in (args.model, args.text_encoder, args.video_vae,
+                                          args.high_noise_model, args.vision_encoder) if path is not None]
+        inputs.extend(weights)
+        for weight in weights:
+            if weight.is_file():
+                container = model_container_format(weight)
+                if container == 'safetensors-index':
+                    from image_package import sharded_index_paths
+                    inputs.extend(sharded_index_paths(weight))
+                elif container == 'pytorch-index':
+                    from image_package import inspect_pytorch_index
+                    inputs.extend(weight.parent / shard['relative_path'] for shard in inspect_pytorch_index(weight)['shards'])
     for source in inputs:
         path = Path(source).resolve()
         if path in targets or path.is_relative_to(targets[2]):
-            raise ValueError("Video output must not replace a configuration, storyboard or keyframe input.")
+            raise ValueError("Video output must not replace a model, component, configuration, storyboard or keyframe input.")
     args.max_frames = sum(shot["frames"] for shot in args.shots)
     args.animation_mode = "Video"
     return args
@@ -286,6 +350,7 @@ def configuration(args):
     # the output sidecar, not in a config that the parser could not load again.
     remote = args.model_input.kind != "local"
     local_controls = {"device", "dtype", "offload", "low_vram", "cpu_text_encoding", "vae_tiling", "max_sequence_length",
+                      "video_vae", "high_noise_model", "vision_encoder", "moe_boundary", "high_noise_steps", "high_noise_guidance",
                       "decode_timestep", "decode_noise_scale", "image_cond_noise_scale", "cache_dir", "local_files_only"}
     return {name: str(value) if isinstance(value, Path) else value
             for name in args._argument_names

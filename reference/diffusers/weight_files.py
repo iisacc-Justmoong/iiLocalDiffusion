@@ -35,6 +35,20 @@ class LocalWeightFile:
     size_bytes: int
     signature: tuple | None = None
 
+    @property
+    def execution_path(self) -> str:
+        return self.resolved_file
+
+
+@dataclass(frozen=True)
+class IndexedWeightFile(LocalWeightFile):
+    shards: tuple[LocalWeightFile, ...] = ()
+
+    @property
+    def execution_path(self) -> str:
+        # Shards are relative to the selected index, not its symlink target.
+        return self.path
+
 
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -157,17 +171,25 @@ def resolve_weight_file(source: str, argument: str) -> LocalWeightFile:
     if not source:
         raise ValueError(f"{argument} must not be empty.")
     path = Path(source).expanduser().absolute()
-    if path.suffix.lower() not in SAFETENSORS_SUFFIXES:
-        raise ValueError(f"{argument} requires a .safetensors or .safetensor file.")
     if not path.is_file() or path.stat().st_size == 0:
         raise ValueError(f"{argument} file is missing, empty, or not a regular file: {path}")
+    before = file_signature(path)
+    # Do not infer the deserializer from a user-supplied extension. A renamed
+    # safetensors file remains usable, while PyTorch/GGUF content cannot enter
+    # a safetensors-only component loader under a misleading filename.
+    from downloaded_model import is_supported_model_container
+    if not is_supported_model_container(path, allow_gguf=False):
+        raise ValueError(f"{argument} requires safetensors content.")
     resolved = path.resolve()
+    digest = model_content_sha256(resolved)
+    if file_signature(path) != before:
+        raise RuntimeError(f"Local {argument} changed while identifying its container: {path}")
     return LocalWeightFile(
         path=str(path),
         resolved_file=str(resolved),
-        sha256=model_content_sha256(resolved),
+        sha256=digest,
         size_bytes=resolved.stat().st_size,
-        signature=file_signature(resolved) if metadata_model_validation() else None,
+        signature=before if metadata_model_validation() else None,
     )
 
 
@@ -185,32 +207,53 @@ def verify_weight_file(weight: LocalWeightFile, role: str) -> None:
         matches = False
     if not matches:
         raise RuntimeError(f"Local {role} changed after argument resolution: {weight.path}")
+    if isinstance(weight, IndexedWeightFile):
+        for shard in weight.shards:
+            verify_weight_file(shard, role + ' shard')
 
 
 @contextmanager
-def checked_safetensors_path(
+def checked_weight_path(
     weight: LocalWeightFile,
     staging_directory: Path,
     role: str,
+    suffix: str,
 ) -> Iterator[Path]:
-    """Keep Diffusers on its safetensors branch, including for the singular suffix."""
+    """Expose a verified model through the exact suffix required by its loader."""
+    if suffix not in ('.safetensors', '.gguf'):
+        raise ValueError('A checked model path requires a supported safe loader suffix.')
     verify_weight_file(weight, role)
     path = Path(weight.path)
-    if path.suffix == ".safetensors":
+    if path.suffix == suffix:
         yield path
     else:
         provider.mkdir(staging_directory, parents=True, exist_ok=True)
         with provider.TemporaryDirectory(prefix="weights-", dir=staging_directory) as temporary:
-            alias = Path(temporary) / "weights.safetensors"
+            alias = Path(temporary) / ("weights" + suffix)
             try:
                 alias.symlink_to(weight.resolved_file)
-            except OSError as error:
-                raise RuntimeError(
-                    "The .safetensor alias requires symlink support; use a file named "
-                    "with the standard .safetensors suffix on this filesystem."
-                ) from error
+            except OSError:
+                # A private verified copy works on filesystems or platforms
+                # where the user cannot create symlinks. Never hard-link here:
+                # that changes the original file's identity metadata.
+                try:
+                    provider.copyfile(weight.resolved_file, alias, overwrite=False)
+                    verify_weight_file(weight, role)
+                    expected = weight.sha256 or file_sha256(Path(weight.resolved_file))
+                    if file_sha256(alias) != expected:
+                        raise RuntimeError("Copied weights do not match the source")
+                    verify_weight_file(weight, role)
+                except (OSError, RuntimeError, ValueError) as error:
+                    raise RuntimeError(f"Cannot create a verified {role} copy: {error}") from error
             yield alias
     verify_weight_file(weight, role)
+
+
+@contextmanager
+def checked_safetensors_path(weight: LocalWeightFile, staging_directory: Path, role: str) -> Iterator[Path]:
+    """Keep Diffusers on its Safetensors branch while preserving source identity."""
+    with checked_weight_path(weight, staging_directory, role, '.safetensors') as path:
+        yield path
 
 
 def weight_file_metadata(weight: LocalWeightFile) -> dict[str, object]:

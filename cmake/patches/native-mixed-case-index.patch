@@ -1,0 +1,14 @@
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -183,7 +183,10 @@ bool ModelLoader::init_from_file(const std::string& file_path, const std::string&
+     } else if (is_safetensors_file(file_path)) {
+         LOG_INFO("load %s using safetensors format", file_path.c_str());
+         return init_from_safetensors_file(file_path, prefix);
+-    } else if (ends_with(file_path, ".json")) {
++    } else if (file_path.size() >= 5
++               && std::equal(file_path.end() - 5, file_path.end(), ".json", [](char input, char expected) {
++                   return (input >= 'A' && input <= 'Z' ? input - 'A' + 'a' : input) == expected;
++               })) {
+         LOG_INFO("load %s using safetensors index format", file_path.c_str());
+         return init_from_safetensors_index_file(file_path, prefix);
+     } else if (is_torch_zip_file(file_path)) {

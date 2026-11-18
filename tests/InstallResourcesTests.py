@@ -14,6 +14,37 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallResourcesTests(unittest.TestCase):
+    def test_runtime_installs_standalone_vae_conversion_helper(self):
+        generated = (ROOT / 'build/cmake_install.cmake').read_text(encoding='utf-8')
+        rules = [line.strip() for line in generated.splitlines()
+                 if 'TYPE DIRECTORY FILES' in line and '/reference/diffusers" FILES_MATCHING' in line]
+        self.assertEqual(len(rules), 1)
+        with resource_fixture.TemporaryDirectory(prefix='install-vae-helper-') as temporary:
+            workspace = Path(temporary)
+            stage = workspace / 'stage'
+            script = workspace / 'install-vae-helper.cmake'
+            script.write_text(rules[0] + '\n', encoding='utf-8')
+            subprocess.run(['cmake', f'-DCMAKE_INSTALL_PREFIX={stage}', '-P', str(script)],
+                           check=True, capture_output=True, text=True)
+            installed = stage / 'share/iiLocalDiffusion/reference/diffusers/vae_legacy_conversion.py'
+            self.assertEqual(installed.read_bytes(), (ROOT / 'reference/diffusers/vae_legacy_conversion.py').read_bytes())
+
+    def test_component_inspection_headers_are_installable_without_model_resources(self):
+        generated = (ROOT / 'build/cmake_install.cmake').read_text(encoding='utf-8')
+        rules = re.findall(r'(file\(INSTALL DESTINATION "[^"\n]*/include(?:/Generation)?" '
+                           r'TYPE FILE FILES.*?\))', generated, flags=re.DOTALL)
+        selected = [rule for rule in rules if 'NativeTextEncoderInspection.hpp' in rule or '/src/Export.hpp' in rule]
+        self.assertEqual(len(selected), 2)
+        with resource_fixture.TemporaryDirectory(prefix='install-inspection-headers-') as temporary:
+            stage = Path(temporary) / 'stage'
+            script = Path(temporary) / 'install-headers.cmake'
+            script.write_text('\n'.join(selected) + '\n', encoding='utf-8')
+            subprocess.run(['cmake', f'-DCMAKE_INSTALL_PREFIX={stage}', '-P', str(script)],
+                           check=True, capture_output=True, text=True)
+            for relative in ('Export.hpp', 'Generation/NativeVaeInspection.hpp',
+                             'Generation/NativeTextEncoderInspection.hpp', 'Generation/ImagePackageBridge.hpp'):
+                self.assertTrue((stage / 'include' / relative).is_file(), relative)
+
     def test_runtime_component_installs_native_shared_library(self):
         # Inspect the generated installer: running the complete Runtime install
         # here would copy the multi-gigabyte user-provisioned model resources.
@@ -32,6 +63,7 @@ class InstallResourcesTests(unittest.TestCase):
         provisioned = set(re.findall(r'"[^"\n]*/scripts/([^/"\n]+\.py)"', provision_rules[0]))
         self.assertEqual(provisioned, {
             'provision_flux1_text_encoders.py', 'provision_flux1_schnell.py', 'provision_flux1_canny.py',
+            'provision_anima_text_encoder.py',
             'provision_krea2.py', 'provision_depth_anything_v2.py', 'provision_moss_text_encoder.py',
             'provision_moss_transformer.py', 'provision_moss_control.py',
         })
@@ -55,6 +87,7 @@ class InstallResourcesTests(unittest.TestCase):
             installed = stage / 'share/iiLocalDiffusion/scripts'
             expected_root = stage / 'share/iiLocalDiffusion/resources'
             modules = ('provision_flux1_text_encoders', 'provision_flux1_schnell', 'provision_flux1_canny',
+                       'provision_anima_text_encoder',
                        'provision_krea2', 'provision_depth_anything_v2', 'provision_moss_text_encoder',
                        'provision_moss_transformer', 'provision_moss_control')
             code = ('import importlib, pathlib, sys\n'

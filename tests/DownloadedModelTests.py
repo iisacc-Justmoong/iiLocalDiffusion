@@ -7,12 +7,14 @@ import resource_fixture
 import hashlib
 import json
 import math
+import pickle
 from pathlib import Path
 import struct
 import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "reference" / "diffusers"))
@@ -73,6 +75,174 @@ class DownloadedModelTests(unittest.TestCase):
                 self.assertEqual(found["weights_role"], "denoiser")
                 self.assertEqual(found["missing_components"], ["vae", "text_encoder"])
                 self.assertIsNone(found["base_model"])
+
+    def test_sharded_safetensors_index_identifies_model_from_all_shards(self):
+        first = self.safetensors({'model.diffusion_model.input_blocks.0.0.weight': [1, 4, 1, 1]},
+                                 name='part-1.safetensors')
+        second = self.safetensors({'model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight': [1, 2048]},
+                                  name='part-2.safetensors')
+        index = self.directory / 'model.safetensors.index.json'
+        index.write_text(json.dumps({'weight_map': {
+            'model.diffusion_model.input_blocks.0.0.weight': first.name,
+            'model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight': second.name}}))
+        found = downloaded_model.inspect_downloaded_model(index)
+        self.assertEqual(found['format'], 'safetensors-index')
+        self.assertEqual(found['architecture'], 'sdxl')
+        self.assertEqual(found['role'], 'checkpoint')
+        self.assertEqual(set(found['sharded_index']['shards']), {str(first), str(second)})
+        self.assertIn('vae', found['backend_plan']['missing_components'])
+
+    def test_sharded_index_cache_and_source_identity_track_shards(self):
+        from inference_session import InferenceSession
+        first = self.safetensors({'model.diffusion_model.input_blocks.0.0.weight': [1, 4, 1, 1]},
+                                 name='part-1.safetensors')
+        second = self.safetensors({'model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight': [1, 2048]},
+                                  name='part-2.safetensors')
+        index = self.directory / 'model.safetensors.index.json'
+        index.write_text(json.dumps({'weight_map': {
+            'model.diffusion_model.input_blocks.0.0.weight': first.name,
+            'model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight': second.name}}))
+        with InferenceSession():
+            self.assertEqual(downloaded_model.inspect_downloaded_model(index)['architecture'], 'sdxl')
+            self.safetensors({'model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight': [1, 768]},
+                             name=second.name)
+            self.assertEqual(downloaded_model.inspect_downloaded_model(index)['architecture'], 'sd1')
+
+    def test_sharded_index_suffix_is_case_insensitive(self):
+        first = self.safetensors({'model.diffusion_model.input_blocks.0.0.weight': [1, 4, 1, 1]},
+                                 name='part-1.safetensors')
+        second = self.safetensors({'model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight': [1, 2048]},
+                                  name='part-2.safetensors')
+        index = self.directory / 'model.SAFETENSORS.Index.JSON'
+        index.write_text(json.dumps({'weight_map': {
+            'model.diffusion_model.input_blocks.0.0.weight': first.name,
+            'model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight': second.name}}))
+        found = downloaded_model.inspect_downloaded_model(index)
+        self.assertEqual((found['format'], found['architecture']), ('safetensors-index', 'sdxl'))
+
+    def test_renamed_index_is_detected_from_its_safetensors_shards(self):
+        first = self.safetensors({'model.diffusion_model.input_blocks.0.0.weight': [1, 4, 1, 1]},
+                                 name='part-1.safetensors')
+        second = self.safetensors({'model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight': [1, 2048]},
+                                  name='part-2.safetensors')
+        mapping = {'weight_map': {
+            'model.diffusion_model.input_blocks.0.0.weight': first.name,
+            'model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight': second.name}}
+        for name in ('renamed.index.json', 'renamed.bin', 'renamed.model'):
+            with self.subTest(name=name):
+                index = self.directory / name
+                index.write_text(json.dumps(mapping))
+                report = downloaded_model.inspect_downloaded_model(index)
+                self.assertEqual((report['format'], report['architecture']), ('safetensors-index', 'sdxl'))
+                self.assertEqual(set(report['sharded_index']['shards']), {str(first), str(second)})
+        unsafe = self.directory / 'not-a-safetensors-index.bin'
+        legacy = self.directory / 'legacy-shard.bin'
+        legacy.write_bytes(b'PK\x03\x04' + bytes(32))
+        unsafe.write_text(json.dumps({'weight_map': {'tensor': legacy.name}}))
+        with self.assertRaisesRegex(ValueError, 'JSON model index'):
+            downloaded_model.model_container_format(unsafe)
+
+    def test_container_content_takes_precedence_over_filename(self):
+        for name in ("checkpoint.bin", "checkpoint.custom", "checkpoint.gguf"):
+            with self.subTest(name=name), patch.object(downloaded_model, "_torch_checkpoint",
+                                                       side_effect=AssertionError("unsafe legacy reader selected")):
+                found = downloaded_model.inspect_downloaded_model(self.sd(name=name))
+                self.assertEqual((found["format"], found["architecture"]), ("safetensors", "sd1"))
+        gguf = self.gguf(name="weights.bin")
+        with patch.object(downloaded_model, "_torch_checkpoint", side_effect=AssertionError("legacy reader selected")):
+            self.assertEqual(downloaded_model.inspect_downloaded_model(gguf)["format"], "gguf")
+
+    def test_legacy_container_signature_takes_precedence_over_safe_suffix(self):
+        for name, prefix in (("model.safetensors", b"PK\x03\x04"),
+                             ("model.gguf", b"\x80\x02")):
+            with self.subTest(name=name):
+                path = self.directory / name
+                path.write_bytes(prefix + bytes(16))
+                self.assertEqual(downloaded_model.model_container_format(path), "pytorch")
+                self.assertFalse(downloaded_model.is_supported_model_container(path))
+        header = b'{"tensor":{"dtype":"U8","shape":[1],"data_offsets":[0,1]}}'
+        header = header + b' ' * (640 - len(header))
+        safe = self.directory / 'length-overlaps-pickle.bin'
+        safe.write_bytes(struct.pack('<Q', len(header)) + header + b'x')
+        self.assertEqual(safe.read_bytes()[:2], b'\x80\x02')
+        self.assertEqual(downloaded_model.model_container_format(safe), 'safetensors')
+        self.assertTrue(downloaded_model.is_supported_model_container(safe))
+
+    def test_native_probe_recognizes_torch_archive_when_pickle_is_not_first(self):
+        from image_package import probe_model_container
+        archive = self.directory / 'renamed.data'
+        with zipfile.ZipFile(archive, 'w') as output:
+            output.writestr('checkpoint/version', '3')
+            output.writestr('checkpoint/data.pkl', b'\x80\x04fixture')
+        self.assertEqual(downloaded_model.model_container_format(archive), 'pytorch')
+        self.assertEqual(probe_model_container(archive), 'pytorch')
+        raw = archive.read_bytes()
+        eocd = raw.rfind(b'PK\x05\x06')
+        self.assertGreater(eocd, 0)
+        end = bytearray(raw[eocd:])
+        count, size, offset = struct.unpack_from('<HII', end, 10)
+        extended = struct.pack('<IQHHIIQQQQ', 0x06064b50, 44, 45, 45, 0, 0,
+                               count, count, size, offset)
+        locator = struct.pack('<IIQI', 0x07064b50, 0, eocd, 1)
+        struct.pack_into('<HHII', end, 8, 0xffff, 0xffff, 0xffffffff, 0xffffffff)
+        zip64 = self.directory / 'zip64.data'
+        zip64.write_bytes(raw[:eocd] + extended + locator + end)
+        self.assertEqual(probe_model_container(zip64), 'pytorch')
+        broken = self.directory / 'broken-zip64.data'
+        broken_data = bytearray(zip64.read_bytes())
+        struct.pack_into('<Q', broken_data, eocd + len(extended) + 8, len(broken_data) + 1)
+        broken.write_bytes(broken_data)
+        self.assertEqual(probe_model_container(broken), 'unknown')
+        unrelated = self.directory / 'unrelated.zip'
+        with zipfile.ZipFile(unrelated, 'w') as output:
+            output.writestr('archive/readme.txt', 'not a checkpoint')
+        self.assertEqual(probe_model_container(unrelated), 'unknown')
+
+    def test_native_probe_recognizes_legacy_torch_magic_across_pickle_protocols(self):
+        from image_package import probe_model_container
+        for protocol in range(6):
+            with self.subTest(protocol=protocol):
+                path = self.directory / f'legacy-{protocol}.data'
+                path.write_bytes(pickle.dumps(0x1950a86a20f9469cfc6c, protocol=protocol) + b'fixture')
+                self.assertEqual(probe_model_container(path), 'pytorch')
+                self.assertEqual(downloaded_model.model_container_format(path), 'pytorch')
+        generic = self.directory / 'other-pickle.data'
+        generic.write_bytes(pickle.dumps({'not': 'weights'}, protocol=4))
+        self.assertEqual(probe_model_container(generic), 'unknown')
+        truncated = self.directory / 'truncated-legacy.data'
+        truncated.write_bytes(pickle.dumps(0x1950a86a20f9469cfc6c, protocol=4)[:-1])
+        self.assertEqual(probe_model_container(truncated), 'unknown')
+
+    def test_pytorch_index_combines_exact_shard_shapes_for_routing(self):
+        first = self.directory / 'first.data'
+        second = self.directory / 'second.bin'
+        content = pickle.dumps(0x1950a86a20f9469cfc6c, protocol=2) + b'fixture'
+        first.write_bytes(content); second.write_bytes(content)
+        first_name = 'model.diffusion_model.input_blocks.0.0.weight'
+        second_name = 'model.diffusion_model.input_blocks.2.1.transformer_blocks.0.attn2.to_k.weight'
+        index = self.directory / 'renamed.model'
+        index.write_text(json.dumps({'weight_map': {first_name: first.name, second_name: second.name}}))
+        shapes = {first: {first_name: (1, 4, 1, 1)}, second: {second_name: (1, 768)}}
+        def inspect(path):
+            return shapes[path], {}, ['weights-only fixture']
+        with patch.object(downloaded_model, '_torch_checkpoint', side_effect=inspect):
+            report = downloaded_model.inspect_downloaded_model(index)
+            self.assertEqual((report['format'], report['architecture'], report['role']),
+                             ('pytorch-index', 'sd1', 'checkpoint'))
+            self.assertEqual(set(report['sharded_index']['shards']), {str(first), str(second)})
+            shapes[second]['unexpected.weight'] = (1,)
+            with self.assertRaisesRegex(ValueError, 'exactly'):
+                downloaded_model.inspect_downloaded_model(index)
+
+    def test_fp8_fnuz_and_complex_descriptors_are_inspected_without_conversion(self):
+        for dtype, size in (('F8_E4M3FNUZ', 1), ('F8_E5M2FNUZ', 1), ('F8_E4M3FN', 1), ('C64', 8)):
+            with self.subTest(dtype=dtype):
+                header = {'tensor': {'dtype': dtype, 'shape': [1], 'data_offsets': [0, size]}}
+                encoded = json.dumps(header).encode()
+                path = self.directory / (dtype + '.safetensors')
+                path.write_bytes(struct.pack('<Q', len(encoded)) + encoded + bytes(size))
+                shapes, _, _ = downloaded_model._safetensors(path)
+                self.assertEqual(shapes['tensor'], (1,))
 
     def test_moss_transformer_identity_is_tensor_based_and_not_a_native_plan(self):
         for prefix in ("", "model.diffusion_model.", "diffusion_model.", "transformer."):
@@ -325,6 +495,33 @@ class DownloadedModelTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unsafe pickle loading is not permitted"):
                 downloaded_model.inspect_downloaded_model(path)
         self.assertEqual(calls, [{"map_location": "meta", "weights_only": True}])
+
+    def test_legacy_inspection_uses_an_open_stream_for_a_misleading_suffix(self):
+        path = self.directory / 'legacy.safetensors'
+        path.write_bytes(b'PK\x03\x04' + bytes(16))
+        class Tensor:
+            shape = (1, 4, 1, 1)
+        calls = []
+        def load(stream, **kwargs):
+            calls.append((stream, kwargs, stream.read(4)))
+            return {'model.diffusion_model.input_blocks.0.0.weight': Tensor()}
+        with patch.dict(sys.modules, {'torch': SimpleNamespace(Tensor=Tensor, load=load, __version__='2.13.0')}):
+            downloaded_model.inspect_downloaded_model(path)
+        self.assertEqual(calls[0][1], {'map_location': 'meta', 'weights_only': True})
+        self.assertEqual(calls[0][2], b'PK\x03\x04')
+        self.assertTrue(calls[0][0].closed)
+
+    def test_legacy_inspection_detects_source_mutation(self):
+        path = self.directory / 'legacy.ckpt'
+        path.write_bytes(b'PK\x03\x04' + bytes(16))
+        class Tensor:
+            shape = (1, 4, 1, 1)
+        def load(stream, **kwargs):
+            path.write_bytes(b'PK\x03\x04' + b'x' * 16)
+            return {'model.diffusion_model.input_blocks.0.0.weight': Tensor()}
+        with patch.dict(sys.modules, {'torch': SimpleNamespace(Tensor=Tensor, load=load, __version__='2.13.0')}):
+            with self.assertRaisesRegex(RuntimeError, 'changed'):
+                downloaded_model.inspect_downloaded_model(path)
 
     def test_vulnerable_torch_is_rejected_before_loading(self):
         path = self.directory / "old-runtime.ckpt"

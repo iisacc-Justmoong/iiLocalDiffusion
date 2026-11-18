@@ -23,12 +23,23 @@ def main(argv=None):
             print(json.dumps(configuration(args), indent=2, allow_nan=False))
             return 0
         if args.model_input.kind == "local":
+            from video_checkpoint_conversion import prepare as prepare_checkpoints
+            args = prepare_checkpoints(args)
             os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1")
             from pathlib import Path
             if Path(args.model).is_file():
                 from native_video import generate_video
             else:
-                from video_runtime import generate_video
+                from wan_directory import pipeline_class
+                declared = pipeline_class(args.model)
+                if declared in ('WanPipeline', 'WanImageToVideoPipeline'):
+                    from wan_directory import prepare
+                    from native_video import generate_video
+                    args = prepare(args)
+                elif isinstance(declared, str) and declared.startswith('Wan'):
+                    raise ValueError(f'The declared {declared} video directory is not yet supported.')
+                else:
+                    from video_runtime import generate_video
         else:
             from remote_generation import generate_video
         generate_video(args)

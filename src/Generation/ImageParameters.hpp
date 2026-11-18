@@ -49,7 +49,7 @@ inline const std::vector<ImageParameterSpec> &imageParameterSpecs()
         {"refinerModel", "enhancement", std::string{}, 0, 4096},
         {"refinerSwitch", "enhancement", 0.8, 0, 1},
         {"denoiseStrength", "enhancement", 0.25, 0, 1},
-        {"hiresFix", "enhancement", false},
+        {"hiresFix", "enhancement", true},
         {"upscaler", "enhancement", std::string("lanczos"), 0, 0,
             {"nearest", "bilinear", "bicubic", "lanczos", "4x-ultra"}},
         {"upscalerModel", "enhancement", std::string{}, 0, 4096},
@@ -188,8 +188,9 @@ inline std::vector<ImageParameterIssue> nativeParameterIssues(const ImageParamet
         if (text("scheduler") != "auto") reject("scheduler");
         if (std::get<std::int64_t>(p.values.at("clipSkip")) != 0) reject("clipSkip");
         if (std::get<double>(p.values.at("eta")) != 0) reject("eta");
-        if (flag("hiresFix")) reject("hiresFix");
-    } else if (flag("hiresFix")) {
+        if (flag("hiresFix") && text("upscaler") == "4x-ultra") reject("upscaler");
+    }
+    if (flag("hiresFix")) {
         if (text("upscaler") == "4x-ultra" && text("upscalerModel").empty())
             issues.push_back({"upscalerModel", "Choose a local 4x ESRGAN model for learned upscaling."});
         if (std::get<double>(p.values.at("denoiseStrength")) == 0) reject("denoiseStrength");
@@ -212,9 +213,6 @@ inline std::vector<ImageParameterIssue> nativeParameterIssues(const ImageParamet
         if (desktopWorker && c.regionalMask) reject(key + ".regionalMask");
     }
     if (desktopWorker && p.loras.size() > 1) reject("loras");
-    // Both native ABI and checkpoint worker currently cap the actual RGB canvas.
-    for (const auto *key : {"width", "height"})
-        if (std::get<std::int64_t>(p.values.at(key)) > 2048) reject(key);
     return issues;
 }
 } // namespace iiLocalDiffusion

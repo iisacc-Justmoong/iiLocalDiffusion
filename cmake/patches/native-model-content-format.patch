@@ -1,0 +1,18 @@
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -180,12 +180,12 @@ bool ModelLoader::init_from_file(const std::string& file_path, const std::string&
+     } else if (is_gguf_file(file_path)) {
+         LOG_INFO("load %s using gguf format", file_path.c_str());
+         return init_from_gguf_file(file_path, prefix);
++    } else if (is_safetensors_file(file_path)) {
++        LOG_INFO("load %s using safetensors format", file_path.c_str());
++        return init_from_safetensors_file(file_path, prefix);
+     } else if (ends_with(file_path, ".json")) {
+         LOG_INFO("load %s using safetensors index format", file_path.c_str());
+         return init_from_safetensors_index_file(file_path, prefix);
+-    } else if (is_safetensors_file(file_path)) {
+-        LOG_INFO("load %s using safetensors format", file_path.c_str());
+-        return init_from_safetensors_file(file_path, prefix);
+     } else if (is_torch_zip_file(file_path)) {
+         LOG_INFO("load %s using torch zip format", file_path.c_str());
+         return init_from_torch_zip_file(file_path, prefix);

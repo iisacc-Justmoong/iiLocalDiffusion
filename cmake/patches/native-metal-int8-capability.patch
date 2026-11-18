@@ -1,0 +1,18 @@
+--- a/ggml/src/ggml-metal/ggml-metal-device.m
++++ b/ggml/src/ggml-metal/ggml-metal-device.m
+@@ -1114,6 +1114,15 @@ bool ggml_metal_device_supports_op(ggml_metal_device_t dev, const struct ggml_ten
+         }
+     }
+ 
++    // This Metal build has no I8 tensorwise or ConvRot matrix kernels.
++    // Advertise the actual capability so the scheduler executes these nodes
++    // on the CPU rather than compiling a nonexistent Metal pipeline.
++    if ((op->op == GGML_OP_MUL_MAT || op->op == GGML_OP_MUL_MAT_ID) &&
++        ((op->src[0] != NULL && op->src[0]->type == GGML_TYPE_I8) ||
++         (op->src[1] != NULL && op->src[1]->type == GGML_TYPE_I8))) {
++        return false;
++    }
++
+     switch (op->op) {
+         case GGML_OP_SCALE:
+         case GGML_OP_FILL:

@@ -1,5 +1,6 @@
 #include "ModelPackaging/ModelPackaging.hpp"
 #include "ModelPackaging/ModelInspection.hpp"
+#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <iostream>
@@ -28,11 +29,12 @@ int main(int argc, char **argv) {
     std::signal(SIGINT, cancelSignal);
     std::signal(SIGTERM, cancelSignal);
     try {
-        if (argc < 2) throw std::runtime_error("Use scan|create|verify|extract|calibrate|calibrate-file|weight-health|inspect|classify|materialize --input PATH [--output PATH] [--repair-nonfinite true|false] [--select RELATIVE_MODEL] [--exclude RELATIVE_FILE] [--assign-role RELATIVE=ROLE] [--assign-position RELATIVE=main|component] [--modalities image,video,audio,language|auto] [--role ROLE | --asset-path RELATIVE_SOURCE]");
+        if (argc < 2) throw std::runtime_error("Use scan|create|verify|extract|calibrate|calibrate-file|weight-health|probe|inspect|inspect-index|inspect-pytorch-index|inspect-wan-directory|contains-tensors|classify|materialize --input PATH [--tensor NAME] [--output PATH] [--repair-nonfinite true|false] [--select RELATIVE_MODEL] [--exclude RELATIVE_FILE] [--assign-role RELATIVE=ROLE] [--assign-position RELATIVE=main|component] [--modalities image,video,audio,language|auto] [--role ROLE | --asset-path RELATIVE_SOURCE]");
         const std::string command = argv[1];
         std::filesystem::path input,output;
         std::vector<std::string> excluded;
         std::vector<std::filesystem::path> selected;
+        std::vector<std::string> tensorNames;
         std::map<std::string,iild::ModelPackagingAssignment> choices;
         std::string modalitySelection;
         std::string assetRole = "text_encoder", assetPath;
@@ -46,6 +48,7 @@ int main(int argc, char **argv) {
             else if (key == "--output") output = value;
             else if (key == "--exclude") excluded.push_back(value);
             else if (key == "--select") selected.emplace_back(value);
+            else if (key == "--tensor") tensorNames.push_back(value);
             else if (key == "--assign-role" || key == "--assign-position") {
                 const auto separator=value.rfind('=');
                 if (separator==std::string::npos || separator==0 || separator+1==value.size())
@@ -68,11 +71,37 @@ int main(int argc, char **argv) {
         if (input.empty()) throw std::runtime_error("Choose an input folder or model package");
         if (!selected.empty() && command != "scan" && command != "create")
             throw std::runtime_error("--select is supported only for scan and create");
+        if (!tensorNames.empty() && command != "contains-tensors")
+            throw std::runtime_error("--tensor is supported only for contains-tensors");
         if (!choices.empty() && command != "scan" && command != "create")
             throw std::runtime_error("Assignments are supported only for scan and create");
         std::vector<iild::ModelPackagingAssignment> assignments;
         for (const auto &[path,choice] : choices) assignments.push_back(choice);
         if (repairNonfinite && command != "calibrate" && command != "calibrate-file") throw std::runtime_error("Numeric repair is available only during calibration");
+        if (command == "probe") {
+            std::cout << "{\"schema\":\"iild-model-container-probe-v1\",\"format\":"
+                      << quote(iild::detectModelContainer(input)) << "}\n" << std::flush;
+            return 0;
+        }
+        if (command == "contains-tensors") {
+            std::vector<std::string_view> names;
+            names.reserve(tensorNames.size());
+            for (const auto &name:tensorNames) names.emplace_back(name);
+            const auto probe=iild::probeModelTensorNames(input,names);
+            const auto &found=probe.matches;
+            const auto present=std::all_of(names.begin(),names.end(),[&](const auto name) {
+                return std::binary_search(found.begin(),found.end(),name);
+            });
+            std::cout << "{\"schema\":\"iild-model-tensor-presence-v1\",\"present\":"
+                      << (present ? "true" : "false") << ",\"embedded_package\":"
+                      << (probe.embeddedPackage ? "true" : "false") << ",\"matches\":[";
+            for (std::size_t i=0;i<found.size();++i) {
+                if (i) std::cout << ',';
+                std::cout << quote(found[i]);
+            }
+            std::cout << "]}\n" << std::flush;
+            return 0;
+        }
         if (command == "inspect" || command == "classify") {
             if (command == "classify") {
                 if (modalitySelection.empty()) throw std::runtime_error("Choose --modalities image,video,audio,language or auto");
@@ -125,7 +154,10 @@ int main(int argc, char **argv) {
             report = selected.empty()
                 ? iild::createModelPackageWithAssignments(input,output,assignments,excluded,stop.get_token(),observer)
                 : iild::createModelPackageFromSelectionWithAssignments(input,selected,output,assignments,excluded,stop.get_token(),observer);
-        } else if (command == "verify") report = iild::verifyModelPackage(input,stop.get_token(),observer);
+        } else if (command == "inspect-index") report = iild::safetensorsIndexJson(iild::inspectSafetensorsIndex(input));
+        else if (command == "inspect-pytorch-index") report = iild::pyTorchIndexJson(iild::inspectPyTorchIndex(input));
+        else if (command == "inspect-wan-directory") report = iild::wanPipelineDirectoryJson(iild::inspectWanPipelineDirectory(input));
+        else if (command == "verify") report = iild::verifyModelPackage(input,stop.get_token(),observer);
         else if (command == "extract") {
             if (output.empty()) throw std::runtime_error("Choose a new extraction folder");
             report = iild::extractModelPackage(input,output,stop.get_token(),observer);

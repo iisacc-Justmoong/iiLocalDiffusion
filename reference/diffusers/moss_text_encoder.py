@@ -75,8 +75,8 @@ def resolve_fallback(args, index, folder):
     if index.get('text_encoder') != ['transformers', 'Qwen3_5Model']:
         raise ValueError('MOSS requires a Qwen3_5Model text encoder declaration.')
     component = Path(folder) / 'text_encoder'
-    if any(path.is_file() and (path.suffix in ('.safetensors', '.bin', '.pt', '.ckpt')
-                               or path.name.endswith('.index.json')) for path in component.glob('*')):
+    from directory_checkpoint_conversion import component_has_weights
+    if component_has_weights(component):
         return None, 'model'
     item = None
     for root, manifest in resource_catalogs(getattr(args, 'generation_resources', None)):

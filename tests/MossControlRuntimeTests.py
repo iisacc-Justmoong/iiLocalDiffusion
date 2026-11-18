@@ -178,6 +178,93 @@ class MossControlRuntimeTests(unittest.TestCase):
             self.assertFalse(load_text.call_args.kwargs['trust_remote_code'])
             self.assertTrue(load_tokenizer.call_args.kwargs['local_files_only'])
 
+    def test_vetted_loader_accepts_explicit_pytorch_vae_without_inference(self):
+        import torch
+        import diffusers as d
+        import resource_fixture
+        import moss_runtime
+        from types import SimpleNamespace
+        from vae_defaults import resolve_vae_selection
+        from VaeDefaultsRuntimeTests import legacy_vae_name
+        from vendor_moss.pipeline import MOSSImageTransformer, MOSSImageScheduler
+        torch.set_num_threads(2)
+        with resource_fixture.TemporaryDirectory(prefix='moss-legacy-vae-') as temporary:
+            root = Path(temporary);folder = root / 'model'
+            transformer = MOSSImageTransformer(dim=16, ffn_dim=32, num_heads=2, num_layers=1,
+                                              text_dim=16, freq_dim=16, latent_channels=128).eval()
+            vae = d.AutoencoderKLFlux2(block_out_channels=(8, 8, 8, 8), norm_num_groups=4,
+                                       layers_per_block=1, latent_channels=32, sample_size=64).eval()
+            transformer.save_pretrained(folder / 'transformer', safe_serialization=True)
+            vae.save_config(folder / 'vae')
+            MOSSImageScheduler().save_pretrained(folder / 'scheduler')
+            (folder / 'text_encoder').mkdir();(folder / 'tokenizer').mkdir()
+            index = {'_class_name': 'MOSSImagePipeline', **moss_runtime.COMPONENTS}
+            text_class = type('Qwen3_5Model', (torch.nn.Identity,), {})
+            for legacy in (False, True):
+                with self.subTest(legacy=legacy):
+                    state = {}
+                    for name, tensor in vae.state_dict().items():
+                        key = legacy_vae_name(name) if legacy else name
+                        if legacy and '.mid.attn_1.' in key and tensor.ndim == 2 and key.endswith('.weight'):
+                            tensor = tensor[:, :, None, None].contiguous()
+                        state[key] = tensor
+                    source = root / ('legacy-vae.pt' if legacy else 'external-vae.pt')
+                    torch.save(state, source)
+                    before = source.read_bytes()
+                    args = SimpleNamespace(vae=str(source), pipeline_class=None, source_kind='directory',
+                                           model=str(folder), generation_resources=None)
+                    selection, status = resolve_vae_selection(args, index, folder)
+                    self.assertEqual((status, selection.source_kind, selection.container_kind), ('explicit', 'file', 'pytorch'))
+                    with patch('transformers.AutoModel.from_pretrained',
+                               return_value=(text_class(), {'missing_keys': [], 'unexpected_keys': []})), \
+                         patch('transformers.AutoTokenizer.from_pretrained', return_value=None):
+                        pipeline = moss_runtime.load(folder, torch.float32, selection, d, vae_cache_dir=root / 'cache')
+                    for name, expected in vae.state_dict().items():
+                        torch.testing.assert_close(pipeline.vae.state_dict()[name], expected, rtol=0, atol=0, msg=name)
+                    self.assertEqual(source.read_bytes(), before)
+
+    def test_vetted_loader_converts_tiny_sharded_variant_without_inference(self):
+        import torch
+        import diffusers as d
+        import resource_fixture
+        import directory_checkpoint_conversion
+        import moss_runtime
+        from vendor_moss.pipeline import MOSSImageTransformer, MOSSImageScheduler
+        torch.set_num_threads(2)
+        with resource_fixture.TemporaryDirectory(prefix='moss-variant-loader-') as temporary:
+            root = Path(temporary);folder = root / 'model'
+            model = MOSSImageTransformer(dim=16, ffn_dim=32, num_heads=2, num_layers=1,
+                                         text_dim=16, freq_dim=16, latent_channels=8).eval()
+            vae = d.AutoencoderKLFlux2(block_out_channels=(8, 8, 8, 8), norm_num_groups=4,
+                                       layers_per_block=1, latent_channels=2, sample_size=64).eval()
+            model.save_pretrained(folder / 'transformer', safe_serialization=False,
+                                  variant='fp16', max_shard_size='32KB')
+            vae.save_pretrained(folder / 'vae', safe_serialization=True)
+            MOSSImageScheduler().save_pretrained(folder / 'scheduler')
+            (folder / 'text_encoder').mkdir();(folder / 'tokenizer').mkdir()
+            (folder / 'text_encoder/model.safetensors').write_bytes(b'mocked encoder')
+            index = {'_class_name': 'MOSSImagePipeline', **moss_runtime.COMPONENTS}
+            (folder / 'model_index.json').write_text(json.dumps(index))
+            shard_index = folder / 'transformer/diffusion_pytorch_model.bin.index.fp16.json'
+            self.assertTrue(shard_index.is_file())
+            original = {path: path.read_bytes() for path in (folder / 'transformer').glob('*.bin')}
+            original[shard_index] = shard_index.read_bytes()
+            self.assertEqual(directory_checkpoint_conversion.automatic_variant(folder, index), 'fp16')
+            text_class = type('Qwen3_5Model', (torch.nn.Identity,), {})
+            with directory_checkpoint_conversion.prepare(folder, index, root / 'cache', root / 'output', 'fp16') as prepared:
+                with patch('transformers.AutoModel.from_pretrained',
+                           return_value=(text_class(), {'missing_keys': [], 'unexpected_keys': []})) as load_text, \
+                     patch('transformers.AutoTokenizer.from_pretrained', return_value=None):
+                    loaded = moss_runtime.load(prepared.path, torch.float32, None, d, variant='fp16')
+                self.assertNotIn('variant', load_text.call_args.kwargs)
+                actual = loaded.transformer.state_dict()
+                self.assertEqual(set(actual), set(model.state_dict()))
+                for name, value in model.state_dict().items():
+                    self.assertTrue(torch.equal(actual[name], value), name)
+                self.assertEqual(len(prepared.conversions), 1)
+            self.assertEqual({path: path.read_bytes() for path in original}, original)
+            self.assertFalse((root / 'output').exists())
+
     def test_rapid_bfloat16_lora_is_unmerged_and_restored_on_failure(self):
         import torch
         from safetensors.torch import save_file

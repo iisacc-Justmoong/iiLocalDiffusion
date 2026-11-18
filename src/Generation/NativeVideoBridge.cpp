@@ -22,7 +22,8 @@ std::string metadata(const iiLocalDiffusion::NativeVideoResult &result, bool low
 }
 }
 static iild_native_video_result_v1 *generateVideo(const iild_native_video_request_v1 *input,
-    iild_native_progress_v1 progress, iild_native_video_frame_v1 frame, void *user, bool lowVram)
+    iild_native_progress_v1 progress, iild_native_video_frame_v1 frame, void *user, bool lowVram,
+    const iild_native_video_components_v1 *extension, bool requireExtension)
 {
     auto result = std::make_unique<iild_native_video_result_v1>();
     iiLocalDiffusion::NativeVideoResult output;
@@ -31,6 +32,8 @@ static iild_native_video_result_v1 *generateVideo(const iild_native_video_reques
             || input->shot_count > 256 || !frame || input->width < 32 || input->height < 32
             || input->width > 4096 || input->height > 4096)
             throw std::invalid_argument("Invalid native video ABI request");
+        if (requireExtension && (!extension || extension->size != sizeof(*extension)))
+            throw std::invalid_argument("Invalid native video components ABI request");
         iiLocalDiffusion::NativeVideoRequest request;
         request.modelPath = text(input->model); request.textEncoderPath = text(input->text_encoder);
         request.assetCacheDirectory = text(input->asset_cache);
@@ -65,19 +68,39 @@ static iild_native_video_result_v1 *generateVideo(const iild_native_video_reques
         const auto onFrame = [&](std::size_t shot, int index, int width, int height, std::span<const std::uint8_t> rgb) {
                 if (frame(shot, index, width, height, rgb.data(), rgb.size(), user)) cancelled = true;
             };
-        output = lowVram ? iiLocalDiffusion::generateNativeVideoLowVram(request, cancelled, onProgress, onFrame)
-                         : iiLocalDiffusion::generateNativeVideo(request, cancelled, onProgress, onFrame);
+        if (extension) {
+            iiLocalDiffusion::NativeVideoComponents components;
+            components.vaePath=text(extension->video_vae);
+            components.highNoiseModelPath=text(extension->high_noise_model);
+            components.visionEncoderPath=text(extension->vision_encoder);
+            components.moeBoundary=extension->moe_boundary;
+            components.highNoiseSteps=extension->high_noise_steps;
+            components.highNoiseGuidance=extension->high_noise_guidance;
+            output = lowVram ? iiLocalDiffusion::generateNativeVideoLowVramWithComponents(request,components,cancelled,onProgress,onFrame)
+                             : iiLocalDiffusion::generateNativeVideoWithComponents(request,components,cancelled,onProgress,onFrame);
+        } else {
+            output = lowVram ? iiLocalDiffusion::generateNativeVideoLowVram(request, cancelled, onProgress, onFrame)
+                             : iiLocalDiffusion::generateNativeVideo(request, cancelled, onProgress, onFrame);
+        }
     } catch (const std::exception &error) { output.error = error.what(); }
     result->metadata = metadata(output, lowVram);
     return result.release();
 }
 extern "C" iild_native_video_result_v1 *iild_native_video_generate_v1(const iild_native_video_request_v1 *input,
     iild_native_progress_v1 progress, iild_native_video_frame_v1 frame, void *user) {
-    return generateVideo(input, progress, frame, user, false);
+    return generateVideo(input, progress, frame, user, false, nullptr, false);
 }
 extern "C" iild_native_video_result_v1 *iild_native_video_generate_low_vram_v1(const iild_native_video_request_v1 *input,
     iild_native_progress_v1 progress, iild_native_video_frame_v1 frame, void *user) {
-    return generateVideo(input, progress, frame, user, true);
+    return generateVideo(input, progress, frame, user, true, nullptr, false);
+}
+extern "C" iild_native_video_result_v1 *iild_native_video_generate_with_components_v1(const iild_native_video_request_v1 *input,
+    const iild_native_video_components_v1 *extension, iild_native_progress_v1 progress, iild_native_video_frame_v1 frame, void *user) {
+    return generateVideo(input, progress, frame, user, false, extension, true);
+}
+extern "C" iild_native_video_result_v1 *iild_native_video_generate_low_vram_with_components_v1(const iild_native_video_request_v1 *input,
+    const iild_native_video_components_v1 *extension, iild_native_progress_v1 progress, iild_native_video_frame_v1 frame, void *user) {
+    return generateVideo(input, progress, frame, user, true, extension, true);
 }
 extern "C" const char *iild_native_video_metadata_v1(const iild_native_video_result_v1 *result) {
     return result ? result->metadata.c_str() : "{\"error\":\"Missing native video result\"}";

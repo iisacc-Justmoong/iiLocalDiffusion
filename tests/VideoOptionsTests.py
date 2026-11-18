@@ -3,8 +3,10 @@
 import resource_fixture
 
 import json
+import pickle
 from pathlib import Path
 import subprocess
+import struct
 import sys
 import unittest
 from local_model_fixture import local_parser, MODEL
@@ -40,6 +42,79 @@ class VideoOptionsTests(unittest.TestCase):
             model.write_bytes(b"fixture")
             with self.subTest(suffix=suffix), self.assertRaises(ValueError):
                 self.request("--text-encoder", str(model))
+
+    def test_renamed_video_and_encoder_containers_follow_their_content(self):
+        header = b'{"tensor":{"dtype":"U8","shape":[1],"data_offsets":[0,1]}}'
+        safe = struct.pack('<Q', len(header)) + header + b'x'
+        for suffix, contents in (('.data', safe), ('.bin', b'GGUF' + bytes(20)), ('.gguf', safe)):
+            with self.subTest(suffix=suffix):
+                model = self.directory / ('video' + suffix)
+                encoder = self.directory / ('encoder' + suffix)
+                model.write_bytes(contents); encoder.write_bytes(contents)
+                args = self.request('--model', str(model), '--text-encoder', str(encoder))
+                self.assertEqual(args.model, str(model.resolve()))
+                self.assertEqual(args.text_encoder, encoder.resolve())
+        for name, contents in (('bad.bin', b'not a tensor container'),
+                               ('bad.onnx', safe)):
+            path = self.directory / name
+            path.write_bytes(contents)
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.request('--model', str(path))
+            with self.subTest(encoder=name), self.assertRaises(ValueError):
+                self.request('--text-encoder', str(path))
+
+    def test_native_video_components_round_trip_and_require_local_files(self):
+        files = {}
+        for name in ('model', 'vae', 'high', 'vision'):
+            path = self.directory / (name + '.safetensors')
+            path.write_bytes(b'fixture')
+            files[name] = path
+        args = self.request('--model', str(files['model']), '--video-vae', str(files['vae']),
+                            '--high-noise-model', str(files['high']), '--vision-encoder', str(files['vision']),
+                            '--moe-boundary', '0.81', '--high-noise-steps', '7', '--high-noise-guidance', '3.5')
+        self.assertEqual((args.video_vae, args.high_noise_model, args.vision_encoder),
+                         (files['vae'].resolve(), files['high'].resolve(), files['vision'].resolve()))
+        self.assertEqual((args.moe_boundary, args.high_noise_steps, args.high_noise_guidance), (0.81, 7, 3.5))
+        saved = self.document('video-components.json', configuration(args))
+        restored = self.request('--config', str(saved))
+        self.assertEqual((restored.video_vae, restored.high_noise_model, restored.vision_encoder),
+                         (args.video_vae, args.high_noise_model, args.vision_encoder))
+        self.assertEqual((restored.moe_boundary, restored.high_noise_steps, restored.high_noise_guidance),
+                         (args.moe_boundary, args.high_noise_steps, args.high_noise_guidance))
+        with self.assertRaisesRegex(ValueError, 'native.*file'):
+            self.request('--video-vae', str(files['vae']))
+        bad = self.directory / 'decoder.ONNX'; bad.write_bytes(b'fixture')
+        for option in ('--video-vae', '--high-noise-model', '--vision-encoder'):
+            with self.subTest(option=option), self.assertRaises(ValueError):
+                self.request('--model', str(files['model']), option, str(bad))
+        for option, value in (('--moe-boundary', 'nan'), ('--moe-boundary', '1.1'),
+                              ('--high-noise-steps', '0'), ('--high-noise-guidance', '-2')):
+            with self.subTest(option=option), self.assertRaises(ValueError):
+                self.request('--model', str(files['model']), '--high-noise-model', str(files['high']), option, value)
+        deferred = self.request('--model', str(files['model']), '--moe-boundary', '0.8')
+        self.assertIsNone(deferred.high_noise_model)
+        self.assertEqual(deferred.moe_boundary, 0.8)
+
+    def test_video_output_cannot_replace_a_component_shard(self):
+        model = self.directory / 'model.safetensors'
+        model.write_bytes(b'fixture')
+        shard = self.directory / 'input.mp4'
+        header = b'{"vae.weight":{"dtype":"U8","shape":[1],"data_offsets":[0,1]}}'
+        shard.write_bytes(struct.pack('<Q', len(header)) + header + b'x')
+        index = self.document('vae.safetensors.index.json', {'weight_map': {'vae.weight': shard.name}})
+        with self.assertRaisesRegex(ValueError, 'must not replace'):
+            self.request('--model', str(model), '--video-vae', str(index), '--output', str(shard), '--overwrite')
+
+    def test_pytorch_shard_index_is_a_replayable_video_input_and_protects_shards(self):
+        payload = pickle.dumps(0x1950a86a20f9469cfc6c, protocol=2) + b'fixture'
+        first, second = self.directory / 'part.bin', self.directory / 'input.mp4'
+        first.write_bytes(payload);second.write_bytes(payload)
+        index = self.document('video-index.json', {'weight_map': {'first': first.name, 'second': second.name}})
+        args = self.request('--model', str(index), '--text-encoder', str(index), '--output', str(self.directory/'movie.mp4'))
+        self.assertEqual((args.model, args.text_encoder), (str(index), index))
+        self.assertEqual(configuration(args)['model'], str(index))
+        with self.assertRaisesRegex(ValueError, 'must not replace'):
+            self.request('--model', str(index), '--output', str(second), '--overwrite')
 
     def test_defaults_make_a_five_second_temporal_generation_plan(self):
         args = self.request()

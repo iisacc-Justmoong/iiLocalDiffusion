@@ -21,6 +21,13 @@ struct NativeVideoRequest {
     bool cpuTextEncoding = false;
     std::vector<NativeVideoShot> shots;
 };
+// Separate from NativeVideoRequest to preserve the established C++ ABI.
+// Negative one leaves the engine's expert sampling default unchanged.
+struct NativeVideoComponents {
+    std::filesystem::path vaePath, highNoiseModelPath, visionEncoderPath;
+    float moeBoundary = -1, highNoiseGuidance = -1;
+    int highNoiseSteps = -1;
+};
 struct NativeVideoResult {
     bool cancelled = false;
     std::string error;
@@ -39,4 +46,10 @@ using NativeVideoFrameObserver = std::function<void(std::size_t shot, int index,
 [[nodiscard]] IILD_EXPORT NativeVideoResult generateNativeVideoLowVram(const NativeVideoRequest &request,
     const std::atomic_bool &cancelled, const NativeProgressCallback &progress,
     const NativeVideoFrameObserver &frame);
+[[nodiscard]] IILD_EXPORT NativeVideoResult generateNativeVideoWithComponents(const NativeVideoRequest &request,
+    const NativeVideoComponents &components, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const NativeVideoFrameObserver &frame);
+[[nodiscard]] IILD_EXPORT NativeVideoResult generateNativeVideoLowVramWithComponents(const NativeVideoRequest &request,
+    const NativeVideoComponents &components, const std::atomic_bool &cancelled,
+    const NativeProgressCallback &progress, const NativeVideoFrameObserver &frame);
 }

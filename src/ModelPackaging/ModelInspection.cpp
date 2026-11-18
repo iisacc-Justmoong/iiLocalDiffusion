@@ -1,13 +1,18 @@
 #include "ModelInspection.hpp"
+#include "ModelPackaging.hpp"
+#include "ModelGGUFInspection.hpp"
+#include "ModelWanNames.hpp"
 #include <iiFileProviderNative.h>
 #include <iiFileProviderPresentation.h>
 #include <json-c/json.h>
 #include <algorithm>
 #include <array>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <system_error>
@@ -85,6 +90,12 @@ std::string cacheKey(const fs::path &path) {
     if (isDirectory(path)) for (const auto *name : {"model_index.json", "config.json", "transformer/config.json", "vae/config.json"})
         result += '|' + identity(path / name);
     for (const auto &sidecar : sidecars(path)) result += '|' + identity(sidecar);
+    const auto container=!isDirectory(path)?detectModelContainer(path):std::string{};
+    if (hasSafetensorsIndexSuffix(path.filename().string()) || container=="safetensors-index" || container=="pytorch-index") {
+        try {
+            for (const auto &shard : safetensorsIndexShardPaths(path)) result += '|' + identity(shard);
+        } catch (...) { result += "|invalid-shard-index"; }
+    }
     return result;
 }
 Json readJson(const fs::path &path, ModelInspection &result) {
@@ -143,13 +154,30 @@ void className(const std::string &name, ModelInspection &result) {
         "LTX2VideoTransformer3DModel", "AVTransformer3DModel"};
     static const std::set<std::string> ltx1{"LTXPipeline", "LTXConditionPipeline", "LTXImageToVideoPipeline",
         "LTXVideoTransformer3DModel", "LTXModel"};
+    static const std::map<std::string,std::string,std::less<>> videoClasses{
+        {"WanPipeline","Wan"},{"WanImageToVideoPipeline","Wan"},{"WanVideoToVideoPipeline","Wan"},
+        {"WanAnimatePipeline","Wan"},{"WanVACEPipeline","Wan"},{"WanTransformer3DModel","Wan"},
+        {"WanVACETransformer3DModel","Wan"},{"WanAnimateTransformer3DModel","Wan"},
+        {"HunyuanVideoPipeline","Hunyuan Video"},{"HunyuanVideoImageToVideoPipeline","Hunyuan Video"},
+        {"HunyuanVideoFramepackPipeline","Hunyuan Video"},{"HunyuanVideoTransformer3DModel","Hunyuan Video"},
+        {"HunyuanVideoFramepackTransformer3DModel","Hunyuan Video"},
+        {"CogVideoXPipeline","CogVideoX"},{"CogVideoXImageToVideoPipeline","CogVideoX"},
+        {"CogVideoXVideoToVideoPipeline","CogVideoX"},{"CogVideoXFunControlPipeline","CogVideoX"},
+        {"CogVideoXTransformer3DModel","CogVideoX"},{"MochiPipeline","Mochi"},{"MochiTransformer3DModel","Mochi"},
+        {"StableVideoDiffusionPipeline","Stable Video Diffusion"},{"UNetSpatioTemporalConditionModel","Stable Video Diffusion"}};
     if (ltx2.contains(name)) {
         result.architecture = name;
         if (!result.family.starts_with("LTX 2.")) result.family = "LTX 2";
         result.detectedModalities = {"audio", "video"}; result.recognized = true;
-    } else if (ltx1.contains(name) && result.family != "LTX 2") {
+    } else if (ltx1.contains(name) && !result.family.starts_with("LTX 2")) {
         result.architecture = name; result.family = "LTX";
         result.detectedModalities = {"video"}; result.recognized = true;
+    } else if (const auto found=videoClasses.find(name); !result.recognized && found!=videoClasses.end()) {
+        result.architecture=name; result.family=found->second;
+        result.detectedModalities={"video"}; result.recognized=true;
+    } else if (!result.recognized && name == "MOSSImagePipeline") {
+        result.architecture = name; result.family = "MOSS Image";
+        result.detectedModalities = {"image"}; result.recognized = true;
     } else if (!result.recognized && (name.starts_with("StableDiffusion") || name.starts_with("Flux")
         || name == "SD3Transformer2DModel" || name == "UNet2DConditionModel")) {
         result.architecture = name; result.family = name.starts_with("Flux") ? "Flux" : "Stable Diffusion";
@@ -161,40 +189,165 @@ void config(json_object *root, ModelInspection &result) {
     auto transformer = objectValue(field(root, "transformer"));
     if (transformer) className(string(field(transformer.get(), "_class_name")), result);
 }
+void describeMetadata(json_object *metadata, ModelInspection &result) {
+    if (const auto version=string(field(metadata, "model_version")); !version.empty()) result.version=version;
+    auto modelConfig = objectValue(field(metadata, "config"));
+    if (modelConfig) config(modelConfig.get(), result);
+    className(string(field(metadata, "_class_name")), result);
+    auto manifest = objectValue(field(metadata, "iild_package_manifest"));
+    const auto family = manifest ? string(field(manifest.get(), "family")) : std::string{};
+    if (family == "LTX 2" || family.starts_with("LTX 2.")) {
+        className("LTX2Pipeline", result); result.family = family;
+    }
+}
+void ggufArchitecture(json_object *metadata, ModelInspection &result) {
+    // This is a declared architecture, not a filename or a model title.
+    // Both LTX 1 and LTX 2 use "ltxv"; configuration/signatures refine it.
+    if (result.recognized) return;
+    const auto architecture = string(field(metadata, "general.architecture"));
+    if (architecture == "ltxv") {
+        className("LTXPipeline", result);
+    } else if (detail::isWanCompatibilityGgufArchitecture(architecture)) {
+        // This tag is reused by image models; require an actual model signature.
+        return;
+    } else if (detail::isDiffusionGgufArchitecture(architecture)) {
+        result.architecture = architecture;
+        result.family = architecture;
+        result.detectedModalities = {"image"};
+        result.recognized = true;
+    }
+}
+struct MossSignature {
+    using Shape = std::array<std::uint64_t,2>;
+    std::array<std::array<std::optional<Shape>,3>,4> shapes{};
+    void add(std::string_view name,Shape shape) {
+        constexpr std::array<std::string_view,4> prefixes{"", "model.diffusion_model.", "diffusion_model.", "transformer."};
+        constexpr std::array<std::string_view,3> names{"video_embedder.weight", "final_linear_video.weight", "layers.0.proj.qkv.weight"};
+        for (std::size_t i=0;i<prefixes.size();++i) {
+            if (!name.starts_with(prefixes[i])) continue;
+            for (std::size_t j=0;j<names.size();++j)
+                if (name.substr(prefixes[i].size())==names[j]) shapes[i][j]=shape;
+        }
+    }
+    bool matches() const {
+        for (const auto &group : shapes) {
+            if (!group[0] || !group[1] || !group[2]) continue;
+            const auto [width,latent]=*group[0];
+            if (width && latent && width<=std::numeric_limits<std::uint64_t>::max()/3
+                && *group[1]==Shape{latent,width} && *group[2]==Shape{3*width,width}) return true;
+        }
+        return false;
+    }
+};
+
+struct WanSignature {
+    std::array<std::array<bool,2>,4> present{};
+    void add(std::string_view name) {
+        constexpr std::array<std::string_view,4> prefixes{"", "model.diffusion_model.", "diffusion_model.", "transformer."};
+        constexpr std::array<std::string_view,2> names{"patch_embedding.weight", "blocks.0.cross_attn.norm_k.weight"};
+        for (std::size_t i=0;i<prefixes.size();++i) {
+            if (!name.starts_with(prefixes[i])) continue;
+            for (std::size_t j=0;j<names.size();++j)
+                if (name.substr(prefixes[i].size())==names[j]) present[i][j]=true;
+        }
+    }
+    bool matches() const {
+        return std::any_of(present.begin(),present.end(),[](const auto &entry){return entry[0] && entry[1];});
+    }
+};
+
 ModelInspection inspect(const fs::path &path) {
     ModelInspection result;
     Json metadata(nullptr, json_object_put);
+    Json embeddedMetadata(nullptr, json_object_put);
     try {
         if (isDirectory(path)) {
             for (const auto *name : {"model_index.json", "config.json", "transformer/config.json"})
                 if (isFile(path / name)) { auto root = readJson(path / name, result); config(root.get(), result); }
         } else if (isFile(path)) {
-            auto header = readHeader(path, result);
-            metadata = objectValue(field(header.get(), "__metadata__"));
-            if (metadata) {
-                result.version = string(field(metadata.get(), "model_version"));
-                auto modelConfig = objectValue(field(metadata.get(), "config"));
-                if (modelConfig) config(modelConfig.get(), result);
-                className(string(field(metadata.get(), "_class_name")), result);
-                auto manifest = objectValue(field(metadata.get(), "iild_package_manifest"));
-                const auto family = manifest ? string(field(manifest.get(), "family")) : std::string{};
-                if (family == "LTX 2" || family.starts_with("LTX 2.")) {
-                    className("LTX2Pipeline", result); result.family = family;
-                }
-            }
             bool audio = false, projection = false, transformer = false;
-            json_object_object_foreach(header.get(), key, value) {
-                (void)value;
-                const std::string_view name(key);
+            MossSignature moss;
+            WanSignature wan;
+            detail::WanDiffusersSignature wanDiffusers;
+            const auto inspectName = [&](std::string_view name) {
                 audio = audio || name.starts_with("audio_vae.");
                 projection = projection || name.starts_with("text_embedding_projection.audio_aggregate_embed.");
                 transformer = transformer || name.starts_with("model.diffusion_model.transformer_blocks.");
+                wan.add(name);
+                wanDiffusers.add(name);
+            };
+            const auto container=detectModelContainer(path);
+            const bool gguf = container == "gguf";
+            if (gguf) {
+                auto catalog = detail::inspectGgufCatalog(path);
+                result.metadataBytesRead += catalog.metadataBytesRead;
+                metadata = parse(catalog.metadataJson);
+                for (const auto &name : catalog.tensorNames) inspectName(name);
+            } else if (container == "safetensors-index") {
+                const auto catalog=inspectSafetensorsIndex(path);
+                result.metadataBytesRead += catalog.metadataBytesRead;
+                metadata=Json(json_object_new_object(),json_object_put);
+                for (const auto &[key,value] : catalog.sharedMetadata)
+                    json_object_object_add(metadata.get(),key.c_str(),json_object_new_string_len(value.data(),static_cast<int>(value.size())));
+                for (const auto &tensor : catalog.tensors) {
+                    inspectName(tensor.name);
+                    if (tensor.shape.size()==2) moss.add(tensor.name,{tensor.shape[0],tensor.shape[1]});
+                }
+            } else if (container == "pytorch-index") {
+                const auto catalog=inspectPyTorchIndex(path);
+                result.metadataBytesRead+=catalog.metadataBytesRead;
+                for (const auto &tensor:catalog.tensors) inspectName(tensor.name);
+                result.diagnostic = "PyTorch index candidate; tensor validation is deferred to the weights-only worker";
+            } else if (container == "pytorch") {
+                result.diagnostic = "PyTorch checkpoint candidate; architecture inspection is deferred to the weights-only worker";
+            } else {
+                auto header = readHeader(path, result);
+                metadata = objectValue(field(header.get(), "__metadata__"));
+                bool opaqueModelAsset=false;
+                json_object_object_foreach(header.get(), key, value) {
+                    opaqueModelAsset=opaqueModelAsset || std::string_view(key).starts_with("__iild_assets__/model/");
+                    inspectName(key);
+                    auto *shape=field(value,"shape");
+                    if (!shape || !json_object_is_type(shape,json_type_array) || json_object_array_length(shape)!=2) continue;
+                    auto *a=json_object_array_get_idx(shape,0), *b=json_object_array_get_idx(shape,1);
+                    if (!json_object_is_type(a,json_type_int) || !json_object_is_type(b,json_type_int)) continue;
+                    const auto first=json_object_get_int64(a),second=json_object_get_int64(b);
+                    if (first>0 && second>0) moss.add(key,{static_cast<std::uint64_t>(first),static_cast<std::uint64_t>(second)});
+                }
+                if (opaqueModelAsset && metadata && field(metadata.get(),"iild_package_schema")) {
+                    const auto packageHeaderBytes=result.metadataBytesRead;
+                    if (auto embedded=detail::inspectEmbeddedMainGguf(path)) {
+                        result.metadataBytesRead+=embedded->catalog.metadataBytesRead;
+                        embeddedMetadata=parse(embedded->catalog.metadataJson);
+                        for (const auto &name : embedded->catalog.tensorNames) inspectName(name);
+                    } else result.metadataBytesRead+=packageHeaderBytes;
+                }
             }
+            if (embeddedMetadata) {
+                describeMetadata(embeddedMetadata.get(), result);
+                ggufArchitecture(embeddedMetadata.get(), result);
+            }
+            if (metadata) {
+                describeMetadata(metadata.get(), result);
+                if (gguf) ggufArchitecture(metadata.get(), result);
+            }
+            const bool matchesWan=wan.matches() || wanDiffusers.prefix().has_value();
             if (audio && projection && transformer) className("AVTransformer3DModel", result);
+            else if (!result.recognized && matchesWan && moss.matches())
+                result.diagnostic="Conflicting Wan and MOSS tensor signatures";
+            else if (!result.recognized && matchesWan) {
+                result.architecture="wan"; result.family="Wan";
+                result.detectedModalities={"video"}; result.recognized=true;
+            }
+            else if (!result.recognized && moss.matches()) {
+                result.architecture="moss-image"; result.family="MOSS Image";
+                result.detectedModalities={"image"}; result.recognized=true;
+            }
         } else result.diagnostic = "Model is not locally available; only companion metadata can be inspected";
     } catch (const std::exception &error) { result.diagnostic = error.what(); }
     result.modalities = result.detectedModalities;
     try {
+        if (embeddedMetadata) declaration(embeddedMetadata.get(), result);
         if (metadata) declaration(metadata.get(), result);
         for (const auto &sidecar : sidecars(path)) if (isFile(sidecar)) {
             auto root = readJson(sidecar, result); declaration(root.get(), result);

@@ -1,4 +1,5 @@
 #include "Generation/ImageParameters.hpp"
+#include "Generation/NativeDiffusion.hpp"
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -9,6 +10,8 @@ int main()
 {
     try {
         auto p = ImageParameters::defaults();
+        check(std::get<bool>(p.values.at("hiresFix")));
+        check(NativeModelComponents{}.hires && NativeAdvancedControls{}.hires);
         check(validateImageParameters(p).empty()); // Empty prompt is valid in an editable draft.
         p.values["watermark"] = true;
         check(nativeParameterIssues(p, false).empty());
@@ -24,7 +27,7 @@ int main()
         p.values["clipSkip"] = std::int64_t(2);
         p.values["hiresFix"] = true;
         check(nativeParameterIssues(p, false).empty());
-        check(!nativeParameterIssues(p, true).empty()); // Legacy worker is unchanged.
+        check(!nativeParameterIssues(p, true).empty()); // The selected sampler/scheduler are not worker-supported.
         for (const auto *mode : {"nearest", "bilinear", "bicubic", "lanczos"}) {
             p.values["upscaler"] = std::string(mode);
             check(nativeParameterIssues(p, false).empty());
@@ -53,6 +56,13 @@ int main()
         check(!nativeParameterIssues(p, true).empty());
         p.values["denoiseStrength"] = 0.;
         check(!nativeParameterIssues(p, false).empty());
+        p = ImageParameters::defaults();
+        p.values["width"] = std::int64_t(4096);
+        p.values["height"] = std::int64_t(2048);
+        check(nativeParameterIssues(p, false).empty());
+        check(nativeParameterIssues(p, true).empty());
+        p.values["width"] = std::int64_t(4104);
+        check(!validateImageParameters(p).empty());
         p = ImageParameters::defaults();
         check(!validateImageParameters(p, true).empty());
         p.values["prompt"] = std::string("a coastal house");

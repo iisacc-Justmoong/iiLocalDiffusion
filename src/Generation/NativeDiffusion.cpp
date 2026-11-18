@@ -1,6 +1,7 @@
 #include "NativeDiffusion.hpp"
 #include "NativePose.hpp"
 #include "NativeCachePolicy.hpp"
+#include "NativeModelPaths.hpp"
 #include "NativeDiskCache.hpp"
 #include "NativeVaePolicy.hpp"
 #include "NativeTelemetry.hpp"
@@ -9,6 +10,8 @@
 #include "UnifiedModel.hpp"
 #include "NativeEngineAccess.hpp"
 #include "NativeUpscalerInternal.hpp"
+#include "ModelPackaging/ModelInspection.hpp"
+#include "ModelPackaging/ModelPackaging.hpp"
 #include <cmath>
 #include <algorithm>
 #include <memory>
@@ -207,8 +210,37 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         return cancelled || (hiresSelection && hiresSelection->stop.stop_requested())
             || (control && !control->waitUntilRunnable(cancelled, hiresSelection ? hiresSelection->stop : std::stop_token{})) || timedOut();
     };
-    const auto identifyWeight = [residentWeights](const std::filesystem::path &path) {
-        return residentWeights ? native_detail::modelMetadataIdentity(path) : native_detail::modelIdentity(path);
+    std::map<std::filesystem::path,std::pair<std::string,iild::SafetensorsIndex>> shardedModels;
+    const auto identifyWeight = [residentWeights,&shardedModels](const std::filesystem::path &path) {
+        const auto fileIdentity=[residentWeights](const std::filesystem::path &file) {
+            return residentWeights ? native_detail::modelMetadataIdentity(file) : native_detail::modelIdentity(file);
+        };
+        auto identity=fileIdentity(path);
+        // Container signatures take precedence over a misleading filename.
+        // Unknown content with the index suffix must still pass index validation.
+        const auto container=iild::detectModelContainer(path);
+        if (container!="safetensors-index" && !iild::hasSafetensorsIndexSuffix(path.filename().string())) return identity;
+        if (container=="safetensors" || container=="gguf") return identity;
+        const auto combine=[&] {
+            std::string value;
+            const auto append=[&](const std::string &part) {value+=std::to_string(part.size())+':'+part;};
+            append(fileIdentity(path));
+            for (const auto &shard : iild::safetensorsIndexShardPaths(path)) append(fileIdentity(shard));
+            return value;
+        };
+        identity=combine();
+        const auto found=shardedModels.find(path);
+        if (found==shardedModels.end() || found->second.first!=identity || !iild::verifySafetensorsIndex(found->second.second)) {
+            auto inspected=iild::inspectSafetensorsIndex(path);
+            if (combine()!=identity || !iild::verifySafetensorsIndex(inspected))
+                throw std::runtime_error("The local model shards changed during inspection.");
+            shardedModels[path]={identity,std::move(inspected)};
+        }
+        const auto &snapshot=shardedModels.at(path).second;
+        const auto append=[&](const std::string &part) {identity+=std::to_string(part.size())+':'+part;};
+        append(snapshot.identity); append(snapshot.resolvedPath.string());
+        for (const auto &shard : snapshot.shards) {append(shard.identity);append(shard.resolvedPath.string());}
+        return identity;
     };
     try {
 #if IILD_HAS_NATIVE_DIFFUSION
@@ -293,11 +325,10 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             }
         }
         if (cancelled || (hiresSelection && hiresSelection->stop.stop_requested())) { result.cancelled = true; telemetry.finish(result.error.empty() && !result.cancelled, result.cancelled ? "cancelled" : result.error); return result; }
-        if (!request.modelPath.is_absolute() || !std::filesystem::is_regular_file(request.modelPath)
-            || std::filesystem::canonical(request.modelPath) != request.modelPath)
+        if (!native_detail::isCanonicalOrShardIndex(request.modelPath))
             throw std::runtime_error("Choose an available local model file.");
         if (request.prompt.empty() || request.prompt.size() > 128000 || request.prompt.find('\0') != std::string::npos
-            || request.width < 64 || request.height < 64 || request.width > 2048 || request.height > 2048
+            || request.width < 64 || request.height < 64 || request.width > 4096 || request.height > 4096
             || request.width % 8 || request.height % 8 || request.steps < 1 || request.steps > 1000
             || request.timeoutMilliseconds < 1)
             throw std::runtime_error("Invalid native image generation parameters.");
@@ -326,9 +357,8 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             if (components) for (const auto *path : {&components->clipL, &components->clipG, &components->t5xxl, &components->llm, &components->vae}) {
                 identity += '|';
                 if (path->empty()) continue;
-                if (!path->is_absolute() || !std::filesystem::is_regular_file(*path)
-                    || std::filesystem::canonical(*path) != *path)
-                    throw std::runtime_error("Choose canonical local component weight files.");
+                if (!native_detail::isCanonicalOrShardIndex(*path))
+                    throw std::runtime_error("Choose canonical local component files or validated shard indexes.");
                 identity += identifyWeight(*path);
             }
             return identity;
@@ -447,11 +477,15 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             unsigned graphNodes = 0;
             int completedGraphBatches = 0;
             std::string error;
+            std::string capacityWarning;
             std::mutex logMutex;
             bool stop() const { return stopped(); }
             std::string failure(const char *message) {
                 const std::lock_guard lock(logMutex);
-                return error.empty() ? message : std::string(message) + " " + error;
+                auto result = error.empty() ? std::string(message) : std::string(message) + " " + error;
+                if (!capacityWarning.empty())
+                    result += "\nBackend capacity warning (context, not a confirmed cause): " + capacityWarning;
+                return result;
             }
             ~Callbacks() {
                 sd_set_abort_callback(nullptr, nullptr);
@@ -529,6 +563,11 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                 state.telemetry.stage("vae-decode");
                 if (state.progress) state.progress({NativeGenerationStage::Decoding});
             }
+            if (level == SD_LOG_WARN && text &&
+                std::string_view(text).find("model manager cannot make enough memory available") != std::string_view::npos) {
+                const std::lock_guard lock(state.logMutex);
+                state.capacityWarning.assign(text, std::min(std::char_traits<char>::length(text), std::size_t{1024}));
+            }
             // Warnings (including SDXL's built-in VAE scale) are not failures.
             // Keep real backend errors as context, never replace our diagnosis.
             if (level >= SD_LOG_ERROR && text) {
@@ -586,6 +625,13 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             result.q8CacheUsed = true;
             result.diskCacheHit = prepared.hit;
             result.modelBytes = prepared.bytes;
+        } else if (const auto found=shardedModels.find(effectiveModel); found!=shardedModels.end()) {
+            result.modelBytes=found->second.second.sizeBytes;
+            for (const auto &shard : found->second.second.shards) {
+                if (shard.sizeBytes>std::numeric_limits<std::uint64_t>::max()-result.modelBytes)
+                    throw std::runtime_error("The model shard sizes exceed the supported range.");
+                result.modelBytes+=shard.sizeBytes;
+            }
         } else result.modelBytes = std::filesystem::file_size(effectiveModel);
         const auto model = effectiveModel.string();
         const auto effectiveIdentity = effectiveModel == request.modelPath
@@ -597,13 +643,13 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             cache.vaeInfo = info;
             cache.missingVaeFamily = (info.state == SD_VAE_MISSING || info.state == SD_VAE_INCOMPATIBLE)
                 ? info.vae_family : "";
-            cache.inspectedModelIdentity = effectiveIdentity;
             cache.validatedVaeIdentity.clear();
             cache.validatedLlmIdentity.clear();
             cache.embeddedLlm = false;
-            if (std::string_view(info.model_family) == "krea2"
+            if ((std::string_view(info.model_family) == "krea2" || std::string_view(info.model_family) == "anima")
                 && !sd_model_has_embedded_llm(model.c_str(), &cache.embeddedLlm))
                 throw std::runtime_error(callbacks.failure("Cannot inspect the local model's text encoder components."));
+            cache.inspectedModelIdentity = effectiveIdentity;
         }
         // A required decoder remains enabled even when style modifiers are off.
         // Inspect the actual mounted file, including prepared GGUF caches.
@@ -625,19 +671,24 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
                     explicitVae.empty() ? "fallback-validated" : "package-explicit", fallbackVae.path.string().c_str());
         }
         const auto explicitLlm = components ? components->llm : std::filesystem::path{};
+        const std::string_view encoderFamily = cache.vaeInfo.model_family;
+        const bool usesKnownLlm = encoderFamily == "krea2" || encoderFamily == "anima";
         const auto fallbackLlm = !explicitLlm.empty()
             ? native_detail::DefaultLlm{explicitLlm, identifyWeight(explicitLlm)}
-            : std::string_view(cache.vaeInfo.model_family) == "krea2" && !cache.embeddedLlm
-                ? native_detail::loadFallbackLlm(options.resourceDirectory, "krea2") : native_detail::DefaultLlm{};
-        if (!fallbackLlm.path.empty() && std::string_view(cache.vaeInfo.model_family) == "krea2"
-            && cache.validatedLlmIdentity != fallbackLlm.identity) {
-            if (!sd_model_validate_krea2_llm(fallbackLlm.path.string().c_str()))
-                throw std::runtime_error("The selected text encoder does not match the Krea2 Qwen3-VL-4B tensor contract: "
-                    + fallbackLlm.path.string());
+            : usesKnownLlm && !cache.embeddedLlm
+                ? native_detail::loadFallbackLlm(options.resourceDirectory, std::string(encoderFamily)) : native_detail::DefaultLlm{};
+        if (!fallbackLlm.path.empty() && usesKnownLlm && cache.validatedLlmIdentity != fallbackLlm.identity) {
+            const auto path = fallbackLlm.path.string();
+            const bool valid = encoderFamily == "anima" ? sd_model_validate_anima_llm(path.c_str())
+                                                         : sd_model_validate_krea2_llm(path.c_str());
+            if (!valid)
+                throw std::runtime_error("The selected text encoder does not match the "
+                    + std::string(encoderFamily == "anima" ? "Anima Qwen3-0.6B-Base" : "Krea2 Qwen3-VL-4B")
+                    + " tensor contract: " + path);
             cache.validatedLlmIdentity = fallbackLlm.identity;
             if (std::getenv("IILD_NATIVE_DIAGNOSTICS"))
-                std::fprintf(stderr, "iiLocalDiffusion text encoder mount: model=krea2 source=%s path=%s\n",
-                    explicitLlm.empty() ? "fallback-validated" : "explicit", fallbackLlm.path.string().c_str());
+                std::fprintf(stderr, "iiLocalDiffusion text encoder mount: model=%s source=%s path=%s\n",
+                    std::string(encoderFamily).c_str(), explicitLlm.empty() ? "fallback-validated" : "explicit", path.c_str());
         }
         auto modifierIdentity = defaults.identity + fallbackVae.identity + fallbackLlm.identity;
         for (const auto &lora : options.loras) modifierIdentity += ':' + identifyWeight(lora.path);
@@ -1081,6 +1132,8 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
         parameters.vae_tiling_params.enabled = vaePolicy.tiled;
         parameters.vae_tiling_params.tile_size_x = parameters.vae_tiling_params.tile_size_y = vaePolicy.tile;
         parameters.vae_tiling_params.target_overlap = vaePolicy.overlap;
+        if (vaePolicy.tiled && (family == "sdxl-base" || family == "sdxl-refiner"))
+            parameters.vae_tiling_params.extra_tiling_args = "iild_encode_tile_factor=1";
         if (std::getenv("IILD_NATIVE_DIAGNOSTICS"))
             std::fprintf(stderr, "iiLocalDiffusion VAE policy: adaptive-sdxl-v1 family=%s mount=%s tile=%d tiled=%d overlap=%.2f\n",
                 family.c_str(), vaePath.empty() ? "embedded" : "family-fallback", vaePolicy.tile,
@@ -1244,8 +1297,8 @@ static NativeGenerationResult nativeImage(const NativeGenerationRequest &request
             finalModifierIdentity += native_detail::loadFallbackVae(options.resourceDirectory, cache.missingVaeFamily).identity;
         if (!explicitLlm.empty())
             finalModifierIdentity += identifyWeight(explicitLlm);
-        else if (std::string_view(cache.vaeInfo.model_family) == "krea2" && !cache.embeddedLlm)
-            finalModifierIdentity += native_detail::loadFallbackLlm(options.resourceDirectory, "krea2").identity;
+        else if (usesKnownLlm && !cache.embeddedLlm)
+            finalModifierIdentity += native_detail::loadFallbackLlm(options.resourceDirectory, std::string(encoderFamily)).identity;
         for (const auto &lora : options.loras) finalModifierIdentity += ':' + identifyWeight(lora.path);
         if (finalModifierIdentity != modifierIdentity)
             throw std::runtime_error("Generation defaults or LoRA changed during generation. Try again.");

@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "docs/image-parameters.md",
-    "sha256": "816cea66d970b418e38173f336439b242f6727371bce1b6d81e9aa4d2e151bf9",
-    "bytes": 51366,
+    "sha256": "813297da506516c400366739958a49729a00c30cd2bd87b32ace19660d91f389",
+    "bytes": 51566,
     "line_count": 179,
     "encoding": "utf-8",
     "language": "ko"
@@ -194,7 +194,7 @@
       "kind": "paragraph",
       "start_line": 25,
       "end_line": 25,
-      "raw": "`nativeParameterIssues(draft, desktopWorker, poseAvailable=false)` 은 구조적 유효성 검사나 엔진의 구조적 확인을 대체하는 것이 아닌 보수적인 기능 확인입니다. 적용된 포즈 컨트롤은 `poseDetector` 과 `poseModel` 를 요구하며, 호출자는 네이티브 포즈 가용성을 명시적으로 전달합니다. 레거시 워커는 포즈를 지원하지 않습니다. 현재 네이티브 라우트는 2048까지 명시적인 차원, 단계, 시드, 부정적 프롬프트, CFG , 자동/오일러/휴엔 샘플링, VAE 및 LoRAs 를 명시적으로 허용합니다. 데스크톱 워커는 LoRA 하나를 노출하며, 프로세스 내 API 는 여러 개를 허용합니다. 애플리케이션은 추론 후 색상 프로필 변환 및 메타데이터 정책을 구현합니다.\n"
+      "raw": "`nativeParameterIssues(draft, desktopWorker, poseAvailable=false)` 은 구조적 유효성 검사나 엔진의 구조적 확인을 대체하는 것이 아닌 보수적인 기능 확인입니다. 적용된 포즈 컨트롤은 `poseDetector` 과 `poseModel` 를 요구하며, 호출자는 네이티브 포즈 가용성을 명시적으로 전달합니다. 레거시 워커는 포즈를 지원하지 않습니다. 현재 네이티브 라우트는 축당 4096까지 명시적인 차원, 단계, 시드, 부정적 프롬프트, CFG , 자동/오일러/휴엔 샘플링, VAE 및 LoRAs 를 명시적으로 허용합니다. `hiresFix`는 기본 활성화이며 명시적인 false를 존중합니다. 데스크톱 워커는 보간 업스케일러와 강도를 전달하고 학습 기반 `4x-ultra`는 거부합니다. 데스크톱 워커는 LoRA 하나를 노출하며, 프로세스 내 API 는 여러 개를 허용합니다. 애플리케이션은 추론 후 색상 프로필 변환 및 메타데이터 정책을 구현합니다.\n"
     },
     {
       "id": "b000020",

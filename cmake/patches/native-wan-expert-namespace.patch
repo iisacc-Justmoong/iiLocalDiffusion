@@ -1,0 +1,89 @@
+--- a/src/model_loader.cpp
++++ b/src/model_loader.cpp
+@@ -22,6 +22,7 @@
+ #include "model_io/torch_legacy_io.h"
+ #include "model_io/torch_zip_io.h"
+ #include "model_loader.h"
++#include "ModelPackaging/ModelWanNames.hpp"
+ #include "runtime/imatrix.h"
+ #include "stable-diffusion.h"
+ 
+@@ -174,6 +175,65 @@
+ }
+ 
+ bool ModelLoader::init_from_file(const std::string& file_path, const std::string& prefix) {
++    // A standalone Diffusers Wan model is mounted once in its original
++    // namespace and once as diffusion metadata. Other models keep the upstream
++    // loader path; only a recognized signature triggers the second inspection.
++    if (prefix == "model.diffusion_model.") {
++        iild::detail::WanDiffusersSignature loaded_signature;
++        for (const auto source_prefix : loaded_signature.prefixes) {
++            for (const auto marker : loaded_signature.markers) {
++                const std::string name = std::string(source_prefix) + std::string(marker);
++                if (tensor_storage_map.find(name) != tensor_storage_map.end()) loaded_signature.add(name);
++            }
++        }
++        if (loaded_signature.prefix()) {
++            ModelLoader candidate;
++            if (!candidate.init_from_file(file_path)) return false;
++            iild::detail::WanDiffusersSignature signature;
++            for (const auto& item : candidate.tensor_storage_map) signature.add(item.first);
++            if (const auto source_prefix = signature.prefix()) {
++                return append_metadata(candidate, [&](const std::string& original) {
++                    const auto mapped = iild::detail::wanDiffusersTensorName(original, *source_prefix);
++                    if (!mapped) return std::string{};
++                    const auto target = prefix + *mapped;
++                    // Already-canonical names from this same load need no copy.
++                    if (target == original && tensor_storage_map.find(target) != tensor_storage_map.end())
++                        return std::string{};
++                    return target;
++                });
++            }
++        }
++    }
++    // Wan experts may use bare, prefixed, or Diffusers tensor names.
++    // Mount metadata only: source bytes and auxiliary components stay intact.
++    if (prefix == "model.high_noise_diffusion_model.") {
++        ModelLoader expert;
++        if (!expert.init_from_file(file_path)) return false;
++        iild::detail::WanDiffusersSignature signature;
++        for (const auto& item : expert.tensor_storage_map) signature.add(item.first);
++        const auto diffusers_prefix = signature.prefix();
++        return append_metadata(expert, [&](const std::string& original) {
++            if (diffusers_prefix) {
++                if (const auto mapped = iild::detail::wanDiffusersTensorName(original, *diffusers_prefix))
++                    return prefix + *mapped;
++            }
++            if (starts_with(original, prefix)) return original;
++            for (const auto* auxiliary : {"text_encoders.", "text_encoder.", "text_encoder_2.",
++                                          "cond_stage_model.", "conditioner.", "clip_l.", "clip_g.",
++                                          "clip_vision.", "first_stage_model.", "vae.", "audio_vae.",
++                                          "vocoder.", "encoder.", "decoder.", "__iild_assets__/", "components/"}) {
++                if (starts_with(original, auxiliary)) return std::string{};
++            }
++            std::string name = original;
++            for (const auto* source_prefix : {"model.diffusion_model.", "diffusion_model.", "transformer."}) {
++                if (starts_with(name, source_prefix)) {
++                    name.erase(0, std::string(source_prefix).size());
++                    break;
++                }
++            }
++            return name.empty() ? std::string{} : prefix + name;
++        });
++    }
+     if (is_directory(file_path)) {
+         LOG_INFO("load %s using diffusers format", file_path.c_str());
+         return init_from_diffusers_file(file_path, prefix);
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -809,6 +809,10 @@
+         if (strlen(SAFE_STR(sd_ctx_params->diffusion_model_path)) > 0) {
+             LOG_INFO("loading diffusion model from '%s'", sd_ctx_params->diffusion_model_path);
+             if (!model_loader.init_from_file(sd_ctx_params->diffusion_model_path, "model.diffusion_model.")) {
++                if (std::string(SAFE_STR(sd_ctx_params->model_path)) == sd_ctx_params->diffusion_model_path) {
++                    LOG_ERROR("failed to mount the requested diffusion model: '%s'", sd_ctx_params->diffusion_model_path);
++                    return false;
++                }
+                 LOG_WARN("loading diffusion model from '%s' failed", sd_ctx_params->diffusion_model_path);
+             }
+         }

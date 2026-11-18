@@ -3,6 +3,7 @@
 import resource_fixture
 
 import json
+import struct
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -106,6 +107,42 @@ class LocalImageTests(unittest.TestCase):
         redirected.symlink_to(workspace, target_is_directory=True)
         with self.assertRaisesRegex(ValueError, "redirected"):
             local_image.prepare_work_directory(self.args("--work-dir", str(redirected)))
+
+    def test_stage_models_selects_actual_container_and_preserves_sources(self):
+        header = json.dumps({'weight': {'dtype': 'F32', 'shape': [1], 'data_offsets': [0, 4]}}).encode()
+        safe = struct.pack('<Q', len(header)) + header + bytes(4)
+        self.model = self.directory / 'safe.gguf'
+        self.model.write_bytes(safe)
+        self.inspection.update(available_components=['denoiser', 'vae', 'text_encoder'], format='safetensors')
+        request = self.resolve()
+        self.assertEqual(request['model_type'], 'checkpoint')
+        stage = self.directory / 'safe-stage'
+        staged, identities = local_image.stage_models(request, stage)
+        self.assertEqual(staged['model'], 'model.safetensors')
+        local_image.verify_identities(identities)
+        self.assertEqual(self.model.read_bytes(), safe)
+
+        self.model = self.directory / 'quantized.bin'
+        self.model.write_bytes(b'GGUF' + bytes(16))
+        self.inspection.update(available_components=[], format='gguf')
+        component = self.directory / 'component.safetensors'
+        component.write_bytes(safe)
+        request = self.resolve('--vae', str(component), '--text-encoder', str(component))
+        self.assertEqual(request['model_type'], 'diffusion_model')
+        staged, identities = local_image.stage_models(request, self.directory / 'gguf-stage')
+        self.assertEqual(staged['model'], 'model.gguf')
+        local_image.verify_identities(identities)
+
+        self.model = self.directory / 'legacy.safetensors'
+        self.model.write_bytes(b'PK\x03\x04' + bytes(16))
+        converted = self.directory / 'converted.safetensors'
+        converted.write_bytes(safe)
+        self.inspection.update(available_components=['denoiser', 'vae', 'text_encoder'], format='pytorch')
+        request = self.resolve()
+        with patch('checkpoint_conversion.materialize_safetensors', return_value={'converted_path': str(converted)}) as convert:
+            staged, _ = local_image.stage_models(request, self.directory / 'legacy-stage')
+        self.assertEqual(staged['model'], 'model.safetensors')
+        self.assertEqual(convert.call_args.args[0], self.model)
 
     def test_retargeted_model_symlink_cannot_reuse_original_provenance(self):
         staged, identities = local_image.stage_models(self.resolve(), self.directory)

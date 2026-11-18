@@ -1,0 +1,25 @@
+--- a/src/model/vae/vae.hpp
++++ b/src/model/vae/vae.hpp
+@@ -229,8 +229,20 @@
+             // Image VAE encode is more sensitive to tile boundary context than decode.
+             // Keep the smaller legacy factor for video VAEs, but default image encode
+             // tiles to 64 latent pixels so a 512px SD image is encoded as one tile.
+-            const float encode_tile_factor = sd_version_is_minimax_h3(version) ? 1.f : (sd_version_is_wan(version) || sd_version_is_hunyuan_video(version) || sd_version_is_ltxav(version)) ? 1.30539f
+-                                                                                                                                                                                            : 2.0f;
++            float encode_tile_factor = sd_version_is_minimax_h3(version) ? 1.f : (sd_version_is_wan(version) || sd_version_is_hunyuan_video(version) || sd_version_is_ltxav(version)) ? 1.30539f
++                                                                                                                                                                                      : 2.0f;
++            // iiLocalDiffusion budgets an SDXL tile's workspace by its latent
++            // dimensions. Encoding at twice those dimensions uses four times
++            // the area, defeating that budget during Hires re-encoding. Limit
++            // only opted-in SDXL image requests; other callers and video models
++            // retain their existing encode/decode tile relationship.
++            if (sd_version_is_sdxl(version)) {
++                for (const auto& [key, value] : parse_key_value_args(tiling_params.extra_tiling_args, "VAE image tiling arg")) {
++                    if (key == "iild_encode_tile_factor" && value == "1") {
++                        encode_tile_factor = 1.f;
++                    }
++                }
++            }
+             get_tile_sizes(tile_size_x, tile_size_y, tile_overlap, tiling_params, W, H, encode_tile_factor);
+             LOG_VERBOSE("VAE Tile size: %dx%d", tile_size_x, tile_size_y);
+             output = tiled_compute(input,

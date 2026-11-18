@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
+from contextlib import contextmanager
 from pathlib import Path
 import re
 import warnings
@@ -11,6 +13,83 @@ from streamed_linear import streamed_linear_type
 
 FUSED_QKV = re.compile(r'layers\.[0-9]+\.proj\.qkv\.weight\Z')
 ATTENTION_CONFIG = re.compile(r'layers\.[0-9]+\.comfy_attention\.config\Z')
+
+
+class _IndexedSlice:
+    def __init__(self, tensor):
+        self._tensor = tensor
+
+    def get_shape(self):
+        return self._tensor['shape']
+
+    def get_dtype(self):
+        return self._tensor['dtype']
+
+
+class _IndexedSource:
+    """Present validated shard metadata through the safetensors reader interface."""
+    def __init__(self, report, paths, opener):
+        self._metadata = report['metadata']
+        self._tensors = {item['name']: item for item in report['tensors']}
+        self._paths = paths
+        self._opener = opener
+        self._open = OrderedDict()
+
+    def keys(self):
+        return self._tensors.keys()
+
+    def metadata(self):
+        return self._metadata
+
+    def get_slice(self, name):
+        return _IndexedSlice(self._tensors[name])
+
+    def get_tensor(self, name):
+        shard = self._tensors[name]['shard']
+        if shard not in self._open:
+            # Bound open descriptors even for models with thousands of shards.
+            if len(self._open) == 8:
+                _, (manager, _) = self._open.popitem(last=False)
+                manager.__exit__(None, None, None)
+            manager = self._opener(str(self._paths[shard]), framework='pt', device='cpu')
+            reader = manager.__enter__()
+            self._open[shard] = manager, reader
+        self._open.move_to_end(shard)
+        return self._open[shard][1].get_tensor(name)
+
+    def close(self):
+        while self._open:
+            _, (manager, _) = self._open.popitem(last=False)
+            manager.__exit__(None, None, None)
+
+
+@contextmanager
+def open_checkpoint(checkpoint):
+    """Open a single model or validated indexed shards without combining files."""
+    from safetensors import safe_open
+    from downloaded_model import model_container_format
+    if model_container_format(checkpoint) != 'safetensors-index':
+        with safe_open(str(checkpoint), framework='pt', device='cpu') as source:
+            yield source
+        return
+
+    from image_package import inspect_sharded_index
+    from native_image import native_weight
+    from weight_files import verify_weight_file
+    weight = native_weight(str(checkpoint), 'MOSS transformer')
+    report = inspect_sharded_index(checkpoint)
+    verify_weight_file(weight, 'MOSS transformer')
+    paths = [Path(item.path) for item in weight.shards]
+    if (len(paths) != len(report['shards'])
+            or any(str(path.resolve()) != item['resolved_path']
+                   for path, item in zip(paths, report['shards']))):
+        raise RuntimeError('The MOSS transformer shard inventory changed during inspection.')
+    source = _IndexedSource(report, paths, safe_open)
+    try:
+        yield source
+    finally:
+        source.close()
+    verify_weight_file(weight, 'MOSS transformer')
 
 
 def merge_history_diagnostics(metadata):
@@ -131,7 +210,6 @@ def quantized_plan(header, expected, metadata):
 def load(checkpoint, configuration, dtype, *, storage='dense', progress=None):
     """Read strict floating and Comfy INT8 ConvRot weights into the pinned transformer."""
     import torch
-    from safetensors import safe_open
     from model_loading import require_materialized_component
     from vendor_moss.pipeline import MOSSImageTransformer
 
@@ -149,7 +227,7 @@ def load(checkpoint, configuration, dtype, *, storage='dense', progress=None):
         model = MOSSImageTransformer.from_config(config)
     model.requires_grad_(False)
     expected = {name: tuple(value.shape) for name, value in model.state_dict().items()}
-    with safe_open(str(checkpoint), framework='pt', device='cpu') as source:
+    with open_checkpoint(checkpoint) as source:
         merge_provenance = merge_history_diagnostics(source.metadata())
         if merge_provenance:
             warnings.warn(f"MOSS checkpoint records {merge_provenance['synthetic_lora_targets']} synthetic LoRA "

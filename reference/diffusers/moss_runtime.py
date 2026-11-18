@@ -55,7 +55,8 @@ def load_scheduler(folder):
 
 
 def load(folder: Path, dtype, vae_selection, diffusers, *, transformer_file=None, text_encoder_file=None,
-         tokenizer_selection=None, text_config_selection=None, transformer_storage='dense', progress=None):
+         tokenizer_selection=None, text_config_selection=None, transformer_storage='dense', progress=None,
+         variant=None, vae_cache_dir=None):
     import torch
     from transformers import AutoModel, AutoTokenizer
     from vae_defaults import verify_vae_selection
@@ -63,6 +64,18 @@ def load(folder: Path, dtype, vae_selection, diffusers, *, transformer_file=None
 
     if transformer_file is None and transformer_storage != 'dense':
         raise ValueError('MOSS transformer cpu-stream storage requires a single-file checkpoint.')
+    from directory_checkpoint_conversion import safe_component_variant
+    selected = {
+        'transformer': (safe_component_variant(folder, 'transformer', 'diffusers', variant)
+                        if transformer_file is None else None),
+        'text_encoder': (safe_component_variant(folder, 'text_encoder', 'transformers', variant)
+                         if text_encoder_file is None else None),
+        'vae': safe_component_variant(folder, 'vae', 'diffusers', variant) if vae_selection is None else None,
+    }
+    if variant is not None and not any(selected.values()):
+        raise ValueError(f'No active MOSS component provides variant {variant!r}.')
+    def variant_option(name):
+        return {'variant': selected[name]} if selected[name] is not None else {}
     scheduler = load_scheduler(folder)
     common = {"local_files_only": True, "trust_remote_code": False}
     if transformer_file is not None:
@@ -71,7 +84,7 @@ def load(folder: Path, dtype, vae_selection, diffusers, *, transformer_file=None
                                        storage=transformer_storage, progress=progress)
     else:
         transformer = strict_load(MOSSImageTransformer, folder / "transformer", "transformer", dtype=dtype,
-                                  local_files_only=True, use_safetensors=True)
+                                  local_files_only=True, use_safetensors=True, **variant_option('transformer'))
     if tokenizer_selection is not None:
         from moss_tokenizer import load as load_tokenizer
         tokenizer = load_tokenizer(tokenizer_selection)
@@ -85,13 +98,17 @@ def load(folder: Path, dtype, vae_selection, diffusers, *, transformer_file=None
         verify_config(text_config_selection)
     else:
         text_encoder = strict_load(AutoModel, folder / "text_encoder", "text encoder", dtype=dtype,
-                                   use_safetensors=True, **common)
+                                   use_safetensors=True, **common, **variant_option('text_encoder'))
         if type(text_encoder).__name__ != "Qwen3_5Model":
             raise ValueError("MOSS requires the Qwen3_5Model text encoder declared by its package.")
     if vae_selection:
         verify_vae_selection(vae_selection)
-    vae = strict_load(diffusers.AutoencoderKLFlux2, vae_selection.directory if vae_selection else folder / "vae",
-                      "vae", dtype=torch.float32, local_files_only=True, use_safetensors=True)
+    if vae_selection and getattr(vae_selection, 'source_kind', None) == 'file':
+        from vae_defaults import load_selected_vae
+        vae = load_selected_vae(vae_selection, diffusers, torch.float32, cache_dir=vae_cache_dir).eval()
+    else:
+        vae = strict_load(diffusers.AutoencoderKLFlux2, vae_selection.directory if vae_selection else folder / "vae",
+                          "vae", dtype=torch.float32, local_files_only=True, use_safetensors=True, **variant_option('vae'))
     if vae_selection:
         verify_vae_selection(vae_selection)
     if (tuple(vae.config.patch_size) != (2, 2) or
