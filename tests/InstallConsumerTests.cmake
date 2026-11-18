@@ -158,13 +158,28 @@ if(MLX_BACKEND STREQUAL "metal" AND NOT EXISTS "${stage_directory}/lib/mlx.metal
     message(FATAL_ERROR "The installed Metal runtime is missing mlx.metallib")
 endif()
 
-foreach(document IN ITEMS README.md docs/krea2.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md
+foreach(document IN ITEMS README.md LICENSE NOTICE docs/License.md docs/krea2.md docs/installation.md docs/hires-fix.md docs/generation-parameters.md
         docs/generation-io-native.md docs/generation-composition.md docs/deforum-video.md docs/interpolator-video.md
         docs/temporal-video.md docs/inference-worker.md docs/model-conversion.md docs/model-merging.md docs/generation-defaults.md docs/lora.md)
     if(NOT EXISTS "${stage_directory}/${DOC_DIRECTORY}/${document}")
         message(FATAL_ERROR "The installed package is missing documentation: ${document}")
     endif()
 endforeach()
+file(READ "${stage_directory}/${DOC_DIRECTORY}/LICENSE" installed_license)
+if(NOT installed_license MATCHES "Apache License" OR NOT installed_license MATCHES "Version 2\\.0, January 2004")
+    message(FATAL_ERROR "The installed LICENSE is not the Apache License, Version 2.0")
+endif()
+if(installed_license MATCHES "Permission is hereby granted")
+    message(FATAL_ERROR "The installed LICENSE still contains the MIT grant")
+endif()
+file(READ "${stage_directory}/${DOC_DIRECTORY}/NOTICE" installed_notice)
+if(NOT installed_notice MATCHES "Copyright \\(c\\) 2026 iisacc")
+    message(FATAL_ERROR "The installed NOTICE is missing Copyright (c) 2026 iisacc")
+endif()
+file(READ "${stage_directory}/${LIB_DIRECTORY}/cmake/iiLocalDiffusion/iiLocalDiffusionConfig.cmake" installed_package_config)
+if(NOT installed_package_config MATCHES "set\\(iiLocalDiffusion_SPDX_LICENSE \"Apache-2.0\"\\)")
+    message(FATAL_ERROR "The installed package config does not export iiLocalDiffusion_SPDX_LICENSE=Apache-2.0")
+endif()
 
 if(BUILD_TOOLS)
     execute_process(

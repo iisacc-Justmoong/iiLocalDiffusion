@@ -518,17 +518,22 @@ non-goals are recorded in:
 
 ## License
 
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: Apache-2.0
 
-The original code and documentation in iiLocalDiffusion are distributed under
-the MIT License. See [LICENSE](LICENSE)
-for the full license text.
+The iiLocalDiffusion tree in this repository is licensed under the
+[Apache License, Version 2.0](LICENSE) (SPDX `Apache-2.0`).
+The copyright notice is `Copyright (c) 2026 iisacc`. Attribution for this
+distribution is in [NOTICE](NOTICE). The Korean statement of the same policy
+is [docs/License.md](docs/License.md).
 
-Third-party code, libraries, tools, and model weights retain their respective
-licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency
-notices. The SD 1.5 reference uses CreativeML OpenRAIL-M, SDXL Base 1.0 uses
-CreativeML Open RAIL++-M, and FLUX.1-schnell uses Apache-2.0; no model weights
-are stored in this repository.
+iisacc products under Product are licensed under the GNU Affero General
+Public License (AGPL).
+
+Third-party and vendored code, libraries, tools, and model weights
+keep their original licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+for dependency notices. The SD 1.5 reference uses CreativeML OpenRAIL-M,
+SDXL Base 1.0 uses CreativeML Open RAIL++-M, and FLUX.1-schnell uses
+Apache-2.0; no model weights are stored in this repository.
 
 Native progress now distinguishes weight loading, denoising and image decoding. The pinned backend patch and cooperative cancellation/deadline contract are described in [native-image-generation.md](docs/native-image-generation.md).
 

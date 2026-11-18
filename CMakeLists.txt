@@ -6,6 +6,7 @@ project(
     DESCRIPTION "A local generative-model pipeline runtime"
     LANGUAGES CXX
 )
+set(iiLocalDiffusion_SPDX_LICENSE "Apache-2.0")
 # File creation is owned by iiFileProvider.
 find_package(iiFileProviderNative 0.8.2 CONFIG REQUIRED HINTS "$ENV{IIFILEPROVIDER_PREFIX}" "$ENV{HOME}/.local/SDK/iiFileProvider")
 link_libraries(iiFileProvider::Native)
@@ -707,6 +708,13 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
         set_tests_properties(ReferenceScriptsTests PROPERTIES
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
         )
+        add_test(
+            NAME LicenseTests
+            COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/LicenseTests.py"
+        )
+        set_tests_properties(LicenseTests PROPERTIES
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
+        )
 
         add_test(
             NAME ModelLoadingTests
@@ -876,7 +884,7 @@ install(FILES src/ModelPackaging/ModelPackaging.hpp src/ModelPackaging/ModelInsp
 install(FILES src/ModelPackaging/python/iild_model_packaging.py
     DESTINATION ${CMAKE_INSTALL_DATADIR}/iiLocalDiffusion/python COMPONENT ModelPackaging)
 
-install(FILES README.md THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime)
+install(FILES LICENSE NOTICE README.md THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime)
 install(DIRECTORY docs DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT Runtime FILES_MATCHING PATTERN "*.md" PATTERN "*.json")
 install(FILES docs/licenses/DWPose.txt docs/licenses/SwinIR-Apache-2.0.txt docs/licenses/Real-ESRGAN-BSD-3-Clause.txt docs/licenses/Dawn-BSD-3-Clause.txt
     DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/licenses COMPONENT Runtime)
