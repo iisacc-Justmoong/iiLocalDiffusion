@@ -518,10 +518,10 @@ non-goals are recorded in:
 
 ## License
 
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: Apache-2.0
 
 The original code and documentation in iiLocalDiffusion are distributed under
-the MIT License. See [LICENSE](LICENSE)
+the Apache License 2.0. See [LICENSE](LICENSE)
 for the full license text.
 
 Third-party code, libraries, tools, and model weights retain their respective

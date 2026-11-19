@@ -10,8 +10,8 @@
   },
   "source": {
     "path": "README.md",
-    "sha256": "2ab25797e350923f5d1d79275ea241a65f2bf9d32228024b431ca8143be77d8a",
-    "bytes": 30792,
+    "sha256": "445127445243a6ad4e0c2cd75e2a9705a6e989f02a1df07713a76421e346a0ce",
+    "bytes": 30806,
     "line_count": 559,
     "encoding": "utf-8",
     "language": "ko"
@@ -1434,7 +1434,7 @@
       "kind": "paragraph",
       "start_line": 521,
       "end_line": 521,
-      "raw": "SPDX-License-Identifier: MIT\n"
+      "raw": "SPDX-License-Identifier: Apache-2.0\n"
     },
     {
       "id": "b000180",
@@ -1448,7 +1448,7 @@
       "kind": "paragraph",
       "start_line": 523,
       "end_line": 525,
-      "raw": "The original code and documentation in iiLocalDiffusion are distributed under\nthe MIT License. See [LICENSE](LICENSE)\nfor the full license text.\n"
+      "raw": "The original code and documentation in iiLocalDiffusion are distributed under\nthe Apache License 2.0. See [LICENSE](LICENSE)\nfor the full license text.\n"
     },
     {
       "id": "b000182",
